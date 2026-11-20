@@ -244,7 +244,7 @@ export function createWorkspaceExpose(
         handleGoToPage: owners.handleGoToPage,
         handleToggleSidebar: () => { view.showSidebar.value = !view.showSidebar.value; },
         handleOpenSearch: () => { search.openSearch(); },
-        handleEnableDragMode: () => { navigation.enableDragMode(); },
+        handleEnableDragMode: () => { void viewContext.annotationToolState.handleAnnotationToolChange('none', {dragMode: true}); },
         handleDisableDragMode: () => { void viewContext.annotationToolState.handleAnnotationToolChange('none'); },
         handleQuickNote: () => { if (!document.isMoving.value) void viewContext.annotationActions.handleQuickNoteAction(); },
         handleInsertImageFromFile: async () => { if (!document.isMoving.value) await owners.handleInsertImageFromFile(); },

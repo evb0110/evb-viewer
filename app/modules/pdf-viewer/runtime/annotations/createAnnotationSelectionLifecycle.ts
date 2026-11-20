@@ -21,8 +21,9 @@ export interface IAnnotationSelectionCreationRequest {
 
 interface ICreateAnnotationSelectionLifecycleOptions {
     getActiveTool: () => TAnnotationTool;
+    // Live until the commit: an explicit command that joins replaces its intent.
     create: (
-        request: IAnnotationSelectionCreationRequest,
+        request: IAnnotationSelectionCreationRequest & {range: Range},
         isRequestCurrent: () => boolean,
     ) => Promise<TAnnotationCreationOutcome>;
     consumeSelection: (selection: IAnnotationTextSelectionSnapshot) => void;
@@ -31,13 +32,16 @@ interface ICreateAnnotationSelectionLifecycleOptions {
 /**
  * Serializes creation for one selection and tool epoch while allowing a newer
  * selection or reactivation to proceed. A second caller for the same request
- * receives the first promise, which keeps tool activation and an explicit
- * context-menu command from creating the same markup twice.
+ * receives the first promise, whichever of tool activation and an explicit
+ * context-menu command came first, so the two create the markup once.
  */
 export const createAnnotationSelectionLifecycle = (
     options: ICreateAnnotationSelectionLifecycleOptions,
 ) => {
-    const pending = new Map<string, Promise<TAnnotationCreationOutcome>>();
+    const pending = new Map<string, {
+        request: IAnnotationSelectionCreationRequest & {range: Range};
+        outcome: Promise<TAnnotationCreationOutcome>;
+    }>();
     let toolEpoch = 0;
 
     function requestKey(request: IAnnotationSelectionCreationRequest, toolEpoch: number) {
@@ -52,37 +56,51 @@ export const createAnnotationSelectionLifecycle = (
     function requestCreation(request: IAnnotationSelectionCreationRequest) {
         const requestEpoch = toolEpoch;
         const key = requestKey(request, requestEpoch);
-        const existing = pending.get(key);
+        const existing = pending.get(key) ?? pending.get(requestKey({
+            ...request,
+            requireActiveTool: !request.requireActiveTool,
+        }, requestEpoch));
+        if (existing?.request.requireActiveTool && !request.requireActiveTool) {
+            // An explicit command takes over the activation it joins; under its
+            // key no tool change cancels it and later requests still join it.
+            pending.delete(requestKey(existing.request, requestEpoch));
+            pending.set(key, existing);
+            Object.assign(existing.request, request);
+        }
         if (existing) {
-            return existing;
+            return existing.outcome;
         }
 
-        const isRequestCurrent = () => !request.requireActiveTool
+        const live = {
+            ...request,
+            range: request.selection.range,
+        };
+        const isRequestCurrent = () => !live.requireActiveTool
             || (options.getActiveTool() === request.tool && requestEpoch === toolEpoch);
-        const promise = (async () => {
+        const outcome = (async () => {
             if (!isRequestCurrent()) {
                 return {status: 'cancelled'} as const;
             }
-            const outcome = await options.create(request, isRequestCurrent);
+            const result = await options.create(live, isRequestCurrent);
             // `create` checks the request before the canonical transaction.
             // It may then auto-reset the tool synchronously, so checking the
             // live tool again here would leave the successful selection in
             // the cache whenever Keep active is disabled.
-            if (outcome.status === 'created') {
-                options.consumeSelection(request.selection);
+            if (result.status === 'created') {
+                options.consumeSelection(live.selection);
             }
-            return outcome;
+            return result;
         })();
-        pending.set(key, promise);
-        promise.then(
-            () => {
-                if (pending.get(key) === promise) pending.delete(key);
-            },
-            () => {
-                if (pending.get(key) === promise) pending.delete(key);
-            },
-        );
-        return promise;
+        pending.set(key, {
+            request: live,
+            outcome,
+        });
+        const forget = () => {
+            const current = requestKey(live, requestEpoch);
+            if (pending.get(current)?.outcome === outcome) pending.delete(current);
+        };
+        outcome.then(forget, forget);
+        return outcome;
     }
 
     function invalidateActiveRequests() {

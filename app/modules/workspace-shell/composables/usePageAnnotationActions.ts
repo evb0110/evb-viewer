@@ -49,7 +49,7 @@ interface IPageAnnotationActionsDeps {
         pageX: number | null;
         pageY: number | null;
     }) => void;
-    handleAnnotationToolChange: (tool: TAnnotationTool) => boolean | Promise<boolean>;
+    handleAnnotationToolChange: (tool: TAnnotationTool, interaction?: {sidebarTab?: WorkspaceOrchestration.TPdfSidebarTab}) => boolean | Promise<boolean>;
     openAnnotationNoteWindow: (comment: IAnnotationCommentSummary) => void;
     setAnnotationNoteWindowError: (annotationId: string, error: string | null) => void;
     invalidateThumbnailPages?: (pages: number[]) => void;
@@ -95,33 +95,15 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         await pdfViewerRef.value.commentSelection();
     }
 
+    // Quick Note leaves the sidebar as it was.
     async function handleQuickNoteAction() {
-        const viewer = pdfViewerRef.value;
-        if (!viewer) {
-            return;
-        }
-
-        const previousSidebarVisibility = showSidebar.value;
-        const previousSidebarTab = sidebarTab.value;
-        try {
-            return await handleAnnotationToolChange(deps.annotationTool.value === 'note' ? 'select' : 'note');
-        } finally {
-            await nextTick();
-            showSidebar.value = previousSidebarVisibility;
-            sidebarTab.value = previousSidebarTab;
-        }
+        return pdfViewerRef.value ? await handleAnnotationToolChange(deps.annotationTool.value === 'note' ? 'select' : 'note') : undefined;
     }
 
     async function handleAnnotationFocusComment(comment: IAnnotationCommentSummary) {
-        if (!pdfViewerRef.value) {
-            return;
-        }
-        if (await handleAnnotationToolChange('select') === false) return;
+        if (!pdfViewerRef.value || await handleAnnotationToolChange('select', {sidebarTab: 'annotations'}) === false) return;
         annotationActiveCommentStableKey.value = annotationIdForSummary(comment);
-        showSidebar.value = true;
-        sidebarTab.value = 'annotations';
-        dragMode.value = false;
-        await pdfViewerRef.value.focusAnnotationComment(comment);
+        await pdfViewerRef.value?.focusAnnotationComment(comment);
     }
 
     function handleAnnotationCommentClick(comment: IAnnotationCommentSummary) {
@@ -513,14 +495,10 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         );
     }
 
+    // The markup is made with the tool asked for, not the one the viewer was last told.
     async function createContextMenuMarkup(tool: TAnnotationTool) {
-        if (!pdfViewerRef.value) {
-            closeAnnotationContextMenu();
-            return;
-        }
-        if (await handleAnnotationToolChange(tool) === false) return;
-        await nextTick();
-        await pdfViewerRef.value.highlightSelection();
+        if (pdfViewerRef.value && await handleAnnotationToolChange(tool) === false) return;
+        await pdfViewerRef.value?.highlightSelection(tool);
         closeAnnotationContextMenu();
     }
 

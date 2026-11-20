@@ -261,6 +261,8 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
     const annotationToolState = useViewAnnotationTool({
         pdfViewerRef,
         dragMode: view.dragMode,
+        showSidebar: view.showSidebar,
+        sidebarTab: view.sidebarTab,
         annotationKeepActive: annotations.annotationKeepActive,
         closeAnnotationContextMenu: annotationContextMenu.closeAnnotationContextMenu,
     });
@@ -268,14 +270,7 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         annotationTool,
         handleAnnotationToolChange,
     } = annotationToolState;
-    // Drag mode leaves this view's tool and text selection; hiding its
-    // bookmarks ends the document's bookmark editing.
-    watch(view.dragMode, (enabled) => {
-        if (enabled) {
-            window.getSelection()?.removeAllRanges();
-            annotationTool.value = 'none';
-        }
-    });
+    // Hiding this view's bookmarks ends the document's bookmark editing.
     watch(() => view.showSidebar.value && view.sidebarTab.value === 'bookmarks', (showsBookmarks) => {
         if (!showsBookmarks) {
             metadata.bookmarkState.bookmarkEditMode.value = false;

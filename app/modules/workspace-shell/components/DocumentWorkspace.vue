@@ -47,7 +47,7 @@
                 @fit-width="runToolbarAction(workspaceExpose.handleFitWidth)"
                 @fit-height="runToolbarAction(workspaceExpose.handleFitHeight)"
                 @toggle-continuous-scroll="runToolbarAction(workspaceExpose.handleToggleContinuousScroll)"
-                @enable-drag="runToolbarAction(navigation.enableDragMode)"
+                @enable-drag="runToolbarAction(workspaceExpose.handleEnableDragMode)"
                 @disable-drag="runToolbarAction(workspaceExpose.handleDisableDragMode)"
                 @capture-region="runToolbarAction(handleCaptureRegion)"
                 @crop="runToolbarAction(handleCropAction)"
