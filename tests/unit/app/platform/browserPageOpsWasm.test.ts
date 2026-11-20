@@ -774,6 +774,24 @@ describe('browser page-ops WASM fast path', () => {
         expect(texts.sort()).toEqual(mutations.freeTextNotes!.map(note => note.text).sort());
     });
 
+    it('saves a change that writes no object as the unchanged document', async () => {
+        const input = await createPdf({pageWidths: [200]});
+        const wasm = await loadWasmRunner();
+        const result = await wasm.append(input, {
+            mutations: normalizePdfNativeMutationSet({shapes: {
+                totalPages: 1,
+                rewriteShapeState: false,
+                shapes: [],
+                deletedAnnotationIds: [],
+                deletedStableKeys: [],
+            }}, 'Browser no-op save'),
+            modifiedAt: 'D:20261120000000Z',
+        });
+        if ('status' in result) throw new Error(`Expected a no-op save: ${JSON.stringify(result)}`);
+        expect(result.data).toEqual(input);
+        expect(result.identityBindings).toEqual([]);
+    });
+
     it('keeps one exact live request allocation across repeated awkward lengths', async () => {
         const wasmBytes = await readFile(join(process.cwd(), 'public/wasm/evb-pdf-page-ops.wasm'));
         const module = new NativeWebAssembly.Module(toArrayBuffer(wasmBytes));

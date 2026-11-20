@@ -263,7 +263,7 @@ export interface IWorkspaceSaveDependencies {
             runSaveTransaction: IPdfViewerSaveExpose['runSaveTransaction'];
             getAnnotationDirtyEntityCount?: (() => number) | undefined
         } | null>>;
-        commitEditorsForSave?: () => Promise<void>;
+        commitEditorsForSave?: (options?: {joinRead?: true}) => Promise<void>;
         runSaveTransaction: IPdfViewerSaveExpose['runSaveTransaction'];
         getSourceData: () => Promise<Uint8Array | null>;
     };
@@ -520,6 +520,8 @@ export function createPageMutationWriterSave(deps: {
 }) {
     return async function saveAnnotationsForPageMutation() {
         const saveDeps = deps.save;
+        // A rotation's pending read moves dirty geometry into the rotated page frame first.
+        await saveDeps.pdf.commitEditorsForSave?.({joinRead: true});
         if (!await saveDeps.annotations.persistOpenNotes()) {
             return false;
         }

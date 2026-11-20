@@ -29,6 +29,7 @@ import type {AnnotationEntity} from '@app/modules/pdf-viewer/engine/annotations/
 import {compareAnnotationCommentSummaries} from '@app/utils/pdfAnnotationComments';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import { createStaleRevisionError } from '@contracts/documentMutationErrors';
 import { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import { AnnotationStore } from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import { usePdfAppAnnotationHistory } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAppAnnotationHistory';
@@ -416,10 +417,20 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
             const pending = [...views].flatMap(view => view.getPendingTextCompletion?.() ?? []);
             return pending.length ? Promise.all(pending).then(() => {}) : undefined;
         },
-        /** Commits every viewer's open text-box drafts, so a save sees them all. */
-        async commitPendingDraftsForSave() {
+        /**
+         * Commits every viewer's open text-box drafts, so a save sees them all.
+         * `joinRead` also waits for the read in flight, so a write sees dirty
+         * geometry in its bytes' page frame. A read that failed or was
+         * superseded refuses the write as stale; one that keeps its task (too
+         * large to import) moved nothing.
+         */
+        async commitPendingDraftsForSave(options: {joinRead?: true} = {}) {
             await Promise.all([...views].map(view => Promise.resolve(view.commitPendingDraftsForSave())));
             if (textBoxDrafts.size) throw new Error('Missing required text draft editor');
+            const task = options.joinRead ? writerParseTask : null;
+            if (task && !await task.promise && writerParseTask !== task) {
+                throw createStaleRevisionError({message: 'The annotation re-read did not land'});
+            }
         },
         /** Adds a viewer; the returned function removes it. */
         attachView(view: IPdfDocumentAnnotationsView) {

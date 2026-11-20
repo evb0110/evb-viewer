@@ -16,6 +16,8 @@ import {
     type IShapeEntity,
     type IPlacedImageEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import {collectNativeTextBoxMutationsForSave} from '@app/modules/pdf-viewer/runtime/save/nativeTextBoxMutations';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {requireEpochMs} from '@contracts/timestamps';
 
@@ -252,6 +254,301 @@ describe('AnnotationStore.replaceFromDocument', () => {
         // revision remains newer than the parsed revision.
         store.updateNote(local.identity.id, {contents: 'saved document contents'});
         expect(store.hasChangesSinceSavedBaseline()).toBe(false);
+    });
+
+    describe('a re-read of a rotated page', () => {
+        const rotated = {
+            left: 0.6,
+            top: 0.1,
+            width: 0.04,
+            height: 0.3,
+        };
+        const bound = (id: string, pdfRef: string) => ({identity: {
+            id: asAnnotationId(id),
+            pdfRef,
+        }});
+        const importedNote = (overrides: Partial<INoteEntity> = {}) => note('imported-note', {
+            ...bound('imported-note', '11 0 R'),
+            persistedRevision: 0,
+            ...overrides,
+        });
+        const importedHighlight = (overrides: Partial<ITextMarkupEntity> = {}) => textMarkup('imported-highlight', {
+            ...bound('imported-highlight', '12 0 R'),
+            contents: 'document comment',
+            persistedRevision: 0,
+            ...overrides,
+        });
+        const importedLabel = (overrides: Partial<ITextBoxEntity> = {}) => textBox('imported-label', {
+            ...bound('imported-label', '13 0 R'),
+            persistedRevision: 0,
+            ...overrides,
+        });
+        const otherPageNote = (overrides: Partial<INoteEntity> = {}) => note('other-page-note', {
+            ...bound('other-page-note', '14 0 R'),
+            pageIndex: requirePageIndex(1),
+            persistedRevision: 0,
+            ...overrides,
+        });
+        const opened = () => {
+            const store = new AnnotationStore();
+            store.replaceFromDocument([
+                importedNote(),
+                importedHighlight(),
+                importedLabel(),
+                otherPageNote(),
+            ], []);
+            return store;
+        };
+        /** The working bytes after page 1 rotated: the same objects, projected into the turned page. */
+        const reread = (store: AnnotationStore, preserveSavedBaseline: boolean) => store.replaceFromDocument([
+            importedNote({position: rotated}),
+            importedHighlight({quadPoints: [rotated]}),
+            importedLabel({
+                rect: rotated,
+                rotation: 90,
+            }),
+            otherPageNote(),
+        ], [], undefined, [], [], preserveSavedBaseline);
+
+        it.each([
+            false,
+            true,
+        ])('keeps text typed during the re-read and takes the re-read geometry (preserve baseline %s)', (preserveSavedBaseline) => {
+            const store = opened();
+            store.setNoteText(asAnnotationId('imported-note'), 'typed during re-read');
+            store.updateTextMarkup(asAnnotationId('imported-highlight'), {contents: 'comment typed during re-read'});
+            store.updateTextBox(asAnnotationId('imported-label'), {text: 'label typed during re-read'});
+
+            expect(reread(store, preserveSavedBaseline)).toBe(true);
+
+            expect(store.get(asAnnotationId('imported-note'))).toMatchObject({
+                identity: {pdfRef: '11 0 R'},
+                contents: 'typed during re-read',
+                position: rotated,
+            });
+            expect(store.get(asAnnotationId('imported-highlight'))).toMatchObject({
+                identity: {pdfRef: '12 0 R'},
+                contents: 'comment typed during re-read',
+                quadPoints: [rotated],
+            });
+            expect(store.get(asAnnotationId('imported-label'))).toMatchObject({
+                text: 'label typed during re-read',
+                rect: rotated,
+                rotation: 90,
+            });
+            expect(store.dirtyEntities().map(entity => entity.identity.id).sort()).toEqual([
+                'imported-highlight',
+                'imported-label',
+                'imported-note',
+            ]);
+        });
+
+        it.each([
+            false,
+            true,
+        ])('keeps a move made on another page during the re-read (preserve baseline %s)', (preserveSavedBaseline) => {
+            const store = opened();
+            const moved = {
+                ...rect,
+                left: 0.5,
+                top: 0.6,
+            };
+            store.updateNote(asAnnotationId('other-page-note'), {position: moved});
+
+            expect(reread(store, preserveSavedBaseline)).toBe(true);
+
+            expect(store.get(asAnnotationId('other-page-note'))).toMatchObject({
+                identity: {pdfRef: '14 0 R'},
+                position: moved,
+            });
+            expect(store.dirtyEntities().map(entity => entity.identity.id)).toEqual(['other-page-note']);
+            expect(store.get(asAnnotationId('imported-note'))).toMatchObject({position: rotated});
+        });
+
+        it.each([
+            false,
+            true,
+        ])('keeps a style change made during the re-read (preserve baseline %s)', (preserveSavedBaseline) => {
+            const store = opened();
+            store.updateTextMarkup(asAnnotationId('imported-highlight'), {
+                color: '#4caf50',
+                opacity: 0.5,
+            });
+            store.updateNote(asAnnotationId('imported-note'), {
+                color: '#ff0000',
+                open: true,
+            });
+            store.updateTextBox(asAnnotationId('imported-label'), {fontSize: 18});
+
+            expect(reread(store, preserveSavedBaseline)).toBe(true);
+
+            expect(store.get(asAnnotationId('imported-highlight'))).toMatchObject({
+                color: '#4caf50',
+                opacity: 0.5,
+                quadPoints: [rotated],
+            });
+            expect(store.get(asAnnotationId('imported-note'))).toMatchObject({
+                color: '#ff0000',
+                open: true,
+                position: rotated,
+            });
+            expect(store.get(asAnnotationId('imported-label'))).toMatchObject({
+                fontSize: 18,
+                rect: rotated,
+                rotation: 90,
+            });
+        });
+
+        it.each([
+            false,
+            true,
+        ])('undoes and redoes a text edit made before the re-read over the re-read geometry (preserve baseline %s)', (preserveSavedBaseline) => {
+            const store = opened();
+            store.setNoteText(asAnnotationId('imported-note'), 'typed during re-read');
+            store.updateTextMarkup(asAnnotationId('imported-highlight'), {contents: 'comment typed during re-read'});
+            reread(store, preserveSavedBaseline);
+
+            expect(store.undo()).toBe(true);
+            expect(store.undo()).toBe(true);
+            expect(store.get(asAnnotationId('imported-note'))).toMatchObject({
+                contents: 'document contents',
+                position: rotated,
+            });
+            expect(store.get(asAnnotationId('imported-highlight'))).toMatchObject({
+                contents: 'document comment',
+                quadPoints: [rotated],
+            });
+
+            expect(store.redo()).toBe(true);
+            expect(store.redo()).toBe(true);
+            expect(store.get(asAnnotationId('imported-note'))).toMatchObject({
+                identity: {pdfRef: '11 0 R'},
+                contents: 'typed during re-read',
+                position: rotated,
+            });
+            expect(store.get(asAnnotationId('imported-highlight'))).toMatchObject({
+                identity: {pdfRef: '12 0 R'},
+                contents: 'comment typed during re-read',
+                quadPoints: [rotated],
+            });
+        });
+
+        it.each([
+            false,
+            true,
+        ])('restores a note deleted during the re-read with the re-read geometry (preserve baseline %s)', (preserveSavedBaseline) => {
+            const store = opened();
+            store.delete(asAnnotationId('imported-note'));
+            reread(store, preserveSavedBaseline);
+
+            expect(store.get(asAnnotationId('imported-note'))).toMatchObject({
+                deleted: true,
+                position: rotated,
+            });
+            expect(store.undo()).toBe(true);
+            expect(store.get(asAnnotationId('imported-note'))).toMatchObject({
+                deleted: false,
+                identity: {pdfRef: '11 0 R'},
+                position: rotated,
+            });
+        });
+
+        it('replays a command in full when nothing outside history changed the annotation', () => {
+            const store = opened();
+            const moved = {
+                ...rect,
+                left: 0.5,
+            };
+            store.updateNote(asAnnotationId('imported-note'), {
+                contents: 'edited',
+                position: moved,
+            });
+            const edited = store.get(asAnnotationId('imported-note'));
+
+            expect(store.undo()).toBe(true);
+            expect(store.get(asAnnotationId('imported-note'))).toMatchObject({
+                contents: 'document contents',
+                position: rect,
+            });
+            expect(store.redo()).toBe(true);
+            expect(store.get(asAnnotationId('imported-note'))).toEqual({
+                ...edited,
+                revision: 3,
+                persistedRevision: 2,
+            });
+            expect(store.dirtyEntities().map(entity => entity.identity.id)).toEqual(['imported-note']);
+        });
+    });
+
+    it.each([
+        false,
+        true,
+    ])('leaves an untouched import the re-read reports as foreign to the writer (preserve baseline %s)', (preserveSavedBaseline) => {
+        const store = new AnnotationStore();
+        const label = textBox('imported-label', {
+            identity: {
+                id: asAnnotationId('imported-label'),
+                pdfRef: '7 0 R',
+            },
+            persistedRevision: 0,
+        });
+        store.import(label);
+        const rotatedLabel = {
+            pageIndex: requirePageIndex(0),
+            subtype: 'FreeText',
+            name: 'imported-label',
+            objectNumber: 7,
+            generationNumber: 0,
+            reason: 'Imported rotated FreeText has no recoverable canonical geometry',
+        };
+
+        expect(store.replaceFromDocument([], [rotatedLabel], undefined, [], [], preserveSavedBaseline)).toBe(true);
+
+        expect(store.get(label.identity.id)).toBeNull();
+        expect(store.dirtyEntities()).toEqual([]);
+        expect(store.hasChangesSinceSavedBaseline()).toBe(false);
+        expect(store.foreign).toEqual([expect.objectContaining({
+            objectNumber: 7,
+            generationNumber: 0,
+        })]);
+    });
+
+    it.each([
+        false,
+        true,
+    ])('keeps an edited import the re-read reports as foreign bound to its object, so Save creates no copy (preserve baseline %s)', async (preserveSavedBaseline) => {
+        const application = new AnnotationApplication('edited-foreign-label');
+        const id = asAnnotationId('imported-label');
+        application.store.import(textBox('imported-label', {
+            identity: {
+                id,
+                pdfRef: '7 0 R',
+            },
+            persistedRevision: 0,
+        }));
+        application.store.updateTextBox(id, {text: 'Accepted edit'});
+        const rotatedLabel = {
+            pageIndex: requirePageIndex(0),
+            subtype: 'FreeText',
+            name: null,
+            objectNumber: 7,
+            generationNumber: 0,
+            reason: 'Imported rotated FreeText has no recoverable canonical geometry',
+        };
+
+        expect(application.store.replaceFromDocument([], [rotatedLabel], undefined, [], [], preserveSavedBaseline)).toBe(true);
+
+        expect(application.store.get(id)).toMatchObject({
+            identity: {pdfRef: '7 0 R'},
+            text: 'Accepted edit',
+        });
+        expect(application.store.dirtyEntities().map(entity => entity.identity.id)).toEqual([id]);
+        // The writer targets object 7, which it refuses as read-only, instead of appending a second box.
+        const mutations = await collectNativeTextBoxMutationsForSave(
+            {getPage: async () => ({rotate: 90, view: [0, 0, 612, 792]})},
+            application.beginSave().plan,
+        );
+        expect(mutations).toEqual([expect.objectContaining({annotationId: '7R', text: 'Accepted edit'})]);
     });
 
     it('replaces clean entities, inserts parsed entities, and forgets clean omissions', () => {

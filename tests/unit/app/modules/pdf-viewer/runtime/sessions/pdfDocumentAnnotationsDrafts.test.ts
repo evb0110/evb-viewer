@@ -15,6 +15,7 @@ import {usePdfAnnotationEditorSurface} from '@app/modules/pdf-viewer/runtime/ann
 import {DEFAULT_ANNOTATION_SETTINGS} from '@app/constants/annotationDefaults';
 import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {isStaleRevisionError} from '@contracts/documentMutationErrors';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {
     describe,
@@ -641,6 +642,29 @@ describe('writer annotations shared by linked views', () => {
         expect(annotations.application.value.listCommentSummaries()).toEqual([]);
         await annotations.feedStoreFromWriterParse(resource, shallowRef(null));
         expect(annotations.application.value.listCommentSummaries().map(comment => comment.text)).toEqual(['Later caller imported text']);
+    });
+    it('refuses a Save that joined a re-read that failed and keeps the edit made during it', async () => {
+        const {
+            annotations, resource, replaceVersion,
+        } = setup();
+        parsePdfAnnotations.mockResolvedValueOnce(parsed('Saved text'));
+        await annotations.feedStoreFromWriterParse(resource, shallowRef(null));
+        replaceVersion();
+        const failing = Promise.withResolvers<IPdfAnnotationParseResult>();
+        parsePdfAnnotations.mockReturnValueOnce(failing.promise);
+        const reading = annotations.feedStoreFromWriterParse(resource, shallowRef(null));
+        const id = annotations.application.value.store.list()[0]!.identity.id;
+        annotations.application.value.store.updateTextBox(id, {text: 'Typed during the read'});
+        const saving = annotations.commitPendingDraftsForSave({joinRead: true});
+        failing.reject(new Error('Injected parser failure'));
+        await expect(saving).rejects.toSatisfy(isStaleRevisionError);
+        expect(await reading).toBe(false);
+        expect(annotations.application.value.listCommentSummaries().map(comment => comment.text)).toEqual(['Typed during the read']);
+
+        replaceVersion();
+        parsePdfAnnotations.mockResolvedValueOnce(parsed('Saved text'));
+        void annotations.feedStoreFromWriterParse(resource, shallowRef(null));
+        await expect(annotations.commitPendingDraftsForSave({joinRead: true})).resolves.toBeUndefined();
     });
     it('admits the ready document after an earlier view has no current revision fence', async () => {
         const {
