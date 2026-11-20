@@ -23,6 +23,9 @@ import {
     startElectronE2ESession, type IElectronE2ESession,
 } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
+    NATIVE_CLOSE_OBSERVER_ENV, waitForNativeCloseCancel,
+} from '@tests/e2e/electron/helpers/observeNativeCloseCancel';
+import {
     createCanonicalTextBoxWithPointer,
     createStickyNoteWithPointer,
     selectAllFocusedAnnotationText,
@@ -536,6 +539,7 @@ const TEXT_BOX_DRAFT = `${ACTIVE_WORKSPACE} ${TEXT_BOX}.is-editing [contentedita
 const DRAFT_A = 'Draft A captured by Save';
 const DRAFT_B = 'Draft B typed during Save';
 const SAVE_TIMEOUT_MS = 60_000;
+const DROP_INPUT_TIMEOUT_MS = 5_000;
 
 async function holdDraftSavePublication(page: Page) {
     // Use the same native publication seam as savePipeline.e2e.test.ts. The
@@ -580,13 +584,14 @@ async function holdDraftSavePublication(page: Page) {
     };
 }
 
-async function openDraftSaveFixture(caseName: string) {
+async function openDraftSaveFixture(caseName: string, extraEnv: Record<string, string> = {}) {
     const key = `draft-save-${caseName}-${Date.now()}`;
     const path = await createCanonicalAnnotationSurfaceFixturePdf(`${key}.pdf`);
     onTestFinished(() => rm(path, {force: true}));
     const started = await startElectronE2ESession(`e2e-${key}`, {
         clean: true,
         initialOpenPaths: [path],
+        extraEnv,
     });
     session = started;
     await waitForPdfLoaded(started.page);
@@ -674,34 +679,118 @@ async function copyDraftSave(path: string, count: 'first' | 'second') {
 }
 
 async function expectDraftOnReopen(page: Page, path: string, subtype: '/Text' | '/FreeText', text: string) {
-    // Drop the saved copy from the desktop through Chromium's trusted input.
-    const point = await centerOf(page, `${ACTIVE_WORKSPACE} [data-document-viewer-chassis-viewport]`);
+    const viewer = `${ACTIVE_WORKSPACE} [data-document-viewer-chassis-viewport][data-open-surface-phase="ready"]`;
+    const fileName = basename(path);
+    await waitForViewerInteractive(page, DROP_INPUT_TIMEOUT_MS);
+    const point = await waitForViewerDropPoint(page, viewer);
+    await page.mouse.move(point.x, point.y);
     const client = await page.createCDPSession();
+    const delivery = await page.evaluateHandle((selector: string, {x, y}: IPoint) => {
+        const aimedTarget = document.elementFromPoint(x, y);
+        if (!aimedTarget?.matches('[data-pdf-page-track]') || !aimedTarget.closest(selector)) {
+            throw new Error('The PDF viewer gutter moved before the drag entered');
+        }
+        const received: Partial<Record<string, {
+            trusted: boolean;
+            aimed: boolean;
+            target: string | null;
+            types: string[];
+            files: string[];
+            consumed: boolean;
+        }>> = {};
+        const observe = (event: DragEvent) => {
+            const target = event.target;
+            received[event.type] = {
+                trusted: event.isTrusted,
+                aimed: target === aimedTarget && !!aimedTarget.closest(selector),
+                target: target instanceof Element ? target.getAttribute('class') ?? target.tagName : null,
+                types: Array.from(event.dataTransfer?.types ?? []),
+                files: Array.from(event.dataTransfer?.files ?? [], file => file.name),
+                // The shell registers its capture listener before this observer.
+                consumed: event.defaultPrevented,
+            };
+        };
+        const events = ['dragenter', 'dragover', 'drop'] as const;
+        events.forEach(type => window.addEventListener(type, observe, {capture: true, passive: true}));
+        return {
+            received,
+            stop() {
+                events.forEach(type => window.removeEventListener(type, observe, true));
+            },
+        };
+    }, viewer, point);
     try {
         const data = {
             items: [],
             files: [path],
             dragOperationsMask: 1,
         };
-        for (const type of [
-            'dragEnter',
-            'dragOver',
-            'drop',
-        ] as const) {
-            await client.send('Input.dispatchDragEvent', {type, ...point, data});
-        }
+        await client.send('Input.dispatchDragEvent', {type: 'dragEnter', ...point, data});
+        await client.send('Input.dispatchDragEvent', {type: 'dragOver', ...point, data});
+        const acceptedFileInput = {
+            trusted: true,
+            aimed: true,
+            types: expect.arrayContaining(['Files']),
+            consumed: true,
+        };
+        const {dragenter, dragover} = await delivery.evaluate(observer => observer.received);
+        expect(dragover, `the ready viewer consumed the trusted file dragover (last dragenter: ${JSON.stringify(dragenter)})`)
+            .toMatchObject(acceptedFileInput);
+        await client.send('Input.dispatchDragEvent', {type: 'drop', ...point, data});
+        expect(await delivery.evaluate(observer => observer.received.drop),
+            'the ready viewer consumed the trusted file drop').toMatchObject({
+            ...acceptedFileInput,
+            files: [fileName],
+        });
     } finally {
+        await delivery.evaluate(observer => observer.stop());
+        await delivery.dispose();
         await client.detach();
     }
     await page.waitForFunction((selector: string, fileName: string) => (
         document.querySelector(selector)?.textContent?.trim() === fileName
-    ), {timeout: SETTLE_TIMEOUT_MS}, `${ACTIVE_PANE} .tab.is-active .tab-label`, basename(path));
+    ), {timeout: SETTLE_TIMEOUT_MS}, `${ACTIVE_PANE} .tab.is-active .tab-label`, fileName);
     await waitForViewerInteractive(page);
     if (subtype === '/Text') {
         await openNoteDraft(page);
         await expectVisibleDraft(page, NOTE_DRAFT, text);
     } else {
         await expectVisibleDraft(page, `${ACTIVE_WORKSPACE} ${TEXT_BOX}`, text);
+    }
+}
+
+async function waitForViewerDropPoint(page: Page, selector: string): Promise<IPoint> {
+    const handle = await page.waitForFunction((viewerSelector: string) => {
+        const viewport = document.querySelector(viewerSelector);
+        const track = viewport?.querySelector('[data-pdf-page-track]');
+        if (!viewport || !track) return false;
+        const box = viewport.getBoundingClientRect();
+        const trackBox = track.getBoundingClientRect();
+        const {paddingLeft, paddingRight} = getComputedStyle(track);
+        const gutterPoints = [
+            trackBox.left + Number.parseFloat(paddingLeft) / 2,
+            trackBox.right - Number.parseFloat(paddingRight) / 2,
+        ];
+        // Aim beside the page. Its text and annotation layers can swap after
+        // Save, and Chromium emits dragenter instead of dragover at a new hit.
+        for (const vertical of [0.5, 0.2, 0.8]) {
+            for (const x of gutterPoints) {
+                const y = box.top + box.height * vertical;
+                if (document.elementFromPoint(x, y) === track) {
+                    return {x, y};
+                }
+            }
+        }
+        return false;
+    }, {timeout: DROP_INPUT_TIMEOUT_MS}, selector).catch(cause => {
+        throw new Error('No exposed drop point in the ready viewer', {cause});
+    });
+    try {
+        const point = await handle.jsonValue();
+        if (!point) throw new Error('No exposed drop point in the ready viewer');
+        return point;
+    } finally {
+        await handle.dispose();
     }
 }
 
@@ -817,31 +906,34 @@ describe('#1601 step 3 Save publication', () => {
     }, TIMEOUT_MS);
 
     it('keeps the newer note draft dirty and refuses to quit after Save publishes', async () => {
-        const {page, path} = await openDraftSaveFixture('quit-published');
+        const fixture = await openDraftSaveFixture('quit-published', NATIVE_CLOSE_OBSERVER_ENV);
+        const {page, path} = fixture;
         await openNoteDraft(page);
         await typeDraft(page, NOTE_DRAFT, DRAFT_A);
-        const saveBaseline = await getLatestAutomationEventId(page);
-        const publication = await holdDraftSavePublication(page);
-        try {
-            await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Q'});
-            await clickFoundAsUser(page, () => Array.from(document.querySelectorAll('[role="dialog"] button'))
-                .find(button => button.textContent?.trim() === 'Save changes'), null, {description: 'Save changes before quitting'});
-            await expectSavedDraft(await publication.stagedPath(), '/Text', DRAFT_A);
-            await expectSavedDraft(path, '/Text', 'Store-owned note');
-            await typeDraft(page, NOTE_DRAFT, DRAFT_B);
-        } finally {
-            await publication.release();
-        }
-        await waitForAutomationEvent(page, 'save-committed', {
-            afterEventId: saveBaseline,
-            path,
-            timeoutMs: SAVE_TIMEOUT_MS,
-        });
-        await expectSavedDraft(path, '/Text', DRAFT_A);
-        await expectVisibleDraft(page, NOTE_DRAFT, DRAFT_B);
-        await page.waitForSelector(`${ACTIVE_PANE} .tab.is-active.is-dirty`, {
-            visible: true,
-            timeout: SETTLE_TIMEOUT_MS,
+        await waitForNativeCloseCancel(fixture, async () => {
+            const saveBaseline = await getLatestAutomationEventId(page);
+            const publication = await holdDraftSavePublication(page);
+            try {
+                await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Q'});
+                await clickFoundAsUser(page, () => Array.from(document.querySelectorAll('[role="dialog"] button'))
+                    .find(button => button.textContent?.trim() === 'Save changes'), null, {description: 'Save changes before quitting'});
+                await expectSavedDraft(await publication.stagedPath(), '/Text', DRAFT_A);
+                await expectSavedDraft(path, '/Text', 'Store-owned note');
+                await typeDraft(page, NOTE_DRAFT, DRAFT_B);
+            } finally {
+                await publication.release();
+            }
+            await waitForAutomationEvent(page, 'save-committed', {
+                afterEventId: saveBaseline,
+                path,
+                timeoutMs: SAVE_TIMEOUT_MS,
+            });
+            await expectSavedDraft(path, '/Text', DRAFT_A);
+            await expectVisibleDraft(page, NOTE_DRAFT, DRAFT_B);
+            await page.waitForSelector(`${ACTIVE_PANE} .tab.is-active.is-dirty`, {
+                visible: true,
+                timeout: SETTLE_TIMEOUT_MS,
+            });
         });
 
         // A second Quit must reach the dirty prompt again, proving the first
