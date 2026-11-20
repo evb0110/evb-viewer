@@ -80,7 +80,6 @@ import {
     observeDocumentViewportWheelInteraction,
 } from '@app/modules/document-viewer/public';
 import type {
-    IDocumentPageSource,
     TDocumentPageSourceKind,
     IDocumentWheelInteraction,
 } from '@app/modules/document-viewer/public';
@@ -98,10 +97,6 @@ const props = defineProps<{
     rendererKind?: TDocumentViewerRendererKind;
     mountPresentation?: boolean;
     isResizing?: boolean;
-}>();
-const emit = defineEmits<{
-    'update:pageSource': [source: IDocumentPageSource | null];
-    'update:total-pages': [pageCount: number];
 }>();
 const sourceKind = toRef(props, 'sourceKind');
 const attrs = useAttrs();
@@ -292,30 +287,21 @@ provide(documentViewerRuntimeKey, chassisAuthority);
 // reads only whether there is one, and the backdrop reads the rest itself.
 const hasViewportFlingBackdrop = computed(() => chassisAuthority.viewportFlingBackdrop.value !== null);
 
-// Feature packs bind their render source to the chassis authority; this is
-// the one report of it, so a parent mounting later still receives it.
-watch(
-    () => chassisAuthority.source.value,
-    source => emit('update:pageSource', source),
-    {
-        flush: 'sync',
-        immediate: true,
-    },
-);
-
 function handleTotalPagesUpdate(pageCount: number) {
     chassisAuthority.pageCount.value = Math.max(0, Math.trunc(pageCount));
     if (chassisAuthority.pageCount.value > 0) {
         chassisAuthority.openSurface.metadataReady(chassisAuthority.pageCount.value);
     }
-    emit('update:total-pages', chassisAuthority.pageCount.value);
 }
 
 // Navigation belongs to the stable chassis, so commands remain durable while
 // the async feature pack is absent or swapping. When a renderer is mounted it
 // must also project that request into the viewport; recording the requested
-// page alone does not create or commit a scroll intent.
+// page alone does not create or commit a scroll intent. The shell reads the
+// source feature packs bind here, and their page count, live.
 defineExpose(createDocumentViewerExposeForwarder(activeFeaturePackRef, {
+    getPageSource: () => chassisAuthority.source.value,
+    getPageCount: () => chassisAuthority.pageCount.value,
     getCurrentPage: () => chassisAuthority.currentPage.value,
     getReaderInteractionEpoch: () => chassisAuthority.viewportWritePort.getInteractionEpoch(),
     observeReaderCommand: () => chassisAuthority.viewportWritePort.observeUserInteraction(chassisAuthority.viewportElement.value ?? undefined),

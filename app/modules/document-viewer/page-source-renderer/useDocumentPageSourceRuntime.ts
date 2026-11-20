@@ -338,6 +338,7 @@ export const useDocumentPageSourceRuntime = (options: {
     const surfaceBudget = chassisAuthority?.surfaceBudget ?? workspaceSurfaceBudgetController;
     const rasterBufferProfile = getPerformanceProfile();
     const source = shallowRef<IDocumentPageSource | null>(null);
+    const isLoading = ref(false);
     const pageMetrics = shallowRef<TDocumentPageMetricsCollection>([]);
     const exactPageMetricNumbers = new Set<number>();
     const exactPageMetricLoads = new Map<number, Promise<IDocumentPageMetrics>>();
@@ -1149,7 +1150,7 @@ export const useDocumentPageSourceRuntime = (options: {
                 )))
                 : [];
         }
-        emit('loading', Boolean(documentRef));
+        isLoading.value = Boolean(documentRef);
         if (!documentRef) {
             emit('update:totalPages', 0);
             return;
@@ -1159,6 +1160,7 @@ export const useDocumentPageSourceRuntime = (options: {
             commitPageTerminalError: presentation.commitTerminalError,
             createPageFailureError: presentation.createFailureError,
             emit,
+            isLoading,
             ensureExactPageMetric,
             layoutLifecycle,
             loadController: activeLoadController,
@@ -1324,6 +1326,7 @@ export const useDocumentPageSourceRuntime = (options: {
             getViewerContainer: () => viewerContainer.value,
             getEffectiveZoom: () => effectiveZoom.value,
             getCurrentPage: () => currentPage.value,
+            isDocumentLoading: () => isLoading.value,
             scrollToPage,
             captureReadingAnchor: (): IPdfSemanticAnchor | null => {
                 const anchor = captureReadingPoint();
@@ -1336,6 +1339,6 @@ export const useDocumentPageSourceRuntime = (options: {
                     affinity: 'center',
                 } : null;
             },
-        } satisfies IDocumentViewerExpose,
+        } satisfies IDocumentViewerExpose & {isDocumentLoading: () => boolean},
     };
 };

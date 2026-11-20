@@ -19,6 +19,17 @@ import { pageSelectionCount } from '@app/utils/pdfPageSelection';
 import { useWorkspaceViewerShellState } from '@app/modules/workspace-shell/composables/useWorkspaceViewerShellState';
 import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
 
+// The chassis a view mounts, reporting the page count of what it shows.
+function mountViewerWithPageCount(state: ReturnType<typeof useWorkspaceViewerShellState>, pageCount: number) {
+    const count = ref(pageCount);
+    state.djvuViewerRef.value = {
+        getViewerContainer: () => null,
+        scrollToPage: () => undefined,
+        getPageCount: () => count.value,
+    };
+    return count;
+}
+
 describe('workspace viewer shell state', () => {
     it('derives compatibility modes from one authoritative discriminated state', () => {
         const surface = createDocumentOpenSurfaceSession();
@@ -135,13 +146,31 @@ describe('workspace viewer shell state', () => {
         }
     });
 
+    it('reads page count and loading from the viewer it mounts, and none without one', () => {
+        const state = useWorkspaceViewerShellState(null, createDocumentOpenSurfaceSession());
+        const loading = ref(true);
+        state.djvuViewerRef.value = {
+            getViewerContainer: () => null,
+            scrollToPage: () => undefined,
+            getPageCount: () => 2,
+            isDocumentLoading: () => loading.value,
+        };
+        expect([state.totalPages.value, state.isLoading.value]).toEqual([2, true]);
+
+        loading.value = false;
+        expect(state.isLoading.value).toBe(false);
+
+        state.djvuViewerRef.value = null;
+        expect([state.totalPages.value, state.isLoading.value, state.documentPageSource.value]).toEqual([0, false, null]);
+    });
+
     it('renormalizes selected pages when total pages shrinks', () => {
         const state = useWorkspaceViewerShellState(null, createDocumentOpenSurfaceSession());
-        state.totalPages.value = 5;
+        const pageCount = mountViewerWithPageCount(state, 5);
         state.setSelectedThumbnailPages([2, 4]);
         state.setSelectedPageSelection({kind: 'explicit', pageCount: 5, pages: [2, 4]});
 
-        state.totalPages.value = 3;
+        pageCount.value = 3;
 
         expect(state.selectedThumbnailPages.value).toEqual([2]);
         expect(state.selectedPageSelection.value).toEqual({kind: 'explicit', pageCount: 3, pages: [2]});
@@ -150,7 +179,7 @@ describe('workspace viewer shell state', () => {
 
     it('keeps the last bounded legacy mirror for an oversized compact selection', () => {
         const state = useWorkspaceViewerShellState(null, createDocumentOpenSurfaceSession());
-        state.totalPages.value = 200_000;
+        mountViewerWithPageCount(state, 200_000);
         state.setSelectedThumbnailPages([
             2,
             4,
