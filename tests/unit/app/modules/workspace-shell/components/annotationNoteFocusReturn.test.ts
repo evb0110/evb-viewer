@@ -154,6 +154,16 @@ function mountNotes(viewer: Record<string, unknown> = {}) {
     };
 }
 
+it('focuses an opened note at the end of its text once the window is attached', async () => {
+    const mounted = mountNotes();
+    await nextTick();
+    await nextTick();
+    const input = mounted.host.querySelector<HTMLTextAreaElement>('[data-annotation-id="note-1"] textarea')!;
+    expect(document.activeElement).toBe(input);
+    expect([input.selectionStart, input.selectionEnd]).toEqual([4, 4]);
+    expect(mounted.focusReturned).not.toHaveBeenCalled();
+});
+
 it('returns focus after the focused close button is removed', async () => {
     const mounted = mountNotes();
     await nextTick();

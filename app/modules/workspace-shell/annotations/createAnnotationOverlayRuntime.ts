@@ -397,8 +397,8 @@ function mapNotesToPageTargets(
 /**
  * Overlay runtime for the annotation note windows, anchors and connectors.
  *
- * Every binding below is created inside this invocation, so the refs, burst
- * schedulers, drag-suppression timer, computeds, watchers and DOM listeners all
+ * Every binding below is created inside this invocation, so the refs, frame
+ * scheduler, computeds, watchers and DOM listeners all
  * belong to the calling component instance and its effect scope — exactly as
  * they did while they lived in the SFC's `<script setup>` body. Nothing here is
  * module-scoped mutable state, so two mounted overlays never share a tick
@@ -471,21 +471,20 @@ export function createAnnotationOverlayRuntime(options: IAnnotationOverlayRuntim
         });
     }
 
+    // Scroll, resize, zoom, viewport DOM changes and the positions note windows
+    // report as applied refresh the shared geometry once, in the next frame.
     const indicatorDomRefreshScheduler = createRafBurstScheduler(() => {
         indicatorDomTick.value += 1;
     });
+    const refreshViewportDom = () => indicatorDomRefreshScheduler.request();
     // Note followers apply the shared geometry before connector DOM readings.
-    watch(viewportDomSnapshot, () => {
-        connectorLines.value = computeConnectorLines();
-    }, { flush: 'post' });
-
-    function scheduleOverlayRefreshBurst(frames = 6) {
-        indicatorDomRefreshScheduler.request(frames);
-    }
-
-    function scheduleConnectorRefreshBurst(frames = 2) {
-        indicatorDomRefreshScheduler.request(frames);
-    }
+    watch(
+        [viewportDomSnapshot, () => openNoteAnchors.value.map(getNoteRenderSignature).join('|')],
+        () => {
+            connectorLines.value = computeConnectorLines();
+        },
+        { flush: 'post' },
+    );
 
     function getMinimizedIndicatorStyle(note: IAnnotationNoteWindowEntry) {
         void options.getZoom();
@@ -519,19 +518,13 @@ export function createAnnotationOverlayRuntime(options: IAnnotationOverlayRuntim
         }));
     }
 
-    onMounted(() => scheduleOverlayRefreshBurst(10));
     onBeforeUnmount(() => {
         indicatorDomRefreshScheduler.cancel();
         connectorLines.value = [];
     });
 
-    useEventListener(viewportRootElement, 'scroll', () => scheduleConnectorRefreshBurst(1), { passive: true });
-    useEventListener(
-        import.meta.client ? window : undefined,
-        'resize',
-        () => scheduleConnectorRefreshBurst(1),
-        { passive: true },
-    );
+    useEventListener(viewportRootElement, 'scroll', refreshViewportDom, { passive: true });
+    useEventListener(import.meta.client ? window : undefined, 'resize', refreshViewportDom, { passive: true });
     const resizeTargets = computed<HTMLElement[]>((previous) => {
         const root = viewportRootElement.value;
         const targets = root
@@ -545,37 +538,12 @@ export function createAnnotationOverlayRuntime(options: IAnnotationOverlayRuntim
             ? previous
             : targets;
     });
-    useResizeObserver(resizeTargets, () => scheduleOverlayRefreshBurst(1));
-    useMutationObserver(viewportRootElement, () => scheduleOverlayRefreshBurst(4), {
+    useResizeObserver(resizeTargets, refreshViewportDom);
+    useMutationObserver(viewportRootElement, refreshViewportDom, {
         childList: true,
         subtree: true,
     });
-
-    watch(viewportRootElement, () => scheduleOverlayRefreshBurst(12));
-    watch(() => options.getZoom(), () => scheduleConnectorRefreshBurst(1));
-    watch(
-        () => anchoredAnnotationNoteWindows.value.map(getNoteRenderSignature),
-        () => scheduleOverlayRefreshBurst(6),
-    );
-    watch(
-        () => visibleAnnotationNoteWindows.value.map(getNoteRenderSignature),
-        () => scheduleOverlayRefreshBurst(6),
-    );
-    watch(
-        () => Object.entries(options.getNotePositions())
-            .map(([
-                annotationId,
-                position,
-            ]) => [
-                annotationId,
-                position.x,
-                position.y,
-                position.width ?? '',
-                position.height ?? '',
-            ].join(':'))
-            .sort(),
-        () => scheduleConnectorRefreshBurst(1),
-    );
+    watch(() => options.getZoom(), refreshViewportDom);
 
     return {
         viewportDomSnapshot,
@@ -589,6 +557,6 @@ export function createAnnotationOverlayRuntime(options: IAnnotationOverlayRuntim
         getMinimizedIndicatorStyle,
         getMinimizedNotePreview,
         traceAnchorInteraction,
-        scheduleConnectorRefreshBurst,
+        refreshViewportDom,
     };
 }
