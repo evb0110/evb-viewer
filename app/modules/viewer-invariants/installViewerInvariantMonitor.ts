@@ -37,7 +37,7 @@ export interface IViewerInvariantMonitorHandle {
     readUnresolved: () => readonly IViewerInvariantUnresolved[];
     readViolations: () => readonly IViewerInvariantViolation[];
     resetMemory: () => void;
-    waitForSettled: (options?: IViewerSettleOptions) => Promise<IViewerSettleOutcome>;
+    waitForSettled: (options?: Omit<IViewerSettleOptions, 'signal'>) => Promise<IViewerSettleOutcome>;
 }
 
 /** Shows the confirmation for a written bundle. */
@@ -71,7 +71,7 @@ export function installViewerInvariantMonitor(
     const unresolved: IViewerInvariantUnresolved[] = [];
     let lastCheckAt = 0;
     let checkInFlight = false;
-    let disposed = false;
+    const lifetime = new AbortController();
 
     installViewerActionLog();
 
@@ -110,13 +110,16 @@ export function installViewerInvariantMonitor(
     }
 
     async function checkWhenSettled() {
-        if (disposed || checkInFlight || Date.now() - lastCheckAt < CHECK_THROTTLE_MS) {
+        if (lifetime.signal.aborted || checkInFlight || Date.now() - lastCheckAt < CHECK_THROTTLE_MS) {
             return;
         }
         checkInFlight = true;
         try {
-            const outcome = await waitForViewerSettled({timeoutMs: SETTLE_POLL_TIMEOUT_MS});
-            if (disposed || !outcome.settled) {
+            const outcome = await waitForViewerSettled({
+                signal: lifetime.signal,
+                timeoutMs: SETTLE_POLL_TIMEOUT_MS,
+            });
+            if (lifetime.signal.aborted || !outcome.settled) {
                 // A monitor watching ordinary use cannot tell a slow render
                 // from an idle user, so an unsettled sample is dropped here
                 // rather than reported. A test declares its own settle bound.
@@ -165,7 +168,7 @@ export function installViewerInvariantMonitor(
         captureBugReport,
         checkNow,
         dispose: () => {
-            disposed = true;
+            lifetime.abort();
             window.removeEventListener('keydown', handleKeydown, {capture: true});
             for (const type of [
                 'pointerup',
@@ -191,7 +194,10 @@ export function installViewerInvariantMonitor(
             unresolved.length = 0;
             resetViewerInvariantMemory();
         },
-        waitForSettled: settleOptions => waitForViewerSettled(settleOptions),
+        waitForSettled: settleOptions => waitForViewerSettled({
+            ...settleOptions,
+            signal: lifetime.signal,
+        }),
     };
 
     // Installed next to `__evbTestApi` so automation reaches the same checker
