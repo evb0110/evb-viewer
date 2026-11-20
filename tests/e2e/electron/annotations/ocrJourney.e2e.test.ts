@@ -29,6 +29,7 @@ import {
     describe,
     expect,
     it,
+    onTestFinished,
     vi,
 } from 'vitest';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
@@ -295,6 +296,64 @@ async function chooseOcrLanguage(page: Page, code: string) {
 
 function countWord(text: string, word: string) {
     return text.toLocaleLowerCase().split(word).length - 1;
+}
+
+async function delayOcrToolCompletion(scratch: string, toolName: string, requiredArgs: string[], releasePath?: string) {
+    const hookPath = join(scratch, 'tool-delay.cjs');
+    const commandPath = join(scratch, 'real-command.cjs');
+    const receiptPath = join(scratch, 'real-command-completed.txt');
+    // Let the real command produce its output before holding the forwarding process open.
+    await writeFile(commandPath, `
+const {spawn} = require('node:child_process');
+const {existsSync, watch, writeFileSync} = require('node:fs');
+const [command, ...args] = process.argv.slice(2);
+const child = spawn(command, args, {stdio: 'inherit', windowsHide: true});
+child.once('error', () => process.exit(1));
+child.once('close', async code => {
+    writeFileSync(${JSON.stringify(receiptPath)}, String(code));
+    ${releasePath === undefined ? `
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
+    ` : `
+    const releasePath = ${JSON.stringify(releasePath)};
+    await new Promise(resolve => {
+        const checkRelease = () => {
+            if (existsSync(releasePath)) {
+                watcher.close();
+                resolve();
+            }
+        };
+        const watcher = watch(${JSON.stringify(scratch)}, checkRelease);
+        checkRelease();
+    });
+    `}
+    process.exit(code ?? 1);
+});
+`);
+    await writeFile(hookPath, `
+if (process.versions.electron && process.type === 'browser') {
+    const cp = require('node:child_process');
+    const {basename} = require('node:path');
+    const originalSpawn = cp.spawn;
+    const requiredArgs = ${JSON.stringify(requiredArgs)};
+    cp.spawn = function(command, args, options) {
+        // Linux's existing memory-limit shell execs the same Poppler binary.
+        const tool = command === '/bin/sh' && args?.[1]?.startsWith('ulimit -S -d') ? args[3] : command;
+        if (basename(String(tool)).replace(/\\.exe$/i, '') !== ${JSON.stringify(toolName)}
+            || !args?.some((_, index) => requiredArgs.every((arg, offset) => args[index + offset] === arg))) {
+            return originalSpawn.call(this, command, args, options);
+        }
+        return originalSpawn.call(this, process.execPath, [${JSON.stringify(commandPath)}, command, ...args], {
+            ...options,
+            env: {...options?.env, ELECTRON_RUN_AS_NODE: '1'},
+        });
+    };
+    require('node:module').syncBuiltinESMExports();
+}
+`);
+    return {
+        extraEnv: {NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --require=${JSON.stringify(hookPath)}`},
+        receiptPath,
+    };
 }
 
 async function installLateOcrCompletionControl(page: Page) {
@@ -604,49 +663,12 @@ if (process.versions.electron && process.type === 'browser') {
         },
     ])('makes a scanned page searchable, saves it, and finds a recognized word after reopening with a $probe DPI probe', async ({delayProbe}) => {
         const scratch = await mkdtemp(join(tmpdir(), 'ocr-dpi-probe-'));
-        const hookPath = join(scratch, 'probe-delay.cjs');
-        const queryPath = join(scratch, 'real-query.cjs');
-        const receiptPath = join(scratch, 'real-query-completed.txt');
-        if (delayProbe) {
-            // Keep the real command, its output and the app's deadline. The
-            // forwarding process holds completion after the real query exits;
-            // the app must therefore handle its ordinary optional-probe timeout.
-            await writeFile(queryPath, `
-const {spawn} = require('node:child_process');
-const {writeFileSync} = require('node:fs');
-const [command, ...args] = process.argv.slice(2);
-const child = spawn(command, args, {stdio: 'inherit', windowsHide: true});
-child.once('error', () => process.exit(1));
-child.once('close', code => {
-    writeFileSync(${JSON.stringify(receiptPath)}, String(code));
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
-    process.exit(code ?? 1);
-});
-`);
-            await writeFile(hookPath, `
-if (process.versions.electron && process.type === 'browser') {
-    const cp = require('node:child_process');
-    const {basename} = require('node:path');
-    const originalSpawn = cp.spawn;
-    cp.spawn = function(command, args, options) {
-        // Linux's existing memory-limit shell execs the same Poppler binary.
-        const tool = command === '/bin/sh' && args?.[1]?.startsWith('ulimit -S -d') ? args[3] : command;
-        if (basename(String(tool)).replace(/\\.exe$/i, '') !== 'pdfimages' || !args?.includes('-list')) {
-            return originalSpawn.call(this, command, args, options);
-        }
-        return originalSpawn.call(this, process.execPath, [${JSON.stringify(queryPath)}, command, ...args], {
-            ...options,
-            env: {...options?.env, ELECTRON_RUN_AS_NODE: '1'},
-        });
-    };
-    require('node:module').syncBuiltinESMExports();
-}
-`);
-        }
-        const session = delayProbe
+        // Hold the real query past the app's optional-probe deadline.
+        const delayedProbe = delayProbe ? await delayOcrToolCompletion(scratch, 'pdfimages', ['-list']) : undefined;
+        const session = delayedProbe
             ? await sessionFixture.restart({
                 sessionName: () => `e2e-ocr-dpi-timeout-${Date.now()}`,
-                extraEnv: {NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --require=${hookPath}`},
+                extraEnv: delayedProbe.extraEnv,
             })
             : sessionFixture.getSession();
         try {
@@ -689,7 +711,7 @@ if (process.versions.electron && process.type === 'browser') {
             ), {timeout: OCR_TIMEOUT_MS});
             expect(await page.$eval('[role="dialog"]', dialog => dialog.textContent))
                 .toContain('OCR complete - PDF is now searchable');
-            if (delayProbe) expect(await readFile(receiptPath, 'utf8')).toBe('0');
+            if (delayedProbe) expect(await readFile(delayedProbe.receiptPath, 'utf8')).toBe('0');
             await clickVisibleButton(page, '[role="dialog"]', 'Close');
             await page.waitForSelector('[role="dialog"]', {hidden: true});
             await waitForTextLayerWord(page);
@@ -1439,13 +1461,19 @@ if (process.versions.electron && process.type === 'browser') {
     ])('keeps an OCR run going when the view that started it is closed, and shows it in the other view at $width px', async ({
         width, height, viaOverflow,
     }) => {
+        const pageCount = 2;
+        const scratch = await mkdtemp(join(tmpdir(), 'ocr-closed-view-'));
+        onTestFinished(() => rm(scratch, {recursive: true, force: true}));
+        const releasePath = join(scratch, 'release');
+        const heldPage = await delayOcrToolCompletion(scratch, 'pdftoppm', ['-f', String(pageCount)], releasePath);
         const session = await sessionFixture.restart({
             clean: true,
             hard: true,
             sessionName: () => `e2e-ocr-closed-view-${Date.now()}`,
+            extraEnv: heldPage.extraEnv,
         });
         const {page} = session;
-        const sourcePath = await createScannedPagesFixturePdf('ocr-closed-view-scan.pdf', 40);
+        const sourcePath = await createScannedPagesFixturePdf('ocr-closed-view-scan.pdf', pageCount);
         await openPdfInApp(page, sourcePath, 90_000);
         await waitForViewerInteractive(page, 90_000);
         await session.command('windowResize', [
@@ -1471,6 +1499,10 @@ if (process.versions.electron && process.type === 'browser') {
         ]);
         const agentRunSettled = agentRun.then(() => undefined, () => undefined);
         try {
+            // Page 1 can finish, but page 2 stays in flight across the view change.
+            await vi.waitFor(async () => {
+                expect(await readFile(heldPage.receiptPath, 'utf8')).toBe('0');
+            }, {timeout: 30_000});
             await vi.waitFor(async () => {
                 const status = await callWorkspaceCommand<{ocr?: {
                     isRunning?: boolean;
@@ -1481,7 +1513,7 @@ if (process.versions.electron && process.type === 'browser') {
                     {},
                 ]);
                 const ocr = status.value?.ocr;
-                if (!ocr?.isRunning || (ocr.processedCount ?? 0) <= 0 || (ocr.processedCount ?? 0) >= (ocr.totalPages ?? 0) - 4) {
+                if (!ocr?.isRunning || (ocr.processedCount ?? 0) <= 0 || (ocr.processedCount ?? 0) >= (ocr.totalPages ?? 0)) {
                     throw new Error(`OCR is not under way with pages left: ${JSON.stringify(ocr)}`);
                 }
             }, {timeout: 30_000});
@@ -1504,11 +1536,11 @@ if (process.versions.electron && process.type === 'browser') {
                 await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
             }
             await page.waitForSelector('[role="dialog"]', {visible: true});
-            await waitForFunctionInPage(page, () => {
+            await waitForFunctionInPage(page, (total: number) => {
                 const text = document.querySelector('[role="dialog"] .progress-text')?.textContent?.trim() ?? '';
-                const match = /^Processing pages: (\d+)\/40 completed$/u.exec(text);
-                return match !== null && Number(match[1]) > 0 && Number(match[1]) < 40;
-            }, {timeout: 30_000});
+                const match = /^Processing pages: (\d+)\/(\d+) completed$/u.exec(text);
+                return match !== null && Number(match[2]) === total && Number(match[1]) > 0 && Number(match[1]) < total;
+            }, {timeout: 30_000}, pageCount);
             if (viaOverflow) {
                 // The user cancels the run from the narrow window, and OCR can be started again.
                 await clickVisibleButton(page, '[role="dialog"]', 'Cancel OCR');
@@ -1517,7 +1549,7 @@ if (process.versions.electron && process.type === 'browser') {
                 )), {timeout: 30_000});
                 return;
             }
-            // It finishes.
+            await writeFile(releasePath, 'release');
             await waitForFunctionInPage(page, () => (
                 document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true
             ), {timeout: OCR_TIMEOUT_MS});
@@ -1529,6 +1561,7 @@ if (process.versions.electron && process.type === 'browser') {
             ), {timeout: 30_000}, paneHost(leftPane!), SEARCHED_WORD).then(() => true, () => false);
             expect(recognized).toBe(true);
         } finally {
+            await writeFile(releasePath, 'release');
             await callWorkspaceCommand(page, 'runAgentAction', [
                 'ocr.cancel',
                 {},
