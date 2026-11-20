@@ -29,6 +29,7 @@ import {
 import { getBrowserDjvuComponentFiles } from '@app/platform/browser-api/browserDjvuComponents';
 import type { IPagePreviewOutlineItem } from '@app/modules/document-viewer/public';
 import { getRawElectronPlatformApi } from '@app/utils/electronPlatformBridge';
+import { yieldToBrowser } from '@app/utils/yieldToBrowser';
 import {
     SEARCH_EXCERPT_CONTEXT_CHARS,
     SEARCH_REGEX_MAX_EXECUTION_MS,
@@ -495,7 +496,7 @@ export async function searchDjvuWorkerText(
         if (truncated) {
             break;
         }
-        await new Promise<void>(resolve => setTimeout(resolve, 0));
+        await yieldToBrowser();
     }
 
     results.sort((first, second) => first.matchIndex - second.matchIndex);
@@ -878,7 +879,10 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
                     target: mapped.children,
                 });
             }
-            if (nodeCount % 64 === 0) await new Promise<void>(resolve => setTimeout(resolve, 0));
+            if (nodeCount % 64 === 0) {
+                await yieldToBrowser();
+                if (terminated) throw new Error('DjVu conversion canceled');
+            }
         }
         return result;
     };

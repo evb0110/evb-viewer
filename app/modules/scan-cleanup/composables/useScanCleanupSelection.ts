@@ -21,7 +21,10 @@ import {
     omit,
     omitBy,
 } from 'es-toolkit/object';
-import {tryOnScopeDispose} from '@vueuse/core';
+import {
+    tryOnScopeDispose,
+    useTimeoutFn,
+} from '@vueuse/core';
 import {cloneScanCleanupPreferenceValue} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {
     attachScanCleanupPageOverrideDefaults,
@@ -100,7 +103,9 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
     const selectedPages = shallowRef<ReadonlySet<number>>(new Set([options.initialPage]));
     const settingsScope = ref<TScanCleanupSettingsScope>('all');
     const highlightedScope = ref<TScanCleanupSettingsScope | null>(null);
-    let highlightTimer: ReturnType<typeof setTimeout> | null = null;
+    const highlightReset = useTimeoutFn(() => {
+        highlightedScope.value = null;
+    }, 250, {immediate: false});
     const currentPageOverride = computed(() => getScanCleanupPageOverride(
         settings.pageOverrides,
         requirePageNumber(leader.value),
@@ -454,13 +459,7 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
     function highlightSettingsScope(value: TScanCleanupSettingsScope) {
         settingsScope.value = value;
         highlightedScope.value = value;
-        if (highlightTimer !== null) {
-            clearTimeout(highlightTimer);
-        }
-        highlightTimer = setTimeout(() => {
-            highlightedScope.value = null;
-            highlightTimer = null;
-        }, 250);
+        highlightReset.start();
     }
 
     function selectPage(page: number, intent: TScanCleanupSelectionIntent, orderedPages: TScanCleanupOrderedPages) {
@@ -555,12 +554,6 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
         selectedPages.value = new Set(mappedSelectedPages as number[]);
         highlightedScope.value = null;
     }
-
-    onScopeDispose(() => {
-        if (highlightTimer !== null) {
-            clearTimeout(highlightTimer);
-        }
-    }, true);
 
     return {
         recordOverrideEdit,

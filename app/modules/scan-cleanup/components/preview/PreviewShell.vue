@@ -447,6 +447,7 @@
 </template>
 
 <script setup lang="ts">
+import {useTimeoutFn} from '@vueuse/core';
 import {useWindowDevicePixelRatio} from '@app/composables/useWindowDevicePixelRatio';
 import type {
     IScanCleanupManualZones,
@@ -1616,14 +1617,55 @@ const pendingCleanedPixels = computed(() => (
     url,
 })));
 
-let detailTimer: ReturnType<typeof setTimeout> | null = null;
+const detailRequest = useTimeoutFn(() => {
+    updateOverlayGeometry();
+    const surfaceRect = previewSurface.value?.getBoundingClientRect();
+    if (!surfaceRect) {
+        return;
+    }
+    const quantizeDown = (value: number) => Math.floor(value * 64) / 64;
+    const quantizeUp = (value: number) => Math.ceil(value * 64) / 64;
+    const viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'] = {};
+    for (const output of renderedOutputs.value) {
+        const canvasRect = outputCanvasRects[output.metadata.half];
+        if (!canvasRect || canvasRect.width <= 0 || canvasRect.height <= 0) continue;
+        const imageRect = {
+            x: canvasRect.x
+                + output.placement.left / output.placement.canvasWidthPx * canvasRect.width,
+            y: canvasRect.y
+                + output.placement.top / output.placement.canvasHeightPx * canvasRect.height,
+            width: output.placement.contentWidthPx
+                / output.placement.canvasWidthPx * canvasRect.width,
+            height: output.placement.contentHeightPx
+                / output.placement.canvasHeightPx * canvasRect.height,
+        };
+        const left = Math.max(0, Math.min(1, (surfaceRect.left - imageRect.x) / imageRect.width));
+        const top = Math.max(0, Math.min(1, (surfaceRect.top - imageRect.y) / imageRect.height));
+        const right = Math.max(left, Math.min(
+            1,
+            (surfaceRect.right - imageRect.x) / imageRect.width,
+        ));
+        const bottom = Math.max(top, Math.min(
+            1,
+            (surfaceRect.bottom - imageRect.y) / imageRect.height,
+        ));
+        if (right <= left || bottom <= top) continue;
+        const xNormalized = quantizeDown(left);
+        const yNormalized = quantizeDown(top);
+        viewports[output.metadata.half] = {
+            xNormalized,
+            yNormalized,
+            widthNormalized: Math.max(1 / 64, Math.min(1, quantizeUp(right)) - xNormalized),
+            heightNormalized: Math.max(1 / 64, Math.min(1, quantizeUp(bottom)) - yNormalized),
+            rotationDegrees: presentationResult.value?.pageMetadata.rotationDegrees ?? 0,
+        };
+    }
+    if (Object.keys(viewports).length > 0) emit('requestDetail', viewports);
+}, 300, {immediate: false});
 
 function scheduleDetailRequest() {
     emit('invalidateDetail');
-    if (detailTimer !== null) {
-        clearTimeout(detailTimer);
-        detailTimer = null;
-    }
+    detailRequest.stop();
     if (
         effectiveViewMode.value !== 'cleaned'
         || props.lossless === true
@@ -1641,52 +1683,7 @@ function scheduleDetailRequest() {
     ) {
         return;
     }
-    detailTimer = setTimeout(() => {
-        detailTimer = null;
-        updateOverlayGeometry();
-        const surfaceRect = previewSurface.value?.getBoundingClientRect();
-        if (!surfaceRect) {
-            return;
-        }
-        const quantizeDown = (value: number) => Math.floor(value * 64) / 64;
-        const quantizeUp = (value: number) => Math.ceil(value * 64) / 64;
-        const viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'] = {};
-        for (const output of renderedOutputs.value) {
-            const canvasRect = outputCanvasRects[output.metadata.half];
-            if (!canvasRect || canvasRect.width <= 0 || canvasRect.height <= 0) continue;
-            const imageRect = {
-                x: canvasRect.x
-                    + output.placement.left / output.placement.canvasWidthPx * canvasRect.width,
-                y: canvasRect.y
-                    + output.placement.top / output.placement.canvasHeightPx * canvasRect.height,
-                width: output.placement.contentWidthPx
-                    / output.placement.canvasWidthPx * canvasRect.width,
-                height: output.placement.contentHeightPx
-                    / output.placement.canvasHeightPx * canvasRect.height,
-            };
-            const left = Math.max(0, Math.min(1, (surfaceRect.left - imageRect.x) / imageRect.width));
-            const top = Math.max(0, Math.min(1, (surfaceRect.top - imageRect.y) / imageRect.height));
-            const right = Math.max(left, Math.min(
-                1,
-                (surfaceRect.right - imageRect.x) / imageRect.width,
-            ));
-            const bottom = Math.max(top, Math.min(
-                1,
-                (surfaceRect.bottom - imageRect.y) / imageRect.height,
-            ));
-            if (right <= left || bottom <= top) continue;
-            const xNormalized = quantizeDown(left);
-            const yNormalized = quantizeDown(top);
-            viewports[output.metadata.half] = {
-                xNormalized,
-                yNormalized,
-                widthNormalized: Math.max(1 / 64, Math.min(1, quantizeUp(right)) - xNormalized),
-                heightNormalized: Math.max(1 / 64, Math.min(1, quantizeUp(bottom)) - yNormalized),
-                rotationDegrees: presentationResult.value?.pageMetadata.rotationDegrees ?? 0,
-            };
-        }
-        if (Object.keys(viewports).length > 0) emit('requestDetail', viewports);
-    }, 300);
+    detailRequest.start();
 }
 
 watch([
@@ -1703,9 +1700,6 @@ watch([
     previewPresentationCurrent,
     () => displayedCleanedFrame.value?.transitionKey,
 ], scheduleDetailRequest);
-onBeforeUnmount(() => {
-    if (detailTimer !== null) clearTimeout(detailTimer);
-});
 
 watch(() => dragTransaction.active.value, active => {
     if (!active) {
