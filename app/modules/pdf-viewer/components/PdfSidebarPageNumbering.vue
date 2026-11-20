@@ -1,5 +1,5 @@
 <template>
-    <div class="pdf-sidebar-pages-panel">
+    <div class="pdf-sidebar-pages-panel app-panel-scroll app-scrollbar">
         <UCollapsible
             v-model:open="isExpanded"
             :default-open="false"
@@ -554,8 +554,10 @@ function clearAll() {
 </script>
 
 <style scoped>
+/* In a short window the panel shrinks, leaving the thumbnail rail its
+   minimum height, and scrolls so Apply numbering stays in reach. */
 .pdf-sidebar-pages-panel {
-    flex-shrink: 0;
+    flex: 0 1 auto;
     border-top: 1px solid var(--ui-border);
     padding: var(--app-sidebar-content-padding);
     background: inherit;
