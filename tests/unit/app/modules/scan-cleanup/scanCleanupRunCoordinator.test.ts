@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import {createRequire} from 'node:module';
 import {runInThisContext} from 'node:vm';
 import {build} from 'esbuild';
@@ -10,17 +12,27 @@ import {
     onTestFinished,
     vi,
 } from 'vitest';
+import {
+    computed,
+    createApp,
+    nextTick,
+    ref,
+} from 'vue';
 import type {TJobId} from '@contracts/shared';
 import {requireJobId} from '@contracts/shared';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {requireEpochMs} from '@contracts/timestamps';
-import type {TDocumentRef} from '@contracts/documentRef';
+import {
+    requireDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import type {
     IScanCleanupCapability,
     IScanCleanupOptions,
     TScanCleanupJobState,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import type {IFailureToastTarget} from '@app/composables/useFailureToast';
 import type {TScanCleanupJobClosure} from '@contracts/scan-cleanup/ipc';
 import type {TTranslateFn} from '@i18n-app';
 import {
@@ -36,10 +48,16 @@ const diagnosticMocks = vi.hoisted(() => ({
         occurredAt: 1,
         severity: 'error',
     } as FailureReceipt,
+    debug: vi.fn<(section: string, message: string, data?: unknown) => void>(),
     error: vi.fn(),
 }));
 
-vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {error: diagnosticMocks.error}}));
+vi.mock('@app/utils/browserLogger', () => ({
+    BrowserLogger: {
+        debug: diagnosticMocks.debug,
+        error: diagnosticMocks.error,
+    },
+}));
 
 vi.mock('@app/utils/getScanCleanupCapability', () => ({getScanCleanupCapability: () => capability.value}));
 
@@ -180,6 +198,20 @@ function coordinatorDeps(
     };
 }
 
+function completedOutputJournal(initial: readonly TDocumentRef[]) {
+    const pending = new Set(initial);
+    const acknowledged: TDocumentRef[] = [];
+    return {
+        pending,
+        acknowledged,
+        getPendingCompletedOutputs: async () => [...pending],
+        acknowledgeCompletedOutputs: async (paths: readonly TDocumentRef[]) => {
+            acknowledged.push(...paths);
+            for (const path of paths) pending.delete(path);
+        },
+    };
+}
+
 async function loadClientCoordinator() {
     // Nuxt defines import.meta.client in the renderer build. The unit project
     // leaves it undefined, bypassing the sessionStorage recovery path.
@@ -201,7 +233,10 @@ async function loadClientCoordinator() {
     const nodeRequire = createRequire(import.meta.url);
     const dependencies = new Map<string, unknown>([
         ['@app/utils/getScanCleanupCapability', {getScanCleanupCapability: () => capability.value}],
-        ['@app/utils/browserLogger', {BrowserLogger: {error: diagnosticMocks.error}}],
+        ['@app/utils/browserLogger', {BrowserLogger: {
+            debug: diagnosticMocks.debug,
+            error: diagnosticMocks.error,
+        }}],
         ['@app/utils/platform', {isDesktopPlatformActive: () => false}],
     ]);
     const module = {exports: {}};
@@ -224,6 +259,7 @@ function stubSessionStorage(initial: [string, string][] = []) {
 describe('scan cleanup run coordinator', () => {
     beforeEach(() => {
         vi.resetModules();
+        diagnosticMocks.debug.mockClear();
         diagnosticMocks.error.mockReset();
         diagnosticMocks.error.mockReturnValue(diagnosticMocks.failure);
     });
@@ -498,6 +534,159 @@ describe('scan cleanup run coordinator', () => {
             cleanup();
             storage.clear();
             vi.unstubAllGlobals();
+        }
+    });
+
+    it('acknowledges an opened recovery and disposes queued and active handoffs exactly once', async () => {
+        const storage = stubSessionStorage();
+        const openedPath = requireDocumentRef('/managed/opened-recovery.pdf');
+        const blockedPath = requireDocumentRef('/managed/blocked-recovery.pdf');
+        const completed = completedState('queued-live-completion');
+        const queuedPath = requireDocumentRef(completed.outputPdfPath);
+        const journal = completedOutputJournal([openedPath, blockedPath]);
+        const blockedOpen = Promise.withResolvers<boolean>();
+        const reconnect = Promise.withResolvers<TScanCleanupJobState>();
+        let emit: (state: TScanCleanupJobState) => void = () => undefined;
+        const bridge = stubCapability(listener => { emit = listener; }, () => completed.jobId);
+        vi.mocked(bridge.reconnectJob).mockReturnValue(reconnect.promise);
+        capability.value = {
+            ...bridge,
+            getPendingCompletedOutputs: journal.getPendingCompletedOutputs,
+            acknowledgeCompletedOutputs: journal.acknowledgeCompletedOutputs,
+        };
+        const coordinator = await loadClientCoordinator();
+        const oldOpens = new Map<string, AbortSignal>();
+        const oldToast = vi.fn();
+        const dispose = coordinator.installScanCleanupRunCoordinator(coordinatorDeps({
+            openGeneratedPdf: (path, signal) => {
+                oldOpens.set(path, signal);
+                return path === blockedPath ? blockedOpen.promise : Promise.resolve(true);
+            },
+            toast: {add: oldToast},
+        }));
+        const replacementOpen = Promise.withResolvers<boolean>();
+        const newViewer = vi.fn(() => replacementOpen.promise);
+        const newToast = vi.fn();
+        let disposeReplacement: (() => void) | undefined;
+        try {
+            await new Promise<void>(resolve => setImmediate(resolve));
+            expect(new Set(oldOpens.keys())).toEqual(new Set([openedPath, blockedPath]));
+            expect.soft(journal.acknowledged).toEqual([openedPath]);
+
+            await coordinator.startScanCleanup({
+                ...ownerContext,
+                sourcePdfPath: '/source/queued.pdf',
+                options: createScanCleanupOptions(),
+            });
+            journal.pending.add(queuedPath);
+            emit(completed);
+
+            dispose();
+            disposeReplacement = coordinator.installScanCleanupRunCoordinator(coordinatorDeps({
+                openGeneratedPdf: newViewer,
+                toast: {add: newToast},
+            }));
+            // A terminal event can precede the reconnect snapshot. Only the
+            // replacement may act on it, even while the old viewer is blocked.
+            emit(completed);
+            await new Promise<void>(resolve => setImmediate(resolve));
+
+            expect.soft(oldOpens.get(blockedPath)?.reason).toBe('disposed');
+            expect.soft(oldOpens.has(queuedPath)).toBe(false);
+            expect.soft(journal.pending).toEqual(new Set([blockedPath, queuedPath]));
+            expect.soft(storage.get('evb.scanCleanup.activeJobId')).toBe(completed.jobId);
+            expect.soft(newViewer).toHaveBeenCalledWith(queuedPath, expect.any(AbortSignal), true);
+
+            function expectOneDisposal(path: TDocumentRef) {
+                const reasons = diagnosticMocks.debug.mock.calls
+                    .flatMap(([section, , data]) => (
+                        section === 'scan-cleanup' && typeof data === 'object' && data !== null
+                        && 'outputPdfPath' in data && data.outputPdfPath === path && 'reason' in data
+                            ? [data.reason]
+                            : []
+                    ));
+                expect.soft(reasons, path).toEqual(['disposed']);
+            }
+
+            expectOneDisposal(blockedPath);
+            expectOneDisposal(queuedPath);
+
+            blockedOpen.resolve(true);
+            await new Promise<void>(resolve => setImmediate(resolve));
+
+            expectOneDisposal(blockedPath);
+            expectOneDisposal(queuedPath);
+            expect.soft(oldOpens.has(queuedPath)).toBe(false);
+            expect.soft(journal.acknowledged).toEqual([openedPath]);
+            expect.soft(oldToast).not.toHaveBeenCalled();
+            expect.soft(newToast).not.toHaveBeenCalled();
+
+            replacementOpen.resolve(true);
+            await new Promise<void>(resolve => setImmediate(resolve));
+
+            expect(journal.acknowledged).toEqual([openedPath, queuedPath]);
+            expect(journal.pending).toEqual(new Set([blockedPath]));
+        } finally {
+            disposeReplacement?.();
+            dispose();
+            reconnect.resolve(completed);
+            blockedOpen.resolve(false);
+            replacementOpen.resolve(false);
+            await new Promise<void>(resolve => setImmediate(resolve));
+        }
+    });
+
+    it('keeps an accepted journal acknowledgement from presenting through a disposed installation', async () => {
+        const completed = completedState('completion-with-delayed-receipt');
+        const path = requireDocumentRef(completed.outputPdfPath);
+        const journal = completedOutputJournal([]);
+        const acknowledgement = Promise.withResolvers<void>();
+        const receipt = Promise.withResolvers<void>();
+        let emit: (state: TScanCleanupJobState) => void = () => undefined;
+        capability.value = {
+            ...stubCapability(listener => { emit = listener; }, () => completed.jobId),
+            getPendingCompletedOutputs: journal.getPendingCompletedOutputs,
+            acknowledgeCompletedOutputs: async (paths) => {
+                await journal.acknowledgeCompletedOutputs(paths);
+                acknowledgement.resolve();
+                await receipt.promise;
+            },
+        };
+        const oldToast = vi.fn();
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const dispose = coordinator.installScanCleanupRunCoordinator(coordinatorDeps({toast: {add: oldToast}}));
+        const newToast = vi.fn();
+        const newViewer = vi.fn(async () => true);
+        let disposeReplacement: (() => void) | undefined;
+        try {
+            await coordinator.startScanCleanup({
+                ...ownerContext,
+                sourcePdfPath: '/source/delayed-receipt.pdf',
+                options: createScanCleanupOptions(),
+            });
+            journal.pending.add(path);
+            emit(completed);
+            await acknowledgement.promise;
+            expect(journal.pending.size).toBe(0);
+            expect(oldToast).not.toHaveBeenCalled();
+
+            dispose();
+            disposeReplacement = coordinator.installScanCleanupRunCoordinator(coordinatorDeps({
+                openGeneratedPdf: newViewer,
+                toast: {add: newToast},
+            }));
+            receipt.resolve();
+            await new Promise<void>(resolve => setImmediate(resolve));
+
+            expect(journal.acknowledged).toEqual([path]);
+            expect(newViewer).not.toHaveBeenCalled();
+            expect(newToast).not.toHaveBeenCalled();
+            expect(oldToast).not.toHaveBeenCalled();
+        } finally {
+            disposeReplacement?.();
+            dispose();
+            receipt.resolve();
+            await new Promise<void>(resolve => setImmediate(resolve));
         }
     });
 
@@ -1010,29 +1199,89 @@ describe('scan cleanup run coordinator', () => {
         }
     });
 
-    it('uses a non-navigating toast when the owning cleanup workspace is open', async () => {
-        const toastAdd = vi.fn();
-        capability.value = {
-            ...stubCapability(() => undefined, () => 'unused-job'),
-            start: vi.fn(),
-        };
+    it.each(['failed', 'canceled'] as const)('routes a %s run using the workspace visibility at the time of the toast', async status => {
+        const toastAdd = vi.fn<IFailureToastTarget['add']>();
+        let emit: (state: TScanCleanupJobState) => void = () => undefined;
+        let nextJob = 0;
+        capability.value = stubCapability(listener => { emit = listener; }, () => `visibility-${++nextJob}`);
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
-        const cleanup = coordinator.installScanCleanupRunCoordinator(coordinatorDeps({openGeneratedPdf: vi.fn(), openScanCleanupForDocument: vi.fn(), toast: {add: toastAdd}}));
+        const {useScanCleanupRunSession} = await import('@app/modules/scan-cleanup/composables/useScanCleanupRunSession');
+        const sourcePath = requireDocumentRef('/source/book.pdf');
+        const active = ref(true);
+        const app = createApp({
+            setup() {
+                useScanCleanupRunSession({
+                    active: () => active.value,
+                    authoritativeLayoutByPage: computed(() => new Map()),
+                    beforeRun: () => undefined,
+                    detectionError: ref(''),
+                    detectionErrorCode: ref(null),
+                    detectionPending: computed(() => false),
+                    detectionRecords: ref(new Map()),
+                    detectionStatus: computed(() => 'completed'),
+                    documentRevision: computed(() => ownerContext.documentRevision),
+                    documentSettingsReady: computed(() => true),
+                    onCompleted: () => undefined,
+                    ownerId: ownerContext.ownerId,
+                    placementAnchorsByPage: computed(() => new Map()),
+                    previewTotalPages: () => 1,
+                    refreshDetection: async () => undefined,
+                    resolvePagePlanEvidence: () => new Map(),
+                    settings: createScanCleanupOptions(),
+                    sourcePageNumbers: computed(() => null),
+                    sourcePath: computed(() => sourcePath),
+                    totalPages: computed(() => 1),
+                    waitForDetectionBeforeRun: async () => undefined,
+                });
+                return () => null;
+            },
+        });
+        app.mount(document.createElement('div'));
+        let mounted = true;
+        const unmount = () => {
+            mounted = false;
+            app.unmount();
+        };
+        const cleanup = coordinator.installScanCleanupRunCoordinator(coordinatorDeps({toast: {add: toastAdd}}));
         try {
-            coordinator.setScanCleanupWorkspaceOwnerOpen('open-owner', true);
+            const expectRouting = async (where: string, visible: boolean, changeVisibility?: () => void) => {
+                const {jobId} = await coordinator.startScanCleanup({
+                    ...ownerContext,
+                    sourcePdfPath: sourcePath,
+                    options: createScanCleanupOptions(),
+                });
+                const terminal = {
+                    jobId,
+                    progress: progress(),
+                    updatedAtMs: requireEpochMs(Date.now()),
+                };
+                toastAdd.mockClear();
+                changeVisibility?.();
+                emit(status === 'failed'
+                    ? {...terminal, status, error: 'page 17 has invalid geometry', errorCode: 'internal'}
+                    : {...terminal, status});
 
-            coordinator.reportScanCleanupRunError(
-                'open-owner',
-                'page 17 has invalid geometry',
-                '/source/book.pdf',
-            );
+                expect.soft(toastAdd, where).toHaveBeenCalledTimes(status === 'canceled' && visible ? 0 : 1);
+                const toast = toastAdd.mock.lastCall?.[0];
+                if (status === 'failed') {
+                    expect.soft(toast, where).toMatchObject({
+                        color: 'error',
+                        title: 'scanCleanup.failed',
+                        description: toastDescriptionContaining('page 17 has invalid geometry'),
+                    });
+                    expect.soft(toast?.actions?.some(action => action.label === 'scanCleanup.details'), where).toBe(!visible);
+                } else if (!visible) {
+                    expect.soft(toast, where).toMatchObject({color: 'info', title: 'scanCleanup.canceled'});
+                }
+            };
 
-            expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({
-                color: 'error',
-                title: 'scanCleanup.failed',
-                description: toastDescriptionContaining('page 17 has invalid geometry\nerrors.runtime.errorId: 01234567'),
-            }));
+            await expectRouting('visible workspace', true);
+            await expectRouting('same turn after hiding', false, () => { active.value = false; });
+            await expectRouting('same turn after showing', true, () => { active.value = true; });
+            await nextTick();
+            await expectRouting('after unmount while the active getter still returns true', false, unmount);
         } finally {
+            if (mounted) unmount();
             cleanup();
         }
     });
