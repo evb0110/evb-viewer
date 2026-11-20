@@ -508,7 +508,6 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         documentRevisionToken: file.documentRevisionToken,
         pdfError: file.pdfError,
         clearViews: () => views.forEachView((port) => {
-            port.view.totalPages.value = 0;
             port.view.pdfDocument.value = null;
             port.view.showSidebar.value = false;
             port.annotationTool.value = 'none';

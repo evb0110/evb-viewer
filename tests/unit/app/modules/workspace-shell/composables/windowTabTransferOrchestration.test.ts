@@ -144,7 +144,11 @@ describe('window tab transfer orchestration helpers', () => {
                 'right',
             ]) {
                 const view = useWorkspaceViewerShellState(null, createDocumentOpenSurfaceSession());
-                view.totalPages.value = 5;
+                view.djvuViewerRef.value = {
+                    getViewerContainer: () => null,
+                    scrollToPage: () => undefined,
+                    getPageCount: () => 5,
+                };
                 view.setSelectedThumbnailPages([tabId === 'left' ? 1 : 5]);
                 states.push(view);
                 const detach = context.views.attachView(cast<IDocumentViewPort>({

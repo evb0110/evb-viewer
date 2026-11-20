@@ -127,7 +127,7 @@ describe('buildWorkspaceCheckpointChangeSignature', () => {
         expect(afterDirty.tabSignatures.get('tab-b')).toBe(base.tabSignatures.get('tab-b'));
 
         setTestDocumentDirty(session, false);
-        const workspace = {} as IWorkspaceExpose;
+        const workspace = {getToolbarSnapshot: createDefaultWorkspaceToolbarSnapshot} as IWorkspaceExpose;
         session.attachWorkspace('tab-a', workspace);
         const afterMount = buildWorkspaceCheckpointChangeSignature(options);
         expect(afterMount.tabSignatures.get('tab-a')).not.toBe(base.tabSignatures.get('tab-a'));
@@ -158,7 +158,7 @@ describe('buildWorkspaceCheckpointChangeSignature', () => {
     it('tracks live document refs owned by a mounted workspace', () => {
         const options = createSignatureOptions();
         let originalPath: TDocumentRef | null = null;
-        const workspace = {} as IWorkspaceExpose;
+        const workspace = {getToolbarSnapshot: createDefaultWorkspaceToolbarSnapshot} as IWorkspaceExpose;
         workspace.getWorkspaceDocumentRefsSignature = () => [
             originalPath,
             null,
@@ -200,7 +200,7 @@ describe('buildWorkspaceCheckpointChangeSignature', () => {
 describe('buildWorkspaceCheckpoint', () => {
     it('fails closed when a mounted workspace snapshot cannot be captured', () => {
         const options = createSignatureOptions();
-        const workspace = {} as IWorkspaceExpose;
+        const workspace = {getToolbarSnapshot: createDefaultWorkspaceToolbarSnapshot} as IWorkspaceExpose;
         workspace.getAutomationStateSnapshot = () => {
             throw new Error('snapshot unavailable');
         };

@@ -341,7 +341,7 @@ export default {
             'loadingPage': 'Seite {page} wird geladen…',
             'refreshing': 'Vorschau wird aktualisiert…',
             'unavailable': 'Vorschau ist nicht verfügbar. Sie können die Bereinigung weiterhin durchführen.',
-            'canceledRepeatedly': 'Die Vorschau hat ihren Durchlauf wiederholt verloren, bevor er abgeschlossen werden konnte.',
+            'detailUnavailable': 'Die schärfere Detailansicht dieses Bereichs konnte nicht erstellt werden.',
             'retry': 'Erneut versuchen',
             'technicalDetails': 'Technische Details',
             'originalAlt': 'Originalscanvorschau für Seite {page}',

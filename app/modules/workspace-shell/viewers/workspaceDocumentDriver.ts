@@ -465,11 +465,8 @@ export interface IWorkspaceDocumentDriverBindingOptions {
     onDocumentUpdate: (value: unknown) => void;
     onInitialVisualReady: () => void;
     onLoadError: (error: unknown) => void;
-    onLoading: (value: boolean) => void;
     onShapeContextMenu: unknown;
     onSourceCapabilitiesUpdate: (capabilities: IDocumentSourceCapabilities) => void;
-    onPageSourceUpdate: (source: IDocumentPageSource | null) => void;
-    onTotalPagesUpdate: (value: number) => void;
 }
 
 export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDriverBindingOptions) => {
@@ -542,13 +539,10 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
     const activeViewerComponent = computed(() => options.activeDocumentDriver.value.view.component);
 
     const nativeViewerListeners = {
-        'update:totalPages': options.onTotalPagesUpdate,
         'update:document': options.onDocumentUpdate,
-        loading: options.onLoading,
         loadError: options.onLoadError,
         initialVisualReady: options.onInitialVisualReady,
         'update:sourceCapabilities': options.onSourceCapabilitiesUpdate,
-        'update:pageSource': options.onPageSourceUpdate,
     };
 
     const activeViewerListeners = computed<Record<string, unknown>>(() => {

@@ -341,7 +341,7 @@ export default {
             'loadingPage': 'Chargement de la page {page}…',
             'refreshing': 'Mise à jour de l\'aperçu…',
             'unavailable': 'L\'aperçu n\'est pas disponible. Vous pouvez toujours exécuter un nettoyage.',
-            'canceledRepeatedly': 'L\'aperçu a perdu son traitement à plusieurs reprises avant de pouvoir se terminer.',
+            'detailUnavailable': 'Le détail plus net de cette zone n\'a pas pu être généré.',
             'retry': 'Réessayer',
             'technicalDetails': 'Détails techniques',
             'originalAlt': 'Aperçu de la numérisation originale pour la page {page}',

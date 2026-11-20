@@ -253,7 +253,10 @@ onMounted(() => emit('ready'));
 // not: toolbar ownership is the shell's existing signal that this workspace is
 // the visible tab.
 const workspaceActive = computed(() => sourcePath !== null && toolbarActive);
-const previewPane = ref<{revealLatestFrame: (signal?: AbortSignal) => Promise<'published' | 'dropped'>;} | null>(null);
+const previewPane = ref<{
+    revealLatestFrame: (signal?: AbortSignal) => Promise<'published' | 'dropped'>;
+    scheduleDetailRequest: () => void;
+} | null>(null);
 const workspaceSession = useScanCleanupWorkspaceSession({
     // Losing the source ends the session: detection and preview cancel instead
     // of queueing IPC against a working copy the main process has already
@@ -357,6 +360,7 @@ const {
 const {
     clearDetail: clearPreviewDetail,
     error: previewError,
+    detailError: previewDetailError,
     detailResult: previewDetailResult,
     loading: previewLoading,
     metadataByPage: previewMetadataByPage,
@@ -432,6 +436,48 @@ watch([
         description: message,
     });
 }, {immediate: true});
+// A failed detail tile leaves the cleaned base on screen and usable, so it is
+// told once as a toast, not inside the preview. A newer demand, a rendered
+// tile or a closed source clears the failure and with it its toast, so fast
+// scrolling cannot stack them. Retry asks for the viewport on screen now.
+const toast = useToast();
+let toldDetailFailureId: string | null = null;
+function dismissDetailFailure() {
+    if (toldDetailFailureId !== null) toast.remove(toldDetailFailureId);
+    toldDetailFailureId = null;
+}
+watch(previewDetailError, (failure) => {
+    dismissDetailFailure();
+    if (!failure) {
+        return;
+    }
+    const told = {
+        title: t('scanCleanup.preview.detailUnavailable'),
+        description: failure.message,
+        actions: [{
+            label: t('scanCleanup.preview.retry'),
+            color: 'neutral' as const,
+            variant: 'outline' as const,
+            onClick: () => previewPane.value?.scheduleDetailRequest(),
+        }],
+    };
+    if (EXPECTED_DETECTION_REFUSALS.has(failure.code)) {
+        toldDetailFailureId = `scan-cleanup-detail-failure:${sourcePath}`;
+        presentNoticeToast({
+            ...told,
+            id: toldDetailFailureId,
+            tone: 'warning',
+        });
+        return;
+    }
+    const receipt = BrowserLogger.error('scan-cleanup', 'Scan cleanup detail preview failed', failure.message, {code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED'});
+    toldDetailFailureId = receipt.eventId;
+    presentFailureToast({
+        ...told,
+        failure: receipt,
+    });
+});
+onBeforeUnmount(dismissDetailFailure);
 const marginBoundaryVisible = ref(false);
 const {
     activity,

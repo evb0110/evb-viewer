@@ -1,4 +1,7 @@
-import type { ShallowRef } from 'vue';
+import type {
+    Ref,
+    ShallowRef,
+} from 'vue';
 import type { IPdfSemanticAnchor } from '@contracts/recentReadingView';
 import { isEqual } from 'es-toolkit/predicate';
 import {
@@ -16,10 +19,12 @@ import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/cre
  */
 export interface IWorkspaceDocumentView {
     readonly tabId: string;
-    readonly toolbarSnapshot: Readonly<ShallowRef<IWorkspaceToolbarSnapshot>>;
+    /** The mounted workspace's toolbar; an unmounted view shows the copy it retained. */
+    readonly toolbarSnapshot: Readonly<Ref<IWorkspaceToolbarSnapshot>>;
     readonly viewState: Readonly<ShallowRef<ITabViewSessionState>>;
     readonly readingAnchor: Readonly<ShallowRef<IPdfSemanticAnchor | null>>;
     readonly mountedWorkspace: Readonly<ShallowRef<IWorkspaceExpose | null>>;
+    /** Sets the toolbar an unmounted view shows: a checkpoint's or a remapped page's. */
     publishToolbarSnapshot(snapshot: IWorkspaceToolbarSnapshot): void;
     applyViewState(state: ITabViewSessionState, anchor?: IPdfSemanticAnchor | null): void;
     /**
@@ -57,10 +62,14 @@ export function createWorkspaceDocumentView(tabId: string, options: {
     /** A view of a document another view already shows starts from that view. */
     seed?: IWorkspaceDocumentViewSeed | undefined;
 }): IWorkspaceDocumentViewRecord {
-    const toolbarSnapshot = shallowRef(options.seed?.toolbarSnapshot ?? createDefaultWorkspaceToolbarSnapshot());
+    const retainedToolbarSnapshot = shallowRef(options.seed?.toolbarSnapshot ?? createDefaultWorkspaceToolbarSnapshot());
+    const mountedWorkspace = shallowRef<IWorkspaceExpose | null>(null);
+    const toolbarSnapshot = computed<IWorkspaceToolbarSnapshot>((previous) => {
+        const next = mountedWorkspace.value?.getToolbarSnapshot() ?? retainedToolbarSnapshot.value;
+        return previous && isEqual(previous, next) ? previous : next;
+    });
     const viewState = shallowRef(options.seed?.viewState ?? createTabViewSessionState(toolbarSnapshot.value));
     const readingAnchor = shallowRef<IPdfSemanticAnchor | null>(options.seed?.readingAnchor ?? null);
-    const mountedWorkspace = shallowRef<IWorkspaceExpose | null>(null);
     const mountWaiters = new Set<(workspace: IWorkspaceExpose | null) => void>();
     let retired = false;
     let restored = false;
@@ -73,9 +82,7 @@ export function createWorkspaceDocumentView(tabId: string, options: {
     }
 
     function publishToolbarSnapshot(next: IWorkspaceToolbarSnapshot) {
-        if (!isEqual(toolbarSnapshot.value, next)) {
-            toolbarSnapshot.value = next;
-        }
+        retainedToolbarSnapshot.value = next;
     }
 
     function applyViewState(state: ITabViewSessionState, anchor?: IPdfSemanticAnchor | null) {
@@ -132,6 +139,8 @@ export function createWorkspaceDocumentView(tabId: string, options: {
                 return false;
             }
             captureReadingAnchor();
+            // Taken while the workspace is still readable; the view shows it until its next mount.
+            retainedToolbarSnapshot.value = toolbarSnapshot.value;
             mountedWorkspace.value = null;
             return true;
         },

@@ -148,28 +148,13 @@ export function createScanCleanupPreviewPrefetcher<TRequest, TResult>(
  * and only ever applied while a preview is already rendering.
  */
 const SCAN_CLEANUP_PREVIEW_BURST_DEBOUNCE_MS = 600;
-// How many times a page may re-ask for a preview that answered `canceled`
-// before it stops. Two covers losing the run to a supersede and then to the
-// prefetch drop behind it; beyond that something is wrong that retrying will
-// not fix.
-const PREVIEW_CANCELLATION_RETRY_LIMIT = 2;
 const PREVIEW_METADATA_PAGE_CACHE_LIMIT = 256;
 
-type TScanCleanupDetailDiagnostic =
-    | {
-        kind: 'not-requested';
-        reason: 'ineligible' | 'missing-capability' | 'unsupported-output-mode'
-    }
-    | {
-        kind: 'bridge-null';
-        attempts: number
-    }
-    | {
-        kind: 'service-failure';
-        attempts: number;
-        message: string
-    }
-    | null;
+/** What a failed preview tells the user, and the code it failed with. */
+export interface IScanCleanupPreviewFailure {
+    message: string;
+    code: TScanCleanupErrorCode;
+}
 
 interface IUseScanCleanupPreviewSessionOptions {
     active: () => boolean;
@@ -344,7 +329,9 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     } | null>(null);
     const detailResult = computed(() => detail.value?.result ?? null);
     const detailLoading = ref(false);
-    const detailDiagnostic = ref<TScanCleanupDetailDiagnostic>(null);
+    // The failed detail demand for the viewport on screen; the base stays
+    // usable. Any newer demand, viewport or base clears it.
+    const detailError = ref<IScanCleanupPreviewFailure | null>(null);
     const loading = ref(false);
     const error = ref('');
     const errorCode = ref<TScanCleanupErrorCode | null>(null);
@@ -363,14 +350,9 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     let sequence = 0;
     let detailSequence = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
-    let detailRetryTimer: ReturnType<typeof setTimeout> | null = null;
     const unmounted = ref(false);
-    let detailRetriesRemaining = 0;
-    let detailAttemptCount = 0;
     let scheduledPage: number | null = null;
     let scheduledKey: string | null = null;
-    let cancellationRetryKey: string | null = null;
-    let cancellationRetries = 0;
     // A real source/revision lifecycle change retires this generation. A
     // guarded path-to-SHA identity promotion leaves it untouched so retained
     // rasters and in-flight preview work remain valid.
@@ -378,8 +360,8 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     let userPresentationGeneration = 0;
     let activeVisibleRequestId: TRequestId | null = null;
     // Keep the bounded in-flight window keyed by request. A page can have two
-    // attempts during a cancellation retry, so an array of page numbers would
-    // remove the wrong entry when the older attempt settles last.
+    // requests in flight when a navigation returns to it, so an array of page
+    // numbers would remove the wrong entry when the older one settles last.
     const inFlightPreviewPages = new Map<TRequestId, number>();
     const inFlightPreviewRequestIds = new Set<TRequestId>();
     // A base preview pushes its page's raster the moment it exists and leaves
@@ -758,17 +740,10 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         timer = null;
     }
 
-    function clearDetailRetry() {
-        if (detailRetryTimer !== null) clearTimeout(detailRetryTimer);
-        detailRetryTimer = null;
-    }
-
     function invalidateDetailRequest() {
         detailSequence += 1;
-        clearDetailRetry();
-        detailRetriesRemaining = 0;
         detailLoading.value = false;
-        detailDiagnostic.value = null;
+        detailError.value = null;
     }
 
     function clearDetail() {
@@ -858,7 +833,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     function schedule(immediate = false) {
         // Base-preview identity owns detail identity. Invalidate detail work
         // before the availability guard so source removal/deactivation cannot
-        // leave a retry or an older viewport render alive.
+        // leave an older viewport render or its failure alive.
         invalidateDetailRequest();
         if (!options.active() || !options.sourcePath.value) {
             return;
@@ -885,12 +860,6 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         // every page's work stale and keeps no window.
         const navigated = scheduledPage !== null
             && scheduledKey === cacheKey(scheduledPage, requestOptions, requestSourcePath);
-        // Turning to another page starts a new attempt at whatever page the
-        // user lands on, including the one that gave up earlier.
-        if (scheduledPage !== requestPage) {
-            cancellationRetryKey = null;
-            cancellationRetries = 0;
-        }
         scheduledPage = requestPage;
         scheduledKey = key;
         const activeDetailOutputMode = resolveDetailOutputMode(requestPage);
@@ -982,34 +951,13 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                     ...pageRequest(requestId, requestPage, requestOptions, requestSourcePath, resolvedPlacementAnchors),
                     visible: true,
                 }))), requestId);
-                // A cancelled request has no result to keep or display. When the
-                // page it was rendering is still the page the user is on, the
-                // run was retired by something that has since finished — a
-                // superseded generation, a prefetch whose lease was dropped —
-                // so the page is asked for again instead of being left on a
-                // spinner that nothing will ever answer. The budget is per key,
-                // so a page that keeps losing its run stops rather than looping.
+                // A canceled request has no result. The owner keeps the
+                // visible page's run through supersession, so it cancels one
+                // only for a newer request or a closed source, and each of
+                // those brings its own successor.
                 if (previewResult === null) {
-                    if (requestSequence === sequence) {
-                        if (cancellationRetryKey !== key) {
-                            cancellationRetryKey = key;
-                            cancellationRetries = 0;
-                        }
-                        if (cancellationRetries < PREVIEW_CANCELLATION_RETRY_LIMIT) {
-                            cancellationRetries += 1;
-                            timer = setTimeout(schedule, 0);
-                            return;
-                        }
-                        // Out of budget. Saying so puts the page on the same
-                        // recoverable footing a failed render has — the error
-                        // surface carries a Retry — instead of leaving a blank
-                        // frame that nothing will ever fill.
-                        error.value = t('scanCleanup.preview.canceledRepeatedly');
-                        errorCode.value = 'canceled';
-                    }
                     return;
                 }
-                cancellationRetryKey = null;
                 // Cached before the staleness check: the key names the page and
                 // the options that produced this result, so a preview that
                 // outlived the navigation that asked for it is still exactly
@@ -1025,22 +973,9 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 if (requestSequence !== sequence || (caught instanceof Error && caught.name === 'AbortError')) {
                     return;
                 }
-                const envelope = findSerializableErrorEnvelope(caught, SCAN_CLEANUP_ERROR_ENVELOPE_SCHEMA);
-                if (envelope) {
-                    error.value = formatScanCleanupErrorByCode(
-                        i18n,
-                        envelope.code,
-                        envelope.message,
-                        envelope.details?.scratchShortfall,
-                    );
-                    errorCode.value = envelope.code;
-                } else {
-                    error.value = caught instanceof Error
-                        && !getErrorMessage(caught).includes(SERIALIZABLE_ERROR_PREFIX)
-                        ? formatScanCleanupErrorByCode(i18n, 'internal', caught)
-                        : t('scanCleanup.preview.unavailable');
-                    errorCode.value = 'internal';
-                }
+                const failure = describePreviewFailure(caught);
+                error.value = failure.message;
+                errorCode.value = failure.code;
             } finally {
                 if (requestSequence === sequence) loading.value = false;
             }
@@ -1095,47 +1030,40 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         });
     }
 
-    function scheduleDetailRetry(
-        viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'],
-        requestSequence: number,
-    ) {
-        if (requestSequence !== detailSequence || detailRetriesRemaining <= 0) {
-            return;
+    function describePreviewFailure(caught: unknown): IScanCleanupPreviewFailure {
+        const envelope = findSerializableErrorEnvelope(caught, SCAN_CLEANUP_ERROR_ENVELOPE_SCHEMA);
+        if (envelope) {
+            return {
+                message: formatScanCleanupErrorByCode(
+                    i18n,
+                    envelope.code,
+                    envelope.message,
+                    envelope.details?.scratchShortfall,
+                ),
+                code: envelope.code,
+            };
         }
-        detailRetriesRemaining -= 1;
-        detailRetryTimer = setTimeout(() => {
-            detailRetryTimer = null;
-            void requestDetail(viewports, true);
-        }, 1_000);
+        return {
+            message: caught instanceof Error && !getErrorMessage(caught).includes(SERIALIZABLE_ERROR_PREFIX)
+                ? formatScanCleanupErrorByCode(i18n, 'internal', caught)
+                : t('scanCleanup.preview.unavailable'),
+            code: 'internal',
+        };
     }
 
     async function requestDetail(
         viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'],
-        isRetry = false,
     ) {
+        // A new demand replaces whatever the last one ended with.
+        detailError.value = null;
+        const capability = getScanCleanupCapability();
         if (
             !options.active()
             || !options.sourcePath.value
             || options.settings.preserveOriginalQuality
             || !resultCurrent.value
+            || !capability
         ) {
-            detailDiagnostic.value = {
-                kind: 'not-requested',
-                reason: 'ineligible',
-            };
-            return;
-        }
-        if (!isRetry) {
-            clearDetailRetry();
-            detailRetriesRemaining = 2;
-            detailDiagnostic.value = null;
-        }
-        const capability = getScanCleanupCapability();
-        if (!capability) {
-            detailDiagnostic.value = {
-                kind: 'not-requested',
-                reason: 'missing-capability',
-            };
             return;
         }
         prefetcher.supersede();
@@ -1145,10 +1073,6 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         const outputMode = resolveDetailOutputMode(requestPage);
         if (outputMode === undefined) {
             detailLoading.value = false;
-            detailDiagnostic.value = {
-                kind: 'not-requested',
-                reason: 'unsupported-output-mode',
-            };
             return;
         }
         const baseKey = cacheKey(requestPage, requestOptions, requestSourcePath);
@@ -1164,8 +1088,6 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         if (cached) {
             return;
         }
-        if (!isRetry) detailAttemptCount = 0;
-        detailAttemptCount += 1;
         try {
             // The same page inputs its base was rendered with, so the detail
             // refines that base rather than missing it.
@@ -1181,18 +1103,9 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             if (requestSequence !== detailSequence || baseKey !== cacheKey()) {
                 return;
             }
-            // A cancelled tile has no result; the viewport is stationary, so it
-            // takes the same bounded retry a failed one does rather than
-            // waiting for a gesture that is not coming.
+            // A canceled tile was retired by the owner for newer work, which
+            // asks for its own tile.
             if (next === null) {
-                if (detailRetriesRemaining > 0) {
-                    scheduleDetailRetry(viewports, requestSequence);
-                } else {
-                    detailDiagnostic.value = {
-                        kind: 'bridge-null',
-                        attempts: detailAttemptCount,
-                    };
-                }
                 return;
             }
             detailSourceCache.set(tileKey, next);
@@ -1204,13 +1117,6 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             const normalizedMessage = caught instanceof Error
                 ? stripIpcInvocationPrefix(getErrorMessage(caught))
                 : '';
-            if (detailRetriesRemaining <= 0 && !(caught instanceof Error && caught.name === 'AbortError')) {
-                detailDiagnostic.value = {
-                    kind: 'service-failure',
-                    attempts: detailAttemptCount,
-                    message: (normalizedMessage || 'Unknown detail failure').slice(0, 256),
-                };
-            }
             if (
                 normalizedMessage.startsWith('Scan cleanup detail geometry is unavailable')
             ) {
@@ -1218,10 +1124,15 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 schedule();
                 return;
             }
-            // A failed detail render retries on its own: the viewport is
-            // stationary, so no user gesture would otherwise re-request it.
-            if (!(caught instanceof Error && caught.name === 'AbortError')) {
-                scheduleDetailRetry(viewports, requestSequence);
+            // A real failure leaves the loaded base usable; the workspace tells
+            // it once, and its Retry asks for the viewport again.
+            if (
+                requestSequence === detailSequence
+                && baseKey === cacheKey()
+                && !(caught instanceof Error && caught.name === 'AbortError')
+            ) {
+                const failure = describePreviewFailure(caught);
+                if (failure.code !== 'canceled') detailError.value = failure;
             }
         } finally {
             if (requestSequence === detailSequence) {
@@ -1231,10 +1142,6 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     }
 
     function retry() {
-        // The user asking again is a fresh start: the budget that gave up is
-        // theirs to spend again.
-        cancellationRetryKey = null;
-        cancellationRetries = 0;
         userPresentationGeneration += 1;
         cache.delete(cacheKey(options.previewPage.value));
         schedule();
@@ -1275,8 +1182,6 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         // left is what the retired document had published.
         cancel();
         lifecycleGeneration.value += 1;
-        cancellationRetryKey = null;
-        cancellationRetries = 0;
         error.value = '';
         errorCode.value = null;
         cache.clear();
@@ -1323,8 +1228,8 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         error,
         errorCode,
         frame,
+        detailError,
         detailLoading,
-        detailDiagnostic,
         detailResult,
         loading,
         metadataByPage,

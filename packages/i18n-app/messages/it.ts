@@ -341,7 +341,7 @@ export default {
             'loadingPage': 'Caricamento pagina {page}…',
             'refreshing': 'Aggiornamento dell\'anteprima…',
             'unavailable': 'L\'anteprima non è disponibile. È ancora possibile eseguire la pulizia.',
-            'canceledRepeatedly': 'L\'anteprima ha perso più volte la sua elaborazione prima di poter terminare.',
+            'detailUnavailable': 'Non è stato possibile generare il dettaglio più nitido di quest\'area.',
             'retry': 'Riprova',
             'technicalDetails': 'Dettagli tecnici',
             'originalAlt': 'Anteprima della scansione originale per la pagina {page}',
