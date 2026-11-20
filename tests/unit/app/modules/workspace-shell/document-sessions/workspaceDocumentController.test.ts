@@ -14,6 +14,7 @@ import {
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import { requireEpochMs } from '@contracts/timestamps';
 import type { ITab } from '@app/types/tabs';
+import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import {
     createWorkspaceDocumentController,
     describeTabDocument,
@@ -265,6 +266,31 @@ describe('workspace document controller views', () => {
         expect(await view.whenMounted()).toBeNull();
         controller.attachWorkspace('tab-2', workspace);
         expect(view.mountedWorkspace.value).toBeNull();
+    });
+
+    it('shows its mounted workspace toolbar live and keeps the last one while unmounted', () => {
+        const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
+        const view = controller.getView('tab-1')!;
+        const toolbar = ref({
+            ...createDefaultWorkspaceToolbarSnapshot(),
+            hasPdf: true,
+            currentPage: 2,
+            totalPages: 4,
+        });
+        const workspace = createWorkspaceExposeFixture({getToolbarSnapshot: () => toolbar.value});
+        controller.attachWorkspace('tab-1', workspace);
+        expect(view.toolbarSnapshot.value).toMatchObject({hasPdf: true, currentPage: 2});
+
+        toolbar.value = {...toolbar.value, currentPage: 3};
+        expect(view.toolbarSnapshot.value.currentPage).toBe(3);
+
+        controller.detachWorkspace('tab-1', workspace);
+        toolbar.value = createDefaultWorkspaceToolbarSnapshot();
+        expect(view.toolbarSnapshot.value).toMatchObject({hasPdf: true, currentPage: 3});
+
+        // Mounted again after its document closed, the view shows Start's toolbar.
+        controller.attachWorkspace('tab-1', workspace);
+        expect(view.toolbarSnapshot.value.hasPdf).toBe(false);
     });
 
     it('answers a pending mount waiter of a removed, never-mounted view with null', async () => {

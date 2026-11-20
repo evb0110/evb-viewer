@@ -30,18 +30,27 @@ import {
 
 const LEGACY_SELECTION_MATERIALIZATION_LIMIT = 100_000;
 
+/** The mounted chassis, whose source, page count and loading the shell reads live. */
+interface IMountedDocumentViewer extends IDocumentViewerExpose {
+    getPageSource?: () => IDocumentPageSource | null;
+    getPageCount?: () => number;
+    isDocumentLoading?: () => boolean;
+}
+
 /**
  * One view's presentation in the shell. Its page is the page its open
- * surface reports; the shell sends navigation and restores through that
- * surface and keeps no page of its own.
+ * surface reports, and its source, page count and loading are its mounted
+ * viewer's; the shell keeps no copy of them.
  */
 export const useWorkspaceViewerShellState = (
     initialState: ITabViewSessionState | null | undefined,
     openSurface: Pick<IDocumentOpenSurfaceSession, 'viewportSession'>,
+    /** The count the shell shows of the viewer's, given the last one it showed. */
+    admitPageCount: (count: number, previous: number) => number = count => count,
 ) => {
     const pdfViewerRef = ref<IPdfViewerExpose | null>(null);
-    const djvuViewerRef = ref<IDocumentViewerExpose | null>(null);
-    const documentViewerRef = computed<IDocumentViewerExpose | null>(() => (
+    const djvuViewerRef = ref<IMountedDocumentViewer | null>(null);
+    const documentViewerRef = computed<IMountedDocumentViewer | null>(() => (
         pdfViewerRef.value ?? djvuViewerRef.value
     ));
     const zoomDropdownOpen = ref(false);
@@ -134,29 +143,21 @@ export const useWorkspaceViewerShellState = (
     const viewMode = ref<TPdfViewMode>(initialState?.viewMode ?? 'single');
     const viewRotation = ref<TPdfViewRotation>(initialState?.viewRotation ?? 0);
     const currentPage = computed(() => resolveDocumentViewportCurrentPage(openSurface.viewportSession.value));
-    const pageCount = ref(0);
-    /** The view's page count; a new count keeps the selected pages that still exist. */
-    const totalPages = computed({
-        get: () => pageCount.value,
-        set: (count: number) => {
-            if (count === pageCount.value) {
-                return;
-            }
-            pageCount.value = count;
-            if (selectedPageSelection.value?.pageCount === count) {
-                return;
-            }
-            const pages = selectedThumbnailPages.value.filter(page => page >= 1 && page <= count);
-            selectedPageSelection.value = createExplicitPageSelection(count, pages);
-            if (pages.length !== selectedThumbnailPages.value.length) {
-                setSelectedThumbnailPages(pages);
-            }
-        },
-    });
+    const totalPages = computed<number>(previous => admitPageCount(documentViewerRef.value?.getPageCount?.() ?? 0, previous ?? 0));
+    // A new count keeps the selected pages that still exist.
+    watch(totalPages, (count) => {
+        if (selectedPageSelection.value?.pageCount === count) {
+            return;
+        }
+        const pages = selectedThumbnailPages.value.filter(page => page >= 1 && page <= count);
+        selectedPageSelection.value = createExplicitPageSelection(count, pages);
+        if (pages.length !== selectedThumbnailPages.value.length) {
+            setSelectedThumbnailPages(pages);
+        }
+    }, {flush: 'sync'});
     const pdfDocument = shallowRef<IPdfDocument | null>(null);
-    const documentPageSource = shallowRef<IDocumentPageSource | null>(null);
-
-    const isLoading = ref(false);
+    const documentPageSource = computed(() => documentViewerRef.value?.getPageSource?.() ?? null);
+    const isLoading = computed(() => documentViewerRef.value?.isDocumentLoading?.() ?? false);
     // Default to text selection so reopened annotations remain immediately
     // discoverable and interactable without an extra mode switch.
     const dragMode = ref(false);

@@ -6,7 +6,7 @@ import {
     vi,
 } from 'vitest';
 import {
-    computed, ref, 
+    computed, ref, watch,
 } from 'vue';
 import { requireDocumentRef } from '@contracts/documentRef';
 import {
@@ -962,7 +962,8 @@ describe('PdfDocumentSession residency across views', () => {
         await session.load();
 
         const loading: boolean[] = [];
-        const lateView = session.attachView({emitLoading: value => loading.push(value)});
+        const lateView = session.attachView();
+        watch(lateView.isViewLoading, value => loading.push(value), {immediate: true});
         lateView.present();
         await vi.waitFor(() => expect(loading).toEqual([
             false,

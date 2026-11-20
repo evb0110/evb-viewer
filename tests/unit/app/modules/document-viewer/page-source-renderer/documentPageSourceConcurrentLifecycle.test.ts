@@ -10,12 +10,14 @@ import {
     vi,
 } from 'vitest';
 import {
+    computed,
     createApp,
     defineComponent,
     h,
     nextTick,
     provide,
     ref,
+    shallowRef,
     watch,
     type Ref,
 } from 'vue';
@@ -100,7 +102,9 @@ function createFeaturePackHost(
         setup() {
             const authority = createDocumentViewerRuntime(ref('djvu'), surface);
             const totalPages = ref(0);
-            const isLoading = ref(false);
+            const featurePack = shallowRef<{isDocumentLoading?: () => boolean} | null>(null);
+            // The shell reads the renderer's loading live from what it exposes.
+            const isLoading = computed(() => featurePack.value?.isDocumentLoading?.() ?? false);
             const settle = useDocumentOpenVisualSettle({
                 pdfSrc: ref(null),
                 pdfDocument: ref(null),
@@ -139,9 +143,7 @@ function createFeaturePackHost(
                         isActive: isActive.value,
                         isResizing: isResizing.value,
                         onLoadError: (error: unknown) => loadErrors.value.push(error),
-                        onLoading: (loading: boolean) => {
-                            isLoading.value = loading;
-                        },
+                        ref: featurePack,
                         'onUpdate:totalPages': (pageCount: number) => {
                             totalPages.value = pageCount;
                         },

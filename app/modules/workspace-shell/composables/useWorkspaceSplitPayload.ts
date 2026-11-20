@@ -381,13 +381,6 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
 
         if (isDjvuSplitPayload(payload) && DJVU_VIEWER_ADAPTER.capabilities.sidebar) {
             const pageToRestore = normalizeSplitPayloadPage(payload.currentPage);
-            if (payload.totalPages && Number.isFinite(payload.totalPages)) {
-                view.view.totalPages.value = Math.max(
-                    view.view.totalPages.value,
-                    Math.floor(payload.totalPages),
-                    pageToRestore ?? 1,
-                );
-            }
             const outcome = await options.openFileWithViewerLifecycle({
                 kind: 'djvu',
                 workingPath: '',
@@ -411,9 +404,6 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
             return {status: 'cancelled'};
         }
         const pageToRestore = normalizeSplitPayloadPage(payload.currentPage);
-        if (payload.totalPages && Number.isFinite(payload.totalPages)) {
-            view.view.totalPages.value = Math.max(view.view.totalPages.value, Math.floor(payload.totalPages));
-        }
         const restorePageWaiter = pageToRestore && pageToRestore > 1
             ? options.prepareViewReload(view, pageToRestore)
             : null;

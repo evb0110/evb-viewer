@@ -5,7 +5,6 @@ import type { TDocumentContext } from '@app/modules/workspace-shell/documentCont
 import type { TDocumentViewContext } from '@app/modules/workspace-shell/documentViewContext';
 import { useDocumentOpenedAutomationEvent } from '@app/modules/workspace-shell/automation/useDocumentOpenedAutomationEvent';
 import { useDocumentOpenVisualSettle } from '@app/modules/workspace-shell/composables/useDocumentOpenVisualSettle';
-import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { useDocumentWorkspaceRestoreState } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceRestoreState';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSidebarOpenGeneration } from '@app/modules/workspace-shell/composables/useWorkspaceSidebarOpenGeneration';
@@ -69,13 +68,6 @@ export const useWorkspacePresentation = (
         toolbarHasPdf.value && capabilities.value?.sidebar === true && !toolbarDocumentBusy.value
     ));
 
-    watch(document.driver.activeDocumentDriver, (adapter) => {
-        if (!adapter) {
-            logPdfRenderTrace('workspace-page-session-adapter-reset', {currentPageBefore: view.currentPage.value});
-            view.totalPages.value = 0;
-            view.isLoading.value = false;
-        }
-    });
     const {
         documentOpenAccepted,
         documentOpenSettled,

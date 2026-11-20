@@ -104,7 +104,10 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         pdfSrc,
     } = file;
     // What this view shows of the document: its page, zoom, panels and selection.
-    const view = useWorkspaceViewerShellState(initialViewState, openSurface);
+    // A source being replaced reports no pages before its successor counts them.
+    const view = useWorkspaceViewerShellState(initialViewState, openSurface, (count, previous) => (
+        !driver.activeDocumentDriver.value ? 0 : count === 0 && (pdfSrc.value ?? file.djvuSourcePath.value) ? previous : count
+    ));
     const {
         pdfViewerRef,
         documentViewerRef,
@@ -519,18 +522,10 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
             onDocumentUpdate: (value) => { pdfDocument.value = value as typeof pdfDocument.value; },
             onInitialVisualReady: options.onInitialVisualReady,
             onLoadError: handleLoadError,
-            onLoading: (value) => { view.isLoading.value = value; },
             onShapeContextMenu: annotationActions.handleShapeContextMenu,
             onSourceCapabilitiesUpdate: (capabilities) => {
                 if (driver.activeDocumentDriver.value) {
                     document.sourceCapabilities.value = capabilities;
-                }
-            },
-            onPageSourceUpdate: (source) => { view.documentPageSource.value = source; },
-            onTotalPagesUpdate: (value) => {
-                // A source being replaced reports no pages before its successor counts them.
-                if ((driver.activeDocumentDriver.value || value === 0) && !(value === 0 && pdfSrc.value)) {
-                    totalPages.value = value;
                 }
             },
         });

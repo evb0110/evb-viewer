@@ -55,7 +55,6 @@ export interface IPdfViewerProps {
 export interface IPdfViewerEmit {
     (e: 'update:totalPages', total: number): void;
     (e: 'update:document', document: IPdfDocument | null): void;
-    (e: 'loading', loading: boolean): void;
     (e: 'load-error', error: unknown): void;
     (e: 'annotation-state', state: IAnnotationEditorState): void;
     (e: 'annotation-modified', payload?: IAnnotationModifiedPayload): void;
