@@ -149,7 +149,6 @@ export interface IAttachPdfDocumentViewOptions {
     isActive?: ComputedRef<boolean> | undefined;
     emitDocument?: ((document: IPdfDocument | null) => void) | undefined;
     emitTotalPages?: ((total: number) => void) | undefined;
-    emitLoading?: ((loading: boolean) => void) | undefined;
     emitLoadError?: ((error: unknown) => void) | undefined;
     /**
      * Pages whose shared geometry a rotation preview or a staged rotation
@@ -1821,8 +1820,6 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 src: options.src,
             });
         }
-        const isEffectivelyLoading = computed(() => Boolean(options.src?.value) && (isLoading.value || presenting.value));
-        watch(isEffectivelyLoading, value => viewOptions.emitLoading?.(value), { immediate: true });
         if (getCurrentInstance()) {
             onMounted(present);
         }
@@ -1841,6 +1838,8 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             get openSurfaceRevision() {
                 return activeDocumentRevision ?? '';
             },
+            /** The document loads or this view is still presenting it. */
+            isViewLoading: computed(() => Boolean(options.src?.value) && (isLoading.value || presenting.value)),
             captureFence,
             isCurrent,
             subscribe(subscriber: TPdfDocumentTransitionSubscriber) {

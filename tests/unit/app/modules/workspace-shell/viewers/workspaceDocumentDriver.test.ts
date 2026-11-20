@@ -116,7 +116,6 @@ function createBindingHarness() {
     const isRenderActive = ref(false);
     const isWorkspaceLayoutResizing = ref(false);
     const onAnnotationFailure = vi.fn();
-    const onPageSourceUpdate = vi.fn();
     const onSourceCapabilitiesUpdate = vi.fn();
     const documentRevisionToken = ref<TDocumentRevisionToken | null>(null);
     const owner = useWorkspaceViewerShellState(null, createDocumentOpenSurfaceSession());
@@ -130,7 +129,6 @@ function createBindingHarness() {
         isInteractionActive,
         isRenderActive,
         isWorkspaceLayoutResizing,
-        onPageSourceUpdate,
         onSourceCapabilitiesUpdate,
         pdfSrc: ref<TPdfSource>({
             kind: 'path' as const,
@@ -162,7 +160,6 @@ function createBindingHarness() {
         isInteractionActive,
         isRenderActive,
         isWorkspaceLayoutResizing,
-        onPageSourceUpdate,
         onSourceCapabilitiesUpdate,
         pdfViewerRef,
     };
@@ -560,7 +557,6 @@ describe('WorkspaceDocumentDriver', () => {
         expect(harness.pdfViewerRef.value).toBeNull();
         expect(harness.djvuViewerRef.value).toBe(djvuViewer);
         expect(harness.binding.activeViewerProps.value).toHaveProperty('searchResults');
-        expect(harness.binding.activeViewerListeners.value['update:pageSource']).toBe(harness.onPageSourceUpdate);
         expect(harness.binding.activeViewerListeners.value['update:sourceCapabilities']).toBe(harness.onSourceCapabilitiesUpdate);
     });
 

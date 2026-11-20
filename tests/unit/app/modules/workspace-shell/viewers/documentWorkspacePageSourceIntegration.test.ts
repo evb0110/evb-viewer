@@ -10,6 +10,7 @@ import {
     vi,
 } from 'vitest';
 import {
+    computed,
     createApp,
     defineComponent,
     h,
@@ -114,19 +115,19 @@ function mountWorkspaceChain(
     document.body.append(host);
     const cleanupOpen = shallowRef(openInitially);
     const isResizing = shallowRef(false);
-    const pageSource = shallowRef<IDocumentPageSource | null>(null);
+    const chassis = shallowRef<{getPageSource?: () => IDocumentPageSource | null} | null>(null);
+    // The workspace reads the source a feature pack binds to the chassis live.
+    const pageSource = computed(() => chassis.value?.getPageSource?.() ?? null);
     const Root = defineComponent({setup() {
         provide(documentOpenSurfaceSessionKey, createDocumentOpenSurfaceSession());
         return () => h('div', [
             h(DocumentViewerChassis, {
+                ref: chassis,
                 sourceKind: 'pdf',
                 isResizing: isResizing.value,
                 rendererKind,
                 bindDelayMs: 25,
                 testSource: source,
-                'onUpdate:pageSource': (value: IDocumentPageSource | null) => {
-                    pageSource.value = value;
-                },
             }),
             h('span', {'data-workspace-source-ready': pageSource.value ? 'true' : 'false'}),
             cleanupOpen.value

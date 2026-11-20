@@ -83,7 +83,6 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
     let checkingOpenSource = false;
     const recent = useRecentFiles();
 
-    watch(options.toolbarSnapshot, toolbar => view.publishToolbarSnapshot(toolbar), {immediate: true});
     watch(options.openBatchProgress, (progress) => {
         session.setOpeningLabel(progress && progress.total > 0
             ? options.formatBatchLabel({

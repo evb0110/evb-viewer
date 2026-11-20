@@ -112,7 +112,6 @@ export const usePdfViewerFeatureController = (
         isActive,
         emitDocument: document => emit('update:document', document),
         emitTotalPages: total => emit('update:totalPages', total),
-        emitLoading: loading => emit('loading', loading),
         emitLoadError: error => emit('load-error', error),
         onPageRotationGeometry: (pages, rotationDelta) => {
             if (rotationDelta === null) {
@@ -503,6 +502,6 @@ export const usePdfViewerFeatureController = (
         isViewerLoadingOverlayVisible: renderViewModel.isViewerLoadingOverlayVisible,
         handleLinkDestination: viewportSession.handleLinkDestination,
         handleViewerContainerRef: viewportSession.handleViewerContainerRef,
-        pdfViewerPublicApi: Object.assign(pdfViewerPublicApi, regionSnip.captureApi),
+        pdfViewerPublicApi: Object.assign(pdfViewerPublicApi, regionSnip.captureApi, {isDocumentLoading: () => documentSession.isViewLoading.value}),
     };
 };

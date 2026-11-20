@@ -1,4 +1,7 @@
-import type { ComponentPublicInstance } from 'vue';
+import type {
+    ComponentPublicInstance,
+    Ref,
+} from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
@@ -183,7 +186,6 @@ export type TDocumentPageSourceRuntimeProps = Required<Pick<
 export interface IDocumentPageSourceFeaturePackEmit {
     (event: 'update:totalPages', value: number): void;
     (event: 'update:sourceCapabilities', value: IDocumentSourceCapabilities): void;
-    (event: 'loading', value: boolean): void;
     (event: 'loadError', value: unknown): void;
     (event: 'initial-visual-ready', value: {pageNumber: number;}): void;
 }
@@ -192,6 +194,7 @@ export async function openDocumentPageSource(
     context: {
         chassisAuthority: IDocumentViewerRuntime | null;
         emit: IDocumentPageSourceFeaturePackEmit;
+        isLoading: Ref<boolean>;
         commitPageTerminalError: (pageNumber: number, cause?: unknown) => string;
         createPageFailureError: (pageNumber: number, message?: string) => Error;
         ensureExactPageMetric: (
@@ -295,7 +298,7 @@ export async function openDocumentPageSource(
         if (!transition.isCurrent()) {
             return false;
         }
-        context.emit('loading', false);
+        context.isLoading.value = false;
         context.positionPage(initialPage);
         if (!transition.isCurrent()) {
             return false;
@@ -407,7 +410,7 @@ export async function openDocumentPageSource(
         return true;
     } catch (error) {
         if (transition.isCurrent() && !(error instanceof DOMException && error.name === 'AbortError')) {
-            context.emit('loading', false);
+            context.isLoading.value = false;
             const pageNumber = Math.max(1, Math.trunc(context.readCurrentPage()));
             const message = context.commitPageTerminalError(pageNumber, error);
             context.emit('loadError', error instanceof Error

@@ -36,9 +36,7 @@ import { buildAgentWorkspaceSnapshot } from '@app/modules/workspace-shell/agent/
 import { useAgentWorkspaceSnapshot } from '@app/modules/workspace-shell/composables/useAgentWorkspaceSnapshot';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
-import type {
-    IWorkspaceExpose, IWorkspaceToolbarSnapshot,  
-} from '@app/types/workspaceExpose';
+import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { ITab } from '@app/types/tabs';
 import type { IRecentFile } from '@contracts/shared';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
@@ -101,7 +99,6 @@ function createDocumentSession(tabId: string, options: {
     path: string;
     identity?: IDocumentRevisionInfo | null;
     isDjvu?: boolean;
-    toolbar?: Partial<IWorkspaceToolbarSnapshot>;
     workspace?: IWorkspaceExpose | null;
 }) {
     const session = createWorkspaceDocumentController({tabId});
@@ -117,7 +114,6 @@ function createDocumentSession(tabId: string, options: {
         hasPdf: true,
         currentPage: 1,
         totalPages: 3,
-        ...options.toolbar,
     });
     if (options.workspace) {
         session.attachWorkspace(tabId, options.workspace);
@@ -318,11 +314,11 @@ describe('buildAgentWorkspaceSnapshot', () => {
         }]);
         const pdfSession = createDocumentSession('tab-pdf', {
             path: '/tmp/Grammar.pdf',
-            toolbar: {
+            workspace: createWorkspace({
+                hasPdf: true,
                 currentPage: 12,
                 totalPages: 80,
-            },
-            workspace: createWorkspace({}),
+            }),
         });
         const imageSession = createWorkspaceDocumentController({
             tabId: 'tab-image',
@@ -339,13 +335,11 @@ describe('buildAgentWorkspaceSnapshot', () => {
                 path: '/tmp/Reader.djvu',
                 identity: null,
                 isDjvu: true,
-                toolbar: {
-                    hasPdf: false,
+                workspace: createWorkspace({
                     isDjvuMode: true,
                     currentPage: 3,
                     totalPages: 9,
-                },
-                workspace: createWorkspace({}),
+                }),
             }),
             'tab-image': imageSession,
         });

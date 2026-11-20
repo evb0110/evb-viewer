@@ -180,20 +180,24 @@ describe('buildWorkspaceCheckpoint', () => {
             'tab-1',
             'tab-2',
         ].forEach((tabId, index) => {
+            const toolbar = {
+                ...createDefaultWorkspaceToolbarSnapshot(),
+                hasPdf: true,
+                totalPages: 6,
+                currentPage: index === 0 ? 2 : 5,
+            };
+            // A mounted view's toolbar is its workspace's; another view shows the copy it retained.
             if (options.mountedTabIds.includes(tabId)) {
                 session.attachWorkspace(tabId, createWorkspaceExposeFixture({
                     getAutomationStateSnapshot: () => cast({
                         originalPath,
                         workingCopyPath: workingCopyRef,
                     }),
+                    getToolbarSnapshot: () => toolbar,
                 }));
+            } else {
+                session.getView(tabId)!.publishToolbarSnapshot(toolbar);
             }
-            session.getView(tabId)!.publishToolbarSnapshot({
-                ...createDefaultWorkspaceToolbarSnapshot(),
-                hasPdf: true,
-                totalPages: 6,
-                currentPage: index === 0 ? 2 : 5,
-            });
         });
         const left = requirePaneId('pane-1');
         const right = requirePaneId('pane-2');
