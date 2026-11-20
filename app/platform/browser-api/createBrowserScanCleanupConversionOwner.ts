@@ -65,6 +65,9 @@ export function createBrowserScanCleanupConversionOwner(
     detection: ReturnType<typeof createBrowserScanCleanupDetectionOwner>,
 ) {
     const listeners = new Set<TJobListener>();
+    const announce: TJobListener = event => {
+        for (const listener of [...listeners]) listener(event);
+    };
     const sourceByJob = new Map<string, {
         ref: string;
         owner: IScanCleanupOwnerContext
@@ -108,9 +111,8 @@ export function createBrowserScanCleanupConversionOwner(
             updatedAtMs: createEpochMs(),
         }),
         cancelable: latest => latest.status !== 'committing',
-        onState: state => {
-            for (const listener of [...listeners]) listener(state);
-        },
+        onState: announce,
+        onRetired: announce,
     });
 
     const run = async (

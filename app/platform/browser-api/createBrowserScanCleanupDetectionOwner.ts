@@ -98,6 +98,9 @@ export function createBrowserScanCleanupDetectionOwner() {
             }),
         },
         onState: deliver,
+        onRetired: closure => {
+            for (const listener of [...listeners]) listener(closure);
+        },
     });
     const active = new Map<string, IActiveDetection>();
     const calibrations = createScanCleanupPlacementAnchorCalibrations();

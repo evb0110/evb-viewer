@@ -72,6 +72,8 @@ export type TMainJobSnapshot<TProgress, TResult, TError extends ISerializableErr
     };
 export type TMainJobTerminalSnapshot<TProgress, TResult, TError extends ISerializableErrorEnvelope> = Extract<TMainJobSnapshot<TProgress, TResult, TError>, {status: 'completed' | 'canceled' | 'failed'}>;
 export type TMainJobErrorKind = 'canceled' | 'failed' | 'duplicate-job-id' | 'not-found-or-unauthorized';
+/** Why the registry ended a subscription; a subscriber's own unsubscribe has none. */
+export type TMainJobSubscriptionClosure = 'retired' | 'disconnected';
 type TMainJobOwnerEndAction = IMainOperationLifecyclePolicy['destroyed'];
 type IMainJobOwnerLifecyclePolicy = IMainOperationLifecyclePolicy;
 export interface IMainJobScratch {using<T>(prefix: TManagedScratchPrefix, run: (scratchPath: string) => Promise<T>): Promise<T>;}
@@ -159,7 +161,7 @@ export interface IMainJobRegistry<
         jobId: string,
         actor: IMainJobActor<TSender>,
         listener: (snapshot: TMainJobSnapshot<TProgress, TResult, TError>) => void,
-        onClose?: () => void,
+        onClose?: (closure?: TMainJobSubscriptionClosure) => void,
     ): (() => void) | null;
     /**
      * A renderer subscribing to this registry's progress channel. Live progress
@@ -202,7 +204,7 @@ export function createMainJobRegistry<
         settled: boolean;
     }
     interface ISubscription {
-        close: () => void;
+        close: (closure?: TMainJobSubscriptionClosure) => void;
         listener: (snapshot: TSnapshot) => void;
     }
     interface IBinding {
@@ -244,7 +246,7 @@ export function createMainJobRegistry<
         },
     }) : null;
     function notify(record: IRecord) { for (const subscription of record.subscribers) subscription.listener(record.snapshot); }
-    function closeSubscriptions(record: IRecord) { for (const subscription of [...record.subscribers]) subscription.close(); }
+    function closeSubscriptions(record: IRecord, closure: TMainJobSubscriptionClosure) { for (const subscription of [...record.subscribers]) subscription.close(closure); }
     function emit(record: IRecord, terminal = false, flushKey?: string) {
         if (!pump || options.progress?.getEventKey(record.snapshot.progress) === null) {
             return;
@@ -269,7 +271,7 @@ export function createMainJobRegistry<
     }
     function remove(record: IRecord) { if (records.get(record.snapshot.jobId) !== record) {
         return;
-    } if (record.retentionTimer) clearTimeout(record.retentionTimer); records.delete(record.snapshot.jobId); closeSubscriptions(record); unbind(record);
+    } if (record.retentionTimer) clearTimeout(record.retentionTimer); records.delete(record.snapshot.jobId); closeSubscriptions(record, 'retired'); unbind(record);
     if (record.terminalAtMs !== null) options.onEvict?.(record.snapshot as TTerminal); }
     function prune() {
         const cap = options.retention.maxTerminalRecords;
@@ -323,7 +325,7 @@ export function createMainJobRegistry<
         return true;
     }
     function ownerEnd(record: IRecord, action: TMainJobOwnerEndAction | undefined, reason: string) {
-        closeSubscriptions(record);
+        closeSubscriptions(record, 'disconnected');
         if (action === 'cancel') {
             requestCancel(record, reason);
             unbind(record);
@@ -500,17 +502,17 @@ export function createMainJobRegistry<
             let active = true;
             const subscription: ISubscription = {
                 listener,
-                close: () => {
+                close: closure => {
                     if (!active) {
                         return;
                     }
                     active = false;
                     record.subscribers.delete(subscription);
-                    onClose?.();
+                    onClose?.(closure);
                 },
             };
             record.subscribers.add(subscription); listener(record.snapshot);
-            return subscription.close;
+            return () => subscription.close();
         },
         subscribeOwner: actor => {
             pump?.replay({

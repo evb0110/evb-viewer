@@ -564,6 +564,13 @@ export function scanCleanupDetectionOwner(
                 },
             });
             subscribeDetection(sender, jobId, request);
+            // States reach the owner through the pump; the registry's close
+            // cause follows them on the same channel.
+            detectionJobs.subscribe(jobId, detectionActor(sender, request), () => undefined, closure => {
+                if (closure && !sender.isDestroyed()) {
+                    sender.send(SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState, {jobId, status: closure});
+                }
+            });
             const activeEntry = {
                 jobId,
                 request,
