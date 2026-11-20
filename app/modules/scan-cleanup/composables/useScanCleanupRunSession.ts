@@ -35,11 +35,11 @@ import {
     getScanCleanupRunErrorCode,
     getScanCleanupRunFailure,
     isScanCleanupRunning,
+    registerScanCleanupWorkspaceOwner,
     reportScanCleanupRunError,
     resolveScanCleanupProcessedPages,
     ScanCleanupRunReconciliationError,
     scanCleanupRun,
-    setScanCleanupWorkspaceOwnerOpen,
     setScanCleanupRunError,
     startScanCleanup,
     type TScanCleanupRendererStartResult,
@@ -651,7 +651,6 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 return;
             }
             transition.value = 'starting-cleanup';
-            await nextTick();
             await options.beforeRun(stopWait);
             setScanCleanupRunError(options.ownerId, '');
             if (isStopRequested() || retireIfDocumentChanged()) {
@@ -727,7 +726,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         }
     }
 
-    watch(options.active, active => setScanCleanupWorkspaceOwnerOpen(options.ownerId, active), {immediate: true});
+    const unregisterWorkspaceOwner = registerScanCleanupWorkspaceOwner(options.ownerId, options.active);
     watch(isScanCleanupRunning, running => {
         if (
             !running
@@ -745,7 +744,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             stopRequested.value = true;
             interruptPendingTransition?.();
         }
-        setScanCleanupWorkspaceOwnerOpen(options.ownerId, false);
+        unregisterWorkspaceOwner();
     });
 
     return {
