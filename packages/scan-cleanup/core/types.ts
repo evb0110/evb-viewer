@@ -315,6 +315,7 @@ export interface IScanCleanupRunCommandOptions {
     cancelGroup?: string;
     commandLabel?: string;
     onStdout?: (chunk: string) => void;
+    onStderr?: (chunk: string) => void;
     onTerminationProof?: (proof: Promise<boolean>) => void;
     log?: TScanCleanupLog;
 }
