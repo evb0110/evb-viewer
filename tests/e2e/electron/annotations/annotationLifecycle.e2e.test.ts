@@ -1183,6 +1183,7 @@ const IMPORTED_COMMENTS = {
 type TImportedComment = keyof typeof IMPORTED_COMMENTS;
 const IMPORTED_NOTE_WINDOW = '.editor-pane.is-active .note-window';
 const IMPORTED_NOTE_MARKER = '.editor-pane.is-active .page_container[data-document-page-number="1"] .pdf-annotation-editor-note';
+const IMPORTED_HIGHLIGHT_PATH = '.editor-pane.is-active .page_container[data-document-page-number="1"] .pdf-annotation-editor-text-markup path[data-annotation-visual]';
 
 async function openImportedComment(page: Page, kind: TImportedComment) {
     await openAnnotationsTab(page);
@@ -1233,6 +1234,123 @@ async function readImportedAnnotationBytes(bytes: Buffer) {
     };
 }
 
+function addSiblingPageSquare(document: PDFDocument) {
+    const sibling = document.addPage([612, 792]);
+    const key = PDFHexString.fromText('evb-shape:rotated-page-square');
+    const square = document.context.register(document.context.obj({
+        Type: PDFName.of('Annot'),
+        Subtype: PDFName.of('Square'),
+        P: sibling.ref,
+        F: 4,
+        Rect: [350, 510, 470, 570],
+        NM: key,
+        EVBShapeKey: key,
+        C: [0.1, 0.4, 0.9],
+        Border: [0, 0, 2],
+    }));
+    sibling.node.set(PDFName.of('Annots'), document.context.obj([square]));
+}
+
+function pdfCoordinates(value: string | null | undefined) {
+    return value?.slice(1, -1).trim().split(/\s+/u).map(Number);
+}
+
+function pdfRectCenter([left, bottom, right, top]: number[]) {
+    return [(left! + right!) / 2, (bottom! + top!) / 2];
+}
+
+async function readDisplayedAnnotationCenter(page: Page, selector: string) {
+    const center = await page.waitForFunction((visualSelector) => {
+        const element = document.querySelector(visualSelector);
+        const pageContainer = element?.closest('.page_container');
+        if (!element || !pageContainer || getComputedStyle(element).visibility !== 'visible') {
+            return null;
+        }
+        const box = pageContainer.getBoundingClientRect();
+        const rect = element.getBoundingClientRect();
+        if (!box.width || !box.height || !rect.width || !rect.height) {
+            return null;
+        }
+        // These fixtures have unrotated 612 × 792 pt pages.
+        return [
+            (rect.left + rect.width / 2 - box.left) * 612 / box.width,
+            (box.bottom - rect.top - rect.height / 2) * 792 / box.height,
+        ];
+    }, {}, selector);
+    return (await center.jsonValue())!;
+}
+
+async function saveAnnotationFixture(page: Page, fixture: string) {
+    await saveViaVisibleToolbar(page, 30_000, realpathSync(fixture));
+    await waitForActiveTabDirtyState(page, false);
+    return readImportedAnnotationBytes(readFileSync(fixture));
+}
+
+async function undoSavedSidebarDeletion(page: Page, fixture: string, sidebarKind: string, contents: string) {
+    await openAnnotationsTab(page);
+    await waitForSidebarAnnotationText(page, contents);
+    const row = `.editor-pane.is-active .note-item[data-annotation-kind="${sidebarKind}"]`;
+    // The row reveals its Delete button on hover.
+    await revealForPointer(page, `${row} .note-item-content`);
+    await clickAsUser(page, `${row} .note-item-delete`);
+    await page.waitForSelector(row, {hidden: true});
+    const deleted = await saveAnnotationFixture(page, fixture);
+    await clickAsUser(page, 'button[aria-label="Undo"]:not(:disabled)');
+    await waitForSidebarAnnotationText(page, contents);
+    return deleted;
+}
+
+type TAnnotationSnapshot = Awaited<ReturnType<typeof readImportedAnnotationBytes>>;
+
+function annotationGeometry({subtype, name, contents, rect, quads}: TAnnotationSnapshot['annotations'][number][number]) {
+    return {subtype, name, contents, rect, quads};
+}
+
+function expectUntouchedAnnotations(
+    original: TAnnotationSnapshot,
+    saved: TAnnotationSnapshot,
+    changed: string[],
+) {
+    expect.soft(saved.rotations, 'page rotations').toEqual(original.rotations);
+    for (const [index, annotations] of original.annotations.entries()) {
+        const untouched = (rows: typeof annotations) => rows
+            .filter(row => index !== 0 || !changed.includes(row.subtype ?? ''))
+            .map(annotationGeometry);
+        const expected = untouched(annotations);
+        const actual = untouched(saved.annotations[index] ?? []);
+        expect.soft(actual, `untouched annotation count on page ${index + 1}`).toHaveLength(expected.length);
+        expect.soft(actual, `untouched /Rect, /QuadPoints and /Contents on page ${index + 1}`).toEqual(expect.arrayContaining(expected));
+    }
+}
+
+function expectSavedNoteGeometry(
+    pageAnnots: TAnnotationSnapshot['annotations'][number],
+    contents: string,
+    displayedCenter: number[],
+    expectedRect?: number[],
+) {
+    const notes = pageAnnots.filter(row => row.subtype === '/Text');
+    expect(notes, 'one sticky note in page 1 /Annots').toHaveLength(1);
+    const note = notes[0]!;
+    const rect = pdfCoordinates(note.rect) ?? [];
+    expect.soft(note.contents, 'note /Contents').toBe(contents);
+    expect.soft(pdfRectCenter(rect), 'sticky note saves where it shows').toEqual(
+        displayedCenter.map(value => expect.closeTo(value, 1)),
+    );
+    if (expectedRect) {
+        expect.soft(rect, 'note /Rect').toEqual(expectedRect.map(value => expect.closeTo(value, 3)));
+    }
+    // The native writer gives a new note and its Popup the same PDF rectangle.
+    const popups = pageAnnots.filter(row => row.subtype === '/Popup');
+    expect.soft(popups.length, 'at most one Popup for the sticky note').toBeLessThanOrEqual(1);
+    for (const popup of popups) {
+        expect.soft(pdfCoordinates(popup.rect), 'Popup /Rect').toEqual(
+            (expectedRect ?? rect).map(value => expect.closeTo(value, 3)),
+        );
+        expect.soft(popup.contents, 'Popup /Contents').toBe(contents);
+    }
+}
+
 async function observeImportedAnnotationSave(
     {page, fixture, originalBytes}: IImportedAnnotationFixture,
     step: string,
@@ -1268,9 +1386,7 @@ async function observeImportedAnnotationSave(
         originalSha256: createHash('sha256').update(originalBytes).digest('hex'),
         savedSha256: createHash('sha256').update(bytes).digest('hex'),
         rotations: saved.rotations,
-        annotations: saved.annotations.map(pageAnnotations => pageAnnotations.map(({subtype, name, contents, rect, quads}) => ({
-            subtype, name, contents, rect, quads,
-        }))),
+        annotations: saved.annotations.map(pageAnnotations => pageAnnotations.map(annotationGeometry)),
     }));
     return {outcome, saved, byteIdentical};
 }
@@ -1298,8 +1414,7 @@ async function assertImportedAnnotationOutput(
 ) {
     const original = await readImportedAnnotationBytes(originalBytes);
     expect.soft(saved.rotations, `${step} page /Rotate`).toEqual(rotations);
-    const coordinates = (value: string | null | undefined) => value?.slice(1, -1).trim().split(/\s+/u).map(Number);
-    const matchingCoordinates = (value: string | null) => coordinates(value)?.map(coordinate => expect.closeTo(coordinate, 3));
+    const matchingCoordinates = (value: string | null) => pdfCoordinates(value)?.map(coordinate => expect.closeTo(coordinate, 3));
     for (const [index, pageAnnotations] of original.annotations.entries()) {
         const savedAnnotations = saved.annotations[index] ?? [];
         expect.soft(savedAnnotations, `${step} annotation count on page ${index + 1}`).toHaveLength(pageAnnotations.length);
@@ -1317,8 +1432,8 @@ async function assertImportedAnnotationOutput(
             const expectedRect = movedRect
                 ? movedRect.map(value => expect.closeTo(value, 3))
                 : matchingCoordinates(source.rect);
-            expect.soft(coordinates(annotation?.rect), `${label} /Rect`).toEqual(expectedRect);
-            expect.soft(coordinates(annotation?.quads), `${label} /QuadPoints`).toEqual(matchingCoordinates(source.quads));
+            expect.soft(pdfCoordinates(annotation?.rect), `${label} /Rect`).toEqual(expectedRect);
+            expect.soft(pdfCoordinates(annotation?.quads), `${label} /QuadPoints`).toEqual(matchingCoordinates(source.quads));
         }
     }
 }
@@ -1354,20 +1469,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         } else {
             const document = await PDFDocument.load(readFileSync(fixtureSource), {updateMetadata: false});
             if (mode === 'sibling') {
-                const sibling = document.addPage([612, 792]);
-                const key = PDFHexString.fromText('evb-shape:rotated-page-square');
-                const square = document.context.register(document.context.obj({
-                    Type: PDFName.of('Annot'),
-                    Subtype: PDFName.of('Square'),
-                    P: sibling.ref,
-                    F: 4,
-                    Rect: [350, 510, 470, 570],
-                    NM: key,
-                    EVBShapeKey: key,
-                    C: [0.1, 0.4, 0.9],
-                    Border: [0, 0, 2],
-                }));
-                sibling.node.set(PDFName.of('Annots'), document.context.obj([square]));
+                addSiblingPageSquare(document);
             } else {
                 const annotations = document.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
                 for (let index = annotations.size() - 1; index >= 0; index--) {
@@ -1580,13 +1682,10 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await waitForSidebarAnnotationText(page, IMPORTED_COMMENTS.note.edited);
         await waitForSidebarAnnotationText(page, IMPORTED_COMMENTS.highlight.edited);
         const noteCenter = await readImportedNoteCenter(page);
-        const highlightBox = await page.$eval(
-            '.editor-pane.is-active .page_container[data-document-page-number="1"] .pdf-annotation-editor-text-markup path[data-annotation-visual]',
-            path => {
-                const {x, y, width, height} = (path as SVGGraphicsElement).getBBox();
-                return {x, y, width, height};
-            },
-        );
+        const highlightBox = await page.$eval(IMPORTED_HIGHLIGHT_PATH, path => {
+            const {x, y, width, height} = (path as SVGGraphicsElement).getBBox();
+            return {x, y, width, height};
+        });
         console.log('[1651 f] displayed annotation geometry', JSON.stringify({noteCenter, highlightBox}));
         // At 90 degrees clockwise, PDF y runs rightward and PDF x runs down the screen.
         expect.soft(noteCenter, 'note on the rotated page').toEqual({
@@ -1599,6 +1698,106 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             width: expect.closeTo(25 / 792, 3),
             height: expect.closeTo(178 / 612, 3),
         });
+    });
+
+    it.each<[string, TImportedComment, [number, number, number, number]]>([
+        ['20x20 note', 'note', [286, 616, 306, 636]],
+        ['32x24 note', 'note', [280, 614, 312, 638]],
+        ['imported highlight', 'highlight', [286, 616, 306, 636]],
+    ])('#1677 saves the restored %s at its original position after Undo of a saved deletion', async (label, kind, noteRect) => {
+        const {page} = sessionFixture.getSession();
+        const fixture = await createCanonicalAnnotationSurfaceFixturePdf(`saved-deletion-${Date.now()}.pdf`, noteRect);
+        const document = await PDFDocument.load(readFileSync(fixture), {updateMetadata: false});
+        addSiblingPageSquare(document);
+        const originalBytes = Buffer.from(await document.save({useObjectStreams: false}));
+        writeFileSync(fixture, originalBytes);
+        const original = await readImportedAnnotationBytes(originalBytes);
+
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        const comment = IMPORTED_COMMENTS[kind];
+        const deleted = await undoSavedSidebarDeletion(page, fixture, comment.sidebarKind, comment.original);
+        const isNote = kind === 'note';
+        const changed = isNote ? ['/Text', '/Popup'] : ['/Highlight'];
+        expect.soft(deleted.annotations[0]?.filter(row => changed.includes(row.subtype ?? '')), 'first Save removes the target from page 1 /Annots').toEqual([]);
+        expectUntouchedAnnotations(original, deleted, changed);
+
+        const displayedCenter = await readDisplayedAnnotationCenter(page, isNote ? IMPORTED_NOTE_MARKER : IMPORTED_HIGHLIGHT_PATH);
+        const saved = await saveAnnotationFixture(page, fixture);
+        console.log(`[1677 ${label}]`, JSON.stringify({
+            displayedCenter,
+            firstSave: deleted.annotations.map(rows => rows.map(annotationGeometry)),
+            secondSave: saved.annotations.map(rows => rows.map(annotationGeometry)),
+        }));
+        expectUntouchedAnnotations(original, saved, changed);
+        const originalRect = isNote ? noteRect : [72, 510, 250, 535];
+        expect.soft(displayedCenter, 'Undo restores the displayed center').toEqual(
+            pdfRectCenter(originalRect).map(value => expect.closeTo(value, 1)),
+        );
+        if (isNote) {
+            const pageAnnots = saved.annotations[0]!;
+            expect.soft(pageAnnots.filter(row => row.subtype === '/Popup'), 'restored note has one Popup').toHaveLength(1);
+            // The writer uses a 20 pt icon centered on the original note.
+            expectSavedNoteGeometry(pageAnnots, comment.original, displayedCenter, [286, 616, 306, 636]);
+        } else {
+            const highlights = saved.annotations[0]?.filter(row => row.subtype === '/Highlight');
+            expect(highlights, 'one highlight in page 1 /Annots').toHaveLength(1);
+            const [highlight] = highlights!;
+            expect.soft(highlight?.contents, 'highlight /Contents').toBe(comment.original);
+            expect.soft(pdfCoordinates(highlight?.rect), 'highlight /Rect').toEqual(originalRect);
+            expect.soft(pdfCoordinates(highlight?.quads), 'highlight /QuadPoints').toEqual([72, 535, 250, 535, 72, 510, 250, 510]);
+        }
+    });
+
+    it('#1677 saves a newly clicked note where it shows', async () => {
+        const {page} = sessionFixture.getSession();
+        const fixture = await createMultiPageTextFixturePdf(`new-note-placement-${Date.now()}.pdf`, 1);
+        const contents = 'New sticky note';
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await createStickyNoteWithPointer(page, contents, {x: 0.72, y: 0.24}, 1);
+        await clickLatestVisibleNoteWindowClose(page);
+        await waitForNoOpenNoteWindows(page);
+        await waitForSidebarAnnotationText(page, contents);
+        const displayedCenter = await readDisplayedAnnotationCenter(page, IMPORTED_NOTE_MARKER);
+        const saved = await saveAnnotationFixture(page, fixture);
+        console.log('[1677 new note]', JSON.stringify({displayedCenter, saved: saved.annotations[0]?.map(annotationGeometry)}));
+        expectSavedNoteGeometry(saved.annotations[0]!, contents, displayedCenter);
+    });
+
+    it('#1677 saves a restored legacy blank-appearance marker where it shows', async () => {
+        const {page} = sessionFixture.getSession();
+        const fixture = copyProjectFixture('freetext-lifecycle-test.pdf', `legacy-note-undo-${Date.now()}.pdf`);
+        const document = await PDFDocument.load(readFileSync(fixture), {updateMetadata: false});
+        const annotations = document.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
+        const legacyNote = annotations.lookup(0, PDFDict);
+        // Move the existing blank-AP marker off the page edge, where new 20 pt
+        // icons are intentionally clamped. Keep the tiny legacy marker size.
+        const markerRect = document.context.obj([295.995, 625.995, 296.005, 626.005]);
+        legacyNote.set(PDFName.of('Rect'), markerRect);
+        legacyNote.lookup(PDFName.of('Popup'), PDFDict).set(PDFName.of('Rect'), markerRect);
+        writeFileSync(fixture, await document.save({useObjectStreams: false}));
+
+        const contents = 'Reachable lifecycle note';
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        const deleted = await undoSavedSidebarDeletion(page, fixture, 'note', contents);
+        expect.soft(deleted.annotations[0]?.filter(row => row.contents === contents || row.subtype === '/Popup'), 'first Save removes the legacy marker and Popup').toEqual([]);
+
+        const displayedCenter = await readDisplayedAnnotationCenter(page, IMPORTED_NOTE_MARKER);
+        const saved = await saveAnnotationFixture(page, fixture);
+        console.log('[1677 legacy marker]', JSON.stringify({
+            displayedCenter,
+            firstSave: deleted.annotations[0]?.map(annotationGeometry),
+            secondSave: saved.annotations[0]?.map(annotationGeometry),
+        }));
+        expect.soft(displayedCenter, 'Undo restores the displayed legacy marker center').toEqual([
+            expect.closeTo(296, 1),
+            expect.closeTo(626, 1),
+        ]);
+        expectSavedNoteGeometry(saved.annotations[0]!, contents, displayedCenter, [286, 616, 306, 636]);
     });
 
     it('clears dirty and Save after a saved-note draft reverts, preserving other accepted edits', async () => {

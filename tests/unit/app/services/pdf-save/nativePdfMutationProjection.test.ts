@@ -172,8 +172,8 @@ describe('native FreeText note builders', () => {
             markerRect: {
                 left: 0.1,
                 top: 0.2,
-                width: 0.0016,
-                height: 0.0016,
+                width: 0.2,
+                height: 0.2,
             },
             author: 'Tester',
             color: '#ffcc00',

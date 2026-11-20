@@ -1,5 +1,4 @@
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import { toFreeTextNoteMarkerRect } from '@app/modules/pdf-viewer/engine/annotations/toFreeTextNoteMarkerRect';
 import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
 import type { IPdfNativeFreeTextNote } from '@contracts/electronApiDocuments';
 import { parsePageIndex } from '@contracts/pageNumbers';
@@ -27,7 +26,7 @@ export function isReplayableCanonicalStickyNote(comment: IAnnotationCommentSumma
 }
 
 export function toNativeFreeTextNote(comment: IAnnotationCommentSummary): IPdfNativeFreeTextNote | null {
-    const markerRect = toFreeTextNoteMarkerRect(comment.markerRect);
+    const markerRect = normalizeMarkerRect(comment.markerRect);
     const canonicalIdentity = comment.appAnnotationId?.trim();
     const stableKey = (
         isReplayableCanonicalStickyNote(comment) && canonicalIdentity
