@@ -14,6 +14,7 @@ import type {
     TScanCleanupSummary,
     TScanCleanupStartResult,
     TScanCleanupJobState,
+    TScanCleanupJobClosure,
     IScanCleanupErrorEnvelope,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IHostResourceProfileSnapshot} from '@contracts/hostResourceProfile';
@@ -75,6 +76,7 @@ import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/input
 import {createEpochMs} from '@contracts/timestamps';
 import {
     createJobId,
+    requireJobId,
     type TJobId,
 } from '@contracts/shared';
 import {
@@ -199,7 +201,7 @@ function registerScanCleanupOutputAccess(outputPath: string, sender: WebContents
     }
 }
 
-function sendScanCleanupState(sender: WebContents, state: TScanCleanupJobState) {
+function sendScanCleanupState(sender: WebContents, state: TScanCleanupJobState | TScanCleanupJobClosure) {
     if (sender.isDestroyed()) {
         return;
     }
@@ -1027,8 +1029,10 @@ export function createScanCleanupService(
                 if (publicProgress) {
                     sendScanCleanupState(sender, publicProgress);
                 }
-            }, () => {
+            }, closure => {
                 forgetProgressSubscription(sender.id, jobId, subscription);
+                // A replacement subscription closes its predecessor silently.
+                if (closure) sendScanCleanupState(sender, {jobId: requireJobId(jobId), status: closure});
             });
             subscription.unsubscribe = unsubscribe;
             const state = publicState(jobs.get(jobId, actor));

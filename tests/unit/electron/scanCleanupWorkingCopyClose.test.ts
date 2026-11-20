@@ -38,6 +38,7 @@ import {
 import {clearWorkingCopyQuarantinesForTests} from '@electron/file-access/workingCopyQuarantine';
 import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 import {
+    drainCriticalMainOperations,
     resetMainOperationLifecycleForTests,
     snapshotMainOperations,
 } from '@electron/operation-lifecycle/mainOperationLifecycle';
@@ -56,6 +57,7 @@ import {
     lifecycleSender,
 } from '@tests/unit/electron/scanCleanupPreviewHarness';
 import {writeScanCleanupDetectionMetadata} from '@tests/unit/electron/writeScanCleanupDetectionMetadata';
+import {cast} from '@tests/helpers/cast';
 
 // The close test needs a completed store above the streaming boundary. Three
 // pages exercise that handoff and its real file-backed store without 1,025
@@ -258,6 +260,68 @@ describe('closing a source document during scan cleanup', () => {
             force: true,
             recursive: true,
         });
+    });
+
+    it('replays a terminal run that finished before the first subscription and on reconnect', async () => {
+        const {workingPath} = await createManagedWorkingCopy('late-subscription');
+        mocks.runWorker.mockRejectedValue(new Error('Fixture worker could not read the scan'));
+        const service = createScanCleanupService();
+        const contents = lifecycleSender(OWNER_WEB_CONTENTS_ID);
+        const subscriber = cast<WebContents>(contents);
+        const started = await service.start(subscriber, startRequest(workingPath));
+        expect(started.started).toBe(true);
+        try {
+            await expect(drainCriticalMainOperations({timeoutMs: 2_000})).resolves.toMatchObject({completed: true});
+            const terminal = expect.objectContaining({
+                jobId: started.jobId,
+                status: 'failed',
+                error: 'Fixture worker could not read the scan',
+            });
+            const subscribe = () => service.subscribe(subscriber, started.jobId, owner);
+            expect(subscribe()).toEqual(terminal);
+            expect(contents.send).toHaveBeenCalledWith(SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onJobState, terminal);
+
+            // Navigation detaches the old subscription and a new page in the
+            // same WebContents can reconnect via the same service method.
+            contents.emit('did-start-navigation', {}, 'about:blank', false, true);
+            contents.send.mockClear();
+            expect(subscribe()).toEqual(terminal);
+            expect(contents.send).toHaveBeenCalledWith(SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onJobState, terminal);
+        } finally {
+            await cleanupWorkingCopy(workingPath, OWNER_WEB_CONTENTS_ID);
+        }
+    });
+
+    it('publishes a disconnected outcome on the run channel when the live owner detaches', async () => {
+        const {workingPath} = await createManagedWorkingCopy('detached-subscription');
+        const worker = Promise.withResolvers<never>();
+        const entered = Promise.withResolvers<void>();
+        mocks.runWorker.mockImplementation(() => {
+            entered.resolve();
+            return worker.promise;
+        });
+        const service = createScanCleanupService();
+        const contents = lifecycleSender(OWNER_WEB_CONTENTS_ID);
+        const subscriber = cast<WebContents>(contents);
+        const started = await service.start(subscriber, startRequest(workingPath));
+        expect(started.started).toBe(true);
+        await entered.promise;
+        try {
+            expect(service.subscribe(subscriber, started.jobId, owner))
+                .toMatchObject({jobId: started.jobId, status: 'queued'});
+            contents.emit('did-start-navigation', {}, 'about:blank', false, true);
+
+            expect(contents.send).toHaveBeenCalledWith(
+                SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onJobState,
+                expect.objectContaining({
+                    jobId: started.jobId,
+                    status: 'disconnected',
+                }),
+            );
+        } finally {
+            worker.reject(new Error('Fixture worker stopped'));
+            await cleanupWorkingCopy(workingPath, OWNER_WEB_CONTENTS_ID);
+        }
     });
 
     it('starts a replacement run after cancellation is accepted while the old worker is retiring', async () => {

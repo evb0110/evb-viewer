@@ -1,4 +1,7 @@
-import type {IScanCleanupOwnerContext} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import type {
+    IScanCleanupOwnerContext,
+    TScanCleanupJobClosure,
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {TJobId} from '@contracts/shared';
 
 /** Terminal records answer late reads and subscriptions this long, as desktop's registry does. */
@@ -27,6 +30,8 @@ export interface IBrowserScanCleanupJobRegistryOptions<TState extends IJobState,
     /** Whether a live job may still be canceled; a committing job may not. */
     cancelable?: (latest: TState) => boolean;
     onState: (state: TState) => void;
+    /** Announces that a settled job's record has left the registry. */
+    onRetired: (closure: TScanCleanupJobClosure) => void;
 }
 
 export type TBrowserScanCleanupJobCancel = 'canceled' | 'not-found' | 'settled' | 'refused';
@@ -59,7 +64,9 @@ export function createBrowserScanCleanupJobRegistry<TState extends IJobState, TR
         record.settled = true;
         store(record, state);
         setTimeout(() => {
-            if (records.get(state.jobId) === record) records.delete(state.jobId);
+            if (records.get(state.jobId) !== record) return;
+            records.delete(state.jobId);
+            options.onRetired({jobId: state.jobId, status: 'retired'});
         }, TERMINAL_RECORD_TTL_MS);
     };
     return {

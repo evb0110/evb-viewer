@@ -1,9 +1,13 @@
+import {createRequire} from 'node:module';
+import {runInThisContext} from 'node:vm';
+import {build} from 'esbuild';
 import {FULL_SCAN_CLEANUP_SUPPORT} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {
     beforeEach,
     describe,
     expect,
     it,
+    onTestFinished,
     vi,
 } from 'vitest';
 import type {TJobId} from '@contracts/shared';
@@ -17,6 +21,7 @@ import type {
     TScanCleanupJobState,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import type {TScanCleanupJobClosure} from '@contracts/scan-cleanup/ipc';
 import type {TTranslateFn} from '@i18n-app';
 import {
     toastDescription,
@@ -123,8 +128,8 @@ function runningJobState(jobId: TJobId): TScanCleanupJobState {
     };
 }
 
-function stubCapability(
-    onListener: (listener: (state: TScanCleanupJobState) => void) => void,
+function stubCapability<TState extends TScanCleanupJobState | TScanCleanupJobClosure = TScanCleanupJobState>(
+    onListener: (listener: (state: TState) => void) => void,
     nextJobId: () => string,
 ): IScanCleanupCapability {
     return {
@@ -143,7 +148,13 @@ function stubCapability(
         }),
         cancel: vi.fn(async () => true),
         getJobState: vi.fn(async () => null),
-        subscribeJob: vi.fn(async () => null),
+        // A started job answers its subscription with its queued snapshot;
+        // null would mean the record is already retired.
+        subscribeJob: vi.fn(async (jobId: TJobId) => ({
+            ...runningJobState(jobId),
+            status: 'queued' as const,
+            updatedAtMs: requireEpochMs(0),
+        })),
         reconnectJob: vi.fn(async () => null),
         pruneGeneratedOutputs: vi.fn(async () => 0),
         onPreviewRaw: vi.fn(() => () => undefined),
@@ -169,11 +180,217 @@ function coordinatorDeps(
     };
 }
 
+async function loadClientCoordinator() {
+    // Nuxt defines import.meta.client in the renderer build. The unit project
+    // leaves it undefined, bypassing the sessionStorage recovery path.
+    const {outputFiles} = await build({
+        entryPoints: ['app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator.ts'],
+        tsconfig: 'tsconfig.base.json',
+        bundle: true,
+        write: false,
+        platform: 'node',
+        packages: 'external',
+        external: [
+            '@app/utils/getScanCleanupCapability',
+            '@app/utils/browserLogger',
+            '@app/utils/platform',
+        ],
+        define: {'import.meta.client': 'true'},
+        banner: {js: 'const { computed, reactive, effectScope, toRaw, watch } = require("vue");'},
+    });
+    const nodeRequire = createRequire(import.meta.url);
+    const dependencies = new Map<string, unknown>([
+        ['@app/utils/getScanCleanupCapability', {getScanCleanupCapability: () => capability.value}],
+        ['@app/utils/browserLogger', {BrowserLogger: {error: diagnosticMocks.error}}],
+        ['@app/utils/platform', {isDesktopPlatformActive: () => false}],
+    ]);
+    const module = {exports: {}};
+    const load = runInThisContext(`(function (module, require) { ${outputFiles[0]!.text}\n })`);
+    load(module, (id: string) => dependencies.get(id) ?? nodeRequire(id));
+    return module.exports as typeof import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+}
+
+function stubSessionStorage(initial: [string, string][] = []) {
+    const storage = new Map(initial);
+    vi.stubGlobal('sessionStorage', {
+        getItem: (key: string) => storage.get(key) ?? null,
+        removeItem: (key: string) => storage.delete(key),
+        setItem: (key: string, value: string) => storage.set(key, value),
+    });
+    onTestFinished(() => { vi.unstubAllGlobals(); });
+    return storage;
+}
+
 describe('scan cleanup run coordinator', () => {
     beforeEach(() => {
         vi.resetModules();
         diagnosticMocks.error.mockReset();
         diagnosticMocks.error.mockReturnValue(diagnosticMocks.failure);
+    });
+
+    it('opens a run that finished before its start subscription without polling', async () => {
+        const bridge = stubCapability(() => undefined, () => 'finished-before-subscribe');
+        vi.mocked(bridge.getJobState).mockRejectedValue(new Error('Direct job-state read unavailable'));
+        let retained: TScanCleanupJobState | null = null;
+        vi.mocked(bridge.start).mockImplementation(async () => {
+            retained = completedState('finished-before-subscribe');
+            return startResult(retained.jobId);
+        });
+        // Browser conversion uses a window listener and returns retained state
+        // from subscribeJob. The original terminal event never arrives here.
+        vi.mocked(bridge.subscribeJob).mockImplementation(async jobId => retained?.jobId === jobId ? retained : null);
+        capability.value = bridge;
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const opened: string[] = [];
+        vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout', 'Date']});
+        const dispose = coordinator.installScanCleanupRunCoordinator(coordinatorDeps({
+            openGeneratedPdf: async (path) => {
+                opened.push(path);
+                return true;
+            },
+        }));
+        try {
+            await coordinator.startScanCleanup({
+                ...ownerContext,
+                sourcePdfPath: '/source/book.pdf',
+                options: createScanCleanupOptions(),
+            });
+            await new Promise<void>(resolve => setImmediate(resolve));
+
+            expect(coordinator.scanCleanupRun.jobState?.status).toBe('completed');
+            expect(opened).toEqual(['/managed/finished-before-subscribe.pdf']);
+            expect(coordinator.isScanCleanupRunning.value).toBe(false);
+        } finally {
+            dispose();
+            vi.useRealTimers();
+        }
+    });
+
+    it.each(['completed', 'retired'] as const)('settles a stored run whose record is already %s on reconnect without polling', async outcome => {
+        const jobId = 'stored-before-reconnect';
+        const bridge = stubCapability(() => undefined, () => 'unused-job');
+        vi.mocked(bridge.getJobState).mockRejectedValue(new Error('Direct job-state read unavailable'));
+        vi.mocked(bridge.reconnectJob).mockResolvedValue(outcome === 'completed' ? completedState(jobId) : null);
+        capability.value = bridge;
+        const coordinator = await loadClientCoordinator();
+        const storage = new Map([
+            ['evb.scanCleanup.activeJobId', jobId],
+            ['evb.scanCleanup.activeOwnerId', ownerContext.ownerId],
+            ['evb.scanCleanup.activeDocumentRevision', ownerContext.documentRevision],
+        ]);
+        vi.stubGlobal('sessionStorage', {
+            getItem: (key: string) => storage.get(key) ?? null,
+            removeItem: (key: string) => storage.delete(key),
+        });
+        const opened: string[] = [];
+        vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout', 'Date']});
+        const dispose = coordinator.installScanCleanupRunCoordinator(coordinatorDeps({
+            openGeneratedPdf: async (path) => {
+                opened.push(path);
+                return true;
+            },
+        }));
+        try {
+            expect(coordinator.scanCleanupRun.activeJobId).toBe(jobId);
+            await new Promise<void>(resolve => setImmediate(resolve));
+
+            if (outcome === 'completed') {
+                expect(coordinator.scanCleanupRun.jobState?.status).toBe('completed');
+                expect(opened).toEqual(['/managed/stored-before-reconnect.pdf']);
+            } else {
+                expect({
+                    running: coordinator.isScanCleanupRunning.value,
+                    error: coordinator.getScanCleanupRunError(ownerContext.ownerId),
+                }).toEqual({
+                    running: false,
+                    error: 'scanCleanup.errors.runRecoveryFailed',
+                });
+            }
+            expect(coordinator.isScanCleanupRunning.value).toBe(false);
+            expect(storage.has('evb.scanCleanup.activeJobId')).toBe(false);
+        } finally {
+            dispose();
+            vi.useRealTimers();
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it.each(['retired', 'disconnected'] as const)('releases the active run when its channel reports %s', async status => {
+        const jobId = requireJobId(`run-${status}`);
+        let emit: (state: TScanCleanupJobClosure) => void = () => undefined;
+        capability.value = stubCapability<TScanCleanupJobClosure>(listener => { emit = listener; }, () => jobId);
+        const coordinator = await loadClientCoordinator();
+        const storage = new Map<string, string>();
+        vi.stubGlobal('sessionStorage', {
+            getItem: (key: string) => storage.get(key) ?? null,
+            setItem: (key: string, value: string) => storage.set(key, value),
+            removeItem: (key: string) => storage.delete(key),
+        });
+        const dispose = coordinator.installScanCleanupRunCoordinator(coordinatorDeps());
+        try {
+            await coordinator.startScanCleanup({
+                ...ownerContext,
+                sourcePdfPath: '/source/book.pdf',
+                options: createScanCleanupOptions(),
+            });
+            expect(coordinator.isScanCleanupRunning.value).toBe(true);
+            expect(coordinator.scanCleanupRun.activeJobId).toBe(jobId);
+            expect(Object.fromEntries(storage)).toEqual({
+                'evb.scanCleanup.activeJobId': jobId,
+                'evb.scanCleanup.activeOwnerId': ownerContext.ownerId,
+                'evb.scanCleanup.activeDocumentRevision': ownerContext.documentRevision,
+                'evb.scanCleanup.activeDocumentRef': '/source/book.pdf',
+            });
+            const savedRun = Object.fromEntries(storage);
+
+            emit({jobId, status});
+
+            expect(coordinator.isScanCleanupRunning.value).toBe(false);
+            expect(coordinator.scanCleanupRun.activeJobId).toBeNull();
+            expect(coordinator.getScanCleanupRunError(ownerContext.ownerId)).toBe('scanCleanup.errors.runRecoveryFailed');
+            expect(Object.fromEntries(storage)).toEqual(status === 'retired' ? {} : savedRun);
+        } finally {
+            dispose();
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it.each(['retired', 'disconnected'] as const)('preserves the completed run and its file handoff after a %s closure', async status => {
+        const terminal = completedState('run-completed-before-closure');
+        let emit: (state: TScanCleanupJobState | TScanCleanupJobClosure) => void = () => undefined;
+        capability.value = stubCapability<TScanCleanupJobState | TScanCleanupJobClosure>(listener => { emit = listener; }, () => terminal.jobId);
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const opened = Promise.withResolvers<boolean>();
+        const openStarted = Promise.withResolvers<string>();
+        const dispose = coordinator.installScanCleanupRunCoordinator(coordinatorDeps({openGeneratedPdf: path => {
+            openStarted.resolve(path);
+            return opened.promise;
+        }}));
+        try {
+            await coordinator.startScanCleanup({
+                ...ownerContext,
+                sourcePdfPath: '/source/book.pdf',
+                options: createScanCleanupOptions(),
+            });
+            emit(terminal);
+            await expect(openStarted.promise).resolves.toBe(terminal.outputPdfPath);
+            expect(coordinator.isScanCleanupRunning.value).toBe(true);
+
+            emit({jobId: terminal.jobId, status});
+
+            expect(coordinator.scanCleanupRun.jobState).toEqual(terminal);
+            expect(coordinator.scanCleanupRun.activeJobId).toBe(terminal.jobId);
+            expect(coordinator.isScanCleanupRunning.value).toBe(true);
+            expect(coordinator.getScanCleanupRunError(ownerContext.ownerId)).toBe('');
+
+            opened.resolve(true);
+            await vi.waitFor(() => expect(coordinator.isScanCleanupRunning.value).toBe(false));
+            expect(coordinator.scanCleanupRun.jobState).toEqual(terminal);
+            expect(coordinator.getScanCleanupRunError(ownerContext.ownerId)).toBe('');
+        } finally {
+            opened.resolve(true);
+            dispose();
+        }
     });
 
     it('keeps newer streamed progress when an older subscription snapshot arrives later', async () => {
@@ -428,38 +645,6 @@ describe('scan cleanup run coordinator', () => {
         }
     });
 
-    it('reconciles a rejected subscription from the authoritative job state', async () => {
-        const reconciledState: TScanCleanupJobState = {
-            jobId: requireJobId('reconciled-job'),
-            status: 'running',
-            progress: progress(),
-            updatedAtMs: requireEpochMs(Date.now()),
-        };
-        capability.value = {
-            ...stubCapability(() => undefined, () => 'unused-job'),
-            start: vi.fn(async () => startResult('reconciled-job', '/managed/reconciled.pdf')),
-            getJobState: vi.fn(async () => reconciledState),
-            subscribeJob: vi.fn(async () => {
-                throw new Error('subscription transport failed');
-            }),
-        };
-        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
-
-        await expect(coordinator.startScanCleanup({
-            ...ownerContext,
-            sourcePdfPath: '/source/book.pdf',
-            options: createScanCleanupOptions(),
-        })).resolves.toMatchObject({
-            started: true,
-            jobId: 'reconciled-job',
-        });
-
-        expect(capability.value!.getJobState).toHaveBeenCalledWith('reconciled-job', ownerContext);
-        expect(capability.value!.reconnectJob).toHaveBeenCalledWith('reconciled-job', ownerContext);
-        expect(coordinator.scanCleanupRun.jobState).toEqual(reconciledState);
-        expect(coordinator.isScanCleanupRunning.value).toBe(true);
-    });
-
     it('recovers a dropped terminal state through the liveness probe', async () => {
         vi.useFakeTimers();
         const running = runningJobState(requireJobId('liveness-terminal-job'));
@@ -535,17 +720,56 @@ describe('scan cleanup run coordinator', () => {
         }
     });
 
-    it('resets the run guard and cancels when a subscription cannot be reconciled', async () => {
-        const cancel = vi.fn(async () => true);
-        capability.value = {
-            ...stubCapability(() => undefined, () => 'unused-job'),
-            start: vi.fn(async () => startResult('unobserved-job', '/managed/unobserved.pdf')),
-            cancel,
-            subscribeJob: vi.fn(async () => {
-                throw new Error('subscription transport failed');
-            }),
-        };
-        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+    it.each(['completed', 'missing'] as const)('keeps a disconnected start until liveness finds the job %s', async outcome => {
+        const storage = stubSessionStorage();
+        const jobId = 'disconnected-start';
+        const bridge = stubCapability(() => undefined, () => jobId);
+        vi.mocked(bridge.subscribeJob).mockRejectedValue(new Error('subscription transport failed'));
+        let state = outcome === 'completed' ? completedState(jobId) : null;
+        vi.mocked(bridge.getJobState).mockImplementation(async () => state);
+        vi.mocked(bridge.cancel).mockImplementation(async () => {
+            state = null;
+            return true;
+        });
+        capability.value = bridge;
+        const coordinator = await loadClientCoordinator();
+        const opened: string[] = [];
+        vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout', 'Date']});
+        const cleanup = coordinator.installScanCleanupRunCoordinator(coordinatorDeps({openGeneratedPdf: async path => {
+            opened.push(path);
+            return true;
+        }}));
+        try {
+            await expect(coordinator.startScanCleanup({
+                ...ownerContext,
+                sourcePdfPath: '/source/book.pdf',
+                options: createScanCleanupOptions(),
+            })).resolves.toMatchObject({started: true, jobId});
+            expect(coordinator.scanCleanupRun.activeJobId).toBe(jobId);
+            expect(coordinator.isScanCleanupRunning.value).toBe(true);
+            expect(storage.get('evb.scanCleanup.activeJobId')).toBe(jobId);
+            expect(opened).toEqual([]);
+
+            await vi.advanceTimersByTimeAsync(coordinator.SCAN_CLEANUP_RUN_LIVENESS_CHECK_MS);
+
+            expect(coordinator.scanCleanupRun.activeJobId).toBeNull();
+            expect(coordinator.isScanCleanupRunning.value).toBe(false);
+            expect(storage.size).toBe(0);
+            expect(opened).toEqual(outcome === 'completed' ? ['/managed/disconnected-start.pdf'] : []);
+            expect(coordinator.scanCleanupRun.lastError?.error)
+                .toBe(outcome === 'missing' ? 'scanCleanup.errors.runRecoveryFailed' : undefined);
+        } finally {
+            cleanup();
+            vi.useRealTimers();
+        }
+    });
+
+    it('releases and forgets a retired start and reports the subscription error', async () => {
+        const storage = stubSessionStorage();
+        const bridge = stubCapability(() => undefined, () => 'retired-start');
+        vi.mocked(bridge.subscribeJob).mockResolvedValue(null);
+        capability.value = bridge;
+        const coordinator = await loadClientCoordinator();
 
         await expect(coordinator.startScanCleanup({
             ...ownerContext,
@@ -555,38 +779,33 @@ describe('scan cleanup run coordinator', () => {
             name: 'ScanCleanupRunReconciliationError',
             errorCode: 'internal',
             failure: 'subscription',
-            technicalDetail: 'subscription transport failed',
+            technicalDetail: '',
         });
 
-        expect(cancel).toHaveBeenCalledWith('unobserved-job', ownerContext);
         expect(coordinator.scanCleanupRun.activeJobId).toBeNull();
         expect(coordinator.scanCleanupRun.inFlight).toBe(false);
         expect(coordinator.scanCleanupRun.jobState).toBeNull();
         expect(coordinator.isScanCleanupRunning.value).toBe(false);
+        expect(storage.size).toBe(0);
     });
 
-    it('preserves a terminal state observed while abandoning an unobserved run', async () => {
-        const terminal = {
-            ...runningJobState(requireJobId('terminal-during-abandon')),
-            status: 'canceled' as const,
-        } satisfies TScanCleanupJobState;
-        const terminalState = {mark: () => undefined};
-        const cancel = vi.fn(async () => {
-            terminalState.mark();
-            return true;
+    it('hands off the PDF when completion arrives during cancellation after a null reply', async () => {
+        const terminal = completedState('terminal-during-abandon');
+        let emit: (state: TScanCleanupJobState) => void = () => undefined;
+        const bridge = stubCapability(listener => { emit = listener; }, () => terminal.jobId);
+        vi.mocked(bridge.subscribeJob).mockResolvedValue(null);
+        vi.mocked(bridge.cancel).mockImplementation(async () => {
+            emit(terminal);
+            return false;
         });
-        capability.value = {
-            ...stubCapability(() => undefined, () => 'unused-job'),
-            start: vi.fn(async () => startResult('terminal-during-abandon', '/managed/terminal-during-abandon.pdf')),
-            cancel,
-            subscribeJob: vi.fn(async () => {
-                throw new Error('subscription transport failed');
-            }),
-        };
+        capability.value = bridge;
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
-        terminalState.mark = () => {
-            coordinator.scanCleanupRun.jobState = terminal;
-        };
+        const opened = Promise.withResolvers<string>();
+        const finishOpen = Promise.withResolvers<boolean>();
+        const cleanup = coordinator.installScanCleanupRunCoordinator(coordinatorDeps({openGeneratedPdf: path => {
+            opened.resolve(path);
+            return finishOpen.promise;
+        }}));
 
         try {
             await expect(coordinator.startScanCleanup({
@@ -598,13 +817,86 @@ describe('scan cleanup run coordinator', () => {
                 jobId: 'terminal-during-abandon',
             });
 
-            expect(cancel).toHaveBeenCalledWith('terminal-during-abandon', ownerContext);
-            expect(coordinator.scanCleanupRun.activeJobId).toBe('terminal-during-abandon');
-            expect(coordinator.scanCleanupRun.jobState).toEqual(terminal);
+            expect(await opened.promise).toBe(terminal.outputPdfPath);
+            expect(coordinator.isScanCleanupRunning.value).toBe(true);
+            finishOpen.resolve(true);
+            await vi.waitFor(() => expect(coordinator.isScanCleanupRunning.value).toBe(false));
         } finally {
-            coordinator.scanCleanupRun.activeJobId = null;
-            coordinator.scanCleanupRun.jobState = null;
-            coordinator.scanCleanupRun.inFlight = false;
+            finishOpen.resolve(true);
+            cleanup();
+        }
+    });
+
+    it('ignores a late start subscription reply while the next document starts', async () => {
+        let emit: (state: TScanCleanupJobState | TScanCleanupJobClosure) => void = () => undefined;
+        const bridge = stubCapability<TScanCleanupJobState | TScanCleanupJobClosure>(listener => { emit = listener; }, () => 'unused');
+        const subscribing = Promise.withResolvers<void>();
+        const firstReply = Promise.withResolvers<TScanCleanupJobState>();
+        const secondStart = Promise.withResolvers<ReturnType<typeof startResult>>();
+        vi.mocked(bridge.subscribeJob).mockImplementationOnce(() => {
+            subscribing.resolve();
+            return firstReply.promise;
+        });
+        vi.mocked(bridge.start)
+            .mockResolvedValueOnce(startResult('first-job'))
+            .mockImplementationOnce(() => secondStart.promise);
+        capability.value = bridge;
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const cleanup = coordinator.installScanCleanupRunCoordinator(coordinatorDeps());
+        const request = {...ownerContext, options: createScanCleanupOptions()};
+        try {
+            const first = coordinator.startScanCleanup({...request, sourcePdfPath: '/source/first.pdf'});
+            await subscribing.promise;
+            emit({jobId: requireJobId('first-job'), status: 'retired'});
+            const second = coordinator.startScanCleanup({...request, sourcePdfPath: '/source/second.pdf'});
+
+            firstReply.resolve(runningJobState(requireJobId('first-job')));
+            await first;
+            const activeDuringSecondStart = coordinator.scanCleanupRun.activeJobId;
+            secondStart.resolve(startResult('second-job'));
+            await second;
+
+            expect(activeDuringSecondStart).toBeNull();
+            expect(coordinator.scanCleanupRun.activeJobId).toBe('second-job');
+            expect(coordinator.scanCleanupRun.ownerDocumentRef).toBe('/source/second.pdf');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('keeps a disconnected stored run for liveness without replaying the output journal', async () => {
+        const storage = stubSessionStorage([
+            ['evb.scanCleanup.activeJobId', 'stored-job'],
+            ['evb.scanCleanup.activeOwnerId', ownerContext.ownerId],
+            ['evb.scanCleanup.activeDocumentRevision', ownerContext.documentRevision],
+        ]);
+        const bridge = {
+            ...stubCapability(() => undefined, () => 'unused'),
+            getPendingCompletedOutputs: async () => ['/managed/recovered.pdf' as TDocumentRef],
+        } satisfies IScanCleanupCapability;
+        vi.mocked(bridge.reconnectJob).mockRejectedValue(new Error('reconnect transport failed'));
+        vi.mocked(bridge.getJobState).mockResolvedValue(runningJobState(requireJobId('stored-job')));
+        capability.value = bridge;
+        const coordinator = await loadClientCoordinator();
+        const opened: string[] = [];
+        vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout', 'Date']});
+        const cleanup = coordinator.installScanCleanupRunCoordinator(coordinatorDeps({openGeneratedPdf: async path => {
+            opened.push(path);
+            return true;
+        }}));
+        try {
+            await vi.advanceTimersByTimeAsync(0);
+            expect(storage.get('evb.scanCleanup.activeJobId')).toBe('stored-job');
+            expect(coordinator.scanCleanupRun.activeJobId).toBe('stored-job');
+            expect(coordinator.scanCleanupRun.lastError).toBeNull();
+
+            await vi.advanceTimersByTimeAsync(coordinator.SCAN_CLEANUP_RUN_LIVENESS_CHECK_MS);
+
+            expect(coordinator.scanCleanupRun.jobState?.status).toBe('running');
+            expect(opened).toEqual([]);
+        } finally {
+            cleanup();
+            vi.useRealTimers();
         }
     });
 
@@ -1173,7 +1465,7 @@ describe('scan cleanup run coordinator', () => {
         }
     });
 
-    it('reconciles a cancellation transport rejection to authoritative state', async () => {
+    it('answers a cancellation transport rejection from the authoritative state', async () => {
         const canceling: TScanCleanupJobState = {
             ...runningJobState(requireJobId('job-transport-rejection')),
             status: 'canceling',
@@ -1195,7 +1487,6 @@ describe('scan cleanup run coordinator', () => {
             await expect(coordinator.cancelScanCleanup()).resolves.toBe('accepted');
             expect(coordinator.scanCleanupRun.jobState?.status).toBe('canceling');
             expect(value.getJobState).toHaveBeenCalledWith('job-transport-rejection', ownerContext);
-            expect(value.reconnectJob).toHaveBeenCalledWith('job-transport-rejection', ownerContext);
         } finally {
             coordinator.scanCleanupRun.activeJobId = null;
             coordinator.scanCleanupRun.jobState = null;

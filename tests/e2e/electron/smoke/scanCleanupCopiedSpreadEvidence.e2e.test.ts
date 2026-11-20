@@ -73,7 +73,7 @@ describe('scan cleanup copied spread evidence', () => {
             const probe = window as Window & {__recordScanCleanupPlan?: (state: TScanCleanupDetectionJobState) => Promise<void>};
             const api = window.electronAPI?.scanCleanup;
             if (api === undefined || probe.__recordScanCleanupPlan === undefined) throw new Error('Scan cleanup event recorder unavailable');
-            api.onDetectionJobState(state => {void probe.__recordScanCleanupPlan!(state);});
+            api.onDetectionJobState(state => {if ('progress' in state) void probe.__recordScanCleanupPlan!(state);});
         });
         const sourcePath = await createLargeScannedFixturePdf('scan-cleanup-provisional-plan.pdf', 64, 0);
         await openPdfInApp(app.page, sourcePath, 90_000);

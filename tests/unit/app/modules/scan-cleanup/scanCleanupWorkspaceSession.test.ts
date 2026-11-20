@@ -63,6 +63,7 @@ import {
     setScanCleanupRunError,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
 import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
+import type {TScanCleanupJobClosure} from '@contracts/scan-cleanup/ipc';
 
 const capability = vi.hoisted(() => ({value: null as IScanCleanupCapability | null}));
 // Counts the real reduction rather than replacing it: the document's layouts
@@ -287,7 +288,7 @@ function completedLargeDetectionState(summary = placementAnchorSummary(0)): TSca
 
 function capabilityHarness() {
     let nextJob = 0;
-    let detectionListener: (state: TScanCleanupDetectionJobState) => void = () => undefined;
+    let detectionListener: (state: TScanCleanupDetectionJobState | TScanCleanupJobClosure) => void = () => undefined;
     let runListener: (state: TScanCleanupJobState) => void = () => undefined;
     const value: IScanCleanupCapability = {
         getSupport: () => FULL_SCAN_CLEANUP_SUPPORT,
@@ -320,7 +321,7 @@ function capabilityHarness() {
         onSettingsChanged: vi.fn(() => () => undefined),
     };
     return {
-        emitDetection: (state: TScanCleanupDetectionJobState) => detectionListener(state),
+        emitDetection: (state: TScanCleanupDetectionJobState | TScanCleanupJobClosure) => detectionListener(state),
         emitRun: (state: TScanCleanupJobState) => runListener(state),
         value,
     };
@@ -2660,7 +2661,62 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
-    it('reconciles a rejected detection subscription and abandons an unobservable job', async () => {
+    it('shows completed detection evidence when detection finishes before subscribe without polling', async () => {
+        const harness = capabilityHarness();
+        const terminal = detectionState('detect-early', 'completed');
+        let retained: TScanCleanupDetectionJobState | null = null;
+        vi.mocked(harness.value.detectAll).mockImplementation(async () => {
+            // The owner streams terminal state before the renderer knows the
+            // job ID. Subscribe returns the full retained projection.
+            retained = terminal;
+            harness.emitDetection(terminal);
+            return {
+                started: true,
+                jobId: terminal.jobId,
+            };
+        });
+        vi.mocked(harness.value.getDetectionJobState).mockRejectedValue(new Error('Direct detection-state read unavailable'));
+        vi.mocked(harness.value.subscribeDetectionJob).mockImplementation(async jobId => retained?.jobId === jobId ? retained : null);
+        capability.value = harness.value;
+        vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout', 'Date']});
+        const mounted = mountSession('detection-finished-before-subscribe', {active: () => false});
+        try {
+            await mounted.session.detection.detectAllPages();
+
+            expect(mounted.session.detection.terminalStatus.value).toBe('completed');
+            expect(mounted.session.detection.authoritativeLayoutByPage.value.get(3)).toBe('single-uncut-page');
+            expect(mounted.session.detection.pending.value).toBe(false);
+        } finally {
+            mounted.unmount();
+            vi.useRealTimers();
+        }
+    });
+
+    it('shows an error and releases the detection guard when the record retires before subscribe', async () => {
+        const harness = capabilityHarness();
+        // Both platform owners currently answer null for a retired record.
+        vi.mocked(harness.value.subscribeDetectionJob).mockResolvedValue(null);
+        vi.mocked(harness.value.getDetectionJobState).mockRejectedValue(new Error('Direct detection-state read unavailable'));
+        capability.value = harness.value;
+        vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout', 'Date']});
+        const mounted = mountSession('detection-retired-before-subscribe', {active: () => false});
+        try {
+            await mounted.session.detection.detectAllPages();
+
+            expect({
+                pending: mounted.session.detection.pending.value,
+                error: mounted.session.detection.error.value,
+            }).toEqual({
+                pending: false,
+                error: expect.stringMatching(/scanCleanup\.errors\.detectionSubscriptionFailed/u),
+            });
+        } finally {
+            mounted.unmount();
+            vi.useRealTimers();
+        }
+    });
+
+    it('abandons a detection job whose subscription is disconnected', async () => {
         const harness = capabilityHarness();
         vi.mocked(harness.value.subscribeDetectionJob).mockRejectedValue(
             new Error('detection subscription transport failed'),
@@ -2671,7 +2727,6 @@ describe('scan cleanup workspace session detection guidance', () => {
         await vi.waitFor(() => expect(harness.value.subscribeDetectionJob).toHaveBeenCalledOnce());
         await vi.waitFor(() => expect(mounted.session.detection.pending.value).toBe(false));
 
-        expect(harness.value.getDetectionJobState).toHaveBeenCalledTimes(3);
         expect(harness.value.cancelDetection).toHaveBeenCalledWith(
             'detect-1',
             expect.objectContaining({documentRevision: expect.any(String)}),
@@ -2680,6 +2735,111 @@ describe('scan cleanup workspace session detection guidance', () => {
         expect(mounted.session.detection.error.value)
             .toBe('scanCleanup.errors.detectionSubscriptionFailed (detection subscription transport failed)');
         mounted.unmount();
+    });
+
+    it('keeps completed detection evidence when the pending subscription rejects', async () => {
+        const harness = capabilityHarness();
+        const subscribing = Promise.withResolvers<void>();
+        const subscription = Promise.withResolvers<TScanCleanupDetectionJobState | null>();
+        vi.mocked(harness.value.subscribeDetectionJob).mockImplementation(() => {
+            subscribing.resolve();
+            return subscription.promise;
+        });
+        vi.mocked(harness.value.cancelDetection).mockImplementation(async () => {
+            harness.emitDetection(detectionState('detect-1', 'canceled'));
+            return true;
+        });
+        capability.value = harness.value;
+        const mounted = mountSession('detection-completed-during-subscribe', {active: () => false});
+        onTestFinished(() => mounted.unmount());
+        const {detection} = mounted.session;
+
+        const started = detection.detectAllPages();
+        await subscribing.promise;
+        harness.emitDetection(detectionState('detect-1', 'completed'));
+        subscription.reject(new Error('subscription transport failed'));
+        await started;
+
+        expect(detection.terminalStatus.value).toBe('completed');
+        expect(detection.authoritativeLayoutByPage.value.get(3)).toBe('single-uncut-page');
+        expect(detection.error.value).toBe('');
+    });
+
+    it('keeps completed detection evidence received during cancellation after a null reply', async () => {
+        const harness = capabilityHarness();
+        vi.mocked(harness.value.subscribeDetectionJob).mockResolvedValue(null);
+        vi.mocked(harness.value.cancelDetection).mockImplementation(async () => {
+            harness.emitDetection(detectionState('detect-1', 'completed'));
+            return false;
+        });
+        capability.value = harness.value;
+        const mounted = mountSession('detection-completed-during-cancel', {active: () => false});
+        onTestFinished(() => mounted.unmount());
+        const {detection} = mounted.session;
+
+        await detection.detectAllPages();
+
+        expect(detection.terminalStatus.value).toBe('completed');
+        expect(detection.authoritativeLayoutByPage.value.get(3)).toBe('single-uncut-page');
+        expect(detection.error.value).toBe('');
+    });
+
+    it('settles a detection evidence waiter when the subscription is abandoned', async () => {
+        const harness = capabilityHarness();
+        const subscribing = Promise.withResolvers<void>();
+        const subscription = Promise.withResolvers<TScanCleanupDetectionJobState | null>();
+        const reading = Promise.withResolvers<void>();
+        vi.mocked(harness.value.subscribeDetectionJob).mockImplementation(() => {
+            subscribing.resolve();
+            return subscription.promise;
+        });
+        vi.mocked(harness.value.getDetectionJobState).mockImplementation(async () => {
+            reading.resolve();
+            return null;
+        });
+        capability.value = harness.value;
+        const mounted = mountSession('detection-waiter-during-subscribe', {active: () => false});
+        onTestFinished(() => mounted.unmount());
+        const {detection} = mounted.session;
+
+        const started = detection.detectAllPages();
+        await subscribing.promise;
+        let settled = false;
+        const waited = detection.waitForTerminal().then(() => { settled = true; });
+        await reading.promise;
+        subscription.reject(new Error('subscription transport failed'));
+        await started;
+
+        await vi.waitFor(() => expect(settled).toBe(true));
+        await waited;
+        expect(detection.pending.value).toBe(false);
+        expect(detection.error.value).toBe('scanCleanup.errors.detectionSubscriptionFailed (subscription transport failed)');
+    });
+
+    it.each(['retired', 'disconnected'] as const)('ends pending detection only when its own channel reports %s', async status => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const mounted = mountSession(`detection-closure-${status}`, {active: () => false});
+        try {
+            const {detection} = mounted.session;
+            await detection.detectAllPages();
+            harness.emitDetection(detectionState('detect-1', 'completed'));
+            expect(detection.terminalStatus.value).toBe('completed');
+            await detection.detectAllPages();
+            expect(detection.pending.value).toBe(true);
+
+            harness.emitDetection({jobId: requireJobId('detect-1'), status});
+
+            expect(detection.pending.value).toBe(true);
+            expect(detection.error.value).toBe('');
+
+            harness.emitDetection({jobId: requireJobId('detect-2'), status});
+
+            expect(detection.pending.value).toBe(false);
+            expect(detection.error.value).toBe('scanCleanup.errors.detectionSubscriptionFailed');
+        } finally {
+            mounted.unmount();
+        }
     });
 
     it('rejects an older subscribe response after a newer detection event without regressing progress or maps', async () => {
