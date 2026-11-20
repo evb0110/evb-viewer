@@ -301,7 +301,6 @@ export interface IPreviewEntry {
     canceledAsResult: boolean;
     signal: AbortSignal;
     cancel: (reason?: string) => boolean;
-    generation: number;
     pageNumber: number;
     claimId: string;
     sourcePdfPath?: string;

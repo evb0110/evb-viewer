@@ -341,7 +341,7 @@ export default {
             'loadingPage': 'Cargando página {page}…',
             'refreshing': 'Actualizando vista previa…',
             'unavailable': 'La vista previa no está disponible. Aún puedes ejecutar la limpieza.',
-            'canceledRepeatedly': 'La vista previa perdió su ejecución una y otra vez antes de poder terminar.',
+            'detailUnavailable': 'No se pudo generar el detalle más nítido de esta zona.',
             'retry': 'Reintentar',
             'technicalDetails': 'Detalles técnicos',
             'originalAlt': 'Vista previa del escaneo original para la página {page}',

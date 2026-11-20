@@ -342,7 +342,7 @@ export default {
             'loadingPage': 'Carregando página {page}…',
             'refreshing': 'Atualizando a pré-visualização…',
             'unavailable': 'A pré-visualização não está disponível. Você ainda pode executar a limpeza.',
-            'canceledRepeatedly': 'A pré-visualização perdeu repetidamente o seu processamento antes de poder concluí-lo.',
+            'detailUnavailable': 'Não foi possível gerar o detalhe mais nítido desta área.',
             'retry': 'Tentar novamente',
             'technicalDetails': 'Detalhes técnicos',
             'originalAlt': 'Pré-visualização da digitalização original da página {page}',

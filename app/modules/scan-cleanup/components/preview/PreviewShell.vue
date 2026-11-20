@@ -1602,7 +1602,10 @@ function nudgePlacement(event: KeyboardEvent, output: IRenderedScanCleanupOutput
     emit('update:placement', output.metadata.half, next as TScanCleanupPageAlignment);
 }
 
-defineExpose({revealLatestFrame});
+defineExpose({
+    revealLatestFrame,
+    scheduleDetailRequest,
+});
 const pendingCleanedPixels = computed(() => (
     Object.entries(pendingCleanedPixelUrls) as Array<[TScanCleanupOutputHalf, string]>
 ).map(([

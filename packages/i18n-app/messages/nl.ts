@@ -341,7 +341,7 @@ export default {
             'loadingPage': 'Pagina {page} laden…',
             'refreshing': 'Voorbeeld bijwerken…',
             'unavailable': 'Voorbeeld is niet beschikbaar. U kunt nog steeds het opschonen uitvoeren.',
-            'canceledRepeatedly': 'Het voorbeeld verloor zijn verwerking telkens voordat die kon worden voltooid.',
+            'detailUnavailable': 'Het scherpere detail van dit gebied kon niet worden weergegeven.',
             'retry': 'Opnieuw proberen',
             'technicalDetails': 'Technische details',
             'originalAlt': 'Origineel scanvoorbeeld voor pagina {page}',
