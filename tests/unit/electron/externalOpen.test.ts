@@ -5,8 +5,15 @@ import {
     it,
     vi,
 } from 'vitest';
+import { EventEmitter } from 'node:events';
 import { resolve } from 'path';
 import { pathToFileURL } from 'url';
+import type {
+    App,
+    BrowserWindow,
+    IpcMainEvent,
+} from 'electron';
+import { DEFAULT_SETTINGS } from '@contracts/settings';
 import {
     createExternalOpenManager,
     createMacOpenFileRouter,
@@ -14,7 +21,17 @@ import {
 import {
     bootSingleInstance,
     createStartupExternalOpenClaimTracker,
+    runInitSequence,
+    type IRunInitSequenceOptions,
 } from '@electron/bootstrap/runInitSequence';
+import { shouldResetRendererReadyOnNavigation } from '@electron/bootstrap/rendererReady';
+import { attachShowLifecycle } from '@electron/window/attachShowLifecycle';
+import {
+    getAllRegisteredAppWindows,
+    getRegisteredMainWindow,
+    registerAppWindow,
+} from '@electron/window/registry';
+import { markWindowRendererReady } from '@electron/window/rendererReady';
 import { createTestEventSender } from '@tests/helpers/electronEventEmitterHarness';
 
 const mocks = vi.hoisted(() => ({existsSync: vi.fn((_path: string) => true)}));
@@ -106,6 +123,138 @@ describe('createMacOpenFileRouter', () => {
         router.handleOpenFile(exactPath);
 
         expect(externalOpenManager.queueOpenRequest).toHaveBeenCalledWith([exactPath]);
+    });
+});
+
+describe('external open delivery across windows', () => {
+    it('delivers a queued file once when the reloading main window closes and an already ready window takes over', async () => {
+        vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']});
+        const noop = () => {};
+        const noopAsync = async () => {};
+        const logger = createLogger();
+        const app = Object.assign(new EventEmitter(), {
+            isPackaged: true,
+            focus: noop,
+            getVersion: () => '1.0.0',
+            hide: noop,
+            requestSingleInstanceLock: () => true,
+            setAboutPanelOptions: noop,
+            whenReady: noopAsync,
+        });
+        const readyWindowIds = new Set<number>();
+        const hasWindows = () => getAllRegisteredAppWindows().length > 0;
+
+        function createWindow(id: number) {
+            const webContents = createTestEventSender(id);
+            const events = new EventEmitter();
+            let closed = false;
+            const window = Object.assign(events, {
+                id,
+                webContents,
+                isDestroyed: () => closed,
+            }) as unknown as BrowserWindow;
+            app.emit('browser-window-created', {}, window);
+            registerAppWindow(window);
+            attachShowLifecycle(window, {
+                isDev: false,
+                logger,
+                showAndFocusMaximizedWindow: noop,
+                logWindowStartup: noop,
+            });
+            return {
+                window,
+                webContents,
+                close() {
+                    if (!closed) {
+                        closed = true;
+                        events.emit('closed');
+                    }
+                },
+            };
+        }
+
+        const externalOpenManager = createExternalOpenManager({
+            application: app,
+            logger,
+            noFocus: true,
+            logStartupPhase: noop,
+            isMainWindowRendererReady: () => readyWindowIds.has(getRegisteredMainWindow()?.id ?? -1),
+            getMainWindow: getRegisteredMainWindow,
+            hasWindows,
+            createWindow: noopAsync,
+            dispatchOpenPaths(paths) {
+                const target = getRegisteredMainWindow();
+                if (!target) return false;
+                target.webContents.send('menu:openExternalPaths', paths);
+                return true;
+            },
+        });
+        const ipcHandlers: Parameters<IRunInitSequenceOptions['registerIpcHandlers']>[0] = {};
+        const mainWindow = Promise.withResolvers<ReturnType<typeof createWindow>>();
+        await runInitSequence({
+            app: app as unknown as App,
+            aboutIconPath: '',
+            allowMultipleAutomationSessions: false,
+            allowOpenPaths: noop,
+            attachHostEnvironmentToWindow: noop,
+            broadcastUpdateStatus: noop,
+            cleanupStaleWorkingCopyDirectories: async () => ({removedDirectories: 0}),
+            createWindow: async () => {
+                const main = createWindow(1);
+                mainWindow.resolve(main);
+                return main.window;
+            },
+            devDockBadgeText: '',
+            devDockIconPath: '',
+            externalOpenManager,
+            focusMainWindow: noop,
+            getMainWindow: getRegisteredMainWindow,
+            getWindowFromWebContents: sender => getAllRegisteredAppWindows().find(window => window.webContents === sender) ?? null,
+            hasWindows,
+            initRecentFilesCache: noopAsync,
+            initializeElectronTranslations: noopAsync,
+            initializeResourceRuntime: noopAsync,
+            initializeUpdates: noop,
+            installHostEnvironmentDisplayWatcher: noop,
+            logger,
+            loadSettings: async () => DEFAULT_SETTINGS,
+            logStartupPhase: noop,
+            markWindowRendererReady,
+            markWindowTabTransferNotReady: noop,
+            markWindowTabTransferReady: noop,
+            markWindowTabTransferWindowClosed: noop,
+            onPrimaryInstanceReady: noop,
+            maybePromptForDefaultViewer: noop,
+            readyWindowIds,
+            registerIpcHandlers: handlers => { Object.assign(ipcHandlers, handlers); },
+            setupAppProtocolHandler: noop,
+            setupMenu: noop,
+            updateRecentFilesMenu: noop,
+            shouldResetRendererReadyOnNavigation,
+            shutdownCoordinator: null,
+            sweepStaleDefaultAppTempPdfs: noopAsync,
+        });
+        const main = await mainWindow.promise;
+        const replacement = createWindow(2);
+        try {
+            ipcHandlers.onRendererReady!({sender: main.window.webContents} as IpcMainEvent);
+            ipcHandlers.onRendererReady!({sender: replacement.window.webContents} as IpcMainEvent);
+            main.webContents.emit('did-start-navigation', {}, 'evb-viewer://app/electron', false, true);
+            const path = resolve('/docs/during-reload.pdf');
+            externalOpenManager.queueOpenRequest([path]);
+
+            expect(main.webContents.send).not.toHaveBeenCalled();
+            expect(replacement.webContents.send).not.toHaveBeenCalled();
+
+            main.close();
+            await new Promise<void>(resolve => setImmediate(resolve));
+
+            expect(replacement.webContents.send).toHaveBeenCalledExactlyOnceWith('menu:openExternalPaths', [path]);
+            expect(main.webContents.send).not.toHaveBeenCalled();
+        } finally {
+            main.close();
+            replacement.close();
+        }
     });
 });
 

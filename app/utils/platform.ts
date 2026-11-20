@@ -1,5 +1,4 @@
 import type { IPlatformApi } from '@contracts/platformApi';
-import { delay } from 'es-toolkit/promise';
 import {
     getRawElectronPlatformApi,
     hasElectronPlatformBridge,
@@ -47,59 +46,6 @@ export function shouldPreferDesktopPlatform(
 
 export function resolveInitialDesktopRuntime(routePath: string | null | undefined, electronApiAvailable = hasElectronAPI()) {
     return shouldPreferDesktopPlatform(routePath, false, electronApiAvailable);
-}
-
-interface IWaitForDesktopPlatformBridgeOptions {
-    shouldWait?: boolean;
-    retryDelayMs?: number;
-    attempts?: number;
-}
-
-interface IPreferredDesktopPlatformBridgeOptions extends Omit<IWaitForDesktopPlatformBridgeOptions, 'shouldWait'> {
-    routePath?: string | null | undefined;
-    desktopRuntime?: boolean | undefined;
-}
-
-export interface IPreferredDesktopPlatformBridgeResolution {
-    bridgeReady: boolean;
-    shouldWait: boolean;
-}
-
-export async function waitForDesktopPlatformBridge({
-    shouldWait = true,
-    retryDelayMs = 25,
-    attempts = 20,
-}: IWaitForDesktopPlatformBridgeOptions = {}) {
-    if (!shouldWait || hasElectronPlatformBridge()) {
-        return hasElectronPlatformBridge();
-    }
-
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
-        await delay(retryDelayMs);
-
-        if (hasElectronPlatformBridge()) {
-            return true;
-        }
-    }
-
-    return hasElectronPlatformBridge();
-}
-
-export async function waitForPreferredDesktopPlatformBridge({
-    routePath,
-    desktopRuntime = false,
-    retryDelayMs,
-    attempts,
-}: IPreferredDesktopPlatformBridgeOptions = {}): Promise<IPreferredDesktopPlatformBridgeResolution> {
-    const shouldWait = shouldPreferDesktopPlatform(routePath, desktopRuntime);
-    return {
-        shouldWait,
-        bridgeReady: await waitForDesktopPlatformBridge({
-            shouldWait,
-            ...(retryDelayMs === undefined ? {} : { retryDelayMs }),
-            ...(attempts === undefined ? {} : { attempts }),
-        }),
-    };
 }
 
 export function getPlatformAPI(): IPlatformApi {

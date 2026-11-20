@@ -1,9 +1,12 @@
+// @vitest-environment happy-dom
 import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
+    createApp,
     ref,
     shallowRef,
 } from 'vue';
@@ -23,12 +26,17 @@ import { requireTabId } from '@contracts/windowTabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { setTestDocumentDirty } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
+import {
+    createWorkspaceExposeFixture,
+    setTestDocumentDirty,
+} from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 import { buildWorkspaceCheckpointChangeSignature } from '@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpointChangeSignature';
 import {
     buildWorkspaceCheckpoint,
     WorkspaceCheckpointCaptureError,
 } from '@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpoint';
+import { useWorkspaceCrashCheckpoint } from '@app/modules/workspace-shell/checkpoint/useWorkspaceCrashCheckpoint';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 function createSession(tabId: string) {
     return createWorkspaceDocumentController({
@@ -215,5 +223,54 @@ describe('buildWorkspaceCheckpoint', () => {
 
         expect(error).toBeInstanceOf(WorkspaceCheckpointCaptureError);
         expect(error).toHaveProperty('message', expect.stringContaining('tab tab-a'));
+    });
+});
+
+describe('useWorkspaceCrashCheckpoint', () => {
+    it('writes the next checkpoint when persistence was disabled during the first capture', async () => {
+        const options = createSignatureOptions();
+        const enabled = ref(true);
+        const workspace = createWorkspaceExposeFixture();
+        const capture = workspace.getAutomationStateSnapshot;
+        vi.spyOn(workspace, 'getAutomationStateSnapshot').mockImplementationOnce(() => {
+            enabled.value = false;
+            return capture();
+        });
+        options.documentSessionsByTabId.value['tab-a'].attachWorkspace('tab-a', workspace);
+
+        const saveWorkspaceCheckpoint = vi.fn(async () => true);
+        const originalElectronApi = window.electronAPI;
+        window.electronAPI = createElectronPlatformApiFixture({windowTabs: {saveWorkspaceCheckpoint}});
+        let checkpoint!: ReturnType<typeof useWorkspaceCrashCheckpoint>;
+        const app = createApp({
+            setup() {
+                checkpoint = useWorkspaceCrashCheckpoint({
+                    ...options,
+                    enabled,
+                    isStartupOpenClaimPending: ref(false),
+                });
+                return () => null;
+            },
+        });
+        app.mount(document.createElement('div'));
+        const {persistCheckpointNow} = checkpoint;
+        try {
+            // The early guard passed. Only the writer sees the disabled state.
+            await persistCheckpointNow();
+            expect(enabled.value).toBe(false);
+            expect(saveWorkspaceCheckpoint).not.toHaveBeenCalled();
+
+            enabled.value = true;
+            options.activeTabId.value = requireTabId('tab-b');
+            await persistCheckpointNow();
+            expect(saveWorkspaceCheckpoint).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({activeTabId: 'tab-b'}));
+        } finally {
+            app.unmount();
+            if (originalElectronApi === undefined) {
+                delete window.electronAPI;
+            } else {
+                window.electronAPI = originalElectronApi;
+            }
+        }
     });
 });

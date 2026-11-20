@@ -3,8 +3,8 @@ import type { IRecentFile } from '@contracts/shared';
 import type { TDocumentRef } from '@contracts/documentRef';
 import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
 import {
+    hasElectronAPI,
     shouldPreferDesktopPlatform,
-    waitForDesktopPlatformBridge,
 } from '@app/utils/platform';
 import {take} from 'es-toolkit/array';
 import {
@@ -21,8 +21,6 @@ import {
 import { getDocumentRecentFilesCapability as getPlatformDocumentRecentFilesCapability } from '@app/utils/platformDocuments';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
 
-const ELECTRON_BRIDGE_RETRY_DELAY_MS = 25;
-const ELECTRON_BRIDGE_RETRY_ATTEMPTS = 20;
 const ELECTRON_RECENT_FILES_RETRY_DELAY_MS = 750;
 const ELECTRON_RECENT_FILES_MAX_AUTOMATIC_RETRIES = 5;
 
@@ -43,22 +41,10 @@ export const useRecentFiles = () => {
         !shouldPreferElectronRuntime.value && hasResolvedCookieSnapshot
     ));
 
-    async function waitForDocumentsCapabilityBridge() {
-        if (shouldPreferElectronRuntime.value) {
-            const bridgeReady = await waitForDesktopPlatformBridge({
-                shouldWait: shouldPreferElectronRuntime.value,
-                attempts: ELECTRON_BRIDGE_RETRY_ATTEMPTS,
-                retryDelayMs: ELECTRON_BRIDGE_RETRY_DELAY_MS,
-            });
-
-            if (!bridgeReady) {
-                throw new Error('Electron API unavailable');
-            }
+    function getDocumentRecentFilesCapability() {
+        if (shouldPreferElectronRuntime.value && !hasElectronAPI()) {
+            throw new Error('Electron API unavailable');
         }
-    }
-
-    async function getDocumentRecentFilesCapability() {
-        await waitForDocumentsCapabilityBridge();
 
         return getPlatformDocumentRecentFilesCapability();
     }
@@ -76,7 +62,7 @@ export const useRecentFiles = () => {
         initialValue: () => take(initialCookieSnapshot.recentFiles, RECENT_FILES_LIMIT),
         initialResolved: !isDesktopRuntime.value && hasResolvedCookieSnapshot,
         async loadValue() {
-            return (await getDocumentRecentFilesCapability()).recentFiles.get();
+            return getDocumentRecentFilesCapability().recentFiles.get();
         },
         getErrorMessage(loadError) {
             return loadError instanceof Error ? getErrorMessage(loadError) : t('errors.recent.load');
@@ -116,7 +102,7 @@ export const useRecentFiles = () => {
 
     async function removeRecentFile(file: IRecentFile) {
         try {
-            await (await getDocumentRecentFilesCapability()).recentFiles.remove(file.originalPath);
+            await getDocumentRecentFilesCapability().recentFiles.remove(file.originalPath);
             await loadRecentFiles();
         } catch (e) {
             reportEditFailure(t('errors.recent.remove'), e);
@@ -131,7 +117,7 @@ export const useRecentFiles = () => {
     async function forgetRecentFileIfMissing(path: TDocumentRef) {
         let removed = false;
         try {
-            removed = await (await getDocumentRecentFilesCapability()).recentFiles.removeIfMissing(path);
+            removed = await getDocumentRecentFilesCapability().recentFiles.removeIfMissing(path);
         } catch (checkError) {
             BrowserLogger.warn('recent-files', 'Recent file availability check failed', checkError);
         }
@@ -156,7 +142,7 @@ export const useRecentFiles = () => {
 
     async function clearRecentFiles() {
         try {
-            await (await getDocumentRecentFilesCapability()).recentFiles.clear();
+            await getDocumentRecentFilesCapability().recentFiles.clear();
             recentFiles.value = [];
             error.value = null;
             isResolved.value = true;

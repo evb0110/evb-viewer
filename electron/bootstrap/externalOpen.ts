@@ -14,10 +14,8 @@ const EXTERNAL_OPEN_SINGLETON_BATCH_WINDOW_MS = 100;
 const EXTERNAL_OPEN_MULTI_PATH_BATCH_WINDOW_MS = 800;
 const EXTERNAL_OPEN_MAX_BATCH_WAIT_MS = 10_000;
 const EXTERNAL_OPEN_RETRY_DISPATCH_MS = 1_000;
-// A batch that cannot be delivered has to stop retrying, but "no window yet"
-// also reports as undeliverable, so the ceiling has to outlast a cold start or
-// it would discard the file the user just double-clicked. Reuse the pipeline's
-// own patience budget rather than inventing a second one.
+// Dispatch is attempted only once the main renderer is ready; a batch it still
+// cannot deliver stops retrying within the pipeline's own patience budget.
 const EXTERNAL_OPEN_MAX_DISPATCH_FAILURES
     = Math.ceil(EXTERNAL_OPEN_MAX_BATCH_WAIT_MS / EXTERNAL_OPEN_RETRY_DISPATCH_MS);
 const EXTERNAL_OPEN_STARTUP_EMPTY_CLAIM_GRACE_MS = 300;
@@ -135,7 +133,6 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
     let externalOpenBootstrapReady = false;
     let ensureWindowForExternalOpenPromise: Promise<void> | null = null;
     let hasHandledInitialExternalOpenDispatch = false;
-    let pendingFlushRequested = false;
     let dispatchFailureCount = 0;
     let startupEmptyClaimGraceTimer: ReturnType<typeof setTimeout> | null = null;
     let startupEmptyClaimGraceResolve: (() => void) | null = null;
@@ -316,13 +313,11 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
         const paths = validation.validPaths;
         removePendingPaths(validation.normalizedPaths);
         if (paths.length === 0) {
-            pendingFlushRequested = false;
             clearRetryPendingFilesTimer();
             return [];
         }
 
         hasHandledInitialExternalOpenDispatch = true;
-        pendingFlushRequested = pendingExternalOpenPaths.length > 0;
         if (pendingExternalOpenPaths.length === 0) {
             clearTimers();
         }
@@ -374,11 +369,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
     }
 
     function scheduleRetryPendingFiles() {
-        if (
-            retryPendingFilesTimer
-            || !externalOpenBootstrapReady
-            || pendingExternalOpenPaths.length === 0
-        ) {
+        if (retryPendingFilesTimer) {
             return;
         }
 
@@ -431,14 +422,12 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
         batchPhase = { type: 'idle' };
 
         if (pendingExternalOpenPaths.length === 0) {
-            pendingFlushRequested = false;
             clearRetryPendingFilesTimer();
             return;
         }
 
+        // Queued paths wait for the renderer-ready handler, which flushes them.
         if (!options.isMainWindowRendererReady()) {
-            pendingFlushRequested = true;
-            scheduleRetryPendingFiles();
             return;
         }
 
@@ -446,8 +435,6 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
         const validation = validateClaimedOpenPaths(getPendingPathsSnapshot(), 'dispatch');
         const paths = validation.validPaths;
         if (paths.length === 0) {
-            pendingFlushRequested = false;
-            clearRetryPendingFilesTimer();
             dispatchFailureCount = 0;
             removePendingPaths(validation.normalizedPaths);
             return;
@@ -458,7 +445,6 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
         if (!dispatched) {
             dispatchFailureCount += 1;
             if (dispatchFailureCount >= EXTERNAL_OPEN_MAX_DISPATCH_FAILURES) {
-                pendingFlushRequested = false;
                 removePendingPaths(validation.normalizedPaths);
                 options.logger.warn(
                     `External open dispatch failed ${dispatchFailureCount} times; dropping ${validation.normalizedPaths.length} queued path(s)`,
@@ -467,7 +453,6 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
                 return;
             }
 
-            pendingFlushRequested = true;
             options.logger.warn('External open dispatch could not reach the renderer; keeping paths queued for retry');
             scheduleRetryPendingFiles();
             return;
@@ -475,7 +460,6 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
 
         dispatchFailureCount = 0;
         removePendingPaths(validation.normalizedPaths);
-        pendingFlushRequested = pendingExternalOpenPaths.length > 0;
         options.logStartupPhase(`Dispatched external file open batch (${paths.length} path(s))`);
     }
 
@@ -503,15 +487,11 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
 
     function scheduleFlushPendingFiles(newPathCount = 0) {
         if (pendingExternalOpenPaths.length === 0) {
-            pendingFlushRequested = false;
             clearRetryPendingFilesTimer();
             return;
         }
 
-        pendingFlushRequested = true;
-
         if (!options.isMainWindowRendererReady()) {
-            scheduleRetryPendingFiles();
             return;
         }
 
@@ -569,9 +549,6 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
         isSupportedFile: isSupportedOpenPath,
         markBootstrapReady() {
             externalOpenBootstrapReady = true;
-            if (pendingFlushRequested || pendingExternalOpenPaths.length > 0) {
-                scheduleRetryPendingFiles();
-            }
         },
         queueOpenRequest,
         queueOpenRequestFromArgs,

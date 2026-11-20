@@ -11,7 +11,6 @@ import {
 import { buildWorkspaceCheckpoint } from '@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpoint';
 import { buildWorkspaceCheckpointChangeSignature } from '@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpointChangeSignature';
 import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
-import { waitForDesktopPlatformBridge } from '@app/utils/platform';
 import { guardAsync } from '@app/utils/asyncGuard';
 import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
@@ -48,9 +47,10 @@ export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpoin
             return inFlight;
         }
         inFlight = (async () => {
+            // Deferred once so that inFlight is assigned before the body can complete and clear it.
+            await Promise.resolve();
             let firstError: unknown;
             try {
-                await waitForDesktopPlatformBridge({shouldWait: true});
                 for (let next: IWorkspaceCheckpoint | null = checkpoint; next && !disposed && options.enabled.value; next = pendingLatest) {
                     pendingLatest = null;
                     await Promise.resolve(getWindowTabsCapability().saveWorkspaceCheckpoint?.(next)).catch((error: unknown) => {

@@ -6,7 +6,6 @@ import {
     it,
     vi,
 } from 'vitest';
-import { delay } from 'es-toolkit/promise';
 import {
     effectScope,
     ref,
@@ -22,8 +21,6 @@ import { BROWSER_RECENT_FILES_STORAGE_KEY } from '@app/utils/browserRuntimePersi
 
 const cookieStore = new Map<string, ReturnType<typeof ref>>();
 const stateStore = new Map<string, ReturnType<typeof ref>>();
-const desktopRuntime = ref(true);
-const electronBridgeReady = ref(true);
 const routePath = ref('/electron');
 const electronRecentFilesGet = vi.fn<() => Promise<IRecentFile[]>>();
 const electronRecentFilesRemove = vi.fn<(path: string) => Promise<void>>();
@@ -47,45 +44,6 @@ const browserPlatformApi = createPlatformApiFixture({
     backend: 'browser',
     overrides: {documentRecentFiles: {recentFiles: {get: browserRecentFilesGet}}},
 });
-
-vi.mock('@app/utils/platform', () => ({
-    isDesktopPlatformActive: (electronApiAvailable = electronBridgeReady.value) => electronApiAvailable,
-    getPlatformAPI: () => electronBridgeReady.value
-        ? electronPlatformApi
-        : browserPlatformApi,
-    hasElectronAPI: () => electronBridgeReady.value,
-    isElectronRoutePath: (path: string | null | undefined) => path === '/electron' || path?.startsWith('/electron/') === true,
-    shouldPreferDesktopPlatform: (
-        currentRoutePath: string | null | undefined,
-        desktopRuntime = false,
-        electronApiAvailable = electronBridgeReady.value,
-    ) => electronApiAvailable || desktopRuntime || currentRoutePath === '/electron' || currentRoutePath?.startsWith('/electron/') === true,
-    resolveInitialDesktopRuntime: (routePath: string | null | undefined, electronApiAvailable = electronBridgeReady.value) =>
-        electronApiAvailable || routePath === '/electron' || routePath?.startsWith('/electron/') === true,
-    waitForDesktopPlatformBridge: async ({
-        shouldWait = true,
-        retryDelayMs = 25,
-        attempts = 20,
-    }: {
-        shouldWait?: boolean;
-        retryDelayMs?: number;
-        attempts?: number;
-    } = {}) => {
-        if (!shouldWait || electronBridgeReady.value) {
-            return electronBridgeReady.value;
-        }
-
-        for (let attempt = 0; attempt < attempts; attempt += 1) {
-            await delay(retryDelayMs);
-
-            if (electronBridgeReady.value) {
-                return true;
-            }
-        }
-
-        return electronBridgeReady.value;
-    },
-}));
 
 function recentFile(path: string, timestamp = 1): IRecentFile {
     const fileName = path.split('/').at(-1) ?? path;
@@ -112,25 +70,26 @@ describe('useRecentFiles', () => {
         vi.useRealTimers();
     });
 
-    beforeEach(() => {
+    beforeEach(async () => {
         vi.resetModules();
         vi.clearAllMocks();
         vi.useRealTimers();
         cookieStore.clear();
         stateStore.clear();
         browserStorage.clear();
-        vi.stubGlobal('window', {localStorage: {
-            getItem: (key: string) => browserStorage.get(key) ?? null,
-            clear: () => browserStorage.clear(),
-            removeItem: (key: string) => browserStorage.delete(key),
-            setItem: (key: string, value: string) => browserStorage.set(key, value),
-        }});
+        vi.stubGlobal('window', {
+            electronAPI: electronPlatformApi,
+            localStorage: {
+                getItem: (key: string) => browserStorage.get(key) ?? null,
+                clear: () => browserStorage.clear(),
+                removeItem: (key: string) => browserStorage.delete(key),
+                setItem: (key: string, value: string) => browserStorage.set(key, value),
+            },
+        });
         vi.stubGlobal('document', {
             get cookie() { return ''; },
             set cookie(_value: string) {},
         });
-        desktopRuntime.value = true;
-        electronBridgeReady.value = true;
         routePath.value = '/electron';
         electronRecentFilesGet.mockResolvedValue([]);
         electronRecentFilesRemove.mockResolvedValue();
@@ -139,6 +98,8 @@ describe('useRecentFiles', () => {
         electronOpenDocumentDirect.mockResolvedValue(null);
         browserRecentFilesGet.mockResolvedValue([]);
         installRecentFilesStubs();
+        const { setBrowserPlatformApi } = await import('@app/utils/platform');
+        setBrowserPlatformApi(browserPlatformApi);
     });
 
     it('keeps desktop recent files unresolved until Electron results load', async () => {
@@ -161,32 +122,30 @@ describe('useRecentFiles', () => {
         expect(electronRecentFilesGet).toHaveBeenCalledOnce();
     });
 
-    it('waits for the Electron bridge instead of falling back to browser recent files', async () => {
-        electronBridgeReady.value = false;
-        electronRecentFilesGet.mockResolvedValue([recentFile('/tmp/delayed.pdf', 2)]);
+    it('reports a missing Electron API on the electron route', async () => {
+        vi.useFakeTimers();
+        delete window.electronAPI;
+        browserRecentFilesGet.mockResolvedValue([recentFile('browser://documents/local')]);
 
         const { useRecentFiles } = await import('@app/composables/useRecentFiles');
         const {
+            error,
+            isResolved,
             loadRecentFiles,
             recentFiles,
         } = useRecentFiles();
 
-        setTimeout(() => {
-            electronBridgeReady.value = true;
-        }, 10);
-
         await loadRecentFiles();
 
-        expect(browserRecentFilesGet).not.toHaveBeenCalled();
-        expect(electronRecentFilesGet).toHaveBeenCalledOnce();
-        expect(recentFiles.value).toEqual([expect.objectContaining({originalPath: '/tmp/delayed.pdf'})]);
+        expect(error.value).toBe('Electron API unavailable');
+        expect(isResolved.value).toBe(false);
+        expect(recentFiles.value).toEqual([]);
     });
 
-    it('still prefers Electron recent files on the electron route before desktop state settles', async () => {
-        desktopRuntime.value = false;
-        electronBridgeReady.value = false;
-        routePath.value = '/electron';
+    it('loads Electron recent files on the electron route with an unhydrated bridge state', async () => {
+        stateStore.set('runtime:has-desktop-bridge', ref(false));
         electronRecentFilesGet.mockResolvedValue([recentFile('/tmp/route-electron.pdf', 3)]);
+        browserRecentFilesGet.mockResolvedValue([recentFile('browser://documents/local')]);
 
         const { useRecentFiles } = await import('@app/composables/useRecentFiles');
         const {
@@ -194,14 +153,8 @@ describe('useRecentFiles', () => {
             recentFiles,
         } = useRecentFiles();
 
-        setTimeout(() => {
-            electronBridgeReady.value = true;
-        }, 10);
-
         await loadRecentFiles();
 
-        expect(browserRecentFilesGet).not.toHaveBeenCalled();
-        expect(electronRecentFilesGet).toHaveBeenCalledOnce();
         expect(recentFiles.value).toEqual([expect.objectContaining({originalPath: '/tmp/route-electron.pdf'})]);
     });
 
@@ -322,8 +275,7 @@ describe('useRecentFiles', () => {
     });
 
     it('keeps browser recent files unresolved when local storage has no snapshot', async () => {
-        desktopRuntime.value = false;
-        electronBridgeReady.value = false;
+        delete window.electronAPI;
         routePath.value = '/';
         browserRecentFilesGet.mockResolvedValue([recentFile('/tmp/full.pdf', 10)]);
 
@@ -345,8 +297,7 @@ describe('useRecentFiles', () => {
     });
 
     it('marks a local browser snapshot as usable for startup paint', async () => {
-        desktopRuntime.value = false;
-        electronBridgeReady.value = false;
+        delete window.electronAPI;
         routePath.value = '/';
         browserStorage.set(BROWSER_RECENT_FILES_STORAGE_KEY, JSON.stringify([recentFile('browser://documents/local', 11)]));
 
