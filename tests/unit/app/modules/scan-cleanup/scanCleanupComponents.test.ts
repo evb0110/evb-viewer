@@ -30,6 +30,7 @@ import {
     type PropType,
 } from 'vue';
 import type {IFailureToastAction} from '@app/composables/useFailureToast';
+import type {IScanCleanupPreviewFailure} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewSession';
 import EN_MESSAGES from '@i18n-app/messages/en';
 import type {
     IScanCleanupCapability,
@@ -198,6 +199,8 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
             textAxisByPage: computed(() => unref(session.detectedTextAxisByPage) ?? new Map()),
         },
         preview: {
+            clearDetail: session.clearPreviewDetail,
+            detailError: session.previewDetailError ?? ref(null),
             error: session.previewError,
             loading: session.previewLoading,
             navigate: session.navigatePreview,
@@ -207,6 +210,7 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
             resultPresentationKey: session.previewResultPresentationKey ?? computed(() => ''),
             metadataByPage: session.previewMetadataByPage ?? reactive(new Map()),
             retry: session.retryPreview,
+            requestDetail: session.requestPreviewDetail,
             totalPages: session.previewTotalPages,
             viewMode: session.previewViewMode,
         },
@@ -266,7 +270,9 @@ const translations: Record<string, string> = {
     'scanCleanup.pages.excludedFromOutput': 'Excluded from output',
     'scanCleanup.pages.excludedBadge': 'Excluded',
     'scanCleanup.preview.unavailable': 'Preview isn\'t available. You can still run cleanup.',
+    'scanCleanup.preview.detailUnavailable': 'Sharper detail for this area couldn\'t be rendered.',
     'scanCleanup.preview.retry': 'Retry',
+    'errors.runtime.copy': 'Copy details',
     'scanCleanup.preview.technicalDetails': 'Technical details',
     'scanCleanup.preview.loadingPage': 'Loading page {page}…',
     'scanCleanup.preview.loading': 'Building cleanup preview…',
@@ -414,7 +420,11 @@ function flattenMessages(prefix: string, messages: object): Record<string, strin
 }
 
 const toastAdd = vi.fn();
-vi.stubGlobal('useToast', () => ({add: toastAdd}));
+const toastRemove = vi.fn();
+vi.stubGlobal('useToast', () => ({
+    add: toastAdd,
+    remove: toastRemove,
+}));
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
@@ -1047,8 +1057,26 @@ function mountPreviewZoomHarness(options: {
             if (value) splitUpdates.push(value);
         },
     })}));
-    const surface = harness.host.querySelector<HTMLElement>('.preview-surface')!;
-    const stage = harness.host.querySelector<HTMLElement>('.cutter-stage')!;
+    const {surface, stage} = mockPreviewLayout(harness.host, previewResult, options.canvasRect);
+    const pointerCapture = mockPointerCapture(surface);
+    return {
+        ...harness,
+        pointerCapture,
+        stage,
+        splitUpdates,
+        disabled,
+        surface,
+        viewMode,
+    };
+}
+
+function mockPreviewLayout(
+    host: HTMLElement,
+    previewResult: IScanCleanupPreviewResult | null,
+    canvasRect?: (index: number, scale: number, panX: number, panY: number) => DOMRect,
+) {
+    const surface = host.querySelector<HTMLElement>('.preview-surface')!;
+    const stage = host.querySelector<HTMLElement>('.cutter-stage')!;
     Object.defineProperties(stage, {
         clientHeight: {
             configurable: true,
@@ -1072,14 +1100,14 @@ function mountPreviewZoomHarness(options: {
             400 * scale,
         );
     });
-    harness.host.querySelectorAll<HTMLElement>('.uniform-canvas').forEach((canvas, index) => {
+    host.querySelectorAll<HTMLElement>('.uniform-canvas').forEach((canvas, index) => {
         vi.spyOn(canvas, 'getBoundingClientRect').mockImplementation(() => {
             const scale = Number(stage.style.transform.match(/scale\(([^)]+)\)/)?.[1] ?? 1);
             const translation = stage.style.transform.match(/translate3d\(([^p]+)px, ([^p]+)px/);
             const panX = Number(translation?.[1] ?? 0);
             const panY = Number(translation?.[2] ?? 0);
-            if (options.canvasRect) {
-                return options.canvasRect(index, scale, panX, panY);
+            if (canvasRect) {
+                return canvasRect(index, scale, panX, panY);
             }
             const single = previewResult?.outputs.length === 1;
             const baseWidth = single ? 160 : 250;
@@ -1093,16 +1121,7 @@ function mountPreviewZoomHarness(options: {
             );
         });
     });
-    const pointerCapture = mockPointerCapture(surface);
-    return {
-        ...harness,
-        pointerCapture,
-        stage,
-        splitUpdates,
-        disabled,
-        surface,
-        viewMode,
-    };
+    return {surface, stage};
 }
 
 function installResizeObserverHarness() {
@@ -1383,6 +1402,7 @@ async function mountRealWorkspace(documentKey: string, ledger?: ReturnType<typeo
 afterEach(() => {
     toastAdd.mockClear();
     for (const unmount of activeUnmounts) unmount();
+    toastRemove.mockClear();
     document.body.innerHTML = '';
     localStorage.clear();
     resetScanCleanupPreferencesStore();
@@ -4665,6 +4685,82 @@ describe('Scan cleanup components', () => {
             expect(viewport.yNormalized + viewport.heightNormalized).toBeLessThanOrEqual(1);
             expect(viewport.widthNormalized).toBeGreaterThan(0.2);
         } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('keeps the cleaned base visible and lets the user retry failed detail for the current viewport', async () => {
+        vi.useFakeTimers();
+        const detailError = ref<IScanCleanupPreviewFailure | null>(null);
+        const result = rotatedSinglePreviewResult();
+        const clearDetail = () => { detailError.value = null; };
+        const requestDetail = vi.fn<(
+            viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'],
+        ) => void>();
+        workspaceSession.value = createWorkspaceEntrySession({
+            clearPreviewDetail: clearDetail,
+            previewDetailError: detailError,
+            previewLoading: ref(false),
+            previewResult: shallowRef(result),
+            requestPreviewDetail: requestDetail,
+        });
+        const harness = mount(defineComponent(() => () => h(ScanCleanupWorkspace, {
+            sourcePath: requireDocumentRef('/docs/detail-failure.pdf'),
+            totalPages: 2,
+            toolbarActive: true,
+        })));
+        const {surface} = mockPreviewLayout(harness.host, result);
+        try {
+            surface.dispatchEvent(previewZoomWheel({
+                bubbles: true,
+                cancelable: true,
+                clientX: 250,
+                clientY: 200,
+                deltaY: -1_200,
+                metaKey: true,
+            }));
+            await vi.advanceTimersByTimeAsync(300);
+            const viewport = requestDetail.mock.lastCall?.[0];
+            expect(viewport?.full).toBeDefined();
+            requestDetail.mockClear();
+
+            const message = 'Detail render failed';
+            detailError.value = {message, code: 'internal'};
+            await nextTick();
+
+            expect(toastAdd).toHaveBeenCalledOnce();
+            const [toast] = toastAdd.mock.calls[0]!;
+            const description = mount(defineComponent(() => () => toast.description()));
+            expect(toast.title).toBe(translations['scanCleanup.preview.detailUnavailable']);
+            expect(toast.color).toBe('error');
+            expect(description.host.textContent).toContain(message);
+            expect(toast.actions.map((action: IFailureToastAction) => action.label)).toEqual(['Retry', 'Copy details']);
+            expect(harness.host.querySelector('.preview-pane [role="alert"]')).toBeNull();
+            expect(harness.host.querySelectorAll('.cleaned-image:not(.preview-detail-pixel)')).toHaveLength(1);
+            expect(harness.host.querySelector('.drag-overlay-layer')?.hasAttribute('inert')).toBe(false);
+
+            toast.actions[0].onClick();
+            await vi.advanceTimersByTimeAsync(300);
+            expect(toastRemove).toHaveBeenCalledExactlyOnceWith(toast.id);
+            expect(requestDetail).toHaveBeenCalledExactlyOnceWith(viewport);
+            expect(harness.host.querySelectorAll('.cleaned-image:not(.preview-detail-pixel)')).toHaveLength(1);
+
+            detailError.value = {message: 'Insufficient scratch space', code: 'insufficient-scratch'};
+            await nextTick();
+
+            expect(toastAdd).toHaveBeenCalledTimes(2);
+            const [warning] = toastAdd.mock.calls[1]!;
+            expect(warning).toMatchObject({
+                title: toast.title,
+                description: 'Insufficient scratch space',
+                color: 'warning',
+                actions: [expect.objectContaining({label: 'Retry'})],
+            });
+            detailError.value = null;
+            await nextTick();
+            expect(toastRemove).toHaveBeenLastCalledWith(warning.id);
+        } finally {
+            harness.unmount();
             vi.useRealTimers();
         }
     });

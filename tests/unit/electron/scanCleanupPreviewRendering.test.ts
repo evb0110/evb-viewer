@@ -1933,6 +1933,46 @@ describe('scanCleanupPreviewRenderingTest', () => {
     });
 });
 
+it('declines a conflicting prefetch while the visible page renders once', async () => {
+    const {deps, service} = await previewFixture();
+    const rendering = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const runSidecar = deps.runSidecar;
+    deps.runSidecar = vi.fn(async (binary, manifest, signal, log, onProgress) => {
+        rendering.resolve();
+        await waitForRelease(release.promise, signal);
+        return runSidecar(binary, manifest, signal, log, onProgress);
+    });
+    const owner = sender();
+    try {
+        const visible = service.preview(owner, {
+            ...request,
+            visible: true,
+        });
+        await rendering.promise;
+        const prefetch = service.preview(owner, {
+            ...request,
+            requestId: requireRequestId('prefetch-other-inputs'),
+            options: {
+                ...request.options,
+                thickness: 1,
+            },
+        });
+        release.resolve();
+
+        await expect(prefetch).resolves.toEqual({canceled: true});
+        await expect(visible).resolves.toMatchObject({
+            pageNumber: 1,
+            requestId: request.requestId,
+            outputs: [expect.objectContaining({imageData: PNG})],
+        });
+        expect(deps.runSidecar).toHaveBeenCalledOnce();
+    } finally {
+        release.resolve();
+        await service.dispose();
+    }
+});
+
 describe('scan cleanup preview identity', () => {
     const pageOverride = (rotationDegrees: 0 | 90) => ({
         rotationDegrees,

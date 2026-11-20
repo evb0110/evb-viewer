@@ -20,8 +20,9 @@ import {
 
 const fixture = createElectronE2ESessionFixture({sessionName: () => `e2e-scan-cleanup-placement-drag-${Date.now()}`});
 
-async function createSpreadFixture() {
-    const path = await createMultiPageTextFixturePdf('cleanup-placement-drag.pdf', 1);
+async function createSpreadFixture(pageCount = 1) {
+    const filename = pageCount === 1 ? 'cleanup-placement-drag.pdf' : 'cleanup-preview-demand.pdf';
+    const path = await createMultiPageTextFixturePdf(filename, 1);
     const canvas = createCanvas(1650, 1275);
     const context = canvas.getContext('2d');
     context.fillStyle = '#f5f5f5';
@@ -37,21 +38,91 @@ async function createSpreadFixture() {
         }
     }
     const doc = await PDFDocument.create();
-    const image = await doc.embedPng(canvas.toBuffer('image/png'));
-    doc.addPage([
-        792,
-        612,
-    ]).drawImage(image, {
-        x: 0,
-        y: 0,
-        width: 792,
-        height: 612,
-    });
+    for (let page = 0; page < pageCount; page += 1) {
+        if (pageCount > 1) {
+            context.fillStyle = '#f5f5f5';
+            context.fillRect(195, 220, 210, 220);
+            context.fillStyle = '#282828';
+            context.font = 'bold 180px sans-serif';
+            context.fillText(String(page + 1), 230, 400);
+        }
+        const image = await doc.embedPng(canvas.toBuffer('image/png'));
+        doc.addPage([
+            792,
+            612,
+        ]).drawImage(image, {
+            x: 0,
+            y: 0,
+            width: 792,
+            height: 612,
+        });
+    }
     writeFileSync(path, await doc.save());
     return path;
 }
 
 describe('scan cleanup placement drag', () => {
+    it('keeps the final cleaned preview visible after rapid page navigation', async () => {
+        const {page} = fixture.getSession();
+        await openPdfInApp(page, await createSpreadFixture(8));
+        await waitForPdfLoaded(page);
+        await clickVisibleToolbarButton(page, 'Scan cleanup');
+        await page.waitForSelector('.scan-cleanup-surface', {visible: true});
+        await dismissScanCleanupFirstRunGuidance(page);
+
+        const rail = '.scan-thumbnail-list[role="listbox"]';
+        const label = '.preview-pane .page-label .scan-cleanup-stable-width-value';
+        const cleaned = '.preview-pane .is-visible img.cleaned-image.preview-pixel:not(.is-incoming):not(.is-outgoing)';
+        const previewTimeout = 120_000;
+        await page.waitForFunction(selector => document.querySelector('.scan-cleanup-surface[data-detection-status="completed"]')
+            && [...document.querySelectorAll<HTMLImageElement>(selector)].some(image => (
+                image.complete && image.naturalWidth > 0 && image.alt.startsWith('Cleaned scan preview for page 1,')
+            )), {
+            timeout: previewTimeout,
+        }, cleaned);
+        await page.focus(rail);
+
+        // Start from an uncached page and turn through three more while its
+        // loading surface is still up. The last page has never been opened.
+        await page.keyboard.press('End');
+        await page.waitForFunction(selector => document.querySelector(selector)?.textContent === 'Page 8 of 8'
+            && document.querySelector('.preview-pane .preview-loading') !== null, {}, label);
+        for (let turn = 0; turn < 3; turn += 1) {
+            await page.keyboard.press('ArrowUp');
+        }
+        // Observe the actual image through a settled interval. Returning as
+        // soon as the destination paints would miss a late stale completion.
+        const observation = await (await page.waitForFunction(async (pageLabel, imageSelector) => {
+            let paintedAt: number | null = null;
+            while (true) {
+                const now = performance.now();
+                const images = [...document.querySelectorAll<HTMLImageElement>(imageSelector)];
+                const label = document.querySelector(pageLabel)?.textContent;
+                // Loading skeletons also have role="alert", with no message.
+                const error = [...document.querySelectorAll('.preview-pane [role="alert"]')]
+                    .map(alert => alert.textContent?.trim())
+                    .find(Boolean);
+                const matches = label === 'Page 5 of 8' && images.length > 0 && images.every(image => (
+                    image.complete && image.naturalWidth > 0 && image.getBoundingClientRect().width > 0
+                    && image.alt.startsWith('Cleaned scan preview for page 5,')
+                ));
+                if (error || (paintedAt !== null && (!matches || now - paintedAt >= 500))) {
+                    return {
+                        label,
+                        images: images.map(image => image.alt),
+                        error,
+                        loading: document.querySelector('.preview-pane .preview-loading') !== null,
+                        retained: !error && matches,
+                    };
+                }
+                if (!matches) return false;
+                paintedAt ??= now;
+                await new Promise<void>(resolveFrame => requestAnimationFrame(() => resolveFrame()));
+            }
+        }, {timeout: previewTimeout}, label, cleaned)).jsonValue();
+        expect(observation && observation.retained, `The cleaned preview must keep showing page 5 without alerts: ${JSON.stringify(observation)}`).toBe(true);
+    }, 240_000);
+
     it('moves a cleaned spread half when dragged from its content interior', async () => {
         const session = fixture.getSession();
         const {page} = session;

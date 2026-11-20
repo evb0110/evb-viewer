@@ -397,26 +397,25 @@ export function scanCleanupPreviewRenderingOwner(
             // A detail tile is the one visible viewport, so it supersedes the
             // whole detail lane and still never touches the base lane.
             const lanePrefix = previewLanePrefix(documentPrefix, request);
-            const superseded: IPreviewEntry[] = [];
-            for (const [
-                key,
-                entry,
-            ] of active) {
-                if (
-                    key.startsWith(lanePrefix)
-                    && (request.detail !== undefined || entry.pageNumber === request.pageNumber)
-                ) {
-                    superseded.push(entry);
-                    entry.canceledAsResult = true;
-                    entry.cancel('Superseded scan cleanup preview');
-                }
+            const superseded = [...active].filter(([key, entry]) => key.startsWith(lanePrefix)
+                && (request.detail !== undefined || entry.pageNumber === request.pageNumber))
+                .map(([, entry]) => entry);
+            // The page the user is waiting on keeps its run. A prefetch for it
+            // with other inputs never retires that demand; the owner answers
+            // the prefetch as canceled instead, so the visible page is
+            // rendered once and nothing has to ask for it again.
+            if (
+                request.visible !== true
+                && request.detail === undefined
+                && visiblePages.get(documentPrefix) === request.pageNumber
+                && superseded.some(entry => !entry.signal.aborted)
+            ) {
+                return Promise.resolve({canceled: true} as const);
             }
-            // The generation counts replacements of *this* key. Taking it from
-            // whichever superseded entry the lane happened to iterate first
-            // could hand a live entry the generation an older one is still
-            // carrying, and that entry's late tail would then delete the
-            // replacement out of the index.
-            const generation = (active.get(activeKey)?.generation ?? 0) + 1;
+            for (const entry of superseded) {
+                entry.canceledAsResult = true;
+                entry.cancel('Superseded scan cleanup preview');
+            }
             const priorTail = Promise.all(superseded.map(entry => entry.tail.catch(() => undefined)));
             // A detail tile is the viewport the user is looking at. The renderer
             // names normal visible pages explicitly; page one is the safe
@@ -577,7 +576,6 @@ export function scanCleanupPreviewRenderingOwner(
                 canceledAsResult: false,
                 signal: handle.signal,
                 cancel,
-                generation,
                 pageNumber: request.pageNumber,
                 claimId,
                 tail: settledTail,
@@ -594,7 +592,9 @@ export function scanCleanupPreviewRenderingOwner(
                 void tail.catch(() => undefined).finally(() => clearTimeout(drop));
             }
             void settledTail.finally(() => {
-                if (active.get(activeKey)?.generation === generation) active.delete(activeKey);
+                // Only this entry leaves the index: a replacement under the
+                // same key outlives the late tail of the run it superseded.
+                if (active.get(activeKey) === entryState) active.delete(activeKey);
                 const documentKey = baseAnalysisDocumentKey(request.sourcePdfPath, request.documentRevision);
                 const documentStillActive = [...active.keys()].some(key => key.includes(
                     `\u0000${request.documentRevision}\u0000${request.sourcePdfPath}\u0000`,

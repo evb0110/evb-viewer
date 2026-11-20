@@ -1038,7 +1038,7 @@ describe('scan cleanup preview navigation', () => {
         capability.value = null;
     });
 
-    it('re-requests the page it is on when its run answers canceled', async () => {
+    it('ends a canceled visible request without asking again on a timer', async () => {
         const backend = previewBackend();
         capability.value = backend.capability;
         const previewPage = ref(100);
@@ -1047,21 +1047,20 @@ describe('scan cleanup preview navigation', () => {
         await backend.advanceBy(PREVIEW_MS + 500);
         expect(mounted.session.result.value?.pageNumber).toBe(100);
 
-        previewPage.value = 400;
+        previewPage.value = 300;
         await nextTick();
         vi.advanceTimersByTime(1);
         for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
         const requestsFor = (pageNumber: number) => backend.previewCalls.mock.calls
             .filter(([request]) => request.pageNumber === pageNumber).length;
-        expect(requestsFor(400)).toBe(1);
+        expect(requestsFor(300)).toBe(1);
 
-        // The run for the page the user is on is retired underneath it. Nothing
-        // navigated, so nothing else would ever ask for this page again.
-        expect(backend.retire(400)).toBe(1);
+        // The main process answers canceled while this page is still selected.
+        expect(backend.retire(300)).toBe(1);
         await backend.advanceBy(PREVIEW_MS + 500);
 
-        expect(requestsFor(400)).toBe(2);
-        expect(mounted.session.result.value?.pageNumber).toBe(400);
+        expect(requestsFor(300)).toBe(1);
+        expect(mounted.session.resultCurrent.value).toBe(false);
         expect(mounted.session.loading.value).toBe(false);
         expect(mounted.session.error.value).toBe('');
         mounted.unmount();
@@ -1134,75 +1133,59 @@ describe('scan cleanup preview navigation', () => {
         capability.value = null;
     });
 
-    it('stops re-requesting a page whose run keeps answering canceled', async () => {
+    it('shows one result for the visible page after an earlier page is canceled', async () => {
         const backend = previewBackend();
         capability.value = backend.capability;
         const previewPage = ref(100);
         const mounted = mountPreviewSession(previewPage, reactive(new Map()));
 
         await backend.advanceBy(PREVIEW_MS + 500);
-        previewPage.value = 400;
+        previewPage.value = 300;
         await nextTick();
         vi.advanceTimersByTime(1);
         for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
 
-        const requestsFor = (pageNumber: number) => backend.previewCalls.mock.calls
-            .filter(([request]) => request.pageNumber === pageNumber).length;
-        for (let attempt = 0; attempt < 6; attempt += 1) {
-            backend.retire(400);
-            await backend.advanceBy(100);
-        }
+        previewPage.value = 200;
+        await nextTick();
+        expect(backend.retire(300)).toBe(1);
+        await backend.advanceBy(PREVIEW_MS + 1_000);
 
-        // Two retries and then it stops, rather than spinning against a page
-        // that cannot be rendered.
-        expect(requestsFor(400)).toBe(3);
-        // And the page says so: a recoverable error with the Retry the shell
-        // already renders, rather than a blank frame and no spinner.
+        expect(backend.previewCalls.mock.calls.filter(([request]) => request.pageNumber === 200)).toHaveLength(1);
+        expect(mounted.session.resultCurrent.value).toBe(true);
+        expect(mounted.session.result.value?.pageNumber).toBe(200);
         expect(mounted.session.loading.value).toBe(false);
-        expect(mounted.session.resultCurrent.value).toBe(false);
-        expect(mounted.session.error.value).not.toBe('');
-
-        // Retrying spends a fresh budget and renders.
-        mounted.session.retry();
-        await backend.advanceBy(PREVIEW_MS + 500);
-
-        expect(requestsFor(400)).toBe(4);
         expect(mounted.session.error.value).toBe('');
-        expect(mounted.session.result.value?.pageNumber).toBe(400);
         mounted.unmount();
         capability.value = null;
     });
 
-    it('gives a page that gave up a fresh budget when the user turns back to it', async () => {
+    it('renders a previously canceled preview when the user turns back to its page', async () => {
         const backend = previewBackend();
         capability.value = backend.capability;
         const previewPage = ref(100);
         const mounted = mountPreviewSession(previewPage, reactive(new Map()));
 
         await backend.advanceBy(PREVIEW_MS + 500);
-        previewPage.value = 400;
+        previewPage.value = 300;
         await nextTick();
         vi.advanceTimersByTime(1);
         for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
         const requestsFor = (pageNumber: number) => backend.previewCalls.mock.calls
             .filter(([request]) => request.pageNumber === pageNumber).length;
-        for (let attempt = 0; attempt < 6; attempt += 1) {
-            backend.retire(400);
-            await backend.advanceBy(100);
-        }
-        expect(requestsFor(400)).toBe(3);
+        expect(backend.retire(300)).toBe(1);
+        await backend.advanceBy(PREVIEW_MS + 500);
+        expect(requestsFor(300)).toBe(1);
 
         previewPage.value = 100;
         await nextTick();
         await backend.advanceBy(PREVIEW_MS + 500);
-        previewPage.value = 400;
+        previewPage.value = 300;
         await nextTick();
         await backend.advanceBy(PREVIEW_MS + 500);
 
-        // The page renders again instead of inheriting the budget the last
-        // visit exhausted.
-        expect(requestsFor(400)).toBeGreaterThan(3);
-        expect(mounted.session.result.value?.pageNumber).toBe(400);
+        expect(requestsFor(300)).toBe(2);
+        expect(mounted.session.resultCurrent.value).toBe(true);
+        expect(mounted.session.result.value?.pageNumber).toBe(300);
         expect(mounted.session.error.value).toBe('');
         mounted.unmount();
         capability.value = null;

@@ -2005,7 +2005,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
-    it('cancels a pending detail retry when the preview source disappears', async () => {
+    it('clears the detail failure when the preview source disappears', async () => {
         const harness = capabilityHarness();
         const sourcePath = ref<TDocumentRef | null>(
             requireDocumentRef(`/docs/detail-retry-source-${Date.now()}.pdf`),
@@ -2034,8 +2034,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                 heightNormalized: 1,
                 rotationDegrees: 0,
             }});
-            expect(vi.mocked(harness.value.preview).mock.calls.filter(([request]) => request?.detail))
-                .toHaveLength(1);
+            expect(mounted.session.preview.detailError.value?.message).toContain('temporary detail failure');
 
             sourcePath.value = null;
             await nextTick();
@@ -2043,6 +2042,7 @@ describe('scan cleanup workspace session detection guidance', () => {
 
             expect(vi.mocked(harness.value.preview).mock.calls.filter(([request]) => request?.detail))
                 .toHaveLength(1);
+            expect(mounted.session.preview.detailError.value).toBeNull();
             expect(mounted.session.preview.detailLoading.value).toBe(false);
         } finally {
             vi.useRealTimers();
@@ -2050,7 +2050,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         }
     });
 
-    it('reports when the detail bridge returns null after bounded retries', async () => {
+    it('ends a canceled detail request without retrying or showing an error', async () => {
         const harness = capabilityHarness();
         vi.mocked(harness.value.preview).mockImplementation(async request => (
             request.detail
@@ -2058,7 +2058,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                 : previewResult(request.pageNumber, 'single-uncut-page')
         ));
         capability.value = harness.value;
-        const mounted = mountSession(`detail-null-diagnostic-${Date.now()}`);
+        const mounted = mountSession(`detail-canceled-${Date.now()}`);
         mounted.session.settings.editDocumentSettings([], () => {
             mounted.session.settings.values.outputMode = 'bw';
         });
@@ -2075,47 +2075,60 @@ describe('scan cleanup workspace session detection guidance', () => {
             await vi.advanceTimersByTimeAsync(2_000);
 
             expect(vi.mocked(harness.value.preview).mock.calls.filter(([request]) => request?.detail))
-                .toHaveLength(3);
-            expect(mounted.session.preview.detailDiagnostic.value).toEqual({
-                kind: 'bridge-null',
-                attempts: 3,
-            });
+                .toHaveLength(1);
+            expect(mounted.session.preview.detailError.value).toBeNull();
+            expect(mounted.session.preview.detailResult.value).toBeNull();
+            expect(mounted.session.preview.detailLoading.value).toBe(false);
         } finally {
             vi.useRealTimers();
             mounted.unmount();
         }
     });
 
-    it('reports a detail service failure after bounded retries', async () => {
+    it('shows a detail failure and renders the tile on explicit Retry', async () => {
         const harness = capabilityHarness();
+        const tile = previewResult(1, 'single-uncut-page');
+        let detailAvailable = false;
         vi.mocked(harness.value.preview).mockImplementation(async request => {
-            if (request.detail) throw new Error('detail service failed');
+            if (request.detail) {
+                if (!detailAvailable) throw new Error('detail service failed');
+                return tile;
+            }
             return previewResult(request.pageNumber, 'single-uncut-page');
         });
         capability.value = harness.value;
-        const mounted = mountSession(`detail-service-diagnostic-${Date.now()}`);
+        const mounted = mountSession(`detail-service-retry-${Date.now()}`);
         mounted.session.settings.editDocumentSettings([], () => {
             mounted.session.settings.values.outputMode = 'bw';
         });
         await vi.waitFor(() => expect(mounted.session.preview.resultCurrent.value).toBe(true));
         vi.useFakeTimers();
         try {
-            await mounted.session.preview.requestDetail({full: {
+            const viewport = {full: {
                 xNormalized: 0,
                 yNormalized: 0,
                 widthNormalized: 1,
                 heightNormalized: 1,
-                rotationDegrees: 0,
-            }});
+                rotationDegrees: 0 as const,
+            }};
+            await mounted.session.preview.requestDetail(viewport);
+            detailAvailable = true;
             await vi.advanceTimersByTimeAsync(2_000);
 
             expect(vi.mocked(harness.value.preview).mock.calls.filter(([request]) => request?.detail))
-                .toHaveLength(3);
-            expect(mounted.session.preview.detailDiagnostic.value).toEqual({
-                kind: 'service-failure',
-                attempts: 3,
-                message: 'detail service failed',
-            });
+                .toHaveLength(1);
+            expect(mounted.session.preview.detailError.value?.message).toContain('detail service failed');
+            expect(mounted.session.preview.detailError.value?.code).toBe('internal');
+            expect(mounted.session.preview.detailResult.value).toBeNull();
+            expect(mounted.session.preview.resultCurrent.value).toBe(true);
+            expect(mounted.session.preview.detailLoading.value).toBe(false);
+
+            await mounted.session.preview.requestDetail(viewport);
+
+            expect(vi.mocked(harness.value.preview).mock.calls.filter(([request]) => request?.detail))
+                .toHaveLength(2);
+            expect(mounted.session.preview.detailError.value).toBeNull();
+            expect(mounted.session.preview.detailResult.value).toBe(tile);
         } finally {
             vi.useRealTimers();
             mounted.unmount();

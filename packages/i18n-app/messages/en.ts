@@ -859,7 +859,7 @@ export default {
             'refreshing': 'Updating preview…',
             'unavailable': 'Preview isn\'t available. You can still run cleanup.',
             'cleanedImageDecodeFailed': 'The cleaned preview image could not be decoded.',
-            'canceledRepeatedly': 'The preview kept losing its run before it could finish.',
+            'detailUnavailable': 'Sharper detail for this area couldn\'t be rendered.',
             'retry': 'Retry',
             'technicalDetails': 'Technical details',
             'originalAlt': 'Original scan preview for page {page}',
