@@ -56,13 +56,6 @@
                 @go-to-page="navigation.handleGoToPage"
             />
         </WorkspaceToolbarHost>
-        <WorkspaceDocumentAlerts
-            :visible="surfaceMode === 'reader'"
-            :show-djvu-banner="presentation.showDjvuConversionBanner.value"
-            :djvu-converting="file.conversionState.value.isConverting"
-            @convert="file.openConvertDialog"
-            @dismiss="file.djvuDismissBanner"
-        />
         <WorkspaceSidebarHost
             v-show="surfaceMode === 'reader' || !scanCleanup.workspaceMounted.value"
             :show-sidebar="presentation.toolbarShowSidebarForDisplay.value"
@@ -90,6 +83,13 @@
             <!-- The document chassis stays laid out while Start covers it, so an
             open presents its first frame at the final geometry. -->
             <div class="workspace-viewer-host" :aria-hidden="!presentation.showWorkspaceViewerDocument.value ? 'true' : undefined">
+                <WorkspaceDocumentAlerts
+                    :visible="surfaceMode === 'reader'"
+                    :show-djvu-banner="presentation.showDjvuConversionBanner.value"
+                    :djvu-converting="file.conversionState.value.isConverting"
+                    @convert="file.openConvertDialog"
+                    @dismiss="file.djvuDismissBanner"
+                />
                 <component
                     :is="activeViewerComponent"
                     v-if="mountedDocumentDriver"
