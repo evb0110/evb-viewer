@@ -556,6 +556,35 @@ describe('viewer invariant checker against real Chromium layout', () => {
         }
     }, BROWSER_TEST_TIMEOUT_MS);
 
+    it('reports an unsettled viewer by the deadline when animation frames are suspended', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage();
+            await loadFixture(page, buildTwoPaneMarkup([{
+                active: true,
+                painting: true,
+            }]));
+            await page.clock.install({time: new Date('2026-01-01T00:00:00Z')});
+            await page.clock.pauseAt(new Date('2026-01-01T00:01:00Z'));
+            const outcomeKey = '__evbSuspendedFrameSettleOutcome';
+            await page.evaluate((key) => {
+                window.requestAnimationFrame = () => 1;
+                Reflect.set(window, key, 'pending');
+                void globalThis.__evbWaitForViewerSettled().then(
+                    outcome => Reflect.set(window, key, outcome),
+                    (error: unknown) => Reflect.set(window, key, String(error)),
+                );
+            }, outcomeKey);
+
+            await page.clock.runFor(10_000);
+
+            const outcome: unknown = await page.evaluate(key => Reflect.get(window, key), outcomeKey);
+            expect(outcome, 'settle outcome at the 10 s deadline').toMatchObject({settled: false});
+        } finally {
+            await browser.close();
+        }
+    }, BROWSER_TEST_TIMEOUT_MS);
+
     it('reports nothing on a conforming viewer and exactly one violation on each known-bad fixture', async () => {
         const browser = await chromium.launch({headless: true});
         try {

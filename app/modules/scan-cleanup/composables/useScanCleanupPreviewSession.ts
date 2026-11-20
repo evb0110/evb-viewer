@@ -27,7 +27,10 @@ import {
     type TRequestId,
 } from '@contracts/shared';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import {until} from '@vueuse/core';
+import {
+    until,
+    useTimeoutFn,
+} from '@vueuse/core';
 import type {TScanCleanupPlacementAnchorsByPage} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {
     attachScanCleanupPageOverrideDefaults,
@@ -349,7 +352,13 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     const metadataByPage = reactive(new Map<number, IScanCleanupPreviewResult['pageMetadata']>());
     let sequence = 0;
     let detailSequence = 0;
-    let timer: ReturnType<typeof setTimeout> | null = null;
+    // The base preview admission: each schedule passes its request and delay.
+    let previewRequestDelayMs = 0;
+    const previewRequest = useTimeoutFn(
+        (sendRequest: () => void) => sendRequest(),
+        () => previewRequestDelayMs,
+        {immediate: false},
+    );
     const unmounted = ref(false);
     let scheduledPage: number | null = null;
     let scheduledKey: string | null = null;
@@ -735,11 +744,6 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         cache.set(key, previewResult);
     }
 
-    function clearTimer() {
-        if (timer !== null) clearTimeout(timer);
-        timer = null;
-    }
-
     function invalidateDetailRequest() {
         detailSequence += 1;
         detailLoading.value = false;
@@ -754,7 +758,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     function cancel(invalidateRawCache = true) {
         sequence += 1;
         prefetcher.supersede();
-        clearTimer();
+        previewRequest.stop();
         invalidateDetailRequest();
         // Cancellation retires work, not pixels. A completed frame remains the
         // displayed stale value until its replacement lands; lifecycle changes
@@ -845,7 +849,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             return;
         }
         const requestSequence = ++sequence;
-        clearTimer();
+        previewRequest.stop();
         const requestPage = options.previewPage.value;
         const requestOptions = resolvedOptions.value;
         const requestSourcePath = options.sourcePath.value;
@@ -917,7 +921,6 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         error.value = '';
         errorCode.value = null;
         const runPreview = async () => {
-            timer = null;
             try {
                 if (
                     options.resolvePlacementAnchorsForPage !== undefined
@@ -986,14 +989,14 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         // flick issues one request for the page it stops on instead of one per
         // page it passes. Everything else is an options change and keeps the
         // settled debounce it has always had.
-        const requestDelayMs = immediate
+        previewRequestDelayMs = immediate
             ? 0
             : initialRequest
                 ? 0
                 : navigated
                     ? (inFlightPreviewPages.size === 0 ? 0 : SCAN_CLEANUP_PREVIEW_BURST_DEBOUNCE_MS)
                     : 250;
-        timer = setTimeout(() => {
+        previewRequest.start(() => {
             inFlightPreviewPages.set(requestId, requestPage);
             inFlightPreviewRequestIds.add(requestId);
             void runPreview().finally(() => {
@@ -1001,7 +1004,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 inFlightPreviewRequestIds.delete(requestId);
                 trimStreamedRaw();
             });
-        }, requestDelayMs);
+        });
     }
 
     function resolveDetailOutputMode(pageNumber = options.previewPage.value) {
