@@ -20,7 +20,8 @@
         :page-rect="viewportDomSnapshot?.pageContainers.get(note.pageNumber)?.rect ?? null"
         :marker-rect="note.markerRect ?? null"
         @update:text="updateAnnotationNoteText(note.annotationId, $event)"
-        @update:position="handleNotePositionUpdate(note.annotationId, $event)"
+        @update:position="annotations.updateAnnotationNotePosition(note.annotationId, $event)"
+        @position-applied="refreshViewportDom"
         @minimize="handleNoteMinimize(note.annotationId, $event)"
         @delete="annotationActions.handleDeleteAnnotationById(note.annotationId)"
         @focus="bringAnnotationNoteToFront(note.annotationId)"
@@ -136,7 +137,6 @@ import { requirePageNumber } from '@contracts/pageNumbers';
 import { PdfAnnotationContextMenu } from '@app/modules/pdf-viewer/public/component-exports/pdfAnnotationContextMenu';
 import { PdfAnnotationNoteWindow } from '@app/modules/pdf-viewer/public/component-exports/pdfAnnotationNoteWindow';
 import { PdfPageContextMenu } from '@app/modules/pdf-viewer/public/component-exports/pdfPageContextMenu';
-import type { IAnnotationNotePosition } from '@app/types/annotationNoteWindow';
 import { NOTE_WINDOW } from '@app/constants/pdfLayout';
 import type { IAnnotationNoteWindowEntry } from '@app/modules/workspace-shell/annotations/annotationNoteWindowEntry';
 import { createAnnotationOverlayRuntime } from '@app/modules/workspace-shell/annotations/createAnnotationOverlayRuntime';
@@ -191,7 +191,7 @@ const {
     getMinimizedIndicatorStyle,
     getMinimizedNotePreview,
     traceAnchorInteraction,
-    scheduleConnectorRefreshBurst,
+    refreshViewportDom,
 } = createAnnotationOverlayRuntime({
     // An open note's editor shows in the view that opened it; every view
     // shows the markers of minimized notes.
@@ -206,11 +206,6 @@ const {
     getEmptyNoteLabel: () => t('annotations.emptyNote'),
     paintsPage: pageIndex => view.pdfViewerRef.value?.paintsAnnotationPage?.(pageIndex) !== false,
 });
-
-function handleNotePositionUpdate(annotationId: string, position: IAnnotationNotePosition) {
-    annotations.updateAnnotationNotePosition(annotationId, position);
-    scheduleConnectorRefreshBurst(2);
-}
 
 async function handleNoteMinimize(annotationId: string, focusDocument: Document | null) {
     annotations.minimizeAnnotationNote(annotationId);
