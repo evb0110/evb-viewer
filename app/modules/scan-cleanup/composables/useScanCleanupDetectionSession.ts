@@ -8,7 +8,9 @@ import type {
     IScanCleanupPreviewResult,
     TScanCleanupErrorCode,
     TScanCleanupDetectionJobState,
+    TScanCleanupJobClosure,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {isScanCleanupJobClosure} from '@contracts/scan-cleanup/ipc';
 import {
     attachScanCleanupPageOverrideDefaults,
     createScanCleanupPageOverride,
@@ -57,7 +59,6 @@ type TScanCleanupLayoutClassification = IScanCleanupPreviewResult['pageMetadata'
 export {formatScanCleanupScratchMessage};
 
 const DETECTION_CANCELLATION_TIMEOUT_MS = 10_000;
-const DETECTION_SUBSCRIPTION_RECONCILIATION_ATTEMPTS = 3;
 // Native emits full result arrays only below this document-size boundary.
 // Larger jobs stream one bounded batch at a time, so the renderer keeps only
 // the recent pages needed for an active preview and explicit edits.
@@ -135,16 +136,12 @@ function detectionPhaseRank(stage: TScanCleanupDetectionJobState['progress']['st
     return 2;
 }
 
-function detectionIsTerminal(state: TScanCleanupDetectionJobState | null) {
+function detectionIsTerminal(state: {status: string} | null) {
     return state !== null && [
         'completed',
         'failed',
         'canceled',
     ].includes(state.status);
-}
-
-function yieldToDetectionReconciliation() {
-    return new Promise<void>(resolve => setTimeout(resolve, 0));
 }
 
 // The page edits detection depends on, read as the contract's detection
@@ -565,26 +562,21 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             && detectionPageOverrideSignatureToken === pageOverrideSignatureToken.value;
     }
 
-    async function reconcileDetectionJobState(
-        capability: NonNullable<ReturnType<typeof getScanCleanupCapability>>,
-        detectionJobId: TJobId,
-        owner: {
-            ownerId: string;
-            documentRevision: string
-        },
-    ) {
-        for (let attempt = 0; attempt < DETECTION_SUBSCRIPTION_RECONCILIATION_ATTEMPTS; attempt += 1) {
-            const state = await Promise.resolve()
-                .then(() => capability.getDetectionJobState(detectionJobId, owner))
-                .catch(() => null);
-            if (state) {
-                return state;
-            }
-            if (attempt + 1 < DETECTION_SUBSCRIPTION_RECONCILIATION_ATTEMPTS) {
-                await yieldToDetectionReconciliation();
-            }
+    function settleTerminalWaiters(jobId: TJobId) {
+        for (const settle of terminalWaiters.get(jobId) ?? []) settle();
+        terminalWaiters.delete(jobId);
+    }
+
+    // Nothing more will arrive for the job: settle its waiters and, unless its
+    // terminal state was already accepted, release the guard it holds.
+    function abandonUnobservedDetection(jobId: TJobId, cause?: unknown) {
+        settleTerminalWaiters(jobId);
+        if (lifecycle.isDisposed() || jobId !== currentJobId() || detectionIsTerminal(jobState.value)) {
+            return;
         }
-        return null;
+        jobState.value = null;
+        error.value = formatScanCleanupErrorMessage(t('scanCleanup.errors.detectionSubscriptionFailed'), cause);
+        errorCode.value = 'internal';
     }
 
     function clearDetectionEvidence(keepLayouts = false) {
@@ -701,11 +693,12 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         }, documentPageCount);
     }
 
-    function applyState(state: TScanCleanupDetectionJobState) {
-        if (detectionIsTerminal(state)) {
-            for (const settle of terminalWaiters.get(state.jobId) ?? []) settle();
-            terminalWaiters.delete(state.jobId);
+    function applyState(state: TScanCleanupDetectionJobState | TScanCleanupJobClosure) {
+        if (isScanCleanupJobClosure(state)) {
+            abandonUnobservedDetection(state.jobId);
+            return;
         }
+        if (detectionIsTerminal(state)) settleTerminalWaiters(state.jobId);
         if (lifecycle.isDisposed() || state.jobId !== currentJobId()) {
             return;
         }
@@ -883,47 +876,33 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             ownerId: options.ownerId,
             documentRevision: requestDocumentRevision,
         };
-        let state: TScanCleanupDetectionJobState | null;
+        // The reply is the job's snapshot. Null means the job is retired and a
+        // rejection means the channel is disconnected.
+        let state: TScanCleanupDetectionJobState | null = null;
+        let failure: unknown;
         try {
             state = await capability.subscribeDetectionJob(result.jobId, owner);
         } catch (caught) {
-            const isCurrentJob = !isStale() && result.jobId === currentJobId();
-            if (!isCurrentJob) {
-                void Promise.resolve()
-                    .then(() => capability.cancelDetection(result.jobId, owner))
-                    .catch(() => undefined);
-                return;
-            }
-            const reconciled = await reconcileDetectionJobState(capability, result.jobId, owner);
-            const stillCurrentJob = !isStale() && result.jobId === currentJobId();
-            if (!stillCurrentJob) {
-                return;
-            }
-            if (reconciled) {
-                applyState(reconciled);
-                return;
-            }
-            // A job that cannot be observed is abandoned at the renderer
-            // boundary. The main-process cancel is best effort, but the UI
-            // must release its queued/running guard even when the bridge is
-            // already gone.
-            await Promise.resolve()
-                .then(() => capability.cancelDetection(result.jobId, owner))
-                .catch(() => false);
-            if (!isStale() && result.jobId === currentJobId()) {
-                jobState.value = null;
-                error.value = formatScanCleanupErrorMessage(
-                    t('scanCleanup.errors.detectionSubscriptionFailed'),
-                    caught,
-                );
-                errorCode.value = 'internal';
-            }
-            return;
+            failure = caught;
         }
         if (isStale() || result.jobId !== currentJobId()) {
             return;
         }
-        if (state) applyState(state);
+        if (state) {
+            applyState(state);
+            return;
+        }
+        // A terminal state that arrived as an event during the handshake stays.
+        if (detectionIsTerminal(jobState.value)) {
+            return;
+        }
+        // An unobservable job is abandoned at the renderer boundary. The
+        // main-process cancel is best effort, but the UI must release its
+        // queued/running guard even when the bridge is already gone.
+        await Promise.resolve()
+            .then(() => capability.cancelDetection(result.jobId, owner))
+            .catch(() => false);
+        if (!isStale()) abandonUnobservedDetection(result.jobId, failure);
     }
 
     async function refreshDetection() {

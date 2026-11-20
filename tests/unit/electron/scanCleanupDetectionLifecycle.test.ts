@@ -1964,6 +1964,78 @@ describe('scanCleanupDetectionLifecycleTest', () => {
         await expect(owner.dispose()).resolves.toBeUndefined();
         await retention.dispose();
     });
+
+    it.each(['retired', 'disconnected'] as const)('publishes a %s detection closure on the job channel', async status => {
+        const {deps} = await previewDependencies();
+        const service = createDetectionScenarioOwner(deps);
+        const subscriber = lifecycleSender();
+        const started = await service.detectAll(subscriber, detectionRequest);
+        try {
+            expect(started.started).toBe(true);
+            expect(service.subscribeDetectionJob(subscriber, started.jobId, detectionRequest))
+                .toMatchObject({jobId: started.jobId});
+            if (status === 'disconnected') {
+                subscriber.emit('did-start-navigation', {}, 'about:blank', false, true);
+            }
+        } finally {
+            await service.dispose();
+        }
+
+        expect(subscriber.send).toHaveBeenCalledWith(
+            SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState,
+            {jobId: started.jobId, status},
+        );
+    });
+
+    it('returns completed detection evidence on first subscribe and same-owner re-subscribe', async () => {
+        const {deps} = await previewDependencies();
+        deps.runSidecar = async (_binary, manifestPath, _signal, _log, onProgress) => {
+            await writeDetectionMetadata(manifestPath);
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{sourcePageIndex: number}>};
+            for (const [index, page] of manifest.pages.entries()) {
+                await onProgress({
+                    stage: 'page-complete',
+                    completedPages: index + 1,
+                    totalPages: manifest.pages.length,
+                    pageNumber: requirePageNumber(page.sourcePageIndex + 1),
+                    classification: 'single-uncut-page',
+                    confidence: 0.9,
+                });
+            }
+        };
+        const service = createDetectionScenarioOwner(deps);
+        const subscriber = lifecycleSender();
+        const terminal = Promise.withResolvers<TScanCleanupDetectionJobState>();
+        // Observe the owner's event at the transport boundary while the
+        // renderer has yet to ask for its first subscription snapshot.
+        subscriber.send.mockImplementation((channel: string, state: TScanCleanupDetectionJobState) => {
+            if (channel === SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState
+                && (state.status === 'completed' || state.status === 'failed' || state.status === 'canceled')) {
+                terminal.resolve(state);
+            }
+        });
+        try {
+            const started = await service.detectAll(subscriber, detectionRequest);
+            expect(started.started).toBe(true);
+            await expect(terminal.promise).resolves.toMatchObject({status: 'completed'});
+
+            const subscribe = () => service.subscribeDetectionJob(subscriber, started.jobId, detectionRequest);
+            const expected = {
+                jobId: started.jobId,
+                status: 'completed',
+                progress: {completedUnits: 3},
+                results: expect.arrayContaining([expect.objectContaining({
+                    pageNumber: 3,
+                    classification: 'single-uncut-page',
+                })]),
+            };
+            expect(subscribe()).toMatchObject(expected);
+            expect(subscribe()).toMatchObject(expected);
+        } finally {
+            await service.dispose();
+        }
+    });
+
     const scenarios = [
         [
             'publish provisional results before reconciliation',

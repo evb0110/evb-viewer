@@ -7,9 +7,11 @@ import type {
     IScanCleanupStartRequest,
     IScanCleanupScratchShortfall,
     TScanCleanupStartResult as TBridgeScanCleanupStartResult,
+    TScanCleanupJobClosure,
     TScanCleanupJobState,
     TScanCleanupErrorCode,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {isScanCleanupJobClosure} from '@contracts/scan-cleanup/ipc';
 import type {TTranslateFn} from '@i18n-app';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {
@@ -33,7 +35,6 @@ const ACTIVE_JOB_KEY = 'evb.scanCleanup.activeJobId';
 const ACTIVE_JOB_DOCUMENT_KEY = 'evb.scanCleanup.activeDocumentRef';
 const ACTIVE_JOB_OWNER_KEY = 'evb.scanCleanup.activeOwnerId';
 const ACTIVE_JOB_REVISION_KEY = 'evb.scanCleanup.activeDocumentRevision';
-const RUN_SUBSCRIPTION_RECONCILIATION_ATTEMPTS = 3;
 /**
  * Probe the authoritative job record often enough to recover a dropped event,
  * while staying well below the main-process replay and terminal retention
@@ -491,35 +492,34 @@ function clearRunGuard() {
     clearScanCleanupRunLivenessTimer();
 }
 
-function yieldToRunReconciliation() {
-    return new Promise<void>(resolve => setTimeout(resolve, 0));
-}
-
 type TScanCleanupRunOwner = Pick<IScanCleanupStartRequest, 'ownerId' | 'documentRevision'>;
 
-async function reconcileScanCleanupRunState(
-    capability: NonNullable<ReturnType<typeof getScanCleanupCapability>>,
-    jobId: TJobId,
-    owner: TScanCleanupRunOwner,
-) {
-    for (let attempt = 0; attempt < RUN_SUBSCRIPTION_RECONCILIATION_ATTEMPTS; attempt += 1) {
-        const state = await Promise.resolve()
-            .then(() => capability.getJobState(jobId, owner))
-            .catch(() => null);
-        const reconnected = await Promise.resolve()
-            .then(() => capability.reconnectJob(jobId, owner))
-            .catch(() => null);
-        if (reconnected) {
-            return reconnected;
-        }
-        if (state) {
-            return state;
-        }
-        if (attempt + 1 < RUN_SUBSCRIPTION_RECONCILIATION_ATTEMPTS) {
-            await yieldToRunReconciliation();
-        }
+/**
+ * Releases the guard of a run nothing more will be heard from, unless its
+ * terminal state already arrived. `forget` drops the stored job; a page whose
+ * channel disconnected keeps it so the page replacing it can reconnect.
+ */
+function releaseUnobservedScanCleanupRun(jobId: TJobId, forget = true) {
+    if (
+        scanCleanupRun.activeJobId !== jobId
+        || (scanCleanupRun.jobState?.jobId === jobId && isTerminalScanCleanupJobState(scanCleanupRun.jobState))
+    ) {
+        return false;
     }
-    return null;
+    scanCleanupRun.activeJobId = null;
+    scanCleanupRun.jobState = null;
+    clearRunGuard();
+    if (forget) persistActiveJob(null);
+    return true;
+}
+
+function reportUnobservedScanCleanupRun() {
+    if (scanCleanupRun.ownerId) {
+        reportScanCleanupRunError(
+            scanCleanupRun.ownerId,
+            dependencies?.t('scanCleanup.errors.runRecoveryFailed') ?? 'scanCleanup.errors.runRecoveryFailed',
+        );
+    }
 }
 
 async function abandonUnobservedScanCleanupRun(
@@ -533,17 +533,7 @@ async function abandonUnobservedScanCleanupRun(
     await Promise.resolve()
         .then(() => capability.cancel(jobId, owner))
         .catch(() => false);
-    if (scanCleanupRun.activeJobId !== jobId) {
-        return false;
-    }
-    if (scanCleanupRun.jobState?.jobId === jobId && isTerminalScanCleanupJobState(scanCleanupRun.jobState)) {
-        return false;
-    }
-    scanCleanupRun.activeJobId = null;
-    scanCleanupRun.jobState = null;
-    clearRunGuard();
-    persistActiveJob(null);
-    return true;
+    return releaseUnobservedScanCleanupRun(jobId);
 }
 
 function scheduleScanCleanupRunLivenessCheck() {
@@ -817,7 +807,11 @@ async function handleTerminalState(state: TScanCleanupJobState) {
     }
 }
 
-function acceptScanCleanupJobState(state: TScanCleanupJobState) {
+function acceptScanCleanupJobState(state: TScanCleanupJobState | TScanCleanupJobClosure) {
+    if (isScanCleanupJobClosure(state)) {
+        if (releaseUnobservedScanCleanupRun(state.jobId, state.status === 'retired')) reportUnobservedScanCleanupRun();
+        return;
+    }
     if (scanCleanupRun.activeJobId && state.jobId !== scanCleanupRun.activeJobId) {
         return;
     }
@@ -897,31 +891,20 @@ async function startScanCleanupRequest(
         documentRevision: request.documentRevision,
     };
     scheduleScanCleanupRunLivenessCheck();
-    let restored: TScanCleanupJobState | null;
-    try {
-        restored = await capability.subscribeJob(result.jobId, owner);
-    } catch (caught) {
-        if (scanCleanupRun.activeJobId !== result.jobId) {
-            return result;
-        }
-        const reconciled = await reconcileScanCleanupRunState(capability, result.jobId, owner);
-        if (scanCleanupRun.activeJobId !== result.jobId) {
-            return result;
-        }
-        if (reconciled) {
-            acceptScanCleanupJobState(reconciled);
-            return result;
-        }
-        const reset = await abandonUnobservedScanCleanupRun(capability, result.jobId, owner);
-        if (reset) {
-            throw new ScanCleanupRunReconciliationError(
-                'subscription',
-                caught instanceof Error ? getErrorMessage(caught) : '',
-            );
-        }
+    // The reply is the job's snapshot and null means the job is retired. A
+    // rejection means the channel is disconnected: the run keeps its identity
+    // and stored job, and the liveness check decides what happened.
+    const restored = await Promise.resolve()
+        .then(() => capability.subscribeJob(result.jobId, owner))
+        .catch(() => undefined);
+    if (restored === undefined || scanCleanupRun.activeJobId !== result.jobId) {
         return result;
     }
-    if (restored) acceptScanCleanupJobState(restored);
+    if (restored) {
+        acceptScanCleanupJobState(restored);
+    } else if (await abandonUnobservedScanCleanupRun(capability, result.jobId, owner)) {
+        throw new ScanCleanupRunReconciliationError('subscription');
+    }
     return result;
 }
 
@@ -1051,24 +1034,17 @@ export async function cancelScanCleanup(): Promise<TScanCleanupCancelOutcome> {
         ownerId,
         documentRevision,
     };
-    let cancelAccepted: boolean;
-    try {
-        cancelAccepted = await capability.cancel(jobId, owner);
-    } catch {
-        const reconciledState = await reconcileScanCleanupRunState(capability, jobId, owner);
-        const state = reconciledState?.jobId === jobId
-            ? reconciledState
-            : (scanCleanupRun.jobState?.jobId === jobId ? scanCleanupRun.jobState : null);
-        return resolveScanCleanupCancelOutcome(jobId, state);
-    }
+    const cancelAccepted = await Promise.resolve()
+        .then(() => capability.cancel(jobId, owner))
+        .catch(() => false);
     if (cancelAccepted) {
         return 'accepted';
     }
 
     // The boolean cancel IPC predates the public committing state. Read the
-    // authoritative record when the registry refuses a request so the
-    // renderer can explain the commit-window outcome instead of treating it
-    // as a silent no-op.
+    // authoritative record when the registry refuses or the bridge rejects a
+    // request so the renderer can explain the commit-window outcome instead
+    // of treating it as a silent no-op.
     const authoritativeState = await capability.getJobState(jobId, owner).catch(() => null);
     const state = authoritativeState
         ?? (scanCleanupRun.jobState?.jobId === jobId ? scanCleanupRun.jobState : null);
@@ -1143,23 +1119,19 @@ export function installScanCleanupRunCoordinator(nextDependencies: IScanCleanupC
             };
             scheduleScanCleanupRunLivenessCheck();
             void (async () => {
-                const state = await reconcileScanCleanupRunState(capability, storedJobId, owner);
+                // The reconnect reply is the snapshot. A retired job leaves
+                // only the completed-output journal; a disconnected one is
+                // kept for the liveness check.
+                const state = await Promise.resolve()
+                    .then(() => capability.reconnectJob(storedJobId, owner))
+                    .catch(() => undefined);
+                if (state === undefined || scanCleanupRun.activeJobId !== storedJobId) {
+                    return;
+                }
                 if (state) acceptScanCleanupJobState(state);
-                else if (scanCleanupRun.activeJobId === storedJobId) {
-                    const ownerId = scanCleanupRun.ownerId;
-                    const sourceDocumentRef = scanCleanupRun.ownerDocumentRef;
-                    const reset = await abandonUnobservedScanCleanupRun(capability, storedJobId, owner);
-                    if (reset && ownerId) {
-                        reportScanCleanupRunError(
-                            ownerId,
-                            nextDependencies.t('scanCleanup.errors.runRecoveryFailed'),
-                            sourceDocumentRef,
-                            'internal',
-                        );
-                    }
-                    if (!state) {
-                        void surfacePendingCompletedOutputs(capability);
-                    }
+                else {
+                    if (await abandonUnobservedScanCleanupRun(capability, storedJobId, owner)) reportUnobservedScanCleanupRun();
+                    void surfacePendingCompletedOutputs(capability);
                 }
             })();
         }

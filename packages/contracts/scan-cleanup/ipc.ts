@@ -279,6 +279,16 @@ export type TScanCleanupDetectionJobState = {
     results: IScanCleanupDetectionResult[];
     updatedAtMs: TEpochMs;
 } & ({status: 'queued' | 'running' | 'canceling' | 'completed' | 'canceled'} | ({status: 'failed'} & IScanCleanupJobFailure));
+/**
+ * The last event of a job's stream: its owner no longer holds the record
+ * (`retired`) or the subscriber's transport ended (`disconnected`). A
+ * subscribe or reconnect reply of `null` means retired; a rejected one means
+ * disconnected.
+ */
+export type TScanCleanupJobClosure = {jobId: TJobId; status: 'retired' | 'disconnected'};
+export function isScanCleanupJobClosure(event: {status: string}): event is TScanCleanupJobClosure {
+    return event.status === 'retired' || event.status === 'disconnected';
+}
 export type TScanCleanupDetectionStartResult =
     | {started: true; jobId: TJobId}
     | ({started: false; jobId: TJobId} & IScanCleanupJobFailure);

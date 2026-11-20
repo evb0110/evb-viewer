@@ -15,6 +15,8 @@ import {createScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanup
 import type {
     IScanCleanupDetectionResult,
     IScanCleanupPreviewRequest,
+    TScanCleanupDetectionJobState,
+    TScanCleanupJobState,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {
     IBrowserScanCleanupPreviewBase,
@@ -161,14 +163,17 @@ function mockScanCleanupPreviewSource() {
             resolve,
         });
     })}));
-    vi.doMock('@app/platform/browserDocumentStore', () => ({browserDocumentStore: {
-        assertDocumentRevisionCurrent: vi.fn(async () => undefined),
-        read: vi.fn(async () => new Uint8Array([
-            1,
-            2,
-            3,
-        ])),
-    }}));
+    vi.doMock('@app/platform/browserDocumentStore', () => ({
+        getBrowserDocumentFileName: () => 'scan.pdf',
+        browserDocumentStore: {
+            assertDocumentRevisionCurrent: vi.fn(async () => undefined),
+            read: vi.fn(async () => new Uint8Array([
+                1,
+                2,
+                3,
+            ])),
+        },
+    }));
     vi.doMock('@app/platform/browser-api/browserPageOpsWorkerClient', () => ({runBrowserPageOpsWorkerRequest: vi.fn(async () => ({
         pageCount: 2,
         pages: [
@@ -268,6 +273,54 @@ describe('browser scan cleanup preview admission', () => {
     async function loadCapability() {
         return (await import('@app/platform/browser-api/browserScanCleanupCapability')).browserScanCleanupCapability;
     }
+
+    it.each([
+        {job: 'detection', retire: false},
+        {job: 'conversion', retire: false},
+        {job: 'detection', retire: true},
+        {job: 'conversion', retire: true},
+    ] as const)('answers a late browser $job subscriber with the terminal state or retirement (retire=$retire)', async ({
+        job, retire,
+    }) => {
+        const capability = await loadCapability();
+        const {browserDocumentStore} = await import('@app/platform/browserDocumentStore');
+        const failure = 'Fixture source went away';
+        vi.mocked(browserDocumentStore.assertDocumentRevisionCurrent).mockRejectedValue(new Error(failure));
+        const input = request();
+        const detection = job === 'detection';
+        const terminal = Promise.withResolvers<TScanCleanupDetectionJobState | TScanCleanupJobState>();
+        const events: unknown[] = [];
+        const listen = detection ? capability.onDetectionJobState : capability.onJobState;
+        const subscribe = detection ? capability.subscribeDetectionJob : capability.subscribeJob;
+        vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout', 'Date']});
+        const stop = listen(state => {
+            events.push(state);
+            if (state.status === 'failed' || state.status === 'completed' || state.status === 'canceled') {
+                terminal.resolve(state);
+            }
+        });
+        try {
+            const started = await (detection ? capability.detectAll(input) : capability.start(input));
+            expect(started.started).toBe(true);
+            const expected = {jobId: started.jobId, status: 'failed', error: failure};
+            await expect(terminal.promise).resolves.toMatchObject(expected);
+            await expect(subscribe(started.jobId, input)).resolves.toMatchObject(expected);
+            const reconnect = detection ? capability.subscribeDetectionJob : capability.reconnectJob;
+            await expect(reconnect(started.jobId, input)).resolves.toMatchObject(expected);
+            if (retire) {
+                // Move only the owner's retention clock. Arrival of the
+                // retirement event should require no renderer state read.
+                await vi.advanceTimersByTimeAsync(60_000);
+                expect(events).toContainEqual(expect.objectContaining({
+                    jobId: started.jobId,
+                    status: 'retired',
+                }));
+            }
+        } finally {
+            stop();
+            vi.useRealTimers();
+        }
+    });
 
     it('leaves no PDF source open when the working copy closes before a preview is admitted', async () => {
         const capability = await loadCapability();

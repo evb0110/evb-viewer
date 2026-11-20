@@ -14,6 +14,7 @@ import type {
     IScanCleanupRawPreviewEvent,
     TScanCleanupDetectionJobState,
     TScanCleanupDetectionStartResult,
+    TScanCleanupJobClosure,
     TScanCleanupJobState,
     TScanCleanupPreviewWireResult,
     TScanCleanupStartResult,
@@ -57,8 +58,8 @@ const startResult = trusted<TScanCleanupStartResult>();
 const placementAnchorCalibrationResult = trusted<IScanCleanupPlacementAnchorCalibration>();
 const jobState = trusted<TScanCleanupJobState | null>();
 const detectionJobState = trusted<TScanCleanupDetectionJobState | null>();
-const jobEvent = trusted<TScanCleanupJobState>();
-const detectionEvent = trusted<TScanCleanupDetectionJobState>();
+const jobEvent = trusted<TScanCleanupJobState | TScanCleanupJobClosure>();
+const detectionEvent = trusted<TScanCleanupDetectionJobState | TScanCleanupJobClosure>();
 const settingsFile = trusted<IScanCleanupSettingsResult>();
 const settingsChange = trusted<{
     settings: IScanCleanupGlobalPreferences;
