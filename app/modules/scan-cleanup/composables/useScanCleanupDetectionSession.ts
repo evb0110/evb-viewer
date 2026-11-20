@@ -176,9 +176,10 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     const i18n = useTypedI18n();
     const {t} = i18n;
     const starting = ref(false);
-    const autoPending = ref(false);
+    const autoPending = ref(Boolean(options.active() && options.sourcePath.value));
     // The job this session follows. Its id, canvas plan and completeness are
-    // read from it; nothing else holds a copy.
+    // read from it; nothing else holds a copy. It belongs to the current
+    // source, revision and lifecycle key: an identity change detaches it.
     const jobState = shallowRef<TScanCleanupDetectionJobState | null>(null);
     const currentJobId = () => jobState.value?.jobId ?? null;
     const documentCanvasSignature = computed(() => jobState.value?.documentCanvasSignature ?? '');
@@ -243,8 +244,6 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             ),
         );
     });
-    let jobDocumentKey: string | null = null;
-    let jobDocumentRevision: string | null = null;
     // Bumped whenever the document lifecycle replaces the session. A pending
     // detect-all continuation from before the bump must never cache results,
     // subscribe, or mutate session maps for the replacement document.
@@ -385,16 +384,9 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     const isDetecting = computed(() => jobState.value?.status === 'queued'
         || jobState.value?.status === 'running'
         || jobState.value?.status === 'canceling');
-    function jobBelongsToCurrentDocument() {
-        return jobDocumentKey === options.lifecycleDocumentKey.value
-            && jobDocumentRevision === options.documentRevision.value;
-    }
     const terminalStatus = computed<'completed' | 'failed' | 'canceled' | null>(() => {
         const status = jobState.value?.status;
-        if (
-            !jobBelongsToCurrentDocument()
-            || (status === 'completed' && !evidenceIsCurrent())
-        ) {
+        if (status === 'completed' && !evidenceIsCurrent()) {
             return null;
         }
         return status === 'completed' || status === 'failed' || status === 'canceled'
@@ -601,25 +593,29 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             : []);
     }
 
-    function invalidateDetectionEvidence() {
-        const previousJobId = currentJobId();
-        const previousJobState = jobState.value;
+    // No earlier start reply or event can publish into the session afterwards.
+    // Waits on the job end now; a job still working is retired, with its own
+    // cancellation wait, under the revision it started with.
+    function detachDetectionJob(jobRevision: string) {
+        const detached = jobState.value;
         requestGeneration += 1;
-        if (previousJobId && previousJobState && !detectionIsTerminal(previousJobState)) {
-            void enqueueDetectionRetirement(
-                previousJobId,
-                jobDocumentRevision ?? options.documentRevision.value,
-            );
+        if (detached) settleTerminalWaiters(detached.jobId);
+        if (detached && !detectionIsTerminal(detached)) {
+            void enqueueDetectionRetirement(detached.jobId, jobRevision);
         }
+        jobState.value = null;
+        error.value = '';
+        errorCode.value = null;
+        clearDetectionEvidence();
+    }
+
+    function invalidateDetectionEvidence() {
+        detachDetectionJob(options.documentRevision.value);
         if (scheduledAutoDetection !== null) {
             clearTimeout(scheduledAutoDetection);
             scheduledAutoDetection = null;
         }
         autoPending.value = false;
-        jobState.value = null;
-        error.value = '';
-        errorCode.value = null;
-        clearDetectionEvidence();
         const key = options.lifecycleDocumentKey.value;
         if (key !== null) detectionSessionCache.delete(key);
     }
@@ -774,16 +770,18 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             error.value = '';
             errorCode.value = null;
         }
+        const key = options.lifecycleDocumentKey.value;
         if (
             !lifecycle.isDisposed()
-            && jobDocumentKey
+            && key
             && completedWithCurrentEvidence
             && documentPageCount <= DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT
         ) {
-            detectionSessionCache.set(jobDocumentKey, {
+            detectionSessionCache.set(key, {
                 ownerId: options.ownerId,
                 documentSignature: detectionDocumentSignature,
                 signatureToken: detectionPageOverrideSignatureToken,
+                sourcePath: options.sourcePath.value,
                 state,
                 totalPages: state.progress.totalUnits,
             });
@@ -819,8 +817,6 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             || generation !== requestGeneration
             || requestSourcePath !== options.sourcePath.value
             || requestDocumentRevision !== options.documentRevision.value;
-        jobDocumentKey = options.lifecycleDocumentKey.value;
-        jobDocumentRevision = requestDocumentRevision;
         jobState.value = null;
         detectionResultStoreId.value = null;
         starting.value = true;
@@ -829,7 +825,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             result = await capability.detectAll(toBridgeSafeScanCleanupPayload({
                 sourcePdfPath: requestSourcePath,
                 ownerId: options.ownerId,
-                documentRevision: jobDocumentRevision,
+                documentRevision: requestDocumentRevision,
                 options: toPlainScanCleanupOptions(options.settings),
             }));
         } catch (caught) {
@@ -847,7 +843,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             if (result.started) {
                 void enqueueDetectionRetirement(result.jobId, requestDocumentRevision);
             }
-            // The lifecycle watcher may have tried to schedule the replacement
+            // The identity transition may have tried to schedule the replacement
             // while `starting` still belonged to this request. Make the retry
             // explicit after the stale request releases that gate.
             scheduleAutoDetect();
@@ -1022,11 +1018,14 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         if (!capability) {
             return;
         }
-        if (await capability.cancelDetection(jobId, {
+        const acknowledged = await capability.cancelDetection(jobId, {
             ownerId: options.ownerId,
-            documentRevision: jobDocumentRevision ?? options.documentRevision.value,
-        }) && !lifecycle.isDisposed() && jobDocumentKey) {
-            autoDetectionCanceledDocuments.add(jobDocumentKey);
+            documentRevision: options.documentRevision.value,
+        });
+        // The acknowledgement applies only to the job that is still current.
+        const key = options.lifecycleDocumentKey.value;
+        if (acknowledged && !lifecycle.isDisposed() && jobId === currentJobId() && key) {
+            autoDetectionCanceledDocuments.add(key);
         }
     }
 
@@ -1064,15 +1063,15 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
 
             detectionWaitResolvers.add(finish);
             void (async () => {
+                // A start publishes its job in the turn it releases `starting`.
                 if (starting.value) {
                     await until(() => settled.value || !starting.value).toBe(true);
                     if (settled.value) {
                         return;
                     }
-                    await nextTick();
                 }
                 targetJobId = currentJobId();
-                const targetJobRevision = jobDocumentRevision ?? options.documentRevision.value;
+                const targetJobRevision = options.documentRevision.value;
                 if (!targetJobId || detectionIsTerminal(jobState.value)) {
                     finish();
                     return;
@@ -1140,22 +1139,12 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             if (terminalStatus.value !== null) {
                 return;
             }
-            if (
-                jobState.value !== null
-                && (
-                    !jobBelongsToCurrentDocument()
-                    || detectionIsTerminal(jobState.value)
-                )
-            ) {
-                // Computed identity changes synchronously, while the watcher
-                // that retires the old maps and schedules their replacement
-                // runs in Vue's next flush. Do not let the raw prior terminal
-                // snapshot escape through that one-turn gap.
+            if (detectionIsTerminal(jobState.value)) {
+                // Completed evidence an edit in this turn made stale: the
+                // batched watcher has not run yet, so invalidate it here and
+                // let this wait own the replacement.
+                reconcileDetectionSignatures();
                 mayStartMissingDetection = true;
-                await nextTick();
-                if (!belongsToWaitedDocument() || Boolean(terminalStatus.value)) {
-                    return;
-                }
             }
             if (jobState.value === null && !starting.value) {
                 if (
@@ -1209,8 +1198,11 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         const documentPageCount = options.totalPages.value > 0
             ? options.totalPages.value
             : entry.totalPages;
+        // Vue publishes path, key and hash separately: a key that still names
+        // the previous source must not restore its evidence for this path.
         if (
-            (!authoritativeIdentity && entry.ownerId !== options.ownerId)
+            entry.sourcePath !== options.sourcePath.value
+            || (!authoritativeIdentity && entry.ownerId !== options.ownerId)
             || entry.totalPages !== documentPageCount
             || documentPageCount > DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT
             || entry.documentSignature !== documentSignature.value
@@ -1230,8 +1222,6 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         if (!cached || !cacheIsFresh(cached, key)) {
             return false;
         }
-        jobDocumentKey = key;
-        jobDocumentRevision = options.documentRevision.value;
         jobState.value = cached.state;
         placementAnchorSummary.value = cached.state.placementAnchorSummary ?? null;
         placementAnchorCalibrationError.value = '';
@@ -1287,15 +1277,59 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         stopSubscription = getScanCleanupCapability()?.onDetectionJobState(applyState) ?? null;
         void maybeAutoDetect();
     });
+    // One synchronous transition over the source identity. Vue assigns the
+    // path, revision, legacy key and hash as separate props, so the first
+    // change detaches the old job before any read, Run click or event.
+    watch([
+        options.sourcePath,
+        options.documentRevision,
+        options.lifecycleDocumentKey,
+        options.sourceSha256,
+    ], ([
+        sourcePath,
+        documentRevision,
+        key,
+        sourceSha256,
+    ], [
+        previousSourcePath,
+        previousDocumentRevision,
+        previousKey,
+    ]) => {
+        // A hash published for the same path and revision only renames the
+        // cache entry: the native job, its waiters and its evidence stay.
+        const promoted = promoteScanCleanupDetectionState({
+            provisionalLifecycleKey: previousKey,
+            authoritativeLifecycleKey: key,
+            sourcePath,
+            sourceSha256,
+            documentRevision,
+        });
+        if (!promoted) {
+            detachDetectionJob(previousDocumentRevision);
+            // The workspace can stay mounted while its document is closed,
+            // and closing can clear the path before the legacy key. A panel
+            // unmount alone keeps the entry for a later reopen.
+            if (sourcePath === null) discardScanCleanupDetectionStateForAliases([...documentAliases]);
+            // A new source releases the previous document's aliases, so
+            // closing the new one keeps that document's restore entry.
+            if (sourcePath !== previousSourcePath) documentAliases.clear();
+        }
+        if (!promoted || jobState.value === null) {
+            autoPending.value = Boolean(options.active() && sourcePath);
+            scheduleAutoDetect();
+        }
+    }, {flush: 'sync'});
+    // Aliases, superseded entries and the settings baseline follow the settled
+    // tuple: a half-published path and legacy key name no document, and the
+    // document settings for a new key load in this same flush.
     watch(options.lifecycleDocumentKey, (key, previousKey) => {
-        const promoted = previousKey !== undefined
-            && isScanCleanupLifecycleIdentityPromotion(
-                previousKey,
-                key,
-                options.sourcePath.value,
-                options.sourceSha256.value,
-                options.documentRevision.value,
-            );
+        const promoted = isScanCleanupLifecycleIdentityPromotion(
+            previousKey,
+            key,
+            options.sourcePath.value,
+            options.sourceSha256.value,
+            options.documentRevision.value,
+        );
         const sourceChanged = Boolean(
             options.sourcePath.value
             && options.sourcePath.value !== rememberedSourcePath
@@ -1310,70 +1344,16 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         // new document evict an unrelated recent restore entry.
         if (!sourceChanged) rememberDocumentAliases(previousKey);
         rememberDocumentAliases(key);
-        if (promoted) {
-            promoteScanCleanupDetectionState({
-                provisionalLifecycleKey: previousKey,
-                authoritativeLifecycleKey: key,
-                sourcePath: options.sourcePath.value,
-                sourceSha256: options.sourceSha256.value,
-                documentRevision: options.documentRevision.value,
-            });
-            // Identity publication does not replace the source or revision.
-            // Keep the native job, accumulated evidence, and renderer state;
-            // only its cache key changes.
-            jobDocumentKey = key;
-            jobDocumentRevision = options.documentRevision.value;
-            if (jobState.value === null && !isDetecting.value) {
-                autoPending.value = Boolean(options.active() && options.sourcePath.value);
-                scheduleAutoDetect();
-            }
-            return;
-        }
+        if (promoted) return;
         if (key === null) {
-            // The workspace can stay mounted while its document is closed.
-            // This is the actual lifecycle boundary for detection state; a
-            // panel/session unmount alone must leave an authoritative entry
-            // available for a later reopen.
             discardScanCleanupDetectionStateForAliases([...documentAliases]);
             documentAliases.clear();
         }
         retireSupersededScanCleanupDetectionState(key);
-        requestGeneration += 1;
-        const retiredJobId = currentJobId();
-        if (retiredJobId && isDetecting.value) {
-            void enqueueDetectionRetirement(
-                retiredJobId,
-                jobDocumentRevision ?? options.documentRevision.value,
-            );
-        }
-        jobDocumentRevision = null;
-        jobDocumentKey = options.lifecycleDocumentKey.value;
-        jobState.value = null;
-        error.value = '';
-        errorCode.value = null;
-        clearDetectionEvidence();
-        captureDetectionSignatures();
         observedDocumentSignature = documentSignature.value;
         observedPageOverrideSignatures = readPageOverrideSignatures();
         observedTotalPages = options.totalPages.value;
-        autoPending.value = Boolean(options.active() && options.sourcePath.value);
-        // The mounted hook owns the initial auto-detect; scheduling it here too
-        // would race a just-started or just-completed job on the same document.
-        if (previousKey !== undefined) {
-            scheduleAutoDetect();
-        }
     }, {immediate: true});
-    watch(options.sourcePath, sourcePath => {
-        if (sourcePath !== null) {
-            return;
-        }
-        // Some document-close flows clear the acquired path before clearing
-        // their legacy key, so the lifecycle key watcher is not guaranteed to
-        // observe a null transition of its own.
-        discardScanCleanupDetectionStateForAliases([...documentAliases]);
-        documentAliases.clear();
-        clearDetectionEvidence();
-    });
     watch(options.active, active => {
         if (active) scheduleAutoDetect();
     });
@@ -1392,57 +1372,55 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             scheduleAutoDetect();
         },
     );
-    watch(
-        [
-            documentSignature,
-            pageOverrideSignatureToken,
-            options.totalPages,
-        ],
-        ([
-            currentDocumentSignature,
-            ,
-            currentTotalPages,
-        ]) => {
-            const currentPageSignatures = readPageOverrideSignatures();
-            const documentChanged = currentDocumentSignature !== observedDocumentSignature;
-            const pageCountChanged = currentTotalPages !== observedTotalPages
-                && !(
-                    observedTotalPages === 0
-                    && detectionDocumentPageCount.value === currentTotalPages
-                );
-            const changedPages = new Set<number>();
-            for (const pageNumber of new Set([
-                ...observedPageOverrideSignatures.keys(),
-                ...currentPageSignatures.keys(),
-            ])) {
-                if (observedPageOverrideSignatures.get(pageNumber) !== currentPageSignatures.get(pageNumber)) {
-                    changedPages.add(pageNumber);
-                }
+    // Settings, page edits and page count invalidate evidence. The watcher
+    // batches edits; a wait that finds stale completed evidence runs it now.
+    function reconcileDetectionSignatures() {
+        const currentDocumentSignature = documentSignature.value;
+        const currentTotalPages = options.totalPages.value;
+        const currentPageSignatures = readPageOverrideSignatures();
+        const documentChanged = currentDocumentSignature !== observedDocumentSignature;
+        const pageCountChanged = currentTotalPages !== observedTotalPages
+            && !(
+                observedTotalPages === 0
+                && detectionDocumentPageCount.value === currentTotalPages
+            );
+        const changedPages = new Set<number>();
+        for (const pageNumber of new Set([
+            ...observedPageOverrideSignatures.keys(),
+            ...currentPageSignatures.keys(),
+        ])) {
+            if (observedPageOverrideSignatures.get(pageNumber) !== currentPageSignatures.get(pageNumber)) {
+                changedPages.add(pageNumber);
             }
-            if (documentChanged || pageCountChanged) {
-                // Margins are applied after a page is split, so a change to
-                // them alone keeps every page's layout: the matched page stays
-                // measurable while detection measures the content again.
-                clearDetectionEvidence(!pageCountChanged
-                    && changedPages.size === 0
-                    && withoutMargins(currentDocumentSignature) === withoutMargins(observedDocumentSignature));
-            } else {
-                if (changedPages.size > 0) clearDetectionEvidenceForPages(changedPages);
-            }
-            observedDocumentSignature = currentDocumentSignature;
-            observedPageOverrideSignatures = currentPageSignatures;
-            observedTotalPages = currentTotalPages;
-            if (!documentChanged && !pageCountChanged && changedPages.size === 0) {
-                return;
-            }
-            const key = options.lifecycleDocumentKey.value;
-            if (key !== null) detectionSessionCache.delete(key);
-            if (!isDetecting.value) {
-                jobState.value = null;
-                scheduleAutoDetect();
-            }
-        },
-    );
+        }
+        if (documentChanged || pageCountChanged) {
+            // Margins are applied after a page is split, so a change to
+            // them alone keeps every page's layout: the matched page stays
+            // measurable while detection measures the content again.
+            clearDetectionEvidence(!pageCountChanged
+                && changedPages.size === 0
+                && withoutMargins(currentDocumentSignature) === withoutMargins(observedDocumentSignature));
+        } else {
+            if (changedPages.size > 0) clearDetectionEvidenceForPages(changedPages);
+        }
+        observedDocumentSignature = currentDocumentSignature;
+        observedPageOverrideSignatures = currentPageSignatures;
+        observedTotalPages = currentTotalPages;
+        if (!documentChanged && !pageCountChanged && changedPages.size === 0) {
+            return;
+        }
+        const key = options.lifecycleDocumentKey.value;
+        if (key !== null) detectionSessionCache.delete(key);
+        if (!isDetecting.value) {
+            jobState.value = null;
+            scheduleAutoDetect();
+        }
+    }
+    watch([
+        documentSignature,
+        pageOverrideSignatureToken,
+        options.totalPages,
+    ], reconcileDetectionSignatures);
     watch(
         [
             () => currentPlacementAnchorCalibrationSignature(),
@@ -1476,7 +1454,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         if (jobId && isDetecting.value) {
             void getScanCleanupCapability()?.cancelDetection(jobId, {
                 ownerId: options.ownerId,
-                documentRevision: jobDocumentRevision ?? options.documentRevision.value,
+                documentRevision: options.documentRevision.value,
             }).catch(() => undefined);
         }
     });

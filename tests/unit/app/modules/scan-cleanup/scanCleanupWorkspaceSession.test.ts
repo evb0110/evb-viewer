@@ -3568,7 +3568,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         reopened.unmount();
     });
 
-    it('does not discard a previous document cache when the replacement document closes', async () => {
+    it('ends detection as soon as the source closes and keeps the previous document cached', async () => {
         const harness = capabilityHarness();
         const firstHash = '2'.repeat(64);
         const secondHash = '3'.repeat(64);
@@ -3582,6 +3582,8 @@ describe('scan cleanup workspace session detection guidance', () => {
             sourcePath: () => sourcePath.value,
             sourceSha256: () => sourceSha256.value,
         });
+        onTestFinished(() => mounted.unmount());
+        const {detection} = mounted.session;
 
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
         harness.emitDetection(detectionState('detect-1', 'completed'));
@@ -3597,10 +3599,19 @@ describe('scan cleanup workspace session detection guidance', () => {
         await vi.waitFor(() => expect(scanCleanupDetectionSessionCache.has(
             `${secondHash}\u0000stable-revision`,
         )).toBe(true));
+        expect(detection.terminalStatus.value).toBe('completed');
 
+        // Closing can remove the working copy before its legacy key or SHA.
         sourcePath.value = null;
-        documentKey.value = null;
-        sourceSha256.value = null;
+        expect.soft({
+            progress: detection.jobProgress.value,
+            records: detection.records.value.size,
+            terminalStatus: detection.terminalStatus.value,
+        }).toEqual({
+            progress: null,
+            records: 0,
+            terminalStatus: null,
+        });
         await nextTick();
 
         expect(scanCleanupDetectionSessionCache.has(
@@ -3609,10 +3620,9 @@ describe('scan cleanup workspace session detection guidance', () => {
         expect(scanCleanupDetectionSessionCache.has(
             `${secondHash}\u0000stable-revision`,
         )).toBe(false);
-        mounted.unmount();
     });
 
-    it('rejects a stale completed status synchronously when Run follows a document switch', async () => {
+    it('clears detection evidence on a path change and runs cleanup with only the new source evidence', async () => {
         const harness = capabilityHarness();
         const sourcePath = ref<TDocumentRef>(requireDocumentRef('/docs/immediate-run-first.pdf'));
         const documentKey = ref('immediate-run-first');
@@ -3622,9 +3632,35 @@ describe('scan cleanup workspace session detection guidance', () => {
             documentRevision: () => 'shared-revision',
             sourcePath: () => sourcePath.value,
         });
-        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
-        harness.emitDetection(detectionState('detect-1', 'completed'));
-        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
+        onTestFinished(() => mounted.unmount());
+        const {detection} = mounted.session;
+        const first = {
+            ...detectionState('detect-1', 'completed'),
+            detectionResultStoreId: 'first-store',
+        };
+        first.results = first.results.map(result => ({
+            ...result,
+            recommendedOutputMode: 'grayscale',
+        }));
+        const second = {
+            ...detectionState('detect-2', 'completed'),
+            detectionResultStoreId: 'second-store',
+        };
+        second.results = second.results.map(result => ({
+            ...result,
+            recommendedOutputMode: 'bw',
+            pagePlanEvidence: {
+                ...result.pagePlanEvidence!,
+                rotationDegrees: 90,
+            },
+        }));
+
+        await vi.waitFor(() => expect(detection.isDetecting.value).toBe(true));
+        harness.emitDetection({...first, updatedAtMs: requireEpochMs(Date.now())});
+        expect(detection.terminalStatus.value).toBe('completed');
+        expect(detection.recommendedOutputModeByPage.value.get(1)).toBe('grayscale');
+        expect(detection.pagePlanEvidenceByPage.value.get(1)).toEqual(first.results[0]!.pagePlanEvidence);
+        expect(detection.detectionResultStoreId.value).toBe('first-store');
         mounted.session.settings.values.outputMode = 'grayscale';
         await nextTick();
         vi.mocked(harness.value.start).mockResolvedValue({
@@ -3645,13 +3681,24 @@ describe('scan cleanup workspace session detection guidance', () => {
             updatedAtMs: requireEpochMs(Date.now() + 1),
         });
 
-        sourcePath.value = requireDocumentRef('/docs/immediate-run-second.pdf');
+        const secondPath = requireDocumentRef('/docs/immediate-run-second.pdf');
+        sourcePath.value = secondPath;
+        // Verify the path change alone, before publishing the new legacy key.
+        // Keep exercising B's cleanup even if main still exposes A's evidence.
+        expect.soft({
+            records: detection.records.value.size,
+            recommendations: detection.recommendedOutputModeByPage.value.size,
+            pagePlans: detection.pagePlanEvidenceByPage.value.size,
+            storeId: detection.detectionResultStoreId.value,
+            terminalStatus: detection.terminalStatus.value,
+        }).toEqual({
+            records: 0,
+            recommendations: 0,
+            pagePlans: 0,
+            storeId: null,
+            terminalStatus: null,
+        });
         documentKey.value = 'immediate-run-second';
-
-        // Computed identity changes before the lifecycle watcher gets its
-        // queued flush; the prior document's completed snapshot must already
-        // be ineligible for the new document's Run click.
-        expect(mounted.session.detection.terminalStatus.value).toBeNull();
         const run = mounted.session.run.run();
         expect(mounted.session.run.waitingForDetection.value).toBe(true);
         expect(mounted.session.activity.value).toMatchObject({
@@ -3660,13 +3707,129 @@ describe('scan cleanup workspace session detection guidance', () => {
         });
         expect(harness.value.start).not.toHaveBeenCalled();
 
-        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
-        harness.emitDetection(detectionState('detect-2', 'completed'));
+        await vi.waitFor(() => expect(detection.isDetecting.value).toBe(true));
+        harness.emitDetection({...first, updatedAtMs: requireEpochMs(Date.now())});
+        // Drain the run continuations that the stale event could have woken.
+        await new Promise<void>(resolve => setImmediate(resolve));
+        expect(mounted.session.run.waitingForDetection.value).toBe(true);
+        expect(detection.terminalStatus.value).toBeNull();
+        expect(detection.records.value.size).toBe(0);
+        expect(detection.detectionResultStoreId.value).toBeNull();
+        expect(harness.value.start).not.toHaveBeenCalled();
+
+        harness.emitDetection({...second, updatedAtMs: requireEpochMs(Date.now())});
         await run;
 
-        expect(harness.value.start).toHaveBeenCalledWith(expect.objectContaining({sourcePdfPath: '/docs/immediate-run-second.pdf'}));
+        expect(detection.terminalStatus.value).toBe('completed');
+        expect(detection.recommendedOutputModeByPage.value).toEqual(new Map([
+            [1, 'bw'],
+            [2, 'bw'],
+            [3, 'bw'],
+        ]));
+        expect(detection.pagePlanEvidenceByPage.value).toEqual(new Map(
+            second.results.map(result => [result.pageNumber, result.pagePlanEvidence]),
+        ));
+        expect(harness.value.start).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+            sourcePdfPath: secondPath,
+            documentRevision: 'shared-revision',
+            detectionResultStoreId: 'second-store',
+        }));
+        // Store-backed cleanup uses the store descriptor for all page evidence.
+        const [request] = vi.mocked(harness.value.start).mock.lastCall!;
+        expect(request).not.toHaveProperty('outputModeRecommendations');
+        expect(request).not.toHaveProperty('pagePlanEvidenceByPage');
         expect(getScanCleanupRunError(mounted.session.run.ownerId)).toBe('');
-        mounted.unmount();
+    });
+
+    it('detects the replacement path without restoring evidence under the previous document key', async () => {
+        const harness = capabilityHarness();
+        const sourcePath = ref(requireDocumentRef('/docs/cache-restore-first.pdf'));
+        const secondPath = requireDocumentRef('/docs/cache-restore-second.pdf');
+        capability.value = harness.value;
+        const mounted = mountSession('cache-restore-first', {
+            documentRevision: () => 'unchanged-revision',
+            sourcePath: () => sourcePath.value,
+        });
+        onTestFinished(() => mounted.unmount());
+        const {detection, run} = mounted.session;
+        await vi.waitFor(() => expect(detection.isDetecting.value).toBe(true));
+        const first = detectionState('detect-1', 'completed');
+        first.results = first.results.map(result => ({
+            ...result,
+            recommendedOutputMode: 'grayscale',
+        }));
+        harness.emitDetection(first);
+        expect(detection.terminalStatus.value).toBe('completed');
+        expect(detection.recommendedOutputModeByPage.value.get(1)).toBe('grayscale');
+
+        // Leave the previous key and revision published through scheduled admission.
+        sourcePath.value = secondPath;
+        await vi.waitFor(() => {
+            expect(detection.isDetecting.value || detection.terminalStatus.value === 'completed').toBe(true);
+        });
+        expect({
+            terminalStatus: detection.terminalStatus.value,
+            recommendations: detection.recommendedOutputModeByPage.value.size,
+            records: detection.records.value.size,
+        }).toEqual({terminalStatus: null, recommendations: 0, records: 0});
+        expect(harness.value.detectAll).toHaveBeenCalledWith(expect.objectContaining({
+            sourcePdfPath: secondPath,
+            documentRevision: 'unchanged-revision',
+        }));
+
+        vi.mocked(harness.value.start).mockResolvedValue({
+            started: false,
+            jobId: requireJobId('cache-restore-cleanup'),
+            error: 'Test cleanup stopped at admission',
+            errorCode: 'internal',
+        });
+        const cleanup = run.run();
+        await vi.waitFor(() => expect(run.waitingForDetection.value).toBe(true));
+        expect(harness.value.start).not.toHaveBeenCalled();
+        const second = detectionState('detect-2', 'completed');
+        second.results = second.results.map(result => ({
+            ...result,
+            recommendedOutputMode: 'bw',
+        }));
+        harness.emitDetection(second);
+        await cleanup;
+        expect(harness.value.start).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+            sourcePdfPath: secondPath,
+            outputModeRecommendations: {1: 'bw', 2: 'bw', 3: 'bw'},
+        }));
+    });
+
+    it('restores completed evidence on reopen with the same path, key and revision', async () => {
+        const harness = capabilityHarness();
+        const sourcePath = requireDocumentRef('/docs/cache-restore-reopen.pdf');
+        const options = {
+            documentKey: () => 'cache-restore-reopen',
+            documentRevision: () => 'unchanged-revision',
+            sourcePath: () => sourcePath,
+            sourceSha256: () => 'a'.repeat(64),
+        };
+        capability.value = harness.value;
+        const first = mountSession('cache-restore-reopen', options);
+        try {
+            await vi.waitFor(() => expect(first.session.detection.isDetecting.value).toBe(true));
+            const completed = detectionState('detect-1', 'completed');
+            completed.results = completed.results.map(result => ({
+                ...result,
+                recommendedOutputMode: 'grayscale',
+            }));
+            harness.emitDetection(completed);
+            expect(first.session.detection.terminalStatus.value).toBe('completed');
+        } finally {
+            first.unmount();
+        }
+
+        const reopened = mountSession('cache-restore-reopen', options);
+        onTestFinished(() => reopened.unmount());
+        const {detection} = reopened.session;
+        await vi.waitFor(() => expect(detection.terminalStatus.value).toBe('completed'));
+        expect(detection.recommendedOutputModeByPage.value.get(1)).toBe('grayscale');
+        expect(detection.records.value.size).toBe(3);
+        expect(harness.value.detectAll).toHaveBeenCalledOnce();
     });
 
     it('serializes lifecycle replacement detection behind the exact old cancellation', async () => {

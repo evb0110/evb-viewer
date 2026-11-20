@@ -6,6 +6,8 @@ export interface IScanCleanupDetectionSessionCacheEntry {
     /** Scalar document/settings tokens avoid rechecking every page on restore. */
     documentSignature?: string;
     signatureToken?: string;
+    /** The source the evidence was measured for; a stale key cannot restore it for another path. */
+    sourcePath?: string | null;
     /** The completed job state the session's page records were built from. */
     state: TScanCleanupDetectionJobState;
     totalPages: number;
