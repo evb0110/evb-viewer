@@ -469,7 +469,8 @@ export async function appendPdfMutations(
                 bindings = null;
             }
             const parsed = v.safeParse(wasmIdentityBindingsSchema, bindings, {abortEarly: true});
-            if (!parsed.success || written.length <= document.size) {
+            // A chunk that writes no object leaves the document as it was: a successful no-op.
+            if (!parsed.success || written.length < document.size) {
                 return createWasmFailure('invalid-request', 'Page operation WASM returned malformed output');
             }
             identityBindings.push(...parsed.output);

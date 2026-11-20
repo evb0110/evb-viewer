@@ -10,6 +10,7 @@ import type {
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
 } from '@app/types/pdfContracts';
+import type {IAnnotationCommentSummary} from '@app/types/annotations';
 export type {TAnnotationMutationOperation} from '@app/modules/pdf-viewer/engine/annotations/persistence/backendAnnotationMutation';
 
 export type TSerializationBackend = 'native-append';
@@ -204,6 +205,15 @@ function allowedFields(entity: AnnotationEntity) {
         field,
         Reflect.get(entity, field),
     ]));
+}
+
+/**
+ * Origin follows the PDF binding. A bound entity is that PDF object even when
+ * its newest text is not yet in the working bytes; it is never a new editor
+ * annotation.
+ */
+export function annotationCommentSource(entity: Pick<AnnotationEntity, 'kind' | 'identity'>): IAnnotationCommentSummary['source'] {
+    return entity.kind === 'shape' ? 'shape' : entity.identity.pdfRef ? 'pdf' : 'editor';
 }
 
 export function buildSerializationPlan(

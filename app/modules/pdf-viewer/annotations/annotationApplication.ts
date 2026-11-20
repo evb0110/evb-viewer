@@ -23,7 +23,10 @@ import {
     AnnotationStore,
     type IAnnotationSaveFrontier,
 } from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
-import {buildSerializationPlan} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
+import {
+    annotationCommentSource,
+    buildSerializationPlan,
+} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import {normalizePdfJsAnnotationId} from '@app/utils/pdfAnnotationRefs';
 import {getAllShapePoints} from '@app/modules/pdf-viewer/engine/pdf-shape-strokes/getAllShapePoints';
 
@@ -199,9 +202,7 @@ export class AnnotationApplication {
             if (entity.deleted) {
                 return [];
             }
-            const source = entity.kind === 'shape'
-                ? 'shape' as const
-                : entity.persistedRevision >= 0 ? 'pdf' as const : 'editor' as const;
+            const source = annotationCommentSource(entity);
             const externalId = entity.identity.pdfRef ?? entity.identity.id;
             const stableKey: IAnnotationCommentSummary['stableKey'] = entity.identity.pdfRef
                 ? `ann:${entity.pageIndex}:${entity.identity.pdfRef}`

@@ -243,9 +243,9 @@ export async function createAnnotationFidelityFixtureBytes() {
     return document.save({useObjectStreams: false});
 }
 
-export async function readAnnotationFidelitySnapshot(bytes: Uint8Array) {
+export async function readAnnotationFidelitySnapshot(bytes: Uint8Array, pageIndex = 0) {
     const document = await PDFDocument.load(bytes);
-    const annots = document.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
+    const annots = document.getPage(pageIndex).node.lookup(PDFName.of('Annots'), PDFArray);
     return Array.from({length: annots.size()}, (_, index) => {
         const dict = annots.lookup(index, PDFDict);
         const ap = dict.lookupMaybe(PDFName.of('AP'), PDFDict);
@@ -254,6 +254,7 @@ export async function readAnnotationFidelitySnapshot(bytes: Uint8Array) {
         return {
             ref: annots.get(index).toString(),
             name: dict.lookupMaybe(PDFName.of('NM'), PDFString, PDFHexString)?.decodeText() ?? null,
+            subtype: dict.get(PDFName.of('Subtype'))?.toString() ?? null,
             dictionary: dict.toString(),
             contents: dict.lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText() ?? null,
             rect: dict.get(PDFName.of('Rect'))?.toString() ?? null,
@@ -2153,7 +2154,15 @@ const ANNOTATION_SURFACE_STAMP_JPEG = Uint8Array.from(Buffer.from(
  * foreign link. The annotations are deliberately hand-authored so the test
  * exercises the native parser and the static PDF.js layer together.
  */
-export async function createCanonicalAnnotationSurfaceFixturePdf(filename: string) {
+export async function createCanonicalAnnotationSurfaceFixturePdf(
+    filename: string,
+    noteRect: [number, number, number, number] = [
+        280,
+        610,
+        312,
+        642,
+    ],
+) {
     ensureFixtureDir();
     const filePath = join(getFixtureDir(), filename);
     const document = await PDFDocument.create();
@@ -2198,12 +2207,7 @@ export async function createCanonicalAnnotationSurfaceFixturePdf(filename: strin
     });
     const note = annotation({
         Subtype: PDFName.of('Text'),
-        Rect: [
-            280,
-            610,
-            312,
-            642,
-        ],
+        Rect: noteRect,
         NM: PDFHexString.fromText('surface-note'),
         Contents: PDFHexString.fromText('Store-owned note'),
         C: [

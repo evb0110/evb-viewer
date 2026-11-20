@@ -471,6 +471,18 @@ export function semanticEntityFingerprint(entity: AnnotationEntity) {
     return JSON.stringify(canonicalSemanticEntity(entity));
 }
 
+/**
+ * The authored fields of `entity` that still hold the value of `fingerprint`,
+ * an entry of the same kind, compared at fingerprint precision. Page, deletion
+ * and author are not authored fields.
+ */
+export function semanticFieldsUnchangedSince(entity: AnnotationEntity, fingerprint: string) {
+    const base = JSON.parse(fingerprint) as Record<string, unknown>;
+    const current: Record<string, unknown> = canonicalSemanticEntity(entity);
+    const notAuthored = new Set(Object.keys(semanticBase(entity)));
+    return Object.keys(current).filter(key => !notAuthored.has(key) && JSON.stringify(current[key]) === JSON.stringify(base[key]));
+}
+
 export function semanticSnapshot(entities: Iterable<AnnotationEntity>) {
     return new Map(Array.from(entities, entity => (
         [

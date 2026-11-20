@@ -117,6 +117,7 @@ const {
 const emit = defineEmits<{
     'update:text': [value: string];
     'update:position': [value: IAnnotationNotePosition];
+    'position-applied': [];
     minimize: [focusDocument: Document | null];
     delete: [];
     focus: [];
@@ -212,7 +213,6 @@ const isPaneSizedPresentation = computed(() => (
 ));
 
 async function focusTextInput() {
-    await nextTick();
     await nextTick();
     const input = noteInputRef.value;
     if (!input) {
@@ -486,13 +486,19 @@ useResizeObserver(noteWindowRef, (entries) => {
     }
 }, { box: 'border-box' });
 
-onMounted(() => {
+// The overlay measures connectors from the rendered window. After the mount
+// tick the window is attached with its synced geometry and its textarea takes
+// focus; later geometry (page following, clamping, drag, resize) is reported
+// once it is in the DOM.
+onMounted(async () => {
     if (syncPosition(position)) {
         emitPositionUpdate();
     }
-    void focusTextInput();
     scheduleInitialFocusRepair();
+    await focusTextInput();
+    emit('position-applied');
 });
+watch(getCurrentPosition, () => emit('position-applied'), { flush: 'post' });
 
 onBeforeUnmount(() => {
     clearInitialFocusRepair();

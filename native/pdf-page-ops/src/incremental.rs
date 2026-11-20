@@ -765,6 +765,14 @@ pub(crate) fn write_incremental_revision(
     let previous_len = incremental.previous_len();
     let previous_last_byte = incremental.previous_last_byte();
     let previous_xref_start = incremental.previous_xref_start();
+    if revision_bytes.is_empty() {
+        return validate_incremental_append_bytes(
+            revision_bytes,
+            previous_len,
+            previous_xref_start,
+            expected_object_ids,
+        );
+    }
     let mut output = OpenOptions::new()
         .read(true)
         .write(true)
@@ -801,7 +809,11 @@ struct SerializedIncrementalObjects {
     entries: Vec<(ObjectId, u64)>,
 }
 
+/// A change that writes no object makes no revision: the PDF keeps its bytes.
 pub(crate) fn build_incremental_revision(incremental: &mut IncrementalDocument) -> Result<Vec<u8>> {
+    if collect_incremental_append_object_ids(incremental).is_empty() {
+        return Ok(Vec::new());
+    }
     let use_xref_stream = matches!(
         incremental
             .get_prev_documents()
@@ -1185,6 +1197,52 @@ mod writer_boundary_tests {
     }
 
     #[test]
+    fn a_change_that_writes_no_object_leaves_the_pdf_bytes_unchanged() {
+        let mut document = Document::with_version("1.7");
+        let pages_id = document.new_object_id();
+        let page_id = document.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+        });
+        document.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![page_id.into()],
+                "Count" => 1,
+            }),
+        );
+        let catalog_id =
+            document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages_id});
+        document.trailer.set("Root", catalog_id);
+        let mut input = Vec::new();
+        document.save_to(&mut input).unwrap();
+        let mutations = NativeMutationsFile {
+            shapes: Some(serde_json::from_str(
+                r#"{"totalPages":1,"rewriteShapeState":false,"shapes":[],"deletedAnnotationIds":[],"deletedStableKeys":[]}"#,
+            ).unwrap()),
+            ..NativeMutationsFile::default()
+        };
+
+        let appended =
+            append_native_mutations_to_bytes(&input, &mutations, "D:20261120000000Z").unwrap();
+        assert_eq!(appended.data, input);
+
+        let path = std::env::temp_dir().join(format!(
+            "evb-incremental-no-object-{}.pdf",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::write(&path, &input).unwrap();
+        append_native_mutations(&path, &path, &mutations, "D:20261120000000Z").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), input);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
     fn staged_output_preserves_existing_destination_when_revision_fails() {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -1402,6 +1460,9 @@ pub(crate) fn validate_incremental_append_bytes(
     expected_object_ids: &[ObjectId],
 ) -> Result<()> {
     if appended_bytes.is_empty() {
+        if expected_object_ids.is_empty() {
+            return Ok(());
+        }
         return Err("Native incremental append produced no revision bytes".into());
     }
     let final_len = previous_len

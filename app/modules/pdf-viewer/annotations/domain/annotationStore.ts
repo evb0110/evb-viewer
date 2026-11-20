@@ -1,6 +1,7 @@
 import {
     admitsAnnotationReadback, keepsReplies,
 } from './annotationReadbackGuards';
+import {isEqual} from 'es-toolkit/predicate';
 import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
 import {mapPageNumberThroughPageIdentityDelta} from '@contracts/electronApiPageOps';
 import {
@@ -29,6 +30,7 @@ import {
     normalizeAnnotationText,
     remapSavedSemanticFingerprint,
     saveFrontierEntityBaseline,
+    semanticFieldsUnchangedSince,
     semanticEntityFingerprint,
     semanticSnapshot,
     semanticSnapshotsEqual,
@@ -154,6 +156,49 @@ function liveIdentityOf(entity: AnnotationEntity | null | undefined) {
 
 function isDirty(entity: AnnotationEntity) {
     return entity.revision > entity.persistedRevision;
+}
+
+/**
+ * A re-read reads bytes that hold no unsaved edit. A field still at the working
+ * baseline takes the parse, such as a rotated page's geometry; a field changed
+ * since keeps the edit. A label's rect and rotation go together, and its frame
+ * and read-only state are the parser's. A tombstone merges the same way.
+ */
+function mergeReread(current: AnnotationEntity, parsed: AnnotationEntity, base: ISavedSemanticEntry | undefined) {
+    if (!base || base.kind !== current.kind || parsed.kind !== current.kind) return current;
+    const unchanged = new Set(semanticFieldsUnchangedSince(current, base.fingerprint));
+    const merged = {...current};
+    const fields: Record<string, unknown> = merged;
+    const read: Record<string, unknown> = {...parsed};
+    if (current.kind === 'text-box') {
+        if (!unchanged.has('rect') || !unchanged.has('rotation')) ['rect', 'rotation'].forEach(key => unchanged.delete(key));
+        ['frame', 'readOnly'].forEach(key => unchanged.add(key));
+    }
+    if (current.kind === 'text-markup' && unchanged.has('quadPoints') && read.selectedText) unchanged.add('selectedText');
+    unchanged.forEach((key) => {
+        if (key in read) fields[key] = read[key];
+        else delete fields[key];
+    });
+    return merged;
+}
+
+/**
+ * Undo and Redo replay only the fields the command changed. Every other field
+ * keeps its live value, such as geometry a later re-read took from the page.
+ */
+function replayOnto(live: AnnotationEntity | undefined, entry: IHistoryEntry, side: 'before' | 'after') {
+    const target = entry[side];
+    if (!live || !target || !entry.before || !entry.after) return target;
+    const merged = {...live};
+    const fields: Record<string, unknown> = merged;
+    const pair: Record<string, unknown>[] = [{...entry.before}, {...entry.after}];
+    const captured = side === 'before' ? pair[0]! : pair[1]!;
+    new Set(pair.flatMap(Object.keys)).forEach((key) => {
+        if (isEqual(pair[0]![key], pair[1]![key])) return;
+        if (key in captured) fields[key] = captured[key];
+        else delete fields[key];
+    });
+    return merged;
 }
 
 function cloneCanonicalEntity<T extends AnnotationEntity>(entity: T): T {
@@ -605,8 +650,8 @@ export class AnnotationStore {
 
     /**
      * Applies one document parse as one store transaction. Parsed entities are
-     * the saved baseline. A dirty local entity keeps all authored properties,
-     * but receives the parsed PDF object reference and baseline fingerprint.
+     * the saved baseline. A dirty entity or tombstone receives the parsed PDF
+     * object reference and fingerprint, and merges field by field (`mergeReread`).
      *
      * A parse of some pages (`pageIndices`) replaces only those pages; entities
      * and foreign records on other pages stay as they are. It changes nothing
@@ -722,6 +767,9 @@ export class AnnotationStore {
         });
         semanticSnapshot(parsedById.values()).forEach((entry, id) => workingBaseline.set(id, entry));
         const forgotten = new Set<AnnotationId>();
+        // The bytes still hold these objects, but the editor can no longer own
+        // them, e.g. a FreeText after its page rotated. The writer preserves them.
+        const nowForeign = new Set(foreign.map(record => this.#identities.resolve({pdfRef: `${record.objectNumber} ${record.generationNumber} R`})));
         this.#entities.forEach((current, id) => {
             const parsed = parsedById.get(id);
             if (!parsed && !current.deleted && !inScope(current)) {
@@ -732,19 +780,26 @@ export class AnnotationStore {
                 }
                 return;
             }
+            if (!parsed && !current.deleted && !isDirty(current) && nowForeign.has(id)) {
+                forgotten.add(id);
+                return;
+            }
             if (preserveSavedBaseline) {
                 // Persisted records follow the writer's page geometry. Pending
                 // edits and tombstones keep their accepted intent and baseline.
-                const reconciled = parsed && !current.deleted && !isDirty(current)
-                    ? {
-                        ...parsed,
-                        revision: current.revision,
-                    }
-                    : current;
+                const reconciled = !parsed
+                    ? current
+                    : !current.deleted && !isDirty(current)
+                        ? {
+                            ...parsed,
+                            revision: current.revision,
+                        }
+                        : mergeReread(current, parsed, this.#workingSemanticSnapshot.get(id));
                 const represented = parsed && semanticEntityFingerprint(parsed) === semanticEntityFingerprint(reconciled);
                 next.set(id, {
                     ...cloneEntity(reconciled),
-                    identity: identityWithPdfRef(current.identity, parsed?.identity.pdfRef),
+                    // A pending edit to a now-foreign object stays bound to it, so Save targets that object.
+                    identity: identityWithPdfRef(current.identity, parsed?.identity.pdfRef ?? (nowForeign.has(id) ? current.identity.pdfRef : undefined)),
                     persistedRevision: represented || (!parsed && current.deleted && this.#savedSemanticSnapshot.get(id)?.deleted) ? current.revision : -1,
                 });
                 const saved = this.#savedSemanticSnapshot.get(id);
@@ -788,7 +843,7 @@ export class AnnotationStore {
             });
             if (isDirty(current)) {
                 next.set(id, {
-                    ...cloneEntity(current),
+                    ...cloneEntity(mergeReread(current, parsed, this.#workingSemanticSnapshot.get(id))),
                     identity: current.kind === 'shape'
                         && fingerprintMatchedIds.has(id)
                         && current.persistedRevision < 0
@@ -1244,7 +1299,7 @@ export class AnnotationStore {
             this.#applyHistoryEntries(ordered.map(entry => ({
                 id: entry.id,
                 before: this.#entities.get(entry.id) ?? null,
-                after: entry[side],
+                after: mode === 'replay' ? replayOnto(this.#entities.get(entry.id), entry, side) : entry[side],
             })), mode, registerFailureRollback);
         };
         apply('after', 'commit');

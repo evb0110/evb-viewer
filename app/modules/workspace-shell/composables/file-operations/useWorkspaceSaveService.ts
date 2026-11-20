@@ -661,7 +661,8 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                     // storage until PDF.js commits it. Save planning must run
                     // after that commit, otherwise the toolbar can start a save
                     // whose captured dirty state still describes a clean file.
-                    await deps.pdf.commitEditorsForSave?.();
+                    // It also joins a pending re-read, so dirty geometry is in the written page frame.
+                    await deps.pdf.commitEditorsForSave?.({joinRead: true});
                     // A Save the app does not live to finish is rolled back at the next start; the drafts committed
                     // first hold the edits it was writing, so they reopen unsaved instead of being lost.
                     await deps.lifecycle.commitDrafts();
