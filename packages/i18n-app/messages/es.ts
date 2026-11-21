@@ -406,6 +406,7 @@ export default {
             'panic': 'El motor nativo de limpieza del escaneo falló inesperadamente.',
             'nativeFailure': 'El motor nativo de limpieza del escaneo no pudo completar la operación.',
             'toolsUnavailable': 'Las herramientas necesarias para limpiar el escaneo no están disponibles en este sistema.',
+            'sourceMissing': 'El PDF de origen ya no está disponible. Es posible que se haya movido o eliminado.',
             'canceled': 'Se canceló la limpieza del escaneo.',
             'detectionResultsUnavailable': 'Los resultados de detección de páginas ya no están disponibles. Detecta las páginas de nuevo.',
             'internal': 'La limpieza del escaneo falló inesperadamente.',

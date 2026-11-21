@@ -58,6 +58,8 @@ interface IPreviewWork {
     identity: string;
     ownerId: string;
     ref: string;
+    revision: string;
+    pageNumber: number;
     controller: AbortController;
     promise: Promise<IBrowserScanCleanupPreviewRendering>;
 }
@@ -66,6 +68,7 @@ interface IRetainedBase {
     identity: string;
     ownerId: string;
     ref: string;
+    revision: string;
     pageNumber: number;
     value: IBrowserScanCleanupPreviewBase;
 }
@@ -144,6 +147,8 @@ function startWork(request: IScanCleanupPreviewRequest, identity: string, run: (
         identity,
         ownerId: request.ownerId,
         ref: request.sourcePdfPath,
+        revision: request.documentRevision,
+        pageNumber: request.pageNumber,
         controller,
         promise: run(controller.signal),
     };
@@ -218,6 +223,7 @@ async function previewBase(request: IScanCleanupPreviewRequest, identity: string
             identity,
             ownerId: request.ownerId,
             ref: request.sourcePdfPath,
+            revision: request.documentRevision,
             pageNumber: request.pageNumber,
             value: rendering.base,
         };
@@ -289,19 +295,21 @@ export const browserScanCleanupCapability: IScanCleanupCapability = {
     resolvePlacementAnchorCalibration: request => detection.resolvePlacementAnchorCalibration(request),
     async cancelPreview(request) {
         const retiring = await admitPreview(() => {
-            const owned = (work: IPreviewWork | null) => work !== null
+            // A navigation keeps the work for the pages it still shows, as the
+            // desktop owner does, so a visible page rescheduled while it renders
+            // joins its running render instead of starting a second one.
+            const retires = (work: IPreviewWork | IRetainedBase | null) => work !== null
                 && work.ownerId === request.ownerId
-                && work.ref === request.sourcePdfPath;
+                && work.ref === request.sourcePdfPath
+                && (request.invalidateRawCache === true || work.revision !== request.documentRevision
+                    || !(request.retainPages ?? []).some(page => page === work.pageNumber));
             const claimed = [
                 base,
                 detail,
-            ].filter(owned);
-            if (owned(base)) base = null;
-            if (owned(detail)) detail = null;
-            if (retainedBase !== null && retainedBase.ownerId === request.ownerId && retainedBase.ref === request.sourcePdfPath
-                && (request.invalidateRawCache === true || !(request.retainPages ?? []).some(page => page === retainedBase?.pageNumber))) {
-                retainedBase = null;
-            }
+            ].filter(retires);
+            if (retires(base)) base = null;
+            if (retires(detail)) detail = null;
+            if (retires(retainedBase)) retainedBase = null;
             return claimed;
         });
         await Promise.all(retiring.map(retire));

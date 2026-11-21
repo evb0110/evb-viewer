@@ -406,6 +406,7 @@ export default {
             'panic': 'De native engine voor het opschonen van scans is onverwacht mislukt.',
             'nativeFailure': 'De native engine voor het opschonen van scans kon de bewerking niet voltooien.',
             'toolsUnavailable': 'De benodigde hulpprogramma’s voor het opschonen van scans zijn niet beschikbaar op dit systeem.',
+            'sourceMissing': 'De bron-PDF is niet meer beschikbaar. Mogelijk is deze verplaatst of verwijderd.',
             'canceled': 'Het opschonen van de scan is geannuleerd.',
             'detectionResultsUnavailable': 'De resultaten van de paginadetectie zijn niet meer beschikbaar. Voer de detectie opnieuw uit.',
             'internal': 'Het opschonen van de scan is onverwacht mislukt.',
