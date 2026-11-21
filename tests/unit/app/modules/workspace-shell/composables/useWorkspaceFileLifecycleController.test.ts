@@ -15,6 +15,7 @@ import { SerializableError } from '@contracts/serializableError';
 import { requireEpochMs } from '@contracts/timestamps';
 import {getWorkspaceViewerAdapter} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import { createPdfSourceJob } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot';
 
 const mocks = vi.hoisted(() => ({
     convertToPdf: vi.fn(),
@@ -124,14 +125,17 @@ const { useWorkspaceFileLifecycleController } =
     await import('@app/modules/workspace-shell/composables/useWorkspaceFileLifecycleController');
 
 function createController() {
-    return useWorkspaceFileLifecycleController({
+    const document = createWorkspaceDocumentController({tabId: 'tab-1'});
+    return Object.assign(useWorkspaceFileLifecycleController({
         createViewerLifecycleHooks: (context) => {
             const hooks = getWorkspaceViewerAdapter('djvu').createLifecycleHooks?.(context);
             return hooks ? [hooks] : [];
         },
         runDocumentOpen: (_request, run) => run(),
-        document: createWorkspaceDocumentController({tabId: 'tab-1'}),
-    });
+        document,
+        admitPdfSource: intent => createPdfSourceJob(intent, {}),
+        resetDocumentPresentation: vi.fn(),
+    }), {document});
 }
 
 function createDeferred() {
@@ -354,6 +358,8 @@ describe('useWorkspaceFileLifecycleController', () => {
             state.djvuSourcePath.value = path;
             return true;
         });
+        // The reopen claims the document's open transaction, as every shell open does.
+        controller.document.claimOpen({kind: 'open', target: null});
         const reopening = controller.openFileDirectWithViewerLifecycle(path);
         cleanup.resolve();
         await Promise.all([
@@ -366,6 +372,58 @@ describe('useWorkspaceFileLifecycleController', () => {
         expect(state.activeDjvuActivation).toEqual(newerActivation);
         expect(state.djvuSourcePath.value).toBe(path);
         expect(state.isDjvuMode.value).toBe(true);
+    });
+
+    it('keeps B when a close of A resumes after B presents', async () => {
+        const cleanupStarted = createDeferred();
+        const resumeCleanup = createDeferred();
+        const aPath = requireDocumentRef('/docs/a.djvu');
+        const bPath = requireDocumentRef('/docs/b.pdf');
+        const bWorkingPath = requireDocumentRef('/tmp/b-working.pdf');
+        state.djvuSourcePath.value = aPath;
+        state.isDjvuMode.value = true;
+        state.activeDjvuActivation = {generation: 1, kind: 'djvu', documentRef: aPath};
+        mocks.cancelActiveJobs.mockResolvedValue(false);
+        mocks.cleanupDjvuTemp.mockImplementationOnce(async () => {
+            cleanupStarted.resolve();
+            await resumeCleanup.promise;
+            return true;
+        }).mockResolvedValue(true);
+        mocks.exitDjvuMode.mockImplementation(() => {
+            state.isDjvuMode.value = false;
+            state.djvuSourcePath.value = null;
+            state.activeDjvuActivation = null;
+            return true;
+        });
+        mocks.closeFile.mockImplementation(async () => {
+            state.workingCopyPath.value = null;
+        });
+
+        const controller = createController();
+        mocks.openFileDirect.mockImplementation(async () => {
+            state.workingCopyPath.value = bWorkingPath;
+            controller.document.commitFile({originalPath: bPath, workingCopyPath: bWorkingPath, isDjvu: false});
+            return {status: 'opened', result: {kind: 'pdf', originalPath: bPath, workingPath: bWorkingPath}};
+        });
+
+        const closing = controller.closeFileWithViewerLifecycle();
+        try {
+            await cleanupStarted.promise;
+            const newer = controller.document.runOpen({kind: 'open', target: null}, async () => {
+                const result = await controller.openFileDirectWithViewerLifecycle(bPath);
+                if (result.status !== 'opened') return false;
+                controller.document.markPresented();
+                return true;
+            });
+            await expect(newer).resolves.toBe(true);
+            expect(state.workingCopyPath.value).toBe(bWorkingPath);
+            resumeCleanup.resolve();
+            await closing;
+            expect(state.workingCopyPath.value).toBe(bWorkingPath);
+        } finally {
+            resumeCleanup.resolve();
+            await closing;
+        }
     });
 
     it('aborts an active projection when the user cancels DjVu work', async () => {

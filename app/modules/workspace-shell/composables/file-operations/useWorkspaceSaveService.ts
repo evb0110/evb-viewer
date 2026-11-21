@@ -1,5 +1,6 @@
 import type { Ref } from 'vue';
 import type {TDocumentCommitReceipt} from '@app/types/workspaceExpose';
+import type { IPdfPersistResult } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TRequestId } from '@contracts/shared';
@@ -63,8 +64,6 @@ import {
     getCompletionBaseline,
     getSaveMode,
     isTargetCurrent,
-    requiresNativePathBackedSave,
-    withReloadWaiter,
 } from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionSupport';
 import type {
     IWorkspaceSaveDependencies,
@@ -136,67 +135,57 @@ async function executeWorkingCopySave(
     deps: IWorkspaceSaveDependencies,
     completion: Partial<ISaveCompletionPolicy> = {},
 ): Promise<TWorkspaceSaveExecutionResult> {
-    const reloadWaiter = !plan.body.preserveLoadedSource || requiresNativePathBackedSave(plan)
-        ? deps.lifecycle.preparePostSaveReload?.() ?? null
-        : null;
-    return withReloadWaiter(reloadWaiter, async () => {
-        const validationFailure = await validateWorkingCopy(plan, deps);
-        if (validationFailure) {
-            return notSavedBeforeWrite(validationFailure, plan.target.expectedRevisionToken, reloadWaiter);
-        }
-        const opts = {
-            preserveLoadedSource: plan.body.preserveLoadedSource,
-            saveMode: getSaveMode(plan),
-            expectedWorkingPath: plan.target.expectedWorkingPath,
-            expectedDocumentRevisionToken: plan.target.expectedRevisionToken,
-        };
-        const persisted = plan.destination === 'save-as'
-            ? await timedSavePhase(
-                'persist-save_as-working-copy',
-                () => deps.persistence.saveAs(undefined, {
-                    ...opts,
-                    optimizeLossless: plan.request.kind === 'save-as'
-                        && plan.request.optimizeLossless,
-                }),
-            )
-            : await timedSavePhase(
-                'persist-save-working-copy',
-                () => deps.persistence.saveWorkingCopy(opts),
-            );
-        // The source stays only where the revision on screen does: a Save As whose output was repaired replaces it.
-        if (opts.preserveLoadedSource && deps.document.revisionToken.value === opts.expectedDocumentRevisionToken) reloadWaiter?.cancel();
-        return workingCopySaveResult(persisted, reloadWaiter, completion);
-    });
+    const validationFailure = await validateWorkingCopy(plan, deps);
+    if (validationFailure) {
+        return notSavedBeforeWrite(validationFailure, plan.target.expectedRevisionToken);
+    }
+    const opts = {
+        preserveLoadedSource: plan.body.preserveLoadedSource,
+        saveMode: getSaveMode(plan),
+        expectedWorkingPath: plan.target.expectedWorkingPath,
+        expectedDocumentRevisionToken: plan.target.expectedRevisionToken,
+    };
+    const persisted = plan.destination === 'save-as'
+        ? await timedSavePhase(
+            'persist-save_as-working-copy',
+            () => deps.persistence.saveAs(undefined, {
+                ...opts,
+                optimizeLossless: plan.request.kind === 'save-as'
+                    && plan.request.optimizeLossless,
+            }),
+        )
+        : await timedSavePhase(
+            'persist-save-working-copy',
+            () => deps.persistence.saveWorkingCopy(opts),
+        );
+    return workingCopySaveResult(persisted, completion);
 }
 
 async function executeNativeWorkingCopySave(
     plan: Extract<TWorkspaceSavePlan, {kind: 'native-working-copy'}>,
     deps: IWorkspaceSaveDependencies,
 ): Promise<TWorkspaceSaveExecutionResult> {
-    const reloadWaiter = deps.lifecycle.preparePostSaveReload?.() ?? null;
-    return withReloadWaiter(reloadWaiter, async () => {
-        if (
-            !plan.target.expectedWorkingPath
-            || !isTargetCurrent(plan, deps)
-        ) {
-            return notSavedBeforeWrite('document-changed', plan.target.expectedRevisionToken, reloadWaiter);
-        }
-        const persist = plan.operation === 'repair'
-            ? deps.persistence.repairWorkingCopy
-            : deps.persistence.optimizeWorkingCopy;
-        if (!persist) {
-            return notSavedBeforeWrite('capability-unavailable', plan.target.expectedRevisionToken, reloadWaiter);
-        }
-        const persisted = await timedSavePhase(
-            `persist-save-native-working-copy-${plan.operation}`,
-            () => persist({
-                saveMode: getSaveMode(plan),
-                expectedWorkingPath: plan.target.expectedWorkingPath,
-                expectedDocumentRevisionToken: plan.target.expectedRevisionToken,
-            }),
-        );
-        return workingCopySaveResult(persisted, reloadWaiter);
-    });
+    if (
+        !plan.target.expectedWorkingPath
+        || !isTargetCurrent(plan, deps)
+    ) {
+        return notSavedBeforeWrite('document-changed', plan.target.expectedRevisionToken);
+    }
+    const persist = plan.operation === 'repair'
+        ? deps.persistence.repairWorkingCopy
+        : deps.persistence.optimizeWorkingCopy;
+    if (!persist) {
+        return notSavedBeforeWrite('capability-unavailable', plan.target.expectedRevisionToken);
+    }
+    const persisted = await timedSavePhase(
+        `persist-save-native-working-copy-${plan.operation}`,
+        () => persist({
+            saveMode: getSaveMode(plan),
+            expectedWorkingPath: plan.target.expectedWorkingPath,
+            expectedDocumentRevisionToken: plan.target.expectedRevisionToken,
+        }),
+    );
+    return workingCopySaveResult(persisted);
 }
 
 async function persistNativeMutationProjection(
@@ -270,11 +259,11 @@ async function executeNativeMutationSave(
             failure: saveTransaction.nativeRequiredFailure ?? null,
             annotationPlan: saveTransaction.annotationSavePlan,
         });
-        return notSavedBeforeWrite('native-save-required', plan.target.expectedRevisionToken, null);
+        return notSavedBeforeWrite('native-save-required', plan.target.expectedRevisionToken);
     }
 
     if (Object.keys(projection.mutations).length === 0 && !projection.placedImageGeometryUpdates?.length) {
-        return notSavedBeforeWrite('native-save-required', plan.target.expectedRevisionToken, null);
+        return notSavedBeforeWrite('native-save-required', plan.target.expectedRevisionToken);
     }
 
     let persisted = await persistNativeMutationProjection(
@@ -285,10 +274,10 @@ async function executeNativeMutationSave(
         saveTransaction.assertAnnotationSaveCurrent,
     );
     if (persisted?.nativeRefusalCode === 'too-large') {
-        return notSavedBeforeWrite('too-large-for-edit', plan.target.expectedRevisionToken, null);
+        return notSavedBeforeWrite('too-large-for-edit', plan.target.expectedRevisionToken);
     }
     if (!persisted) {
-        return notSavedBeforeWrite('native-save-required', plan.target.expectedRevisionToken, null);
+        return notSavedBeforeWrite('native-save-required', plan.target.expectedRevisionToken);
     }
     if (!persisted.success) {
         // The revision moved: the Save committed the edits into the working copy before it failed, so they are in
@@ -296,7 +285,7 @@ async function executeNativeMutationSave(
         if (deps.document.revisionToken.value !== plan.target.expectedRevisionToken) {
             saveTransaction.commitAnnotationSave?.(persisted.materializedIdentityBindings, false);
         }
-        return workingCopySaveResult(persisted, null);
+        return workingCopySaveResult(persisted);
     }
     const materializedIdentityBindings = persisted.materializedIdentityBindings;
     const deleteEffects = persisted.annotationDeleteEffects;
@@ -312,7 +301,7 @@ async function executeNativeMutationSave(
             }),
         );
         if (!saveAsPersisted.success) {
-            return notSavedAfterWrite(abortReasonForPersistResult(saveAsPersisted), null, saveAsPersisted.failure);
+            return notSavedAfterWrite(abortReasonForPersistResult(saveAsPersisted), saveAsPersisted.failure);
         }
         persisted = saveAsPersisted;
     }
@@ -362,7 +351,6 @@ async function executeNativeMutationSave(
         status: 'saved',
         persisted,
         serializedChanges: true,
-        reloadWaiter: null,
         completion: {
             markAnnotationStateSaved: annotationEditsWritten,
             markBookmarksStateSaved: bookmarks !== undefined,
@@ -381,10 +369,10 @@ async function executeStagedRepairSave(
     ) as TSingleWriterSaveTransaction;
     const projection = saveTransaction.nativeMutationProjection;
     if (!projection) {
-        return notSavedBeforeWrite('native-save-required', plan.target.expectedRevisionToken, null);
+        return notSavedBeforeWrite('native-save-required', plan.target.expectedRevisionToken);
     }
     if (Object.keys(projection.mutations).length === 0 && !projection.placedImageGeometryUpdates?.length) {
-        return notSavedBeforeWrite('native-save-required', plan.target.expectedRevisionToken, null);
+        return notSavedBeforeWrite('native-save-required', plan.target.expectedRevisionToken);
     }
 
     const staged = await persistNativeMutationProjection(
@@ -396,13 +384,13 @@ async function executeStagedRepairSave(
         true,
     );
     if (staged?.nativeRefusalCode === 'too-large') {
-        return notSavedBeforeWrite('too-large-for-edit', plan.target.expectedRevisionToken, null);
+        return notSavedBeforeWrite('too-large-for-edit', plan.target.expectedRevisionToken);
     }
     if (!staged) {
-        return notSavedBeforeWrite('native-save-required', plan.target.expectedRevisionToken, null);
+        return notSavedBeforeWrite('native-save-required', plan.target.expectedRevisionToken);
     }
     if (!staged.success) {
-        return notSavedAfterWrite(abortReasonForPersistResult(staged), null, staged.failure);
+        return notSavedAfterWrite(abortReasonForPersistResult(staged), staged.failure);
     }
 
     // A platform without a repair writer publishes the staged working copy.
@@ -416,7 +404,7 @@ async function executeStagedRepairSave(
         }),
     );
     if (!repairedResult.success) {
-        return notSavedAfterWrite(abortReasonForPersistResult(repairedResult), null, repairedResult.failure);
+        return notSavedAfterWrite(abortReasonForPersistResult(repairedResult), repairedResult.failure);
     }
 
     saveTransaction.commitAnnotationSave?.(staged.materializedIdentityBindings);
@@ -424,7 +412,6 @@ async function executeStagedRepairSave(
         status: 'saved',
         persisted: repairedResult,
         serializedChanges: true,
-        reloadWaiter: null,
         completion: {
             markAnnotationStateSaved: false,
             markBookmarksStateSaved: projection.mutations.bookmarks !== undefined,
@@ -437,33 +424,30 @@ async function executeOptimizationSave(
     plan: Extract<TWorkspaceSavePlan, {kind: 'optimization'}>,
     deps: IWorkspaceSaveDependencies,
 ): Promise<TWorkspaceSaveExecutionResult> {
-    const reloadWaiter = deps.lifecycle.preparePostSaveReload?.() ?? null;
-    return withReloadWaiter(reloadWaiter, async () => {
-        const validationFailure = await validateWorkingCopy(plan, deps);
-        if (validationFailure) {
-            return notSavedBeforeWrite(validationFailure, plan.target.expectedRevisionToken, reloadWaiter);
-        }
-        const persist = deps.persistence.optimizeWorkingCopyAsCopy;
-        if (!persist) {
-            return notSavedBeforeWrite('capability-unavailable', plan.target.expectedRevisionToken, reloadWaiter);
-        }
-        const persisted = await timedSavePhase(
-            'persist-optimize-copy-native-working-copy',
-            () => persist(
-                plan.request.options,
-                plan.request.requestId,
-                {
-                    saveMode: getSaveMode(plan),
-                    expectedWorkingPath: plan.target.expectedWorkingPath,
-                    expectedDocumentRevisionToken: plan.target.expectedRevisionToken,
-                    ...(plan.request.onResult ? {onResult: plan.request.onResult} : {}),
-                    ...(plan.request.preparedOptimize ? {preparedOptimize: plan.request.preparedOptimize} : {}),
-                    ...(plan.request.signal ? {signal: plan.request.signal} : {}),
-                },
-            ),
-        );
-        return workingCopySaveResult(persisted, reloadWaiter);
-    });
+    const validationFailure = await validateWorkingCopy(plan, deps);
+    if (validationFailure) {
+        return notSavedBeforeWrite(validationFailure, plan.target.expectedRevisionToken);
+    }
+    const persist = deps.persistence.optimizeWorkingCopyAsCopy;
+    if (!persist) {
+        return notSavedBeforeWrite('capability-unavailable', plan.target.expectedRevisionToken);
+    }
+    const persisted = await timedSavePhase(
+        'persist-optimize-copy-native-working-copy',
+        () => persist(
+            plan.request.options,
+            plan.request.requestId,
+            {
+                saveMode: getSaveMode(plan),
+                expectedWorkingPath: plan.target.expectedWorkingPath,
+                expectedDocumentRevisionToken: plan.target.expectedRevisionToken,
+                ...(plan.request.onResult ? {onResult: plan.request.onResult} : {}),
+                ...(plan.request.preparedOptimize ? {preparedOptimize: plan.request.preparedOptimize} : {}),
+                ...(plan.request.signal ? {signal: plan.request.signal} : {}),
+            },
+        ),
+    );
+    return workingCopySaveResult(persisted);
 }
 
 function executeSavePlan(
@@ -546,6 +530,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         failureSurface.clearSaveFailure();
         const startedAtMs = nowMs();
         let saveSucceeded = false;
+        let presentation: IPdfPersistResult['presentation'];
 
         /**
          * A save outlives its own document: every failure below is reported
@@ -692,7 +677,6 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                         failureSurface,
                     });
                     if (result.status !== 'saved') {
-                        result.reloadWaiter?.cancel();
                         if (result.status === 'failed') throw result.error;
                         reportSaveAbort(result);
                         return false;
@@ -732,14 +716,13 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                     && deps.document.workingCopyPath.value === committedPath && (!committedRevision || deps.document.revisionToken.value === committedRevision);
                 try {
                     if (!holdsCommit()) return false;
-                    const baseline = getCompletionBaseline(plan, result, deps);
-                    await result.reloadWaiter?.promise.catch(error => BrowserLogger.warn('workspace', 'Saved PDF but failed to restore the reloaded view', error));
-                    if (!holdsCommit()) return false;
-                    completeSuccessfulSaveState(baseline, result.completion, deps);
+                    completeSuccessfulSaveState(getCompletionBaseline(plan, result, deps), result.completion, deps);
                     await deps.lifecycle.commitDrafts();
                     if (!holdsCommit()) return false;
                     if (result.persisted.outPath) deps.lifecycle.loadRecentFiles();
                     if (committedRevision) onCommitted?.(committedRevision);
+                    // The mounted views present the revision this Save published after the lease: a Close releases them.
+                    if (deps.pdf.viewer.value) presentation = result.persisted.presentation;
                     saveSucceeded = true;
                     return true;
                 } catch (error) {
@@ -763,17 +746,33 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                 isAnySaveAdmitted.value = false;
             }
         };
-        return runWithDocumentOperationLease(resolveOperationKind(request), runSave);
+        const saved = await runWithDocumentOperationLease(resolveOperationKind(request), runSave);
+        // The disk commit ends here; presenting it is a separate promise.
+        return {saved, presented: saved && presentation?.then((outcome) => {
+            if (outcome.status === 'presented') deps.lifecycle.resetSearchCaches();
+            if (outcome.status === 'failed') BrowserLogger.warn('workspace', 'Saved PDF but failed to present the saved revision', outcome.error);
+        })};
     }
 
     // The document lease is the one queue. The target is captured when the
     // Save is requested and checked when the lease admits it.
-    function save(request: TWorkspaceSaveRequest, onCommitted?: TDocumentCommitReceipt) {
-        return executeSave(request, {
-            expectedDocumentSessionKey: deps.document.sessionKey.value,
-            expectedOriginalPath: deps.document.originalPath.value,
-            expectedWorkingPath: deps.document.workingCopyPath.value,
-        }, onCommitted);
+    const captureTarget = () => ({
+        expectedDocumentSessionKey: deps.document.sessionKey.value,
+        expectedOriginalPath: deps.document.originalPath.value,
+        expectedWorkingPath: deps.document.workingCopyPath.value,
+    });
+    function commitSave(request: TWorkspaceSaveRequest, onCommitted?: TDocumentCommitReceipt, target = captureTarget()) {
+        return executeSave(request, target, onCommitted);
+    }
+    async function save(request: TWorkspaceSaveRequest, onCommitted?: TDocumentCommitReceipt) {
+        // A Save plans from the presented proxy: it waits for a published revision to replace it, outside the lease,
+        // and still writes only the document it was requested for.
+        const target = captureTarget();
+        const replacing = deps.pdf.replacingJob?.();
+        if (replacing) await replacing;
+        const {saved, presented} = await commitSave(request, onCommitted, target);
+        await presented;
+        return saved;
     }
 
     const canSave = computed(() => failureSurface.hasSaveFailure.value || (deps.hasPendingUnsavedChanges?.value ?? (
@@ -783,11 +782,12 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         || deps.metadata.bookmarksDirty.value
         || deps.shapes.hasChanges()
     )));
+    const isClean = () => Boolean(deps.hasPendingUnsavedChanges) && !canSave.value;
     const saveIfDirty = (onCommitted?: TDocumentCommitReceipt) => (
-        deps.hasPendingUnsavedChanges && !canSave.value
-            ? Promise.resolve(!failureSurface.hasSaveFailure.value)
-            : save({kind: 'save'}, onCommitted)
+        isClean() ? Promise.resolve(!failureSurface.hasSaveFailure.value) : save({kind: 'save'}, onCommitted)
     );
+    // A Save run to close or leave the document, or inside a modal, ends at its disk commit: presenting it is the job's.
+    const commitIfDirty = async () => (isClean() ? !failureSurface.hasSaveFailure.value : (await commitSave({kind: 'save'})).saved);
 
     return {
         save,
@@ -796,6 +796,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         isAnySaving: computed(() => deps.status.isSaving.value || deps.status.isSavingAs.value),
         isAnySaveAdmitted,
         handleSave: saveIfDirty,
+        saveBeforeLeaving: commitIfDirty,
         saveForExternalRead: saveIfDirty,
         getNativeSaveTransactionOptions: nativeSaveTransactionOptions,
         createPageMutationWriterSave: (options: Omit<Parameters<typeof createPageMutationWriterSave>[0], 'save'>) => createPageMutationWriterSave({
@@ -831,14 +832,15 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                         || deps.document.workingCopyPath.value !== sessionPath) {
                         return false;
                     }
-                    if (canSave.value && !await saveIfDirty()) {
+                    if (canSave.value && !await commitIfDirty()) {
                         return false;
                     }
                     if (controller.signal.aborted) {
                         return false;
                     }
                     optimizeRequests.set(controller, deps.document.workingCopyPath.value);
-                    return await save({
+                    // The modal ends with the written copy; the job presents it.
+                    return (await commitSave({
                         kind: 'optimize-copy',
                         options,
                         ...(requestId === undefined ? {} : {requestId}),
@@ -847,7 +849,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                             preparedOptimize,
                             signal: controller.signal,
                         } : {}),
-                    });
+                    })).saved;
                 } finally {
                     optimizeRequests.delete(controller);
                 }

@@ -50,10 +50,9 @@ export async function adoptStablePathBackedPersistedState(input: {
     };
     input.state.documentRevisionInfo.value = revisionInfo;
     input.state.pdfData.value = null;
-    input.state.pdfSrc.value = source;
-    input.state.pdfReloadSrc.value = source;
+    const job = input.state.publishPdfSource(source, 'adopt');
     await input.markCurrentHistoryEntryClean();
-    return true;
+    return job;
 }
 
 export async function resolveStableLazyHistoryBaseline(path: TDocumentRef) {

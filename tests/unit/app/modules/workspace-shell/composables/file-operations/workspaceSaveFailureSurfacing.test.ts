@@ -26,6 +26,7 @@ import {
     useWorkspaceSaveServiceForTest,
 } from '@tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveServiceFixture';
 import {cast} from '@tests/helpers/cast';
+import type { TPdfSourceJobOutcome } from '@app/types/pdfUi';
 import { toastDescriptionContaining } from '@tests/helpers/toastDescription';
 
 type TSaveFixtureDeps = ReturnType<typeof createDeps>['deps'];
@@ -806,12 +807,14 @@ describe('workspace save failure surfacing', () => {
     });
 
     it.each([
-        ['keeps', '/tmp/work.pdf', 'rev-1', ['drafts', 'drafts', 'saved', 'view reloaded']],
-        ['replaces', '/tmp/work.pdf', 'rev-repaired', ['drafts', 'view reloaded', 'drafts', 'saved']],
-        ['keeps in the browser', 'browser://documents/work.pdf', 'rev-adopted', ['drafts', 'drafts', 'saved', 'view reloaded']],
-    ])('reports a clean Save As that %s the loaded source saved once the view shows it', async (_outcome, workingPath, savedRevision, expectedEvents) => {
-        const events: string[] = [];
-        const reload = createDeferred<void>();
+        ['keeps', '/tmp/work.pdf', null, false],
+        ['keeps in the browser', 'browser://documents/work.pdf', null, false],
+        ['publishes, which its views present', '/tmp/work.pdf', {status: 'presented'}, false],
+        ['publishes, which a Close releases', '/tmp/work.pdf', {status: 'released'}, false],
+        ['publishes, which its views fail to present', '/tmp/work.pdf', {status: 'failed', error: new Error('parse failed')}, false],
+        ['writes edits into and publishes, which its views present', '/tmp/work.pdf', {status: 'presented'}, true],
+    ] as const)('ends a Save As that %s once the written copy is on disk and the views took it', async (_outcome, workingPath, presented, dirty) => {
+        const presentation = createDeferred<TPdfSourceJobOutcome>();
         const {deps} = createDeps({
             originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
             workingCopyPath: ref(requireDocumentRef(workingPath)),
@@ -821,36 +824,110 @@ describe('workspace save failure surfacing', () => {
                     verifiedUnchangedWorkingCopy: true,
                 })),
             } : {}),
-            commitDrafts: async () => {
-                events.push('drafts');
-            },
-            preparePostSaveReload: () => ({
-                promise: reload.promise,
-                cancel: () => reload.resolve(),
-            }),
-            // Adoption moves the document to the revision Save As committed, as a repaired output does.
+            // A dirty Save As writes the edits into the working copy natively, then saves that copy as.
+            ...(dirty ? {
+                ...unsavedShapeEdit(),
+                trySavePdfNativeMutations: vi.fn(async () => ({
+                    success: true,
+                    outPath: requireDocumentRef(workingPath),
+                    saveMode: 'rewrite' as const,
+                    didSaveAs: false,
+                })),
+            } : {}),
             saveWorkingCopyAs: vi.fn(async () => {
-                deps.documentRevisionToken.value = requireDocumentRevisionToken(savedRevision);
+                deps.documentRevisionToken.value = requireDocumentRevisionToken(presented ? 'rev-repaired' : 'rev-adopted');
                 return {
                     success: true,
                     outPath: requireDocumentRef('/tmp/new.pdf'),
                     saveMode: 'save_as_rewrite' as const,
                     didSaveAs: true,
+                    ...(presented ? {presentation: presentation.promise} : {}),
                 };
             }),
         });
         const service = useWorkspaceSaveServiceForTest(deps);
-
-        const saving = service.handleSaveAs().then((saved) => {
-            events.push('saved');
-            return saved;
+        let ended = false;
+        const saving = service.handleSaveAs().finally(() => {
+            ended = true;
         });
-        await vi.waitFor(() => expect(deps.saveWorkingCopyAs).toHaveBeenCalled());
-        events.push('view reloaded');
-        reload.resolve();
+
+        // The write is committed and no longer holds the document: a Close can proceed.
+        await vi.waitFor(() => expect(service.isAnySaving.value).toBe(false));
+        expect(deps.saveWorkingCopyAs).toHaveBeenCalledOnce();
+        if (presented) {
+            // Save itself ends with the views' outcome.
+            expect(ended).toBe(false);
+            presentation.resolve(presented);
+        }
 
         await expect(saving).resolves.toBe(true);
-        expect(events).toEqual(expectedEvents);
+        expect(service.hasSaveFailure.value).toBe(false);
+    });
+
+    it('ends the Save of a Close, a switch or Optimize PDF at its disk commit while the views still present it', async () => {
+        const presentation = createDeferred<TPdfSourceJobOutcome>();
+        const written = async () => ({
+            success: true,
+            outPath: requireDocumentRef('/tmp/work.pdf'),
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+            presentation: presentation.promise,
+        });
+        const {deps} = createDeps({
+            ...unsavedShapeEdit(),
+            trySavePdfNativeMutations: vi.fn(written),
+            optimizeWorkingCopyAsCopy: vi.fn(written),
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+        let ordinaryEnded = false;
+        const ordinary = service.handleSave().finally(() => {
+            ordinaryEnded = true;
+        });
+        await vi.waitFor(() => expect(service.isAnySaving.value).toBe(false));
+
+        // The reader never presents: the leaving Save still ends, the ordinary one waits.
+        await expect(service.saveBeforeLeaving()).resolves.toBe(true);
+        expect(deps.trySavePdfNativeMutations).toHaveBeenCalledTimes(2);
+        // The Optimize PDF dialog, which cannot be dismissed while it runs, ends with the written copy.
+        await expect(service.handleOptimizePdfAsCopy({preset: 'blackAndWhite'})).resolves.toBe(true);
+        expect(deps.optimizeWorkingCopyAsCopy).toHaveBeenCalledOnce();
+        expect(ordinaryEnded).toBe(false);
+        presentation.resolve({status: 'released'});
+        await expect(ordinary).resolves.toBe(true);
+    });
+
+    it('plans an ordinary Save once a published revision replaced the loaded document, and a leaving Save at once', async () => {
+        const replacement = createDeferred<TPdfSourceJobOutcome>();
+        let replacing: Promise<TPdfSourceJobOutcome> | null = replacement.promise;
+        const {deps} = createDeps({
+            ...unsavedShapeEdit(),
+            replacingJob: () => replacing,
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+        const ordinary = service.handleSave();
+        await expect(service.saveBeforeLeaving()).resolves.toBe(true);
+        expect(deps.trySavePdfNativeMutations).toHaveBeenCalledOnce();
+        replacing = null;
+        replacement.resolve({status: 'presented'});
+        await expect(ordinary).resolves.toBe(true);
+        expect(deps.trySavePdfNativeMutations).toHaveBeenCalledTimes(2);
+    });
+
+    it.each(['handleSave', 'handleSaveAs'] as const)('%s writes nothing when another document took the workspace while the Save waited for a replacement', async (route) => {
+        const replacement = createDeferred<TPdfSourceJobOutcome>();
+        const {deps} = createDeps({
+            ...unsavedShapeEdit(),
+            replacingJob: () => replacement.promise,
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+        const requested = service[route]();
+        deps.documentSessionKey.value = 'document-session-B';
+        replaceOpenDocument(deps);
+        replacement.resolve({status: 'superseded'});
+
+        await expect(requested).resolves.toBe(false);
+        expect(deps.trySavePdfNativeMutations).not.toHaveBeenCalled();
+        expect(deps.saveWorkingCopyAs).not.toHaveBeenCalled();
     });
 
     it('tells the user about a superseded save without marking the new document', async () => {

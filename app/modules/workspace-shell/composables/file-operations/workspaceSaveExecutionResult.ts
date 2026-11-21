@@ -10,11 +10,6 @@ import type { IPdfNativeAnnotationIdentityBinding } from '@contracts/electronApi
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TWorkspaceSaveFailureReason } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 
-export interface IPostSaveReloadWaiter {
-    promise: Promise<void>;
-    cancel: () => void;
-}
-
 /**
  * What a completed save is allowed to mark clean. Every flag defaults to false
  * at each construction site rather than being optional, so a new save path has
@@ -59,7 +54,6 @@ export type TWorkspaceSaveExecutionResult =
         status: 'saved';
         persisted: IPdfPersistResult;
         serializedChanges: boolean;
-        reloadWaiter: IPostSaveReloadWaiter | null;
         completion: ISaveCompletionPolicy;
         annotationMaterializationBaseline?: unknown;
         commitAnnotationSave?: (identityBindings?: readonly IPdfNativeAnnotationIdentityBinding[]) => void;
@@ -71,12 +65,10 @@ export type TWorkspaceSaveExecutionResult =
         reason: TWorkspaceSaveAbortReason;
         failure?: IPdfPersistFailure;
         origin: TWorkspaceSaveAbortOrigin;
-        reloadWaiter: IPostSaveReloadWaiter | null;
     }
     | {
         status: 'failed';
         error: unknown;
-        reloadWaiter: IPostSaveReloadWaiter | null;
     };
 
 /** An abort that stopped before anything was handed to the persistence layer. */
@@ -85,7 +77,6 @@ export type TWorkspaceSaveAbort = Extract<TWorkspaceSaveExecutionResult, {status
 export function notSavedBeforeWrite(
     reason: TWorkspaceSaveAbortReason,
     plannedRevisionToken: TDocumentRevisionToken | null,
-    reloadWaiter: IPostSaveReloadWaiter | null,
 ): TWorkspaceSaveAbort {
     return {
         status: 'not-saved',
@@ -94,21 +85,18 @@ export function notSavedBeforeWrite(
             phase: 'pre-write',
             plannedRevisionToken,
         },
-        reloadWaiter,
     };
 }
 
 /** An abort the persistence layer itself returned, after the write ran. */
 export function notSavedAfterWrite(
     reason: TWorkspaceSaveAbortReason,
-    reloadWaiter: IPostSaveReloadWaiter | null,
     failure?: IPdfPersistFailure,
 ): TWorkspaceSaveAbort {
     return {
         status: 'not-saved',
         reason,
         origin: {phase: 'post-write'},
-        reloadWaiter,
         ...(failure === undefined ? {} : {failure}),
     };
 }
@@ -143,17 +131,15 @@ export function abortReasonForPersistResult(persisted: IPdfPersistResult): TWork
  */
 export function workingCopySaveResult(
     persisted: IPdfPersistResult,
-    reloadWaiter: IPostSaveReloadWaiter | null,
     completion: Partial<ISaveCompletionPolicy> = {},
 ): TWorkspaceSaveExecutionResult {
     if (!persisted.success) {
-        return notSavedAfterWrite(abortReasonForPersistResult(persisted), reloadWaiter, persisted.failure);
+        return notSavedAfterWrite(abortReasonForPersistResult(persisted), persisted.failure);
     }
     return {
         status: 'saved',
         persisted,
         serializedChanges: false,
-        reloadWaiter,
         completion: {
             markAnnotationStateSaved: false,
             markBookmarksStateSaved: false,

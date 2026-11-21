@@ -75,6 +75,7 @@ type TFileOperationsSaveControllerTestDeps =
         pdfDocument: ShallowRef<IPdfDocument | null>;
         pdfViewerRef?: IWorkspaceSaveDependencies['pdf']['viewer'];
         commitPdfEditorsForSave?: IWorkspaceSaveDependencies['pdf']['commitEditorsForSave'];
+        replacingJob?: IWorkspaceSaveDependencies['pdf']['replacingJob'];
         runSaveTransaction: IWorkspaceSaveDependencies['pdf']['runSaveTransaction'];
         getSourcePdfData: IWorkspaceSaveDependencies['pdf']['getSourceData'];
         validatePdfPath: IWorkspaceSaveDependencies['persistence']['validatePdfPath'];
@@ -92,7 +93,7 @@ type TFileOperationsSaveControllerTestDeps =
         getDeletedEmbeddedShapeAnnotationIds?: () => string[];
         getDeletedEmbeddedShapeStableKeys?: () => string[];
         loadRecentFiles: IWorkspaceSaveDependencies['lifecycle']['loadRecentFiles'];
-        preparePostSaveReload?: IWorkspaceSaveDependencies['lifecycle']['preparePostSaveReload'];
+        resetSearchCaches?: IWorkspaceSaveDependencies['lifecycle']['resetSearchCaches'];
         commitDrafts?: IWorkspaceSaveDependencies['lifecycle']['commitDrafts'];
         runWithDocumentOperationLease?: IWorkspaceSaveDependencies['runWithDocumentOperationLease'];
         canonicalAnnotationComments: Ref<IAnnotationCommentSummary[]>;
@@ -181,6 +182,7 @@ function createSaveDependencies(
             ...(deps.commitPdfEditorsForSave
                 ? {commitEditorsForSave: deps.commitPdfEditorsForSave}
                 : {}),
+            ...(deps.replacingJob ? {replacingJob: deps.replacingJob} : {}),
             runSaveTransaction: deps.runSaveTransaction,
             getSourceData: deps.getSourcePdfData,
         },
@@ -205,9 +207,7 @@ function createSaveDependencies(
         lifecycle: {
             loadRecentFiles: deps.loadRecentFiles,
             commitDrafts: deps.commitDrafts ?? (async () => {}),
-            ...(deps.preparePostSaveReload
-                ? {preparePostSaveReload: deps.preparePostSaveReload}
-                : {}),
+            resetSearchCaches: deps.resetSearchCaches ?? (() => {}),
         },
         runWithDocumentOperationLease: deps.runWithDocumentOperationLease
             ?? createWorkspaceDocumentController({tabId: 'save-tab'}).operationLease.runExclusive,

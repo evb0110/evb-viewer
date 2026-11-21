@@ -49,6 +49,8 @@ interface IUsePdfViewerSaveTransactionOptions {
     flushAnnotationMutationsForSave?: () => Promise<unknown>;
     commitPendingEditorDraftsForSave?: () => void | Promise<void>;
     getPdfDocument?: () => IPdfDocument | null;
+    /** The end of a source job that will replace the loaded proxy, null while that proxy is the published revision's. */
+    replacingJob?: () => unknown;
     getAllShapes?: () => IShapeAnnotation[];
     getDeletedEmbeddedShapeAnnotationIds?: () => string[];
     getDeletedEmbeddedShapeStableKeys?: () => string[];
@@ -191,6 +193,8 @@ export const usePdfViewerSaveTransaction = (
             if (capturedTarget.pdfDocument && !isPdfDocumentUsable(capturedTarget.pdfDocument)) {
                 throw staleTargetError('Captured PDF document is no longer usable');
             }
+            // A published revision whose load has not replaced the proxy yet: the proxy holds older bytes.
+            if (options.replacingJob?.()) throw staleTargetError('Captured PDF document is being replaced');
             if (
                 options.documentRevisionToken
                 && options.documentRevisionToken.value !== capturedTarget.documentRevisionToken

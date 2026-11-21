@@ -43,6 +43,7 @@ import {
     alignLoadedPathSourceLength,
 } from '@app/modules/workspace-shell/composables/document-session/adoptPathBackedPersistedState';
 import { PDF_COMBINE_MAX_OUTPUT_BYTES } from '@contracts/pdfCombineOutputPolicy';
+import type { IPdfSourceJob } from '@app/modules/pdf-viewer/public';
 import {
     collectExpectedNativeIdentityIds,
     createDocumentMutationRevisionOptions,
@@ -129,15 +130,15 @@ export function createDocumentPersistence(
         // instead, so a 2+ GiB working copy never crosses into renderer memory.
         const hasNativePathSource = hasNativePathBackedSource(state, path);
         if (!hasNativePathSource && !await deps.refreshDocumentRevisionToken(path, () => state.isActiveWorkingCopy(path))) return false;
+        let job: IPdfSourceJob | false | null = null;
         if (hasNativePathSource && !opts?.preserveLoadedSource) {
-            if (!await adoptStablePathBackedPersistedState({
+            job = await adoptStablePathBackedPersistedState({
                 state,
                 path,
                 resolveStableBaseline: () => resolveStableLazyHistoryBaseline(path),
                 markCurrentHistoryEntryClean,
-            })) {
-                return false;
-            }
+            });
+            if (!job) return false;
         } else if (opts?.preserveLoadedSource) {
             if (!hasNativePathSource && snapshotHint && snapshotHint.byteLength <= MAX_IN_MEMORY_PDF_BYTES) {
                 const snapshot = snapshotHint.slice();
@@ -172,8 +173,7 @@ export function createDocumentPersistence(
         } else if (snapshotHint && snapshotHint.byteLength <= MAX_IN_MEMORY_PDF_BYTES) {
             const snapshot = snapshotHint.slice();
             state.pdfData.value = snapshot;
-            state.pdfSrc.value = deps.toPdfBlob(snapshot);
-            state.pdfReloadSrc.value = state.pdfSrc.value;
+            job = state.publishPdfSource(deps.toPdfBlob(snapshot), 'adopt');
             await markCurrentHistoryEntryClean();
         } else {
             const nextState = await deps.readPdfStateFromPath(path);
@@ -181,15 +181,14 @@ export function createDocumentPersistence(
                 return false;
             }
             state.pdfData.value = nextState.pdfData;
-            state.pdfSrc.value = nextState.pdfSrc;
-            state.pdfReloadSrc.value = nextState.pdfSrc;
+            job = state.publishPdfSource(nextState.pdfSrc, 'adopt');
             await markCurrentHistoryEntryClean();
         }
 
         if (opts?.preserveConformanceProfile !== true) {
             deps.deferPdfConformanceProfile(path);
         }
-        return true;
+        return job ? {presentation: job.finished} : {};
     }
 
     const {
@@ -370,12 +369,14 @@ export function createDocumentPersistence(
             if (!state.isActiveWorkingCopy(workingPath)) {
                 return skipStale('working-copy save completion', workingPath, requestedSaveMode);
             }
-            if (!await commitPersistedPdfState(undefined, workingPath, markClean, opts?.preserveLoadedSource === undefined ? undefined : {preserveLoadedSource: opts.preserveLoadedSource})) {
+            const committed = await commitPersistedPdfState(undefined, workingPath, markClean, opts?.preserveLoadedSource === undefined ? undefined : {preserveLoadedSource: opts.preserveLoadedSource});
+            if (!committed) {
                 return createStalePersistResult(requestedSaveMode, false);
             }
             state.lastSaveMode.value = requestedSaveMode;
             return {
                 ...createPersistResult(true, requestedSaveMode, false),
+                ...committed,
                 ...(result.documentRevision ? {documentRevision: result.documentRevision} : {}),
             };
         });
@@ -404,11 +405,12 @@ export function createDocumentPersistence(
                     {validation},
                 ));
             }
-            if (!await commitPersistedPdfState(undefined, workingPath, markClean)) {
+            const committed = await commitPersistedPdfState(undefined, workingPath, markClean);
+            if (!committed) {
                 return createStalePersistResult(requestedSaveMode, false);
             }
             state.lastSaveMode.value = requestedSaveMode;
-            return createPersistResult(true, requestedSaveMode, false);
+            return {...createPersistResult(true, requestedSaveMode, false), ...committed};
         });
     }
 
@@ -499,11 +501,12 @@ export function createDocumentPersistence(
                 try {
                     state.originalPath.value = savedPath;
                     state.requiresSaveAsOnFirstSave.value = false;
-                    if (!await commitPersistedPdfState(undefined, savedWorkingPath, markClean)) {
+                    const committed = await commitPersistedPdfState(undefined, savedWorkingPath, markClean);
+                    if (!committed) {
                         return createStalePersistResult(requestedSaveMode, true);
                     }
                     state.lastSaveMode.value = requestedSaveMode;
-                    return createPersistResult(true, requestedSaveMode, true, savedPath);
+                    return {...createPersistResult(true, requestedSaveMode, true, savedPath), ...committed};
                 } finally {
                     if (previousWorkingPath !== savedWorkingPath) {
                         void runDetached(
@@ -866,6 +869,7 @@ export function createDocumentPersistence(
                 logRendererTimings('applied');
                 return {
                     ...createPersistResult(true, opts.saveMode, false),
+                    ...committed,
                     ...(result.documentRevision ? {documentRevision: result.documentRevision} : {}),
                     ...(materializedIdentityBindings.length > 0 ? {materializedIdentityBindings} : {}),
                     ...(annotationDeleteEffects ? {annotationDeleteEffects} : {}),
@@ -961,11 +965,12 @@ export function createDocumentPersistence(
                     // that kept the working copy and its revision published the bytes on screen, which stay.
                     const keepsLoadedSource = opts?.preserveLoadedSource === true && savedWorkingPath === previousWorkingPath
                         && (await getDocumentFilesCapability().getDocumentRevision(savedWorkingPath)).token === revisionOptions?.expectedDocumentRevisionToken;
-                    if (!await commitPersistedPdfState(data, savedWorkingPath, markClean, {preserveLoadedSource: keepsLoadedSource})) {
+                    const committed = await commitPersistedPdfState(data, savedWorkingPath, markClean, {preserveLoadedSource: keepsLoadedSource});
+                    if (!committed) {
                         return createStalePersistResult(requestedSaveMode, true);
                     }
                     state.lastSaveMode.value = requestedSaveMode;
-                    return createPersistResult(true, requestedSaveMode, true, savedPath);
+                    return {...createPersistResult(true, requestedSaveMode, true, savedPath), ...committed};
                 }
                 return createCancelledPersistResult(requestedSaveMode);
             } finally {

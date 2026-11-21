@@ -847,6 +847,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     documentSession.registerDisposable(unsubscribeDocumentTransitions);
     const saveTransaction = usePdfViewerSaveTransaction({
         pdfDocument: documentSession.pdfDocument,
+        replacingJob: documentSession.replacingJob,
         annotationApplication,
         documentRevisionToken: options.documentRevisionToken,
         commitPendingEditorDraftsForSave: documentAnnotations.commitPendingDraftsForSave,

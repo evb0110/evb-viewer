@@ -115,10 +115,11 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         totalPages,
         pdfDocument,
     } = view;
-    // Saves capture before clearing; page mutations own their page remapping.
-    watch(pdfSrc, (source, previous) => {
+    // A Save's revision opens from this view's reading point, captured before
+    // its source is cleared; page mutations own their page remapping.
+    const prepareSourceAdoption = () => {
         const identity = openSurface.snapshot.value.identity;
-        if (!saveService.isAnySaveAdmitted.value || !source || !previous || !identity || document.isOpeningDocument.value) {
+        if (!saveService.isAnySaveAdmitted.value || !identity || document.isOpeningDocument.value) {
             return;
         }
         beginOpenSurfaceWithPageShape(openSurface, {
@@ -126,7 +127,7 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
             documentRevision: String(documentRevisionToken.value ?? identity.documentRevision),
             provisional: true,
         }, documentView.captureReadingAnchor() ?? currentPage.value, null);
-    }, {flush: 'sync'});
+    };
 
     // The sidebar this view renders and the tabs its format offers: the PDF
     // sidebar's format predicates or the page source's providers. The rendered
@@ -557,7 +558,7 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         pageLabelsDirty: metadata.pageLabelState.pageLabelsDirty,
         bookmarksDirty: metadata.bookmarkState.bookmarksDirty,
         persistAllAnnotationNotes: annotations.persistAllAnnotationNotes,
-        handleSave: save.handleSave,
+        saveBeforeLeaving: saveService.saveBeforeLeaving,
         pickFileToOpen: file.pickFileToOpen,
         openFile: result => (sharesViews.value
             ? openInOwnDocument(workspace => (result ? workspace.handleOpenFileWithResult(result) : workspace.handleOpenFileFromUi()))
@@ -610,6 +611,7 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         handleDropdownOpen,
         djvuProjection,
         bindDocumentView,
+        prepareSourceAdoption,
     };
     // The document resets this view's panels when its source changes and
     // keeps it on its page through its reloads.

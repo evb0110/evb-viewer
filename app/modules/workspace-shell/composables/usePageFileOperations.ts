@@ -63,7 +63,7 @@ export interface IPageFileOperationsDeps {
     pageLabelsDirty: Ref<boolean>;
     bookmarksDirty: Ref<boolean>;
     persistAllAnnotationNotes: () => Promise<boolean>;
-    handleSave: () => Promise<unknown>;
+    saveBeforeLeaving: () => Promise<boolean>;
     pickFileToOpen: () => Promise<TOpenFileResult | null>;
     openFile: (preSelected?: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
     openFileDirect: (path: TDocumentRef) => Promise<TDocumentOpenOutcome>;
@@ -94,7 +94,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         pageLabelsDirty,
         bookmarksDirty,
         persistAllAnnotationNotes,
-        handleSave,
+        saveBeforeLeaving,
         pickFileToOpen,
         openFile,
         openFileDirect,
@@ -261,7 +261,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
 
         BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Pending changes detected, triggering save before switch');
         try {
-            const saveResult = await handleSave();
+            const saveResult = await saveBeforeLeaving();
             const canProceed = saveResult !== false && !hasPendingPersistenceChanges();
             if (!canProceed) {
                 logPendingChangesAfterSave();

@@ -16,6 +16,7 @@ import { requireDocumentRef } from '@contracts/documentRef';
 import {requirePdfDateString} from '@contracts/pdfDateString';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import { createPdfSourceJob } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot';
 
 const mocks = vi.hoisted(() => ({
     hasElectronApi: vi.fn(() => true),
@@ -112,7 +113,13 @@ const PDF_BYTES = Uint8Array.from([
 ]);
 
 function createFacade() {
-    return usePdfFile({document: createWorkspaceDocumentController({tabId: 'tab-1'})}) as IPdfFileFacade & {
+    const document = createWorkspaceDocumentController({tabId: 'tab-1'});
+    return Object.assign(usePdfFile({
+        document,
+        admitPdfSource: intent => createPdfSourceJob(intent, {}),
+        resetDocumentPresentation: vi.fn(),
+    }), {document}) as IPdfFileFacade & {
+        document: typeof document;
         optimizeWorkingCopy?: unknown;
         optimizeWorkingCopyAsCopy?: unknown;
         repairWorkingCopy?: unknown;
@@ -129,7 +136,9 @@ function pdfResult(name: string): TOpenFileResult {
 
 type TOpenEntryPoint = 'picker' | 'direct' | 'batch';
 
-function invokeOpen(file: IPdfFileFacade, entryPoint: TOpenEntryPoint, name: string) {
+/** Each open runs under its own controller claim, as the shell's opens do. */
+function invokeOpen(file: ReturnType<typeof createFacade>, entryPoint: TOpenEntryPoint, name: string) {
+    file.document.claimOpen({kind: 'open', target: null});
     if (entryPoint === 'picker') {
         return file.openFile();
     }
@@ -631,7 +640,7 @@ describe('usePdfFile façade', () => {
         'direct',
         'batch',
     ] as const)(
-        'fences a stale %s result behind the newest open epoch',
+        'fences a stale %s result behind the newest open claim',
         async (entryPoint) => {
             const stale = installRacingResults(entryPoint);
             const file = createFacade();
@@ -694,7 +703,7 @@ describe('usePdfFile façade', () => {
             mintedAt: 1,
             token: 'revision-after-edit',
         });
-        await expect(file.reloadWorkingCopyIntoHistory()).resolves.toBe(true);
+        await expect(file.reloadWorkingCopyIntoHistory()).resolves.toMatchObject({intent: 'reload'});
         mocks.restoreRevision.mockImplementationOnce(() => restore.promise);
 
         const undo = ledger.undoTimeline();

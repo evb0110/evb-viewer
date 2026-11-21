@@ -14,6 +14,7 @@ import { createDocumentSessionState } from '@app/modules/workspace-shell/composa
 import { requireDocumentRef } from '@contracts/documentRef';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import { createPdfSourceJob } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot';
 
 const { mockReadPdfConformanceProfile } = vi.hoisted(() => (
     {mockReadPdfConformanceProfile: vi.fn()}
@@ -78,6 +79,7 @@ function createHarness(path = '/tmp/book.pdf') {
     const state = createDocumentSessionState({
             isDesktopRuntime: ref(true),
             document: createWorkspaceDocumentController({tabId: 'tab-1'}),
+            admitPdfSource: intent => createPdfSourceJob(intent, {}),
         });
     state.workingCopyPath.value = documentRef;
     const idle = createIdleScheduler();

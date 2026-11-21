@@ -55,6 +55,8 @@ export interface IDocumentViewPort {
     pageContextMenu: Pick<ReturnType<typeof usePageContextMenu>, 'closePageContextMenu'>;
     closeAnnotationContextMenu: () => void;
     annotationTool: Ref<TAnnotationTool>;
+    /** Before a Save's revision replaces the shown source: opens this view's surface from its reading point. */
+    prepareSourceAdoption: () => void;
 }
 
 /**

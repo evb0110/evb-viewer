@@ -84,6 +84,12 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         getOpenSurface: () => views.soleView.value?.openSurface ?? null,
         runDocumentOpen: (request, run) => views.runDocumentOpen(views.soleView.value, request, run),
         document: controller,
+        // Each view prepares a Save's revision before the source it shows is cleared.
+        admitPdfSource: (intent, replacesSource) => {
+            if (intent === 'adopt' && replacesSource) views.forEachView(port => port.prepareSourceAdoption());
+            return pdfDocumentSessionSlot.admit(intent);
+        },
+        resetDocumentPresentation: () => resetDocumentPresentation(),
     });
     const {
         settings: appSettings,
@@ -254,6 +260,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
                 viewer: pdfViewerRef,
                 // Every view's open text editors; it resolves once the store holds their drafts.
                 commitEditorsForSave: pdfDocumentAnnotations.commitPendingDraftsForSave,
+                replacingJob: () => pdfDocumentSessionSlot.session.value?.replacingJob() ?? null,
                 runSaveTransaction: request => pdfViewerRef.value?.runSaveTransaction(request)
                     ?? Promise.reject(new Error('Missing PDF viewer save transaction')),
                 getSourceData: getSourcePdfData,
@@ -274,7 +281,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
             },
             lifecycle: {
                 loadRecentFiles: () => void file.loadRecentFiles(),
-                preparePostSaveReload: () => views.prepareReload(undefined, false),
+                resetSearchCaches,
                 commitDrafts: recovery.commitDrafts,
             },
             runWithDocumentOperationLease: runExclusive,
@@ -488,13 +495,14 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         // A split restore reopens its payload as the tab's open transaction.
         openFileWithViewerLifecycle: file.openFileInDocumentTransaction,
         prepareViewReload: views.prepareViewReload,
-        loadPdfFromPath: file.loadPdfFromPath,
         documentRevisionToken: file.documentRevisionToken,
         getNativeSaveTransactionOptions: saveService.getNativeSaveTransactionOptions,
         runWithDocumentOperationLease: runExclusive,
     });
 
-    const {ocr} = useWorkspaceDocumentLifecycleEffects({
+    const {
+        ocr, resetDocumentPresentation,
+    } = useWorkspaceDocumentLifecycleEffects({
         documentAnnotations: pdfDocumentAnnotations,
         totalPages,
         // The OCR panel opens in the toolbar of the active tab.

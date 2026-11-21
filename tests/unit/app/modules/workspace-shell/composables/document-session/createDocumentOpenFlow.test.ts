@@ -21,7 +21,6 @@ import {
 } from '@app/types/pdfRasterDisplayProfile';
 import {
     createDocumentSessionState,
-    createEpochGuard,
 } from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
 import { createDocumentOpenFlow } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
 import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
@@ -38,6 +37,7 @@ import {formatTranslationLeaf} from '@i18n-core';
 import {LOCALE_MESSAGES} from '@i18n-app';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import { createPdfSourceJob } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot';
 
 const mocks = vi.hoisted(() => ({
     toasts: [] as Array<Record<string, unknown>>,
@@ -97,15 +97,31 @@ const PDF_BYTES = Uint8Array.from([
     70,
 ]);
 
+/** Every open the shell starts runs under its own controller claim; a newer claim makes the older open stale. */
+function claimEachOpen(
+    controller: ReturnType<typeof createWorkspaceDocumentController>,
+    flow: ReturnType<typeof createDocumentOpenFlow>,
+): ReturnType<typeof createDocumentOpenFlow> {
+    const claim = () => controller.claimOpen({kind: 'open', target: null});
+    return {
+        ...flow,
+        openFile: (...args: Parameters<typeof flow.openFile>) => (claim(), flow.openFile(...args)),
+        openFileDirect: (...args: Parameters<typeof flow.openFileDirect>) => (claim(), flow.openFileDirect(...args)),
+        openFileDirectBatch: (...args: Parameters<typeof flow.openFileDirectBatch>) => (claim(), flow.openFileDirectBatch(...args)),
+    };
+}
+
 interface IResetHistoryTestOptions {
     reuseSnapshot?: boolean;
     isCurrent?: (() => boolean) | undefined;
 }
 
 function createOpenFlowHarness() {
+    const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
     const state = createDocumentSessionState({
             isDesktopRuntime: ref(true),
-            document: createWorkspaceDocumentController({tabId: 'tab-1'}),
+            document: controller,
+            admitPdfSource: intent => createPdfSourceJob(intent, {}),
         });
     const deps = {
         cleanupAbandonedWorkingCopy: vi.fn(async () => undefined),
@@ -113,8 +129,8 @@ function createOpenFlowHarness() {
         cleanupPreviousWorkingCopy: vi.fn(async () => undefined),
         deferPdfConformanceProfile: vi.fn(),
         incrementSessionVersion: vi.fn(),
-        loadEpoch: createEpochGuard(),
-        openEpoch: createEpochGuard(),
+        readOpenTransactionId: () => controller.snapshot.value.activeTransaction?.id ?? null,
+        resetDocumentPresentation: vi.fn(),
         resetHistory: vi.fn(async (options?: IResetHistoryTestOptions) => options?.isCurrent?.() !== false),
         syncDirtyFromHistory: vi.fn(),
         t: ((key: string) => key) as TTranslateFn,
@@ -122,7 +138,7 @@ function createOpenFlowHarness() {
 
     return {
         deps,
-        openFlow: createDocumentOpenFlow(state, deps),
+        openFlow: claimEachOpen(controller, createDocumentOpenFlow(state, deps)),
         state,
     };
 }
@@ -132,6 +148,7 @@ describe('createDocumentOpenFlow', () => {
         const state = createDocumentSessionState({
             isDesktopRuntime: ref(true),
             document: createWorkspaceDocumentController({tabId: 'tab-1'}),
+            admitPdfSource: intent => createPdfSourceJob(intent, {}),
         });
         state.wasEncrypted.value = true;
 

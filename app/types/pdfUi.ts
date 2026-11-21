@@ -147,7 +147,12 @@ export interface IPdfPersistResult {
     failure?: IPdfPersistFailure;
     /** The native writer refused the edits before writing anything. */
     nativeRefusalCode?: 'too-large';
+    /** How the views took the revision this write published, after it is on disk; absent when the loaded source stays. */
+    presentation?: Promise<TPdfSourceJobOutcome>;
 }
+
+/** How a published PDF source ended: its views presented it or failed, or a later source or a close took its place. */
+export type TPdfSourceJobOutcome = {status: 'presented'} | {status: 'failed'; error: unknown} | {status: 'superseded' | 'released'};
 
 export function mapPdfSearchResultToUiMatch(result: IPdfSearchResult): IPdfUiSearchMatch {
     return {
