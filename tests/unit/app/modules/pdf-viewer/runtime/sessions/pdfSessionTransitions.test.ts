@@ -876,6 +876,46 @@ describe('PdfDocumentSession transitions', () => {
         }
     });
 
+    it('presents the admitted PDF to a view that joins while the first view leaves', async () => {
+        const document = createDocumentProxy('late-view-open');
+        pdfjsState.getDocument.mockReturnValue({promise: Promise.resolve(document), destroy: vi.fn()});
+        const source = new Blob(['pdf'], {type: 'application/pdf'});
+        const session = createPdfDocumentSession({src: computed(() => source as never)});
+        const first = session.attachView();
+        const firstLoading = Promise.withResolvers<void>();
+        first.subscribe(async (transition) => {
+            if (transition.phase === 'loading') await firstLoading.promise;
+        });
+        const finished = admitSource(session, 'open', source);
+        let outcome: Awaited<typeof finished> | undefined;
+        void finished.then(result => { outcome = result; });
+
+        try {
+            await new Promise<void>(resolve => setImmediate(resolve));
+            expect(first.isViewLoading.value).toBe(true);
+
+            const shown: unknown[] = [];
+            const late = session.attachView({emitDocument: proxy => shown.push(proxy)});
+            late.present();
+            await first.dispose();
+            firstLoading.resolve();
+
+            await new Promise<void>(resolve => setImmediate(resolve));
+            expect({
+                status: outcome?.status ?? 'pending',
+                loading: late.isViewLoading.value,
+                presentsAdmittedPdf: shown.at(-1) === document,
+            }, 'the admitted job and the late view must both finish').toEqual({
+                status: 'presented',
+                loading: false,
+                presentsAdmittedPdf: true,
+            });
+        } finally {
+            firstLoading.resolve();
+            await session.dispose();
+        }
+    });
+
     it('suppresses a superseded load rejection but emits the current load failure', async () => {
         const staleLoad = Promise.withResolvers<ReturnType<typeof createDocumentProxy>>();
         const currentFailure = new Error('current PDF parse failed');
