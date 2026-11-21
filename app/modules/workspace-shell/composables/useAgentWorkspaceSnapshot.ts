@@ -23,7 +23,6 @@ import type { IRecentFile } from '@contracts/shared';
 import type { IWorkspaceAgentCommandContext } from '@app/types/workspaceExpose';
 import { isEqual } from 'es-toolkit';
 import { getAgentCapability } from '@app/utils/getAgentCapability';
-import { waitForDesktopPlatformBridge } from '@app/utils/platform';
 import { guardAsync } from '@app/utils/asyncGuard';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
@@ -34,8 +33,6 @@ import {
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { resolveDocumentRefBackend } from '@app/utils/documentRef';
 
-const AGENT_BRIDGE_RETRY_DELAY_MS = 250;
-
 interface IUseAgentWorkspaceSnapshotOptions {
     panes: Ref<IEditorPaneState[]>;
     tabs: Ref<ITab[]>;
@@ -45,7 +42,6 @@ interface IUseAgentWorkspaceSnapshotOptions {
     recentFiles?: Ref<IRecentFile[]>;
     recentFilesResolved?: Ref<boolean>;
     documentSessionsByTabId: Ref<Record<string, IWorkspaceDocumentController>>;
-    shouldWaitForDesktopBridge: () => boolean;
     getPaneByTabId(tabId: string): IEditorPaneState | null;
     activateTab(paneId: string, tabId: string): void;
 }
@@ -54,7 +50,6 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
     let unsubscribeWorkspaceSnapshotRequest: (() => void) | null = null;
     let unsubscribeCommandRequest: (() => void) | null = null;
     let unsubscribeCommandCancelRequest: (() => void) | null = null;
-    const lifecycle: { isDisposed: boolean } = { isDisposed: false };
     let cachedSnapshotRevision = 0;
     let cachedSnapshotSignature = '';
     let cachedSnapshot: IAgentWorkspaceSnapshot | null = null;
@@ -633,52 +628,13 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
         activeCommands.get(request.requestId)?.abortController.abort(createAgentCommandAbortError());
     }
 
-    function waitForRetryDelay() {
-        return new Promise<void>(resolve => setTimeout(resolve, AGENT_BRIDGE_RETRY_DELAY_MS));
-    }
-
-    async function waitForAgentCapability() {
-        let hasLoggedBridgeWait = false;
-        while (lifecycle.isDisposed !== true) {
-            const shouldWaitForAgentBridge = options.shouldWaitForDesktopBridge();
-            const bridgeReady = await waitForDesktopPlatformBridge({ shouldWait: shouldWaitForAgentBridge });
-            if (lifecycle.isDisposed.valueOf()) {
-                return null;
-            }
-            if (!shouldWaitForAgentBridge || bridgeReady) {
-                return getAgentCapability();
-            }
-
-            if (!hasLoggedBridgeWait) {
-                hasLoggedBridgeWait = true;
-                BrowserLogger.warn('agent', 'Waiting for Electron platform bridge before attaching agent workspace listeners');
-            }
-            await waitForRetryDelay();
-        }
-
-        return null;
-    }
-
     onMounted(() => {
-        lifecycle.isDisposed = false;
         guardAsync(
             (async () => {
-                const agent = await waitForAgentCapability();
-                if (lifecycle.isDisposed === true || !agent) {
-                    return;
-                }
-                const unsubscribeSnapshot = agent.onWorkspaceSnapshotRequest(submitSnapshot);
-                const unsubscribeCommand = agent.onCommandRequest(submitCommandResult);
-                const unsubscribeCommandCancel = agent.onCommandCancelRequest(cancelCommandRequest);
-                if (lifecycle.isDisposed.valueOf()) {
-                    unsubscribeSnapshot();
-                    unsubscribeCommand();
-                    unsubscribeCommandCancel();
-                    return;
-                }
-                unsubscribeWorkspaceSnapshotRequest = unsubscribeSnapshot;
-                unsubscribeCommandRequest = unsubscribeCommand;
-                unsubscribeCommandCancelRequest = unsubscribeCommandCancel;
+                const agent = getAgentCapability();
+                unsubscribeWorkspaceSnapshotRequest = agent.onWorkspaceSnapshotRequest(submitSnapshot);
+                unsubscribeCommandRequest = agent.onCommandRequest(submitCommandResult);
+                unsubscribeCommandCancelRequest = agent.onCommandCancelRequest(cancelCommandRequest);
             })(),
             {
                 category: 'background-diagnostic',
@@ -689,7 +645,6 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
     });
 
     onUnmounted(() => {
-        lifecycle.isDisposed = true;
         for (const command of activeCommands.values()) {
             command.abortController.abort();
         }

@@ -240,7 +240,6 @@
 import { useCanUseScanCleanup } from '@app/composables/useCanUseScanCleanup';
 import { rememberReadingView } from '@app/modules/workspace-shell/document-sessions/recentReadingView';
 import { useEventListener } from '@vueuse/core';
-import { logicNot } from '@vueuse/math';
 import { guardAsync } from '@app/utils/asyncGuard';
 import { createDisposalFlag } from '@app/utils/createDisposalFlag';
 import { resolveAppWindowTitle } from '@app/utils/appWindowTitle';
@@ -304,7 +303,6 @@ import { pruneStartSectionByTabId } from '@app/modules/workspace-shell/tabs/prun
 import type { TStartSection } from '@app/types/startSection';
 import type { IHostZenModeState } from '@contracts/hostPlatformFeature';
 import { getHostCapability } from '@app/utils/getHostCapability';
-import { waitForDesktopPlatformBridge } from '@app/utils/platform';
 import { getDocumentWindowCapability } from '@app/utils/platformDocuments';
 traceRendererStartup('index.vue script setup start');
 useDirectOpenAutomationDispatcherShell();
@@ -388,7 +386,6 @@ const {
     handleBrowserInstallHintClick,
     showBrowserInstallHint,
 } = useBrowserInstallHint({isBrowserRuntime});
-const shouldWaitForDesktopBridge = logicNot(isBrowserRuntime);
 const isFullscreen = ref(false);
 const {
     panelWidth: assistantPanelWidth,
@@ -625,10 +622,6 @@ let cleanupAppShellE2EHooks: (() => void) | null = null;
 onMounted(() => {
     guardAsync(
         (async () => {
-            await waitForDesktopPlatformBridge({ shouldWait: !isBrowserRuntime.value });
-            if (shellRootLifecycle.isDisposed()) {
-                return;
-            }
             await getHostCapability().getZenModeState().then(applyZenModeState);
             if (shellRootLifecycle.isDisposed()) {
                 return;
@@ -806,7 +799,6 @@ const {isScopedCommandRunning} = useAgentWorkspaceSnapshot({
     recentFiles,
     recentFilesResolved,
     documentSessionsByTabId,
-    shouldWaitForDesktopBridge: () => shouldWaitForDesktopBridge.value,
     getPaneByTabId,
     activateTab,
 });
@@ -890,7 +882,6 @@ const windowTitle = computed(() => resolveAppWindowTitle({
     isBrowserRuntime: isBrowserRuntime.value,
 }));
 
-let windowTitleSyncGeneration = 0;
 watch(windowTitle, (nextTitle) => {
     if (!import.meta.client) {
         return;
@@ -906,12 +897,7 @@ watch(windowTitle, (nextTitle) => {
         return;
     }
 
-    const generation = ++windowTitleSyncGeneration;
     guardAsync((async () => {
-        await waitForDesktopPlatformBridge({ shouldWait: true });
-        if (generation !== windowTitleSyncGeneration || nextTitle !== windowTitle.value) {
-            return;
-        }
         await getDocumentWindowCapability().setWindowTitle(nextTitle);
     })(), {
         category: 'background-diagnostic',

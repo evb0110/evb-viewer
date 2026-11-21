@@ -157,9 +157,7 @@ async function mountAgentWorkspaceSnapshotHarness(options: {
     activateTab?: () => void;
     agent?: TAgentHarnessCapability;
     getPaneByTabId?: (tabId: string) => IEditorPaneState | null;
-    installElectronApi?: boolean;
     detachedWorkspace?: boolean;
-    shouldWaitForDesktopBridge?: () => boolean;
     workspace?: IWorkspaceExpose;
     linkedWorkspace?: IWorkspaceExpose;
 } = {}) {
@@ -215,9 +213,7 @@ async function mountAgentWorkspaceSnapshotHarness(options: {
             return {accepted: true};
         }),
     } satisfies TAgentHarnessCapability);
-    if (options.installElectronApi !== false) {
-        (window as IWindowWithElectronApi).electronAPI = createElectronApiFixture(agent);
-    }
+    (window as IWindowWithElectronApi).electronAPI = createElectronApiFixture(agent);
 
     const app = createApp({ setup() {
         useAgentWorkspaceSnapshot({
@@ -227,7 +223,6 @@ async function mountAgentWorkspaceSnapshotHarness(options: {
             activePaneId,
             activeTabId,
             documentSessionsByTabId,
-            shouldWaitForDesktopBridge: options.shouldWaitForDesktopBridge ?? (() => false),
             getPaneByTabId: options.getPaneByTabId
                 ?? (tabId => panes.value.find(pane => pane.tabIds.some(candidate => candidate === tabId)) ?? null),
             activateTab: (paneId, tabId) => {
@@ -260,7 +255,9 @@ async function mountAgentWorkspaceSnapshotHarness(options: {
             commandCancelCallbacks[0]?.(request);
         },
         async submitSnapshot(request: IAgentWorkspaceSnapshotRequest) {
-            snapshotCallbacks[0]?.(request);
+            for (const callback of snapshotCallbacks) {
+                callback(request);
+            }
             await flushAsyncWork();
         },
         workspace,
@@ -275,7 +272,6 @@ afterEach(() => {
         windowWithElectronApi.electronAPI = initialElectronApi;
     }
     document.body.innerHTML = '';
-    vi.useRealTimers();
     vi.restoreAllMocks();
 });
 
@@ -456,7 +452,7 @@ describe('buildAgentWorkspaceSnapshot', () => {
 });
 
 describe('useAgentWorkspaceSnapshot bridge registration', () => {
-    it('submits a structured-cloneable snapshot response from reactive workspace records', async () => {
+    it('answers the first desktop snapshot request with a structured-cloneable workspace snapshot', async () => {
         const harness = await mountAgentWorkspaceSnapshotHarness();
         const cloneFailures: unknown[] = [];
         vi.mocked(harness.agent.submitWorkspaceSnapshot).mockImplementationOnce(async (response) => {
@@ -474,33 +470,12 @@ describe('useAgentWorkspaceSnapshot bridge registration', () => {
         });
 
         expect(cloneFailures).toEqual([]);
-        expect(harness.agent.submitWorkspaceSnapshot).toHaveBeenCalledWith(expect.objectContaining({
+        expect(harness.agent.submitWorkspaceSnapshot).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
             requestId: 'structured-cloneable-snapshot',
             windowId: 42,
             ok: true,
             snapshot: expect.objectContaining({activeTabId: 'tab-1'}),
         }));
-
-        harness.app.unmount();
-    });
-
-    it('waits for the Electron bridge instead of binding browser no-op agent listeners', async () => {
-        vi.useFakeTimers();
-        const harness = await mountAgentWorkspaceSnapshotHarness({
-            installElectronApi: false,
-            shouldWaitForDesktopBridge: () => true,
-        });
-
-        expect(harness.agent.onWorkspaceSnapshotRequest).not.toHaveBeenCalled();
-        expect(harness.agent.onCommandRequest).not.toHaveBeenCalled();
-
-        (window as IWindowWithElectronApi).electronAPI = createElectronApiFixture(harness.agent);
-
-        await vi.advanceTimersByTimeAsync(250);
-        await waitForAssertion(() => {
-            expect(harness.agent.onWorkspaceSnapshotRequest).toHaveBeenCalledTimes(1);
-            expect(harness.agent.onCommandRequest).toHaveBeenCalledTimes(1);
-        });
 
         harness.app.unmount();
     });

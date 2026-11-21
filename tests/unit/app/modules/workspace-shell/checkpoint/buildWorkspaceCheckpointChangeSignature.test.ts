@@ -1,9 +1,13 @@
+// @vitest-environment happy-dom
+import { setImmediate as nextEventLoopTurn } from 'node:timers/promises';
 import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
+    createApp,
     ref,
     shallowRef,
 } from 'vue';
@@ -20,15 +24,21 @@ import { requireDocumentInstanceId } from '@contracts/documentInstanceId';
 import { requirePaneId } from '@contracts/editorPanes';
 import type { TTabId } from '@contracts/windowTabs';
 import { requireTabId } from '@contracts/windowTabs';
+import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { setTestDocumentDirty } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
+import {
+    createWorkspaceExposeFixture,
+    setTestDocumentDirty,
+} from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 import { buildWorkspaceCheckpointChangeSignature } from '@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpointChangeSignature';
 import {
     buildWorkspaceCheckpoint,
     WorkspaceCheckpointCaptureError,
 } from '@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpoint';
+import { useWorkspaceCrashCheckpoint } from '@app/modules/workspace-shell/checkpoint/useWorkspaceCrashCheckpoint';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 function createSession(tabId: string) {
     return createWorkspaceDocumentController({
@@ -215,5 +225,133 @@ describe('buildWorkspaceCheckpoint', () => {
 
         expect(error).toBeInstanceOf(WorkspaceCheckpointCaptureError);
         expect(error).toHaveProperty('message', expect.stringContaining('tab tab-a'));
+    });
+});
+
+describe('useWorkspaceCrashCheckpoint', () => {
+    it('writes the next checkpoint when persistence was disabled during the first capture', async () => {
+        const options = createSignatureOptions();
+        const enabled = ref(true);
+        const workspace = createWorkspaceExposeFixture();
+        const capture = workspace.getAutomationStateSnapshot;
+        vi.spyOn(workspace, 'getAutomationStateSnapshot').mockImplementationOnce(() => {
+            enabled.value = false;
+            return capture();
+        });
+        options.documentSessionsByTabId.value['tab-a'].attachWorkspace('tab-a', workspace);
+
+        const saveWorkspaceCheckpoint = vi.fn(async () => true);
+        const originalElectronApi = window.electronAPI;
+        window.electronAPI = createElectronPlatformApiFixture({windowTabs: {saveWorkspaceCheckpoint}});
+        let checkpoint!: ReturnType<typeof useWorkspaceCrashCheckpoint>;
+        const app = createApp({
+            setup() {
+                checkpoint = useWorkspaceCrashCheckpoint({
+                    ...options,
+                    enabled,
+                    isStartupOpenClaimPending: ref(false),
+                });
+                return () => null;
+            },
+        });
+        app.mount(document.createElement('div'));
+        const {persistCheckpointNow} = checkpoint;
+        try {
+            // The early guard passed. Only the writer sees the disabled state.
+            await persistCheckpointNow();
+            expect(enabled.value).toBe(false);
+            expect(saveWorkspaceCheckpoint).not.toHaveBeenCalled();
+
+            enabled.value = true;
+            options.activeTabId.value = requireTabId('tab-b');
+            await persistCheckpointNow();
+            expect(saveWorkspaceCheckpoint).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({activeTabId: 'tab-b'}));
+        } finally {
+            app.unmount();
+            if (originalElectronApi === undefined) {
+                delete window.electronAPI;
+            } else {
+                window.electronAPI = originalElectronApi;
+            }
+        }
+    });
+
+    it('writes a checkpoint queued during the writer\'s entry yield before the second caller resolves', async () => {
+        const options = createSignatureOptions();
+        const secondPaneId = requirePaneId('pane-2');
+        options.panes.value.push({
+            paneId: secondPaneId,
+            tabIds: [],
+            activeTabId: null,
+        });
+        const firstLayout: TEditorLayoutNode = {
+            type: 'split',
+            id: 'split-1',
+            orientation: 'horizontal',
+            ratio: 0.5,
+            first: {
+                type: 'leaf',
+                paneId: requirePaneId('pane-1'),
+            },
+            second: {
+                type: 'leaf',
+                paneId: secondPaneId,
+            },
+        };
+        const secondLayout = {
+            ...firstLayout,
+            ratio: 0.7,
+        };
+        options.layout.value = firstLayout;
+
+        const writeStarted = Promise.withResolvers<void>();
+        const finishWrite = Promise.withResolvers<void>();
+        const savedLayouts: IWorkspaceCheckpoint['layout'][] = [];
+        const saveWorkspaceCheckpoint = vi.fn(async ({layout}: IWorkspaceCheckpoint) => {
+            writeStarted.resolve();
+            await finishWrite.promise;
+            savedLayouts.push(layout);
+            return true;
+        });
+        const originalElectronApi = window.electronAPI;
+        window.electronAPI = createElectronPlatformApiFixture({windowTabs: {saveWorkspaceCheckpoint}});
+        let checkpoint!: ReturnType<typeof useWorkspaceCrashCheckpoint>;
+        const app = createApp({
+            setup() {
+                checkpoint = useWorkspaceCrashCheckpoint({
+                    ...options,
+                    enabled: ref(true),
+                    isStartupOpenClaimPending: ref(false),
+                });
+                return () => null;
+            },
+        });
+        app.mount(document.createElement('div'));
+        const {persistCheckpointNow} = checkpoint;
+        try {
+            // Change the layout between the two nextTick captures, before the writer resumes.
+            const first = persistCheckpointNow();
+            queueMicrotask(() => {
+                options.layout.value = secondLayout;
+            });
+            const savedWhenSecondCallerResolves = persistCheckpointNow().then(() => savedLayouts.at(-1));
+
+            await writeStarted.promise;
+            // Let any prematurely resolved caller finish while the save is still blocked.
+            await nextEventLoopTurn();
+            finishWrite.resolve();
+            await first;
+            const layoutAtResolution = await savedWhenSecondCallerResolves;
+            expect(savedLayouts.at(-1)).toEqual(secondLayout);
+            expect(layoutAtResolution).toEqual(secondLayout);
+        } finally {
+            finishWrite.resolve();
+            app.unmount();
+            if (originalElectronApi === undefined) {
+                delete window.electronAPI;
+            } else {
+                window.electronAPI = originalElectronApi;
+            }
+        }
     });
 });

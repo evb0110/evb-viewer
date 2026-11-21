@@ -38,7 +38,7 @@ import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import { markStartupMetricOnce } from '@app/utils/startupMetrics';
 import { traceRendererStartup } from '@app/utils/traceRendererStartup';
 import {onBrowserDocumentPersistenceWarning} from '@app/platform/browser/browserDocumentPersistenceWarnings';
-import { waitForPreferredDesktopPlatformBridge } from '@app/utils/platform';
+import { shouldPreferDesktopPlatform } from '@app/utils/platform';
 import { getSettingsCapability } from '@app/utils/getSettingsCapability';
 import { hasElectronPlatformBridge } from '@app/utils/electronPlatformBridge';
 
@@ -454,11 +454,7 @@ onMounted(async () => {
                 description: t('errors.file.browserStorageDescription', {name: fileName}),
             });
         }));
-        const bridgeResolution = await waitForPreferredDesktopPlatformBridge({
-            routePath: route.path,
-            desktopRuntime: isDesktopRuntime.value,
-        });
-        if (bridgeResolution.shouldWait && !bridgeResolution.bridgeReady) {
+        if (shouldPreferDesktopPlatform(route.path, isDesktopRuntime.value) && !hasElectronPlatformBridge()) {
             const presentation = getOrCaptureRendererBootstrapFailure({
                 error: new Error('Electron preload bridge is unavailable during app bootstrap.'),
                 key: 'electron-preload-bridge',
