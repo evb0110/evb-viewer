@@ -26,6 +26,7 @@ import {
     createScanCleanupRasterBatchRenderer,
     type IScanCleanupRasterBatchFileSystem,
 } from '@electron/features/scan-cleanup/createScanCleanupRasterBatchRenderer';
+import type {IRunCommandOptions} from '@electron/native-tools/runNativeCommand';
 import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 
 // Keep all 1,024 real PNG encodes and pixel checks without thousands of disk
@@ -145,15 +146,17 @@ describe('scan cleanup raster batch renderer', () => {
     it('renders one contiguous window with one Poppler process and publishes every target', async () => {
         const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-raster-batch-test-'));
         roots.push(root);
-        const runCommand = vi.fn(async (_binary: string, args: string[]) => {
+        const runCommand = vi.fn(async (_binary: string, args: string[], options?: IRunCommandOptions) => {
             const prefix = args.at(-1)!;
             await Promise.all([
                 writeFile(`${prefix}-0017.ppm`, PPM),
                 writeFile(`${prefix}-0018.ppm`, PPM),
             ]);
+            const stderr = `17 18 ${prefix}-0017.ppm\n18 18 ${prefix}-0018.ppm\n`;
+            options?.onStderr?.(stderr);
             return {
                 exitCode: 0,
-                stderr: '',
+                stderr,
                 stdout: '',
             };
         });
@@ -188,6 +191,7 @@ describe('scan cleanup raster batch renderer', () => {
         // Poppler's own PNG writer is fixed at maximum compression; it is
         // asked for PPM and the batch publishes a fast lossless PNG.
         expect(runCommand.mock.calls[0]?.[1]).toEqual([
+            '-progress',
             '-cropbox',
             '-hide-annotations',
             '-r',
@@ -223,14 +227,90 @@ describe('scan cleanup raster batch renderer', () => {
         ]);
     });
 
+    it.each([
+        {ending: '\n', platform: 'LF'},
+        {ending: '\r\n', platform: 'CRLF'},
+    ])('reports completed pages from split $platform records before Poppler exits', async ({ending}) => {
+        const root = await mkdtemp(join(tmpdir(), 'scan cleanup raster batch test-'));
+        roots.push(root);
+        const renderedPages: number[] = [];
+        const progressBeforeExit: number[][] = [];
+        const renderBatch = createScanCleanupRasterBatchRenderer(async (_binary, args, options?: IRunCommandOptions) => {
+            const prefix = args.at(-1)!;
+            const first = `${prefix}-1.ppm`;
+            const second = `${prefix}-2.ppm`;
+            const firstRecord = `1 2 ${first}${ending}`;
+            const secondRecord = `2 2 ${second}${ending}`;
+            const warning = `Syntax Warning: skipping object 2 2${ending}`;
+            const chunks = [
+                firstRecord.slice(0, 2),
+                firstRecord.slice(2, -1),
+                firstRecord.slice(-1) + warning.slice(0, 12),
+                warning.slice(12) + secondRecord.slice(0, 3),
+                secondRecord.slice(3),
+            ];
+            await writeFile(first, PPM);
+            for (const chunk of chunks.slice(0, -1)) {
+                options?.onStderr?.(chunk);
+                progressBeforeExit.push([...renderedPages]);
+            }
+            await writeFile(second, PPM);
+            options?.onStderr?.(chunks[4]!);
+            progressBeforeExit.push([...renderedPages]);
+            return {
+                exitCode: 0,
+                stderr: chunks.join(''),
+                stdout: '',
+            };
+        }, createFileSystem());
+
+        const results = await renderBatch({
+            dpi: 150,
+            log: vi.fn(),
+            onPageRendered: pageNumber => renderedPages.push(pageNumber),
+            pdftoppmBinary: '/pdftoppm',
+            signal: new AbortController().signal,
+            sourcePdfPath: join(root, 'source.pdf'),
+            targets: [
+                1,
+                2,
+            ].map(pageNumber => ({
+                limits: {
+                    expectedHeightPx: 1,
+                    expectedWidthPx: 1,
+                    maxPixels: 100,
+                    maxDimensionPx: 10,
+                },
+                outputPath: join(root, `page-${String(pageNumber)}.png`),
+                pageNumber,
+            })),
+        });
+
+        expect(progressBeforeExit).toEqual([
+            [],
+            [],
+            [1],
+            [1],
+            [
+                1,
+                2,
+            ],
+        ]);
+        expect(renderedPages).toEqual(results.map(result => result.pageNumber));
+        expect(results).toHaveLength(2);
+    });
+
     it('keeps a rendered batch when its progress callback throws', async () => {
         const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-raster-batch-test-'));
         roots.push(root);
-        const runCommand = vi.fn(async (_binary: string, args: string[]) => {
-            await writeFile(`${args.at(-1)!}-0003.ppm`, PPM);
+        const runCommand = vi.fn(async (_binary: string, args: string[], options?: IRunCommandOptions) => {
+            const output = `${args.at(-1)!}-0003.ppm`;
+            await writeFile(output, PPM);
+            const stderr = `3 3 ${output}\n`;
+            options?.onStderr?.(stderr);
             return {
                 exitCode: 0,
-                stderr: '',
+                stderr,
                 stdout: '',
             };
         });

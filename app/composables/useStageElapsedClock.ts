@@ -14,12 +14,16 @@ export const useStageElapsedClock = <TStage extends string>(
     stage: MaybeRefOrGetter<TStage | null>,
     uncountedStages: ReadonlySet<TStage>,
 ) => {
-    const now = useNow({scheduler: callback => useIntervalFn(callback, 1000)});
+    const {now, pause, resume} = useNow({
+        controls: true,
+        scheduler: callback => useIntervalFn(callback, 1000, {immediate: false}),
+    });
     const startedAtMs = ref<number | null>(null);
-    watch(() => toValue(stage), (next, previous) => {
-        if (next !== previous) {
-            startedAtMs.value = next === null ? null : Date.now();
-        }
+    // The clock ticks only while a stage without a count is showing it.
+    watch(() => toValue(stage), (next) => {
+        startedAtMs.value = next === null ? null : Date.now();
+        if (next !== null && uncountedStages.has(next)) resume();
+        else pause();
     }, {immediate: true});
     return computed(() => {
         const current = toValue(stage);

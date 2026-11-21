@@ -2,6 +2,7 @@ import {
     dirname,
     join,
 } from 'node:path';
+import {createPdftoppmPageProgress} from '@electron/native-tools/createPdftoppmPageProgress';
 import {runNativeCommand} from '@electron/native-tools/runNativeCommand';
 import {getErrorMessage} from '@electron/utils/error';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
@@ -18,7 +19,6 @@ import type {
 } from '@evb/scan-cleanup/core/types';
 
 const PDFTOPPM_BATCH_TIMEOUT_MS = 3 * 60 * 1_000;
-const PAGE_RENDER_PROGRESS_POLL_INTERVAL_MS = 300;
 // Analyze already owns a bounded 1,024-page manifest. Keeping the Poppler
 // range at that same boundary removes the page-tree seek and process startup
 // from every small staging window without making the detector's manifest or
@@ -104,72 +104,13 @@ export function createScanCleanupRasterBatchRenderer(
             join(dirname(input.targets[0]!.outputPath), 'pdftoppm-batch-'),
         );
         const prefix = join(scratch, 'page');
-        const reportedPages = new Set<number>();
-        let polling = true;
-        let commandSucceeded = false;
         let terminationProof: Promise<boolean> | undefined;
         let failure: unknown;
-        let releasePollWait: (() => void) | null = null;
-        const reportGeneratedPages = async () => {
-            if (input.signal.aborted) return;
-            let entries: ReadonlyArray<{
-                isFile: () => boolean;
-                name: string;
-            }>;
-            try {
-                entries = await fileSystem.readdir(scratch, {withFileTypes: true});
-            } catch {
-                return;
-            }
-            if (!polling && !commandSucceeded) return;
-            const generatedPages = new Set<number>();
-            for (const entry of entries) {
-                const match = /^page-(\d+)\.ppm$/u.exec(entry.name);
-                if (entry.isFile() && match !== null) {
-                    generatedPages.add(Number.parseInt(match[1]!, 10));
-                }
-            }
-            for (const target of input.targets) {
-                if (!generatedPages.has(target.pageNumber) || reportedPages.has(target.pageNumber)) continue;
-                reportedPages.add(target.pageNumber);
-                // Progress is a side channel: its failure must not fail the
-                // pages this batch rendered.
-                try {
-                    input.onPageRendered?.(target.pageNumber);
-                } catch (error) {
-                    input.log(
-                        'warn',
-                        `Scan cleanup could not report rendered page ${String(target.pageNumber)}: ${getErrorMessage(error)}`,
-                    );
-                }
-            }
-        };
-        const poll = async () => {
-            while (polling) {
-                await new Promise<void>(resolve => {
-                    const timeout = setTimeout(() => {
-                        releasePollWait = null;
-                        resolve();
-                    }, PAGE_RENDER_PROGRESS_POLL_INTERVAL_MS);
-                    releasePollWait = () => {
-                        clearTimeout(timeout);
-                        releasePollWait = null;
-                        resolve();
-                    };
-                });
-                if (!polling) break;
-                await reportGeneratedPages();
-            }
-        };
-        const pollingTask = poll();
-        const stopPolling = () => {
-            polling = false;
-            releasePollWait?.();
-        };
         try {
             // Poppler writes PPM; its PNG writer is fixed at maximum zlib
             // compression and would dominate detection on scanned pages.
             await runCommand(input.pdftoppmBinary, [
+                '-progress',
                 '-cropbox',
                 '-hide-annotations',
                 '-r',
@@ -188,11 +129,20 @@ export function createScanCleanupRasterBatchRenderer(
                 onTerminationProof: (proof) => {
                     terminationProof = proof;
                 },
+                onStderr: createPdftoppmPageProgress(pageNumber => {
+                    if (pageNumber < firstPage || pageNumber > lastPage) return;
+                    // Progress is a side channel: its failure must neither
+                    // stop Poppler nor fail the pages this batch rendered.
+                    try {
+                        input.onPageRendered?.(pageNumber);
+                    } catch (error) {
+                        input.log(
+                            'warn',
+                            `Scan cleanup could not report rendered page ${String(pageNumber)}: ${getErrorMessage(error)}`,
+                        );
+                    }
+                }),
             });
-            commandSucceeded = true;
-            stopPolling();
-            await pollingTask;
-            await reportGeneratedPages();
             const generatedByPage = new Map<number, string>();
             for (const entry of await fileSystem.readdir(scratch, {withFileTypes: true})) {
                 const match = /^page-(\d+)\.ppm$/u.exec(entry.name);
@@ -233,12 +183,9 @@ export function createScanCleanupRasterBatchRenderer(
             }
             return results;
         } catch (error) {
-            commandSucceeded = false;
             failure = error;
             throw error;
         } finally {
-            stopPolling();
-            await pollingTask;
             const removeScratch = () => fileSystem.rm(scratch, {
                 force: true,
                 recursive: true,
