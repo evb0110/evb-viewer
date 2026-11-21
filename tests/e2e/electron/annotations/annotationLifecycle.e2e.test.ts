@@ -78,6 +78,7 @@ import {
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import { waitForActiveWorkspaceHost } from '@tests/e2e/electron/helpers/viewerDom';
+import { countWarmHighlightPixels } from '@tests/e2e/electron/helpers/searchHighlightPaint';
 import {
     clickAsUser,
     clickFoundAsUser,
@@ -1184,6 +1185,7 @@ type TImportedComment = keyof typeof IMPORTED_COMMENTS;
 const IMPORTED_NOTE_WINDOW = '.editor-pane.is-active .note-window';
 const IMPORTED_NOTE_MARKER = '.editor-pane.is-active .page_container[data-document-page-number="1"] .pdf-annotation-editor-note';
 const IMPORTED_HIGHLIGHT_PATH = '.editor-pane.is-active .page_container[data-document-page-number="1"] .pdf-annotation-editor-text-markup path[data-annotation-visual]';
+const IMPORTED_HIGHLIGHT_HIT_TARGET = '.editor-pane.is-active .page_container[data-document-page-number="1"] [data-markup-subtype="Highlight"] [data-annotation-hit-target]';
 
 async function openImportedComment(page: Page, kind: TImportedComment) {
     await openAnnotationsTab(page);
@@ -1259,9 +1261,9 @@ function pdfRectCenter([left, bottom, right, top]: number[]) {
     return [(left! + right!) / 2, (bottom! + top!) / 2];
 }
 
-async function readDisplayedAnnotationCenter(page: Page, selector: string) {
-    const center = await page.waitForFunction((visualSelector) => {
-        const element = document.querySelector(visualSelector);
+async function readDisplayedAnnotationGeometry(page: Page, selector: string) {
+    const geometry = await page.waitForFunction((annotationSelector) => {
+        const element = document.querySelector(annotationSelector);
         const pageContainer = element?.closest('.page_container');
         if (!element || !pageContainer || getComputedStyle(element).visibility !== 'visible') {
             return null;
@@ -1271,13 +1273,37 @@ async function readDisplayedAnnotationCenter(page: Page, selector: string) {
         if (!box.width || !box.height || !rect.width || !rect.height) {
             return null;
         }
-        // These fixtures have unrotated 612 × 792 pt pages.
-        return [
-            (rect.left + rect.width / 2 - box.left) * 612 / box.width,
-            (box.bottom - rect.top - rect.height / 2) * 792 / box.height,
-        ];
+        const x = rect.left + rect.width / 2;
+        const y = rect.top + rect.height / 2;
+        return {
+            viewportCenter: {x, y},
+            // These fixtures have unrotated 612 × 792 pt pages.
+            pdfCenter: [
+                (x - box.left) * 612 / box.width,
+                (box.bottom - y) * 792 / box.height,
+            ],
+        };
     }, {}, selector);
-    return (await center.jsonValue())!;
+    return (await geometry.jsonValue())!;
+}
+
+async function readDisplayedAnnotationCenter(page: Page, selector: string) {
+    return (await readDisplayedAnnotationGeometry(page, selector)).pdfCenter;
+}
+
+async function readPaintedImportedHighlightCenter(page: Page) {
+    // The hit rectangle persists when the page raster takes over from the SVG fill.
+    const {pdfCenter, viewportCenter} = await readDisplayedAnnotationGeometry(page, IMPORTED_HIGHLIGHT_HIT_TARGET);
+    const clip = {
+        x: Math.floor(viewportCenter.x),
+        y: Math.floor(viewportCenter.y),
+        width: 1,
+        height: 1,
+    };
+    const screenshot = await page.screenshot({clip, captureBeyondViewport: false});
+    const warmPixels = await countWarmHighlightPixels(screenshot, {left: 0, top: 0, right: 1, bottom: 1}, clip);
+    expect(warmPixels, 'Undo paints the imported highlight at its displayed center').toBeGreaterThan(0);
+    return pdfCenter;
 }
 
 async function saveAnnotationFixture(page: Page, fixture: string) {
@@ -1723,7 +1749,9 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         expect.soft(deleted.annotations[0]?.filter(row => changed.includes(row.subtype ?? '')), 'first Save removes the target from page 1 /Annots').toEqual([]);
         expectUntouchedAnnotations(original, deleted, changed);
 
-        const displayedCenter = await readDisplayedAnnotationCenter(page, isNote ? IMPORTED_NOTE_MARKER : IMPORTED_HIGHLIGHT_PATH);
+        const displayedCenter = isNote
+            ? await readDisplayedAnnotationCenter(page, IMPORTED_NOTE_MARKER)
+            : await readPaintedImportedHighlightCenter(page);
         const saved = await saveAnnotationFixture(page, fixture);
         console.log(`[1677 ${label}]`, JSON.stringify({
             displayedCenter,
