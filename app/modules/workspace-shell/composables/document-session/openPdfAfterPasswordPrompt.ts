@@ -28,7 +28,7 @@ interface IOpenPdfAfterPasswordPromptDeps {
         errorMessage?: string | null,
     ) => Promise<string | null>;
     closePasswordPrompt: (request: Promise<string | null>) => void;
-    isCurrentOpenRequest: (requestId: number) => boolean;
+    isCurrentOpenRequest: (requestId: string | null) => boolean;
     openDocumentDirect: (
         path: TDocumentRef,
         password: string,
@@ -38,14 +38,14 @@ interface IOpenPdfAfterPasswordPromptDeps {
         reason: string,
     ) => Promise<void>;
     setError: (message: string) => void;
-    reportUnsupportedEncryption: (openRequestId: number) => TDocumentOpenOutcome;
+    reportUnsupportedEncryption: (openRequestId: string | null) => TDocumentOpenOutcome;
     trackOpenedDocument: (
         result: TOpenedFileResult,
         openMethod: TOpenMethod,
     ) => void;
     setPendingDjvuPath: (path: TDocumentRef) => void;
     finishPdfOpenResult: (
-        openRequestId: number,
+        openRequestId: string | null,
         result: Extract<TOpenFileResult, {kind: 'pdf'}>,
         openMethod: TOpenMethod,
         options?: IPdfRasterDisplayProfileOpenOptions,
@@ -54,7 +54,7 @@ interface IOpenPdfAfterPasswordPromptDeps {
 }
 
 export async function openPdfAfterPasswordPrompt(
-    openRequestId: number,
+    openRequestId: string | null,
     initialFailure: TPdfPasswordFailureResult,
     openMethod: TOpenMethod,
     options: IPdfRasterDisplayProfileOpenOptions,

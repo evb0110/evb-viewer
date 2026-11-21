@@ -62,8 +62,8 @@ interface ICreateDocumentHistoryDeps extends IHistoryRevisionSwapOptions {
     clearOcrCache: (path: TDocumentRef) => void;
     documentFiles: () => Pick<IDocumentsFileIoCapability, 'getDocumentRevision'>;
     documentWorkingCopy: () => TDocumentHistoryWorkingCopyDeps;
-    getOpenEpoch: () => number;
-    isCurrentOpenEpoch: (token: number) => boolean;
+    /** The controller's open transaction: a replay that an open overtakes does not apply. */
+    readOpenTransactionId: () => string | null;
     readPdfStateFromPath: (path: TDocumentRef) => Promise<IPdfLoadedState>;
 }
 
@@ -206,17 +206,16 @@ export function createDocumentHistory(
         }) !== false;
     }
 
+    /** The revision a byte mutation wrote becomes a history entry; returns the job that loads it, or null. */
     async function reloadWorkingCopyIntoHistory(opts?: {pageIdentityDelta?: IPageIdentityDelta}) {
         const path = state.workingCopyPath.value;
-        if (!path) return false;
+        if (!path) return null;
         const nextState = await deps.readPdfStateFromPath(path);
-        if (!state.isActiveWorkingCopy(path)) return false;
+        if (!state.isActiveWorkingCopy(path)) return null;
         const {token} = await deps.documentFiles().getDocumentRevision(path);
-        if (!state.isActiveWorkingCopy(path) || !pushHistoryEntry(token, opts?.pageIdentityDelta)) return false;
+        if (!state.isActiveWorkingCopy(path) || !pushHistoryEntry(token, opts?.pageIdentityDelta)) return null;
         state.pdfData.value = nextState.pdfData;
-        state.pdfSrc.value = nextState.pdfSrc;
-        state.pdfReloadSrc.value = nextState.pdfSrc;
-        return true;
+        return state.publishPdfSource(nextState.pdfSrc, 'reload');
     }
 
     function pushHistoryEntry(after: TDocumentRevisionToken, pageIdentityDelta?: IPageIdentityDelta) {
@@ -282,9 +281,9 @@ export function createDocumentHistory(
     /** Makes `revision` current in the working copy and shows it: undo or redo, without a copy. */
     async function restoreRevision(revision: TDocumentRevisionToken, delta?: IPageIdentityDelta, applyAnnotations?: () => void) {
         const restoreSessionVersion = fileHistorySessionVersion.value;
-        const restoreOpenRequestId = deps.getOpenEpoch();
+        const restoreOpenTransactionId = deps.readOpenTransactionId();
         const canApplyRestore = () => restoreSessionVersion === fileHistorySessionVersion.value
-            && deps.isCurrentOpenEpoch(restoreOpenRequestId);
+            && deps.readOpenTransactionId() === restoreOpenTransactionId;
         const path = state.workingCopyPath.value;
         if (!path || !canApplyRestore()) return false;
         const expected = state.documentRevisionToken.value;

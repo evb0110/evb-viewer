@@ -84,6 +84,8 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         getOpenSurface: () => views.soleView.value?.openSurface ?? null,
         runDocumentOpen: (request, run) => views.runDocumentOpen(views.soleView.value, request, run),
         document: controller,
+        admitPdfSource: intent => pdfDocumentSessionSlot.admit(intent),
+        resetDocumentPresentation: () => resetDocumentPresentation(),
     });
     const {
         settings: appSettings,
@@ -488,13 +490,14 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         // A split restore reopens its payload as the tab's open transaction.
         openFileWithViewerLifecycle: file.openFileInDocumentTransaction,
         prepareViewReload: views.prepareViewReload,
-        loadPdfFromPath: file.loadPdfFromPath,
         documentRevisionToken: file.documentRevisionToken,
         getNativeSaveTransactionOptions: saveService.getNativeSaveTransactionOptions,
         runWithDocumentOperationLease: runExclusive,
     });
 
-    const {ocr} = useWorkspaceDocumentLifecycleEffects({
+    const {
+        ocr, resetDocumentPresentation,
+    } = useWorkspaceDocumentLifecycleEffects({
         documentAnnotations: pdfDocumentAnnotations,
         totalPages,
         // The OCR panel opens in the toolbar of the active tab.

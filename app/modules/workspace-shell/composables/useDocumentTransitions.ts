@@ -61,6 +61,32 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
         consumePreservedSourceReloadMetadata,
     } = deps;
 
+    // Empties every view of the outgoing document before its successor is
+    // published, or when a close clears it. The PDF document session owns
+    // the document and destroys it once its renders have settled.
+    function resetDocumentPresentation() {
+        clearViews();
+        resetSearchCache();
+        closeSearch();
+        annotationActiveCommentStableKey.value = null;
+        pageLabels.value = null;
+        pageLabelRanges.value = [];
+        pageLabelsDirty.value = false;
+        bookmarkItems.value = [];
+        bookmarksDirty.value = false;
+        bookmarkEditMode.value = false;
+        closeContextMenus();
+        void closeAllAnnotationNotes({ saveIfDirty: false });
+        resetAnnotationTracking();
+        annotationEditorState.value = {
+            isEditing: false,
+            isEmpty: true,
+            hasSomethingToUndo: false,
+            hasSomethingToRedo: false,
+            hasSelectedEditor: false,
+        };
+    }
+
     watch(pdfSrc, (newSrc, oldSrc) => {
         if (newSrc && newSrc !== oldSrc) {
             const isReload = Boolean(oldSrc);
@@ -75,30 +101,8 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
             closeContextMenus();
         }
         if (!newSrc) {
-            // The PDF document session owns the document and destroys it once
-            // its renders have settled.
-            clearViews();
-            resetSearchCache();
-            closeSearch();
-            annotationActiveCommentStableKey.value = null;
-            pageLabels.value = null;
-            pageLabelRanges.value = [];
-            pageLabelsDirty.value = false;
-            bookmarkItems.value = [];
-            bookmarksDirty.value = false;
-            bookmarkEditMode.value = false;
-            closeContextMenus();
-            void closeAllAnnotationNotes({ saveIfDirty: false });
-            resetAnnotationTracking();
-            annotationEditorState.value = {
-                isEditing: false,
-                isEmpty: true,
-                hasSomethingToUndo: false,
-                hasSomethingToRedo: false,
-                hasSelectedEditor: false,
-            };
+            resetDocumentPresentation();
         }
-
     });
 
     watch(workingCopyPath, (nextPath, previousPath) => {
@@ -147,4 +151,6 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
             annotationActiveCommentStableKey.value = null;
         }
     });
+
+    return {resetDocumentPresentation};
 };

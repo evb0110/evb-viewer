@@ -25,7 +25,7 @@ import {createDocumentOpenSurfaceSession} from '@app/modules/document-viewer/pub
 import {createDefaultWorkspaceToolbarSnapshot} from '@app/types/workspaceExpose';
 import {createTabViewSessionState} from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
 import {
-    createEpochGuard, createDocumentSessionState,
+    createDocumentSessionState,
 } from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
 import {setBrowserPlatformApi} from '@app/utils/platform';
 import {createPlatformApiFixture} from '@tests/helpers/createPlatformApiFixture';
@@ -43,6 +43,7 @@ import {
     requireDocumentRevisionToken,
     type TDocumentRevisionToken,
 } from '@contracts/documentRevision';
+import { createPdfSourceJob } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot';
 
 const revisionToken = (name: string) => requireDocumentRevisionToken(name);
 
@@ -51,6 +52,7 @@ function createHistoryHarness(isDesktopRuntime = false) {
     const state = createDocumentSessionState({
             isDesktopRuntime: ref(isDesktopRuntime),
             document: createWorkspaceDocumentController({tabId: 'tab-1'}),
+            admitPdfSource: intent => createPdfSourceJob(intent, {}),
         });
     const work = requireDocumentRef('/tmp/work.pdf');
     state.workingCopyPath.value = work;
@@ -81,8 +83,7 @@ function createHistoryHarness(isDesktopRuntime = false) {
         clearOcrCache: vi.fn(),
         documentFiles: () => documentFiles,
         documentWorkingCopy: () => documentWorkingCopy,
-        getOpenEpoch: () => 1,
-        isCurrentOpenEpoch: () => true,
+        readOpenTransactionId: () => null,
         readPdfStateFromPath: vi.fn(async (): Promise<IPdfLoadedState> => ({
             pdfData: null,
             pdfSrc: {
@@ -138,6 +139,7 @@ function createContentHistoryHarness(pathHistory: boolean, beforeRevisionPrepare
     const state = createDocumentSessionState({
             isDesktopRuntime: ref(pathHistory),
             document: createWorkspaceDocumentController({tabId: 'tab-1'}),
+            admitPdfSource: intent => createPdfSourceJob(intent, {}),
         });
     const work = requireDocumentRef('/tmp/content-work.pdf');
     state.workingCopyPath.value = work;
@@ -262,8 +264,8 @@ function createContentHistoryHarness(pathHistory: boolean, beforeRevisionPrepare
         clearPdfConformanceProfile: () => undefined,
         deferPdfConformanceProfile: () => undefined,
         incrementSessionVersion: () => history.incrementSessionVersion(),
-        loadEpoch: createEpochGuard(),
-        openEpoch: createEpochGuard(),
+        readOpenTransactionId: () => null,
+        resetDocumentPresentation: vi.fn(),
         resetHistory: options => history.resetHistory(options),
         syncDirtyFromHistory: () => history.syncDirtyFromHistory(),
         t: (key, ..._args) => String(key),
@@ -277,8 +279,7 @@ function createContentHistoryHarness(pathHistory: boolean, beforeRevisionPrepare
         clearOcrCache: () => undefined,
         documentFiles: () => files,
         documentWorkingCopy: () => workingCopies,
-        getOpenEpoch: () => 1,
-        isCurrentOpenEpoch: () => true,
+        readOpenTransactionId: () => null,
         readPdfStateFromPath: readState,
     });
     const ledger = useWorkspaceCommandLedger();

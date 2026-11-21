@@ -23,7 +23,9 @@ import type {
     TPageMoveOperation,
     TPageSelection,
 } from '@pdf-core/pdfPageSelection';
-import { usePageOperations } from '@app/modules/pdf-viewer/public';
+import {
+    usePageOperations, type IPdfSourceJob,
+} from '@app/modules/pdf-viewer/public';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { runDetached } from '@app/utils/asyncGuard';
 import { getDocumentWorkingCopyCapability } from '@app/utils/platformDocuments';
@@ -94,7 +96,8 @@ export interface IPageOpsHandlersDeps {
     canMutatePages?: Ref<boolean>;
     ensureHistoryBaselineForMutation: () => Promise<boolean>;
     saveAnnotationsForPageMutation: () => Promise<boolean>;
-    reloadWorkingCopyIntoHistory: (opts?: {pageIdentityDelta?: IPageIdentityDelta}) => Promise<boolean>;
+    /** Returns the job that loads the written revision in every view, or null when nothing was published. */
+    reloadWorkingCopyIntoHistory: (opts?: {pageIdentityDelta?: IPageIdentityDelta}) => Promise<IPdfSourceJob | null>;
     clearOcrCache: (path: TDocumentRef) => void;
     resetSearchCache: () => void;
     ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
@@ -168,14 +171,12 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         ...(bookmarksResolved !== undefined ? {bookmarksResolved} : {}),
         ensureHistoryBaselineForMutation,
         saveAnnotationsForPageMutation,
+        // The operation stays busy until every view presents the new numbering.
         reloadWorkingCopyIntoHistory: async (options) => {
-            const reloaded = await reloadWorkingCopyIntoHistory(options);
-            if (reloaded) {
-                await Promise.all([...views.viewPorts.value.values()].map(async (port) => {
-                    await port.view.pdfViewerRef.value?.waitForViewerLoadSettled?.();
-                }));
-            }
-            return reloaded;
+            const job = await reloadWorkingCopyIntoHistory(options);
+            const outcome = await job?.finished;
+            if (outcome?.status === 'failed') throw outcome.error;
+            return job !== null;
         },
         clearOcrCache,
         resetSearchCache,

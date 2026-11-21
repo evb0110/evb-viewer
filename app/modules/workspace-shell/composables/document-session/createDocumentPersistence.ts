@@ -172,8 +172,7 @@ export function createDocumentPersistence(
         } else if (snapshotHint && snapshotHint.byteLength <= MAX_IN_MEMORY_PDF_BYTES) {
             const snapshot = snapshotHint.slice();
             state.pdfData.value = snapshot;
-            state.pdfSrc.value = deps.toPdfBlob(snapshot);
-            state.pdfReloadSrc.value = state.pdfSrc.value;
+            state.publishPdfSource(deps.toPdfBlob(snapshot), 'adopt');
             await markCurrentHistoryEntryClean();
         } else {
             const nextState = await deps.readPdfStateFromPath(path);
@@ -181,8 +180,7 @@ export function createDocumentPersistence(
                 return false;
             }
             state.pdfData.value = nextState.pdfData;
-            state.pdfSrc.value = nextState.pdfSrc;
-            state.pdfReloadSrc.value = nextState.pdfSrc;
+            state.publishPdfSource(nextState.pdfSrc, 'adopt');
             await markCurrentHistoryEntryClean();
         }
 

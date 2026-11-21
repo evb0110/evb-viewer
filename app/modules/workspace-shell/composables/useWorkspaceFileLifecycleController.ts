@@ -42,10 +42,12 @@ interface IUseWorkspaceFileLifecycleControllerOptions extends IPdfFileOptions {
     getOpenSurface?: (() => IDocumentOpenSurfaceSession | null) | undefined;
     /** Runs an open as the document's open transaction, which ends when the viewer presents it. */
     runDocumentOpen: (request: IWorkspaceOpenRequest, run: () => Promise<boolean>) => Promise<boolean>;
-    document: Pick<IWorkspaceDocumentController, 'assign' | 'file' | 'commitFile'>;
+    document: Pick<IWorkspaceDocumentController, 'assign' | 'file' | 'commitFile' | 'snapshot'>;
 }
 
 function createWorkspaceFileSwitch(deps: {
+    /** The controller's state: an open runs under its transaction, a close under its document instance too. */
+    readDocument: () => IWorkspaceDocumentController['snapshot']['value'];
     workingCopyPath: Ref<TDocumentRef | null>;
     getViewerLifecycleHooks: () => IWorkspaceViewerLifecycleHooks[];
     openFile: (preSelected?: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
@@ -54,8 +56,6 @@ function createWorkspaceFileSwitch(deps: {
     finalizeOpen: (outcome: TDocumentOpenOutcome) => Promise<TDocumentOpenOutcome>;
     closeFile: () => void | Promise<void>;
 }) {
-    let lifecycleGeneration = 0;
-
     function markOutcomeStale(outcome: TDocumentOpenOutcome): TDocumentOpenOutcome {
         return 'result' in outcome
             ? {
@@ -68,22 +68,26 @@ function createWorkspaceFileSwitch(deps: {
     async function openWithViewerLifecycle(
         openDocument: () => Promise<TDocumentOpenOutcome>,
     ) {
-        const generation = ++lifecycleGeneration;
+        const claim = deps.readDocument().activeTransaction?.id;
+        const isCurrent = () => deps.readDocument().activeTransaction?.id === claim;
         const previousWorkingCopyPath = deps.workingCopyPath.value;
         for (const hooks of deps.getViewerLifecycleHooks()) {
             await hooks.beforeOpen?.();
         }
+        if (!isCurrent()) {
+            return {status: 'cancelled'} satisfies TDocumentOpenOutcome;
+        }
         const preparedOutcome = await openDocument();
-        if (generation !== lifecycleGeneration) {
+        if (!isCurrent()) {
             return markOutcomeStale(preparedOutcome);
         }
         const outcome = await deps.finalizeOpen(preparedOutcome);
-        if (generation !== lifecycleGeneration) {
+        if (!isCurrent()) {
             return markOutcomeStale(outcome);
         }
         for (const hooks of deps.getViewerLifecycleHooks()) {
             await hooks.afterOpen?.(outcome, { previousWorkingCopyPath });
-            if (generation !== lifecycleGeneration) {
+            if (!isCurrent()) {
                 return markOutcomeStale(outcome);
             }
         }
@@ -91,11 +95,12 @@ function createWorkspaceFileSwitch(deps: {
     }
 
     async function closeFileWithViewerLifecycle() {
-        const generation = ++lifecycleGeneration;
+        const {activeTransaction, identity} = deps.readDocument();
         for (const hooks of deps.getViewerLifecycleHooks()) {
             await hooks.beforeClose?.();
         }
-        if (generation === lifecycleGeneration) {
+        const current = deps.readDocument();
+        if (current.activeTransaction?.id === activeTransaction?.id && current.identity.documentInstanceId === identity.documentInstanceId) {
             await deps.closeFile();
             // Source watchers own derived navigation, toolbar, and chassis
             // cleanup; let them observe the empty source before close commits.
@@ -298,6 +303,7 @@ export const useWorkspaceFileLifecycleController = (
         openFileDirectBatchWithViewerLifecycle,
         closeFileWithViewerLifecycle: closeFileWithViewerLifecycleBase,
     } = createWorkspaceFileSwitch({
+        readDocument: () => options.document.snapshot.value,
         workingCopyPath,
         getViewerLifecycleHooks,
         openFile,

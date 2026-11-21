@@ -46,7 +46,8 @@ interface IWorkspaceDocumentLifecycleEffectsOptions extends Omit<IDocumentTransi
     isBusy: Ref<boolean>;
     clearOcrCache: (path: TDocumentRef) => void;
     ensureHistoryBaselineForMutation: () => Promise<boolean>;
-    reloadWorkingCopyIntoHistory: () => Promise<boolean>;
+    /** Resolves to the published revision's job, or null when nothing was published. */
+    reloadWorkingCopyIntoHistory: () => Promise<object | null>;
     runWithDocumentOperationLease?: <T>(
         kind: TDocumentOperationKind,
         operation: () => Promise<T>,
@@ -154,7 +155,7 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         unsubscribeDocumentRevision();
     });
 
-    useDocumentTransitions({
+    const {resetDocumentPresentation} = useDocumentTransitions({
         pdfSrc,
         workingCopyPath,
         isDjvuMode,
@@ -346,5 +347,7 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         applyResult: handleOcrComplete,
     });
 
-    return {ocr};
+    return {
+        ocr, resetDocumentPresentation,
+    };
 };

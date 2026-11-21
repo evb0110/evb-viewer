@@ -1,4 +1,6 @@
-import { useOcrTextContent } from '@app/modules/pdf-viewer/public';
+import {
+    useOcrTextContent, type IPdfSourceJob, type TPdfSourceJobIntent,
+} from '@app/modules/pdf-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     getDocumentFilesCapability,
@@ -11,13 +13,16 @@ import { createDocumentOpenFlow } from '@app/modules/workspace-shell/composables
 import { createDocumentPersistence } from '@app/modules/workspace-shell/composables/document-session/createDocumentPersistence';
 import {
     createDocumentSessionState,
-    createEpochGuard,
     type TDocumentFileRecord,
 } from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
 
 export interface IPdfFileOptions extends IHistoryRevisionSwapOptions {
     /** The document controller whose record this file session reads and writes. */
     document: TDocumentFileRecord;
+    /** Admits each published PDF source to the document's PDF session. */
+    admitPdfSource: (intent: TPdfSourceJobIntent) => IPdfSourceJob;
+    /** Empties the views of the document a new one replaces. */
+    resetDocumentPresentation: () => void;
 }
 
 export const usePdfFile = (options: IPdfFileOptions) => {
@@ -29,14 +34,15 @@ export const usePdfFile = (options: IPdfFileOptions) => {
     const sessionState = createDocumentSessionState({
         isDesktopRuntime,
         document: options.document,
+        admitPdfSource: options.admitPdfSource,
     });
     const {
         isDirty,
         workingCopyPath,
         openedWorkingCopyPath,
     } = sessionState;
-    const loadEpoch = createEpochGuard();
-    const openEpoch = createEpochGuard();
+    // A file open, a replay or a close is current while the controller's open transaction is the one it started under.
+    const readOpenTransactionId = () => options.document.snapshot.value.activeTransaction?.id ?? null;
     const {
         clearPdfConformanceProfile,
         deferPdfConformanceProfile,
@@ -49,8 +55,7 @@ export const usePdfFile = (options: IPdfFileOptions) => {
         clearOcrCache,
         documentFiles: getDocumentFilesCapability,
         documentWorkingCopy: getDocumentWorkingCopyCapability,
-        getOpenEpoch: () => openEpoch.current(),
-        isCurrentOpenEpoch: token => openEpoch.isCurrent(token),
+        readOpenTransactionId,
         readPdfStateFromPath: (...args) => documentOpenFlow.readPdfStateFromPath(...args),
     });
     const documentOpenFlow: ReturnType<typeof createDocumentOpenFlow> = createDocumentOpenFlow(sessionState, {
@@ -59,8 +64,8 @@ export const usePdfFile = (options: IPdfFileOptions) => {
         cleanupPreviousWorkingCopy: history.cleanupPreviousWorkingCopy,
         deferPdfConformanceProfile,
         incrementSessionVersion: history.incrementSessionVersion,
-        loadEpoch,
-        openEpoch,
+        readOpenTransactionId,
+        resetDocumentPresentation: options.resetDocumentPresentation,
         resetHistory: history.resetHistory,
         syncDirtyFromHistory: history.syncDirtyFromHistory,
         t,
@@ -76,8 +81,6 @@ export const usePdfFile = (options: IPdfFileOptions) => {
     });
 
     async function closeFile() {
-        openEpoch.invalidate();
-        loadEpoch.invalidate();
         const pathsToCleanup = [...new Set([
             workingCopyPath.value,
             openedWorkingCopyPath.value,
