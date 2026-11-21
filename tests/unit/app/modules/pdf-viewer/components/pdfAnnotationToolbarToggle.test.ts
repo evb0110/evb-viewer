@@ -30,6 +30,8 @@ function mountToolbar() {
     const tools = useViewAnnotationTool({
         pdfViewerRef: ref({prepareAnnotationToolChange}),
         dragMode: ref(false),
+        showSidebar: ref(false),
+        sidebarTab: ref<'thumbnails' | 'annotations'>('thumbnails'),
         annotationKeepActive: ref(true),
         closeAnnotationContextMenu: vi.fn(),
     });

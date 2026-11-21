@@ -610,6 +610,8 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         return true;
     }
 
+    // The surface's ticket for an accepted command; true when placed at once or
+    // submitted without a shared surface, false when refused.
     function submitPageNavigation(pageNumber: TPageNumber, scrollOptions?: IScrollToPageOptions) {
         if (!Number.isFinite(pageNumber)) {
             return false;
@@ -656,7 +658,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         if (!ticket) return false;
         intentSequence += 1;
         startNavigationTicket(ticket);
-        return true;
+        return ticket;
     }
 
     /**
@@ -1010,7 +1012,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         const submitted = submitPageNavigation(toPageNumber(target), {
             navigationSource: 'wheel',
             alignPageBottom: direction < 0,
-        });
+        }) !== false;
         if (submitted) {
             wheelFlipGate.recordFlip(direction, event.timeStamp, event.deltaY);
         }

@@ -135,6 +135,116 @@ describe('createAnnotationSelectionLifecycle', () => {
         expect(consumeSelection).not.toHaveBeenCalled();
     });
 
+    it('keeps an explicit command that joined a pending activation when the tool changes next', async () => {
+        let activeTool: 'highlight' | 'select' = 'highlight';
+        const deferred = Promise.withResolvers<undefined>();
+        const create = vi.fn(async (_request, isRequestCurrent: () => boolean) => {
+            await deferred.promise;
+            return isRequestCurrent()
+                ? {
+                    status: 'created' as const,
+                    annotationId: 'explicit',
+                }
+                : {status: 'cancelled' as const};
+        });
+        const consumeSelection = vi.fn();
+        const lifecycle = createAnnotationSelectionLifecycle({
+            getActiveTool: () => activeTool,
+            create,
+            consumeSelection,
+        });
+        const request = {
+            selection: selection(7),
+            tool: 'highlight',
+            subtype: 'Highlight',
+            style: style(),
+            withNote: false,
+        } as const;
+
+        const activation = lifecycle.activate(request);
+        const explicit = lifecycle.request({
+            ...request,
+            requireActiveTool: false,
+        });
+        activeTool = 'select';
+        lifecycle.invalidateActiveRequests();
+        deferred.resolve(undefined);
+
+        await expect(explicit).resolves.toMatchObject({status: 'created'});
+        await expect(activation).resolves.toMatchObject({status: 'created'});
+        expect(create).toHaveBeenCalledOnce();
+        expect(consumeSelection).toHaveBeenCalledExactlyOnceWith(request.selection);
+    });
+
+    it.each([
+        'activation, then explicit and a tool change',
+        'explicit first, then activation and a tool change',
+        'away and back, then activation again',
+        'explicit again after the tool epoch advanced',
+    ] as const)('commits one explicit markup for one selection: %s', async (sequence) => {
+        let activeTool: 'highlight' | 'select' = 'highlight';
+        const geometry = Promise.withResolvers<undefined>();
+        const commits: string[] = [];
+        const lifecycle = createAnnotationSelectionLifecycle({
+            getActiveTool: () => activeTool,
+            create: async (request, isRequestCurrent) => {
+                await geometry.promise;
+                if (!isRequestCurrent()) {
+                    return {status: 'cancelled' as const};
+                }
+                commits.push(`${request.subtype}:${request.style.color}`);
+                return {
+                    status: 'created' as const,
+                    annotationId: `markup-${commits.length}`,
+                };
+            },
+            consumeSelection: vi.fn(),
+        });
+        const automatic = {
+            selection: selection(8),
+            tool: 'highlight',
+            subtype: 'Highlight',
+            style: style(),
+            withNote: false,
+        } as const;
+        const explicit = {
+            ...automatic,
+            style: {
+                color: '#00ff00',
+                opacity: 0.5,
+            },
+            requireActiveTool: false,
+        };
+        const switchTool = (tool: typeof activeTool) => {
+            activeTool = tool;
+            lifecycle.invalidateActiveRequests();
+        };
+
+        const calls = sequence === 'explicit first, then activation and a tool change'
+            ? [
+                lifecycle.request(explicit),
+                lifecycle.activate(automatic),
+            ]
+            : [
+                lifecycle.activate(automatic),
+                lifecycle.request(explicit),
+            ];
+        switchTool('select');
+        if (sequence === 'away and back, then activation again') {
+            switchTool('highlight');
+            calls.push(lifecycle.activate(automatic));
+        } else if (sequence === 'explicit again after the tool epoch advanced') {
+            calls.push(lifecycle.request(explicit));
+        }
+        geometry.resolve(undefined);
+
+        expect(await Promise.all(calls)).toEqual(calls.map(() => ({
+            status: 'created',
+            annotationId: 'markup-1',
+        })));
+        expect(commits).toEqual(['Highlight:#00ff00']);
+    });
+
     it('keeps the old request cancelled and allows reactivation after returning to the same mode', async () => {
         let activeTool: 'highlight' | 'select' = 'highlight';
         const stale = Promise.withResolvers<undefined>();

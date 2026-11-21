@@ -53,10 +53,7 @@ import {
 import { createPdfPagePointResolver } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/createPdfPagePointResolver';
 import { markerRectFromPoint } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/markerRectFromPoint';
 import {useAnnotationTextSelectionCache} from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationTextSelectionCache';
-import {
-    createAnnotationSelectionLifecycle,
-    type IAnnotationSelectionCreationRequest,
-} from '@app/modules/pdf-viewer/runtime/annotations/createAnnotationSelectionLifecycle';
+import {createAnnotationSelectionLifecycle} from '@app/modules/pdf-viewer/runtime/annotations/createAnnotationSelectionLifecycle';
 import {
     createPdfAnnotationSelectionMarkup,
     type ICreatePdfAnnotationSelectionMarkupRequest,
@@ -418,10 +415,12 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     const selectionLifecycle = createAnnotationSelectionLifecycle({
         getActiveTool: () => options.annotationTool.value,
         consumeSelection: textSelectionCache.consumeSelection,
-        create: (request: IAnnotationSelectionCreationRequest, isRequestCurrent) => createSelectionMarkup({
-            ...request,
-            range: request.selection.range,
-        }, isRequestCurrent),
+        // The markup belongs to the document the request started on: the last
+        // check before the store mutation also holds that document's fence.
+        create: (request, isRequestCurrent) => {
+            const fence = documentSession.captureFence();
+            return createSelectionMarkup(request, () => documentSession.isCurrent(fence) && isRequestCurrent());
+        },
     });
     const failCommentAtPoint = createAnnotationCreationFailureReporter(options.reportAnnotationFailure);
     function commentAtPoint(
@@ -454,11 +453,11 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             annotationId: created.identity.id,
         };
     }
-    async function highlightSelectionInternal(withNote = false, explicitRange?: Range | null) {
-        const selection = explicitRange
-            ? textSelectionCache.getSelectionSnapshotForRange(explicitRange)
-            : textSelectionCache.getSelectionSnapshotForCommentAction();
-        const tool = options.annotationTool.value;
+    // A command naming its tool marks the selection it finds with that tool's
+    // style, whatever tool this viewer was last given.
+    async function highlightSelectionInternal(withNote: boolean, explicitTool?: TAnnotationTool) {
+        const selection = textSelectionCache.getSelectionSnapshotForCommentAction();
+        const tool = explicitTool ?? options.annotationTool.value;
         const subtype = subtypeForAnnotationTool(tool);
         const style = selectionMarkupStyle(subtype);
         await Promise.resolve();
@@ -474,7 +473,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             subtype,
             style,
             withNote,
-            requireActiveTool: isSelectionMarkupTool(tool),
+            requireActiveTool: !explicitTool && isSelectionMarkupTool(tool),
         });
     }
     async function maybeApplySelectionMarkup(explicitRange: Range | null = null) {
@@ -606,7 +605,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         };
     }
     const highlight = {
-        highlightSelection: () => highlightSelectionInternal().then(outcome => outcome.status === 'created'),
+        highlightSelection: (tool?: TAnnotationTool) => highlightSelectionInternal(false, tool).then(outcome => outcome.status === 'created'),
         commentSelection: () => highlightSelectionInternal(true).then(outcome => outcome.status === 'created'),
         createTextMarkupFromText,
         commentAtPoint,
@@ -669,14 +668,16 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                     height: Math.max(...quads.map(rect => rect.top + rect.height)) - top,
                 };
             }
-            viewport.singlePageScroll.scrollToPage(
+            const navigation = viewport.singlePageScroll.scrollToPage(
                 requirePageNumber(comment.pageNumber),
                 {
                     markerRect: navigationRect,
                     navigationSource: 'annotation',
                 },
             );
-            await nextTick();
+            // Whether the passage was reached; a newer command, physical input
+            // or the document's end owns the view and its follow-on edit instead.
+            return typeof navigation !== 'object' || (await navigation.finished).kind === 'arrived';
         },
         // The sidebar and note windows name an annotation by its summary; each
         // command is one undo step on the store entity the summary resolves to.

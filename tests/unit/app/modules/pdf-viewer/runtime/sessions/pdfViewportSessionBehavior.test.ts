@@ -2532,7 +2532,7 @@ describe('PdfViewportSession behavior', () => {
         try {
             fixture.viewport.markPageMounted(requirePageNumber(2));
             fixture.documentSession.ensurePageMetricsInRange.mockReturnValueOnce(metrics.promise);
-            expect(fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(2))).toBe(true);
+            expect(fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(2))).toBe(surface.navigationTicket.value);
             await vi.waitFor(() => expect(
                 fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value,
             ).toBe(true));
@@ -2578,7 +2578,7 @@ describe('PdfViewportSession behavior', () => {
         try {
             fixture.viewport.markPageMounted(requirePageNumber(2));
             fixture.documentSession.ensurePageMetricsInRange.mockReturnValueOnce(metrics.promise);
-            expect(fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(2))).toBe(true);
+            expect(fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(2))).toBe(surface.navigationTicket.value);
             await vi.waitFor(() => expect(
                 fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value,
             ).toBe(true));

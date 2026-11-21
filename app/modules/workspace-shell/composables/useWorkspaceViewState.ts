@@ -99,13 +99,6 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
         });
     }
 
-    function enableDragMode() {
-        deps.dragMode.value = true;
-        if (deps.annotationTool.value !== 'none') {
-            deps.annotationTool.value = 'none';
-        }
-    }
-
     function normalizeNavigationPage(page: number) {
         const requestedPage = Number.isFinite(page) ? Math.trunc(page) : deps.currentPage.value;
         const positivePage = Math.max(requestedPage, 1);
@@ -143,7 +136,6 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
         canUndo,
         canRedo,
         handleFitMode,
-        enableDragMode,
         handleGoToPage,
     };
 };

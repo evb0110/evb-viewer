@@ -108,9 +108,9 @@ export const usePdfViewerPublicApiController = (
     }
 
     /**
-     * Brings the page an annotation request names into view. The request
-     * belongs to the document it arrived on: a reload or replacement while
-     * the page renders answers false through `isCurrent`.
+     * Brings the page an annotation request names into view: its navigation
+     * has ended and the page is rendered. The request belongs to the document
+     * it arrived on: a reload or replacement meanwhile answers false through `isCurrent`.
      */
     async function ensurePublicAnnotationTargetPageReady(pageNumber: TPageNumber) {
         const fence = documentSession.captureFence();
@@ -122,9 +122,11 @@ export const usePdfViewerPublicApiController = (
             };
         }
         options.cancelPendingSearchScroll();
-        viewportSession.singlePageScroll.scrollToPage(pageNumber);
-        await nextTick();
-        if (documentSession.numPages.value > 0 && pageNumber > documentSession.numPages.value) {
+        const navigation = viewportSession.singlePageScroll.scrollToPage(pageNumber);
+        // Within its document the request keeps its page even when a newer
+        // navigation took the viewport; a reload or replacement ends it here.
+        if (typeof navigation === 'object') await navigation.finished;
+        if (!isCurrent() || (documentSession.numPages.value > 0 && pageNumber > documentSession.numPages.value)) {
             return {
                 ready: false,
                 isCurrent,
@@ -307,10 +309,7 @@ export const usePdfViewerPublicApiController = (
             return true;
         },
         editAnnotationTextBox: async (comment) => {
-            if (!comment.appAnnotationId) {
-                return;
-            }
-            await focusAnnotationComment(comment);
+            if (!comment.appAnnotationId || !await focusAnnotationComment(comment)) return;
             await annotationRuntime.annotationEditorSurface.beginTextEditing(asAnnotationId(comment.appAnnotationId));
         },
         selectedAnnotations: annotationRuntime.annotationEditorSurface.selectedAnnotations,
@@ -320,7 +319,7 @@ export const usePdfViewerPublicApiController = (
         handleAnnotationEscape: annotationRuntime.annotationEditorSurface.handleEscape,
         captureCanonicalAnnotationRecovery: annotationRuntime.captureCanonicalAnnotationRecovery,
         restoreCanonicalAnnotationRecovery: annotationRuntime.restoreCanonicalAnnotationRecovery,
-        focusAnnotationComment,
+        focusAnnotationComment: async (comment) => { await focusAnnotationComment(comment); },
         updateAnnotationComment: commentCrud.updateAnnotationComment,
         moveAnnotationMarker: commentCrud.moveAnnotationMarker,
         deleteAnnotationComment: commentCrud.deleteAnnotationComment,
