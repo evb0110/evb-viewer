@@ -58,7 +58,6 @@ interface IUseWorkspaceSplitPayloadOptions {
         promise: Promise<void>;
         cancel: () => void
     };
-    loadPdfFromPath: (path: TDocumentRef, options?: { markDirty?: boolean }) => Promise<void>;
     documentRevisionToken?: Ref<TDocumentRevisionToken | null>;
     getNativeSaveTransactionOptions: () => INativePdfSaveTransactionOptions;
     runWithDocumentOperationLease?: <T>(
