@@ -1,4 +1,8 @@
 import type { Page } from 'puppeteer-core';
+import {
+    chmodSync, copyFileSync, existsSync, writeFileSync,
+} from 'node:fs';
+import { join } from 'node:path';
 import { delay } from 'es-toolkit/promise';
 import { readPdfAnnotationSummary } from '@tests/e2e/electron/helpers/fixtures';
 import {
@@ -7,6 +11,7 @@ import {
 } from '@tests/e2e/electron/helpers/viewerDom';
 import {
     openAnnotationsTab,
+    openDocumentSidebarTab,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
@@ -18,8 +23,56 @@ import {
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
     clickAsUser,
+    clickFoundAsUser,
     revealForPointer,
 } from '@tests/e2e/electron/helpers/userInput';
+
+export async function rotatePageClockwiseFromThumbnail(page: Page, pageNumber: number) {
+    await openDocumentSidebarTab(page, 'Pages');
+    await clickAsUser(page, `.editor-pane.is-active [data-thumbnail-page="${pageNumber}"]`, {button: 'right'});
+    await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+        .find(element => element.textContent?.trim() === 'Rotate Clockwise'), null, {description: 'Rotate Clockwise'});
+}
+
+export function prepareAnnotationReadbackHold(scratch: string) {
+    const armed = join(scratch, 'armed');
+    const held = join(scratch, 'held');
+    const released = join(scratch, 'released');
+    // Forward the native commands and hold completion of one successful real parse.
+    const launcher = join(scratch, process.platform === 'win32' ? 'textsave-native.exe' : 'textsave-native');
+    const preload = join(scratch, 'native-readback.cjs');
+    const realTool = join(process.cwd(), '.tmp/pdf-page-ops', `${process.platform}-${process.arch}`, 'bin',
+        process.platform === 'win32' ? 'evb-pdf-page-ops.exe' : 'evb-pdf-page-ops');
+    copyFileSync(process.execPath, launcher);
+    chmodSync(launcher, 0o700);
+    // Node runs its main module after the preload returns. Keep that main inert.
+    writeFileSync(join(scratch, 'parse-annotations'), '');
+    writeFileSync(preload, [
+        `if (process.execPath === ${JSON.stringify(launcher)}) {`,
+        '  const fs = require("node:fs");',
+        '  const args = [require("node:path").basename(process.argv[1]), ...process.argv.slice(2)];',
+        `  const hold = args[0] === 'parse-annotations' && fs.existsSync(${JSON.stringify(armed)});`,
+        `  if (hold) fs.rmSync(${JSON.stringify(armed)});`,
+        `  const child = require('node:child_process').spawnSync(${JSON.stringify(realTool)}, args, {stdio: 'inherit'});`,
+        '  if (child.status !== 0) process.exit(child.status ?? 1);',
+        '  if (!hold) process.exit(0);',
+        `  const watcher = fs.watch(${JSON.stringify(scratch)}, () => {`,
+        `    if (fs.existsSync(${JSON.stringify(released)})) { watcher.close(); process.exit(0); }`,
+        '  });',
+        `  fs.writeFileSync(${JSON.stringify(held)}, 'real parse completed');`,
+        '}',
+        '',
+    ].join('\n'));
+    return {
+        arm: () => writeFileSync(armed, 'hold next real annotation readback'),
+        held: () => existsSync(held),
+        release: () => writeFileSync(released, 'release real annotation readback'),
+        extraEnv: {
+            EVB_PDF_PAGE_OPS_PATH: launcher,
+            NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --require ${JSON.stringify(preload)}`.trim(),
+        },
+    };
+}
 
 const TOOL_LABEL_TO_ID: Record<string, string> = {
     'Draw': 'draw',

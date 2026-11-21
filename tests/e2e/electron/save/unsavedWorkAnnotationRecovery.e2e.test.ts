@@ -1,8 +1,10 @@
 import {encode} from 'fast-png';
 import type {Page} from 'puppeteer-core';
-import {validateCanonicalAnnotationRecovery} from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
 import {
-    appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, mkdtempSync, rmSync, watch, writeFileSync,
+    validateCanonicalAnnotationRecovery, type ICanonicalAnnotationRecovery,
+} from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
+import {
+    appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, mkdtempSync, rmSync, watch, writeFileSync,
 } from 'node:fs';
 import {
     activateMenuItemAsUser, clickAsUser, clickFoundAsUser,
@@ -15,14 +17,17 @@ import {
     afterEach, describe, expect, it, onTestFinished,
 } from 'vitest';
 import {
-    createMultiPageTextFixturePdf, createOutlinePageLabelFixturePdf, createPasswordProtectedFixturePdf, fixtureBookmark,
+    createCanonicalAnnotationSurfaceFixturePdf, createMultiPageTextFixturePdf, createOutlinePageLabelFixturePdf,
+    createPasswordProtectedFixturePdf, fixtureBookmark, readAnnotationFidelitySnapshot,
     readPdfMetadataWithQpdf, readPdfTextAnnotationRecords,
 } from '@tests/e2e/electron/helpers/fixtures';
 import {
-    createStickyNoteWithPointer, createCanonicalTextBoxWithPointer,
+    clickVisibleAnnotationControl, createStickyNoteWithPointer, createCanonicalTextBoxWithPointer,
+    prepareAnnotationReadbackHold, rotatePageClockwiseFromThumbnail, selectAllFocusedAnnotationText,
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {
-    clickVisibleToolbarButton, openDocumentSidebarTab, saveViaVisibleToolbarWithDeadline, waitForActiveDocumentSource, waitForPdfLoaded, waitForViewerInteractive,
+    clickVisibleToolbarButton, openAnnotationsTab, openDocumentSidebarTab, saveViaVisibleToolbarWithDeadline,
+    waitForActiveDocumentSource, waitForPdfLoaded, waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
     activatePaneByTab, createNewWorkspaceTab, splitActiveTabFromTabMenu,
@@ -108,6 +113,104 @@ describe('checkpointed annotation recovery', () => {
             force: true,
         });
         outputDirectory = null;
+    });
+
+    it.each([
+        'during rotation readback',
+        'after rotation readback',
+        'on an unrotated page',
+    ] as const)('saves a recovered imported note draft captured %s at its original PDF rectangle', async (capture) => {
+        outputDirectory = realpathSync(mkdtempSync(join(tmpdir(), 'evb-note-rotation-recovery-')));
+        const sourcePath = join(outputDirectory, 'imported.pdf');
+        const noteRect = [286, 616, 306, 636] as const;
+        const fixture = await createCanonicalAnnotationSurfaceFixturePdf(`note-rotation-recovery-${Date.now()}.pdf`, [...noteRect]);
+        onTestFinished(() => rmSync(fixture, {force: true}));
+        copyFileSync(fixture, sourcePath);
+        const sourceBytes = readFileSync(sourcePath);
+        const name = `e2e-note-rotation-recovery-${Date.now()}`;
+        const hold = capture === 'on an unrotated page' ? undefined : prepareAnnotationReadbackHold(outputDirectory);
+        const textarea = '.editor-pane.is-active .note-window textarea';
+        const noteRow = '.editor-pane.is-active .note-item[data-annotation-kind="note"] .note-item-content';
+        const square = '.editor-pane.is-active .page_container[data-document-page-number="1"] [data-annotation-kind="shape"] rect';
+        const marker = 'Imported note draft recovered after a crash';
+        const savedRotation = capture === 'on an unrotated page' ? 0 : 90;
+
+        try {
+            session = await startElectronE2ESession(name, {
+                clean: true,
+                initialOpenPaths: [sourcePath],
+                ...(hold ? {extraEnv: hold.extraEnv} : {}),
+            });
+            const {page} = session;
+            const checkpointName = session.name;
+            await waitForPdfLoaded(page);
+            await waitForViewerInteractive(page);
+            await openAnnotationsTab(page);
+            await clickVisibleAnnotationControl(page, noteRow, 2);
+            await clickAsUser(page, textarea);
+            if (hold) {
+                // The draft is typed while the rotation's annotation read is pending, so the
+                // captured store still holds page-one geometry in its pre-rotation frame.
+                await page.waitForSelector(square);
+                const squareX = await page.$eval(square, element => element.getAttribute('x'));
+                hold.arm();
+                await rotatePageClockwiseFromThumbnail(page, 1);
+                await expect.poll(hold.held, {timeout: 20_000}).toBe(true);
+                if (capture === 'after rotation readback') {
+                    // Same sequence, but the read lands before the draft is typed.
+                    hold.release();
+                    // The untouched square reprojects when the annotation read lands.
+                    await page.waitForFunction((selector, previousX) => {
+                        const x = document.querySelector(selector)?.getAttribute('x');
+                        return x != null && x !== previousX;
+                    }, {}, square, squareX);
+                    await waitForViewerInteractive(page);
+                }
+                await clickAsUser(page, textarea);
+            }
+            await selectAllFocusedAnnotationText(page);
+            await page.keyboard.type(marker);
+
+            // The manifest must reference this draft before we cut the session.
+            interface IRecoveryRecord {checkpoint?: {capturedAt?: number; tabs: Array<{
+                fileName?: string;
+                isDirty?: boolean;
+                annotationRecovery?: {payload?: Pick<ICanonicalAnnotationRecovery, 'drafts'>};
+            }>}}
+            await expect.poll(() => readWorkspaceRecoveryRecords<IRecoveryRecord>(checkpointName)
+                .flatMap(record => record.checkpoint?.tabs ?? [])
+                .find(tab => tab.fileName === basename(sourcePath) && tab.isDirty)
+                ?.annotationRecovery?.payload?.drafts, {timeout: 20_000})
+                .toEqual(expect.arrayContaining([expect.objectContaining({kind: 'note', text: marker})]));
+            expect(readFileSync(sourcePath)).toEqual(sourceBytes);
+
+            await session.browser.disconnect();
+            await stopSingleSession(checkpointName, {preserveWorkspaceCheckpoint: true, crashElectronBeforeStop: true});
+            session = null;
+            hold?.release();
+
+            session = await startElectronE2ESession(name, {clean: false});
+            const restored = session.page;
+            await waitForPdfLoaded(restored);
+            await waitForViewerInteractive(restored);
+            await openAnnotationsTab(restored);
+            if (!await restored.$(textarea)) await clickVisibleAnnotationControl(restored, noteRow, 2);
+            await restored.waitForSelector(textarea, {visible: true});
+            expect(await restored.$eval(textarea, element => (element as HTMLTextAreaElement).value)).toBe(marker);
+            await saveViaVisibleToolbarWithDeadline(restored, 30_000, sourcePath);
+
+            const bytes = readFileSync(sourcePath);
+            const pdf = await PDFDocument.load(bytes);
+            const notes = (await readAnnotationFidelitySnapshot(bytes)).filter(annotation => annotation.subtype === '/Text');
+            expect(notes, 'sticky notes in page 1 /Annots').toHaveLength(1);
+            const note = notes[0]!;
+            const rect = note.rect?.match(/-?[\d.]+/gu)?.map(Number);
+            expect(pdf.getPage(0).getRotation().angle, 'page 1 /Rotate').toBe(savedRotation);
+            expect(note.contents, 'note /Contents').toBe(marker);
+            expect(rect, 'note /Rect').toEqual(noteRect.map(coordinate => expect.closeTo(coordinate, 3)));
+        } finally {
+            hold?.release();
+        }
     });
 
     // T2: replay acknowledgement cannot retire the last durable dirty note

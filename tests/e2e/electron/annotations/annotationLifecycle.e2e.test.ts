@@ -6,9 +6,7 @@ import {
 } from 'vitest';
 import { createHash } from 'node:crypto';
 import {
-    chmodSync,
     copyFileSync,
-    existsSync,
     mkdtempSync,
     mkdirSync,
     readFileSync,
@@ -59,6 +57,8 @@ import {
     createCanonicalTextBoxWithPointer,
     createTextMarkupWithPointer,
     clickVisibleAnnotationControl,
+    prepareAnnotationReadbackHold,
+    rotatePageClockwiseFromThumbnail,
     selectAllFocusedAnnotationText,
     setAnnotationKeepActiveWithPointer,
     createStickyNoteWithPointer,
@@ -80,7 +80,6 @@ import {
 import { waitForActiveWorkspaceHost } from '@tests/e2e/electron/helpers/viewerDom';
 import {
     clickAsUser,
-    clickFoundAsUser,
     revealForPointer,
 } from '@tests/e2e/electron/helpers/userInput';
 import {
@@ -1205,13 +1204,6 @@ async function editImportedComment(page: Page, kind: TImportedComment) {
     await clickAsUser(page, `${IMPORTED_NOTE_WINDOW} .note-window__close`);
 }
 
-async function rotateImportedAnnotationPage(page: Page, pageNumber: number) {
-    await openDocumentSidebarTab(page, 'Pages');
-    await clickAsUser(page, `.editor-pane.is-active [data-thumbnail-page="${pageNumber}"]`, {button: 'right'});
-    await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-        .find(element => element.textContent?.trim() === 'Rotate Clockwise'), null, {description: 'Rotate Clockwise'});
-}
-
 async function readImportedNoteCenter(page: Page) {
     // Compare page-relative anchors, independent of scroll and raster layout.
     return page.$eval(IMPORTED_NOTE_MARKER, marker => ({
@@ -1481,44 +1473,13 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             writeFileSync(fixture, await document.save({useObjectStreams: false}));
         }
         const originalBytes = readFileSync(fixture);
-        const armed = join(scratch, 'armed');
-        const held = join(scratch, 'held');
-        const released = join(scratch, 'released');
-        // Forward the native commands and hold completion of one successful real parse.
-        const launcher = join(scratch, process.platform === 'win32' ? 'textsave-native.exe' : 'textsave-native');
-        const preload = join(scratch, 'native-readback.cjs');
-        const realTool = join(process.cwd(), '.tmp/pdf-page-ops', `${process.platform}-${process.arch}`, 'bin',
-            process.platform === 'win32' ? 'evb-pdf-page-ops.exe' : 'evb-pdf-page-ops');
-        copyFileSync(process.execPath, launcher);
-        chmodSync(launcher, 0o700);
-        // Node runs its main module after the preload returns. Keep that main inert.
-        writeFileSync(join(scratch, 'parse-annotations'), '');
-        writeFileSync(preload, [
-            `if (process.execPath === ${JSON.stringify(launcher)}) {`,
-            '  const fs = require("node:fs");',
-            '  const args = [require("node:path").basename(process.argv[1]), ...process.argv.slice(2)];',
-            `  const hold = args[0] === 'parse-annotations' && fs.existsSync(${JSON.stringify(armed)});`,
-            `  if (hold) fs.rmSync(${JSON.stringify(armed)});`,
-            `  const child = require('node:child_process').spawnSync(${JSON.stringify(realTool)}, args, {stdio: 'inherit'});`,
-            '  if (child.status !== 0) process.exit(child.status ?? 1);',
-            '  if (!hold) process.exit(0);',
-            `  const watcher = fs.watch(${JSON.stringify(scratch)}, () => {`,
-            `    if (fs.existsSync(${JSON.stringify(released)})) { watcher.close(); process.exit(0); }`,
-            '  });',
-            `  fs.writeFileSync(${JSON.stringify(held)}, 'real parse completed');`,
-            '}',
-            '',
-        ].join('\n'));
+        const hold = prepareAnnotationReadbackHold(scratch);
         const {page} = await sessionFixture.restart({
             hard: true,
-            extraEnv: {
-                EVB_PDF_PAGE_OPS_PATH: launcher,
-                NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --require ${JSON.stringify(preload)}`.trim(),
-            },
+            extraEnv: hold.extraEnv,
         });
-        const release = () => writeFileSync(released, 'release real annotation readback');
         restoreSession = async () => {
-            release();
+            hold.release();
             return sessionFixture.restart({hard: true, extraEnv: {}});
         };
         await openPdfInApp(page, fixture);
@@ -1533,12 +1494,12 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             page,
             fixture,
             originalBytes,
-            release,
+            release: hold.release,
             square,
             async rotateAndHoldReadback() {
-                writeFileSync(armed, 'hold next real annotation readback');
-                await rotateImportedAnnotationPage(page, rotatedPage);
-                await expect.poll(() => existsSync(held), {timeout: 20_000}).toBe(true);
+                hold.arm();
+                await rotatePageClockwiseFromThumbnail(page, rotatedPage);
+                await expect.poll(hold.held, {timeout: 20_000}).toBe(true);
             },
             async waitForRotatedAnnotations() {
                 if (rotatedPage === 2) await goToPageViaToolbar(page, 2);
@@ -1627,7 +1588,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await openImportedComment(page, 'note');
         await view.rotateAndHoldReadback();
         await editImportedComment(page, 'note');
-        await rotateImportedAnnotationPage(page, 1);
+        await rotatePageClockwiseFromThumbnail(page, 1);
         const secondRotation = await page.waitForFunction((selector) => {
             const toast = document.querySelector('.app-toast-failure');
             if (toast?.textContent) return toast.textContent.trim();
