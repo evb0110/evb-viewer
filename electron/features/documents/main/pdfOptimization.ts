@@ -21,6 +21,7 @@ import { isPdfOptimizePreset } from '@contracts/electronApiDocuments';
 import { isRecord } from '@contracts/runtimeGuards';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { buildPopplerEnv } from '@electron/native-tools/buildPopplerEnv';
+import { createPdftoppmPageProgress } from '@electron/native-tools/createPdftoppmPageProgress';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import {
     assertNonEmptyPdfOutput,
@@ -70,8 +71,6 @@ interface IOptimizeProgressContext {
     emit?: (progress: IPdfOptimizeProgress) => void;
     pages?: IPdfOptimizePageWork;
 }
-
-const RENDERED_PAGE_POLL_MS = 300;
 
 interface IOptimizePdfToFileOptions {
     cancelGroup?: string;
@@ -166,40 +165,6 @@ function signalOptions(context: IOptimizeProgressContext) {
     };
 }
 
-/**
- * pdftoppm renders a whole page range before it returns, so the pages it has
- * already written are counted while it runs; otherwise the first stage of a
- * large chunk shows no movement for many seconds.
- */
-function watchRenderedPageCount(renderDir: string, onCount: (count: number) => void) {
-    let reported = 0;
-    let reading = false;
-    let stopped = false;
-    const timer = setInterval(() => {
-        if (reading || stopped) {
-            return;
-        }
-        reading = true;
-        void collectRenderedPages(renderDir)
-            .then(pages => {
-                // A read that finishes after the range returned would report a
-                // stale rendering stage over the assembly that followed it.
-                if (!stopped && pages.length > reported) {
-                    reported = pages.length;
-                    onCount(reported);
-                }
-            })
-            .catch(() => undefined)
-            .finally(() => {
-                reading = false;
-            });
-    }, RENDERED_PAGE_POLL_MS);
-    return () => {
-        stopped = true;
-        clearInterval(timer);
-    };
-}
-
 function parsePageNumber(fileName: string) {
     const match = fileName.match(/-(\d+)\.[^.]+$/u);
     if (!match) {
@@ -248,11 +213,15 @@ async function renderPdfRange(
     range: IPdfOptimizePageRange,
     preset: IPdfRasterOptimizePreset,
     context: IOptimizeProgressContext,
+    onPageRendered: (pageNumber: number) => void,
 ) {
     const paths = getPdfNativeToolPaths();
     const commandOptions: Parameters<typeof runNativeToolCommand>[2] = {
         timeoutMs: PDF_OPTIMIZE_RENDER_TIMEOUT_MS,
         commandLabel: 'pdftoppm(pdf-optimize)',
+        // pdftoppm renders a whole page range before it returns; its page
+        // lines move the first stage of a large chunk while it runs.
+        onStderr: createPdftoppmPageProgress(onPageRendered),
         ...signalOptions(context),
     };
     const popplerEnv = buildPopplerEnv(paths);
@@ -265,6 +234,7 @@ async function renderPdfRange(
     // page, so they are not painted into its image too.
     const args = [
         '-q',
+        '-progress',
         '-cropbox',
         '-hide-annotations',
         ...(grayscale ? ['-gray'] : []),
@@ -394,7 +364,6 @@ async function optimizeRasterCopy(
     context: IOptimizeProgressContext,
 ): Promise<IOptimizedCandidate> {
     const replacements: IReplacementPage[] = [];
-    let processedPages = 0;
     context.pages = {
         total: pageCount,
         rendered: 0,
@@ -405,21 +374,17 @@ async function optimizeRasterCopy(
         for (const range of createPageRanges(pageCount)) {
             const chunkPath = join(tempDir, `chunk-${String(range.firstPage).padStart(6, '0')}.pdf`);
             await usingManagedScratchScope('pdfExport-', tempDir, async renderDir => {
-                const pagesBeforeRange = processedPages;
-                const stopWatching = watchRenderedPageCount(renderDir, count => emitProgress(
+                // Ranges run in order from page 1 and each renders every page
+                // it spans, so a finished page's number is the rendered count.
+                const renderedPages = await renderPdfRange(
+                    inputPath,
+                    renderDir,
+                    range,
+                    preset,
                     context,
-                    'rendering',
-                    pagesBeforeRange + count,
-                    pageCount,
-                ));
-                let renderedPages: string[];
-                try {
-                    renderedPages = await renderPdfRange(inputPath, renderDir, range, preset, context);
-                } finally {
-                    stopWatching();
-                }
-                processedPages += renderedPages.length;
-                emitProgress(context, 'rendering', processedPages, pageCount);
+                    pageNumber => emitProgress(context, 'rendering', pageNumber, pageCount),
+                );
+                emitProgress(context, 'rendering', range.lastPage, pageCount);
                 await assembleRenderedChunk(
                     renderedPages,
                     renderDir,
