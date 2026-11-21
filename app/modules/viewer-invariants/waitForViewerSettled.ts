@@ -1,6 +1,7 @@
 import { getAutomationEvents } from '@app/modules/workspace-shell/public/automationEvents';
 import { readLastViewerInputAt } from '@app/modules/viewer-invariants/viewerActionLog';
 import { findActiveWorkspaceHost } from '@app/modules/viewer-invariants/readViewerSurface';
+import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 
 /** The quiet window that makes an interaction finished rather than paused. */
 const INPUT_QUIET_MS = 500;
@@ -27,11 +28,9 @@ export interface IViewerSettleOptions {
      * rather than an unnoticed race.
      */
     requireNavigationIdle?: boolean;
+    /** The caller's lifetime; the wait ends unsettled once it aborts. */
+    signal?: AbortSignal;
     timeoutMs?: number;
-}
-
-function nextAnimationFrame() {
-    return new Promise<void>(resolve => window.requestAnimationFrame(() => resolve()));
 }
 
 /**
@@ -128,11 +127,21 @@ export async function waitForViewerSettled(
     const timeoutMs = options.timeoutMs ?? DEFAULT_SETTLE_TIMEOUT_MS;
     const requireNavigationIdle = options.requireNavigationIdle ?? false;
     const startedAt = Date.now();
+    const deadline = startedAt + timeoutMs;
     let lastPending = 'the wait never sampled a frame';
     let previousGeometry: string | null = null;
 
-    while (Date.now() - startedAt < timeoutMs) {
-        await nextAnimationFrame();
+    while (!options.signal?.aborted) {
+        const remainingMs = deadline - Date.now();
+        if (remainingMs <= 0) break;
+
+        await waitForVisualFrames({
+            timeoutMs: Math.min(64, remainingMs),
+            hiddenFallbackMs: Math.min(16, remainingMs),
+        });
+        if (options.signal?.aborted || Date.now() >= deadline) {
+            break;
+        }
         const quietForMs = Date.now() - readLastViewerInputAt();
         if (quietForMs < INPUT_QUIET_MS) {
             lastPending = `input was still arriving ${String(quietForMs)}ms ago`;
@@ -167,7 +176,7 @@ export async function waitForViewerSettled(
     }
 
     return {
-        reason: `${lastPending} within ${String(timeoutMs)}ms`,
+        reason: options.signal?.aborted ? 'the caller stopped waiting' : `${lastPending} within ${String(timeoutMs)}ms`,
         settled: false,
         waitedMs: Date.now() - startedAt,
     };

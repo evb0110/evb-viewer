@@ -459,6 +459,56 @@ describe('DjVu document components', () => {
         }
     });
 
+    it('does not send DjVu outline page lookups after terminating during a traversal yield', async () => {
+        const {djvuGlobal} = installWorker();
+        const lookupsAfterTermination: string[] = [];
+        let workerTerminated = false;
+        class OutlineWorker extends djvuGlobal.Worker {
+            public constructor() {
+                super();
+                Object.assign(this.doc, {
+                    getContents: () => ({run: async () => Array.from({length: 65}, (_, index) => ({
+                        description: `Bookmark ${index + 1}`,
+                        url: `#${index + 1}`,
+                    }))}),
+                    getPageNumberByUrl: (url: string) => ({run: async () => {
+                        if (workerTerminated) {
+                            lookupsAfterTermination.push(url);
+                        }
+                        return 1;
+                    }}),
+                });
+            }
+
+            override terminate() {
+                workerTerminated = true;
+            }
+        }
+        vi.stubGlobal('window', {DjVu: {
+            ...djvuGlobal,
+            Worker: OutlineWorker,
+        }});
+        stubBrowserSource(bundled);
+        const source = await createDjvuPagePreviewSourceFromPath(requireDocumentRef('browser://documents/outline-yield.djvu'));
+        // Keep the task queue on the fake clock when the shared yield helper is used.
+        vi.stubGlobal('MessageChannel', undefined);
+        vi.useFakeTimers();
+        try {
+            const outline = source.getOutline!().catch(() => undefined);
+            // A close queued for the next task runs while the first batch is yielded.
+            setTimeout(() => source.terminate(), 0);
+            await vi.runAllTimersAsync();
+            await outline;
+
+            expect(lookupsAfterTermination).toEqual([]);
+        } finally {
+            if (!workerTerminated) {
+                source.terminate();
+            }
+            vi.useRealTimers();
+        }
+    });
+
     it('reads each bundled component as a standalone DjVu file', async () => {
         const layout = await readBrowserDjvuSourceLayout({
             fileSize: bundled.byteLength,
