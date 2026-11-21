@@ -201,6 +201,101 @@ fn saved_deleted_note_returns_cross_page_replies_to_their_own_page_in_both_write
 }
 
 #[test]
+fn restored_note_revision_publishes_a_clean_trailer() {
+    // Undo of a saved note deletion appends the restored thread. The recovery
+    // graph carries its own cross-reference stream, which is not part of the
+    // annotation and is never written into the revision, so its fresh object
+    // number must not be allocated: /Size then runs one past the last object
+    // the saved file defines and qpdf rejects the trailer it published.
+    let (mut document, first) = create_test_document();
+    // An imported file, as pdf-lib writes one: a classic cross-reference table.
+    // A cross-reference stream would land on the object number a stray
+    // allocation leaves behind and hide the gap from qpdf.
+    document.reference_table.cross_reference_type = lopdf::xref::XrefType::CrossReferenceTable;
+    document.get_dictionary_mut(first).unwrap().set("Resources", Object::Dictionary(Dictionary::new()));
+    let pages = document.get_dictionary(first).unwrap().get(b"Parent").unwrap().as_reference().unwrap();
+    let second = document.add_object(dictionary! {
+        "Type" => "Page", "Parent" => pages, "Resources" => Object::Dictionary(Dictionary::new()),
+    });
+    let tree = document.get_dictionary_mut(pages).unwrap();
+    tree.set("Kids", vec![Object::Reference(first), Object::Reference(second)]);
+    tree.set("Count", 2);
+    let note = || FreeTextNote { page_index: 1, ..binding_note() };
+    let document = recovery_save(document, &NativeMutationsFile { notes: vec![note()], ..Default::default() }, true);
+    let parsed_note = |document: &Document| collect_parsed_annotations(document, "").unwrap().into_iter().find_map(|entry| match entry { PdfAnnotationParseEntry::Note(value) => Some(value), _ => None });
+    let saved_note = parsed_note(&document).unwrap();
+    let delete = AnnotationDelete {
+        page_index: 1,
+        object_number: Some(saved_note.object_number as u32),
+        generation_number: Some(saved_note.generation_number as u16),
+        stable_key: None,
+        created_at: None,
+    };
+    let mut document = recovery_save(document, &NativeMutationsFile { deletes: vec![delete], ..Default::default() }, true);
+    assert!(parsed_note(&document).is_none(), "the saved deletion removes the note");
+
+    let restore = NativeMutationsFile { notes: vec![FreeTextNote { recovery_data: saved_note.recovery_data, ..note() }], ..Default::default() };
+    let pdf = temp_pdf_path("restored-note-trailer");
+    let _cleanup = RemovePdfFilesOnDrop([pdf.clone()]);
+    document.save(&pdf).unwrap();
+    // The saved deletion is the base the Undo appends to, so it must be clean
+    // too: a warning there would hide which revision published the defect.
+    assert_qpdf_check_clean(&pdf, "the saved deletion");
+    append_native_mutations(&pdf, &pdf, &restore, "D:20260908120000Z").unwrap();
+    assert_qpdf_check_clean(&pdf, "the restored note revision");
+    let document = Document::load(&pdf).unwrap();
+    let restored = parsed_note(&document).expect("the revision restores the note");
+    assert_eq!(restored.contents, saved_note.contents);
+    assert_eq!(get_page_annots(&document, first).unwrap(), Vec::<Object>::new());
+    assert_eq!(get_page_annots(&document, second).unwrap().len(), 2, "the restored note and its popup return to its page");
+}
+
+fn assert_qpdf_check_clean(pdf: &Path, revision: &str) {
+    let qpdf = markup_external_tool::tool_path("QPDF_PATH", "qpdf", "qpdf");
+    let check = std::process::Command::new(qpdf).arg("--check").arg(pdf).output().unwrap();
+    assert!(
+        check.status.success() && check.stderr.is_empty(),
+        "qpdf --check rejected {revision}: {}",
+        String::from_utf8_lossy(&check.stderr),
+    );
+}
+
+#[test]
+fn restored_text_box_without_appearance_publishes_a_clean_trailer() {
+    // Undo of a saved deletion of an imported text box that has no /AP. Its
+    // recovery graph strips /Popup, so the restore writes no popup and must not
+    // reserve a number for one: as the last allocation it would leave /Size
+    // one past the last object the revision defines.
+    let (mut document, page) = create_test_document();
+    document.reference_table.cross_reference_type = lopdf::xref::XrefType::CrossReferenceTable;
+    document.get_dictionary_mut(page).unwrap().set("Resources", Object::Dictionary(Dictionary::new()));
+    let root = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "FreeText", "P" => page, "NM" => Object::string_literal("surface-text-box"),
+        "Contents" => Object::string_literal("Imported text"), "Rect" => vec![10.into(), 20.into(), 150.into(), 70.into()],
+        "DA" => Object::string_literal("/Helv 12 Tf 0 g"),
+    });
+    document.get_dictionary_mut(page).unwrap().set("Annots", vec![Object::Reference(root)]);
+    let parsed = collect_parsed_annotations(&document, "").unwrap();
+    let PdfAnnotationParseEntry::TextBox(original) = &parsed[0] else { panic!("{:?}", parsed[0]) };
+    let recovery_data = original.recovery_data.clone().expect("an editable text box carries its recovery graph");
+    let pdf = temp_pdf_path("restored-text-box-trailer");
+    let _cleanup = RemovePdfFilesOnDrop([pdf.clone()]);
+    document.save(&pdf).unwrap();
+    assert_qpdf_check_clean(&pdf, "the imported text box");
+    let delete = AnnotationDelete { page_index: 0, object_number: Some(root.0), generation_number: Some(root.1), stable_key: None, created_at: None };
+    append_native_mutations(&pdf, &pdf, &NativeMutationsFile { deletes: vec![delete], ..Default::default() }, "D:20260908120000Z").unwrap();
+    assert_qpdf_check_clean(&pdf, "the saved deletion");
+    let restore = serde_json::json!({"pageIndex":0,"stableKey":"surface-text-box","text":"Imported text","rect":[10,20,150,70],"rotation":0,"fontSize":12,"color":[0,0,0],"originalAppearance":{"recoveryData":recovery_data}});
+    let restore = NativeMutationsFile { text_boxes: vec![serde_json::from_value(restore).unwrap()], ..Default::default() };
+    append_native_mutations(&pdf, &pdf, &restore, "D:20260908120000Z").unwrap();
+    assert_qpdf_check_clean(&pdf, "the restored text box revision");
+    let parsed = collect_parsed_annotations(&Document::load(&pdf).unwrap(), "").unwrap();
+    let PdfAnnotationParseEntry::TextBox(restored) = &parsed[0] else { panic!("{:?}", parsed[0]) };
+    assert_eq!(restored.text, "Imported text");
+    assert_eq!(restored.rect, original.rect);
+}
+
+#[test]
 fn native_shape_postconditions_reject_style_and_geometry_corruption() {
     let (mut document, page) = create_test_document();
     let mut shape = rectangle_shape("shape-semantic", "#123456");
