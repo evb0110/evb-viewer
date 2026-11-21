@@ -47,6 +47,7 @@ import {
 } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import { createPdfSourceJob } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot';
 
 const driverMocks = vi.hoisted(() => ({
     runBrowserDjvuConversion: vi.fn(async (_source: TDocumentRef, _output: TDocumentRef) => ({success: true})),
@@ -174,6 +175,7 @@ describe('WorkspaceDocumentDriver', () => {
         const state = createDocumentSessionState({
             isDesktopRuntime: ref(true),
             document: createWorkspaceDocumentController({tabId: 'tab-1'}),
+            admitPdfSource: intent => createPdfSourceJob(intent, {}),
         });
         state.workingCopyPath.value = requireDocumentRef('/tmp/pdf-work-123/document.pdf');
         state.originalPath.value = requireDocumentRef(

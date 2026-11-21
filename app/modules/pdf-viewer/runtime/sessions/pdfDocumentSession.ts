@@ -40,8 +40,13 @@ import {
 } from '@app/modules/document-viewer/public';
 import { isPathPdfSource } from '@app/modules/pdf-viewer/engine/pdf-document-source/isPathPdfSource';
 import { buildTrustedPdfGeometrySeed } from '@app/modules/pdf-viewer/runtime/lifecycle/buildTrustedPdfGeometrySeed';
-import { usePdfOpeningGeometryLifecycle } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfOpeningGeometryLifecycle';
+import { commitPdfLoadedOpeningPageGeometry } from '@app/modules/pdf-viewer/runtime/lifecycle/commitPdfLoadedOpeningPageGeometry';
 import { pdfSourcesMatch } from '@app/modules/pdf-viewer/runtime/pdfSourcesMatch';
+import {
+    createPdfSourceJob,
+    settlePdfSourceJob,
+    type IPdfSourceJob,
+} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot';
 import { pdfjsDocumentTeardownCoordinator } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfjsDocumentTeardownCoordinator';
 import {
     createPdfjsDocumentSourceLoader,
@@ -166,21 +171,22 @@ interface IPdfStagedRevisionSwap {
     readonly preservePageMetrics: boolean;
 }
 
-/** A document load while its views present it. */
+/** An admitted source job while its views present it; the plan is decided when its load starts. */
 interface IPdfDocumentPresentingLoad {
+    readonly job: IPdfSourceJob;
     readonly token: number;
-    readonly plan: IPdfDocumentLoadPlan;
-    readonly stagedRevisionSwap: IPdfStagedRevisionSwap | null;
-    /** `loading` until the proxy is accepted; a view that attaches later presents it on its own. */
-    stage: 'loading' | 'presenting';
+    plan: IPdfDocumentLoadPlan;
+    stagedRevisionSwap: IPdfStagedRevisionSwap | null;
     /** Each view that presents this load, with the view token it began with (null: it skipped). */
     readonly views: Map<IPdfDocumentViewPresenter, Promise<number | null>>;
 }
 
+type TPdfViewLoad = Pick<IPdfDocumentPresentingLoad, 'token' | 'plan' | 'stagedRevisionSwap'>;
+
 /** What the document asks of each view that presents it. */
 interface IPdfDocumentViewPresenter {
     isActive(): boolean;
-    beginLoad(load: IPdfDocumentPresentingLoad): Promise<number | null>;
+    beginLoad(load: TPdfViewLoad): Promise<number | null>;
     abortLoad(token: number | null, error: unknown): Promise<void>;
     completeLoad(token: number | null): Promise<void>;
     invalidate(reason: string, isSameDocumentRewrite?: boolean): Promise<void>;
@@ -276,12 +282,11 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     // measures its pages here, one missing page at a time.
     const pageMetricLoads = new Map<number, Promise<IPdfPageMetric | null>>();
     let activeLifecycleKey = fallbackLifecycleKey;
-    let teardownWaitAbortController: AbortController | null = null;
     let trustedGeometrySeedPending = false;
     let activeRasterScheduler: IPdfPageRasterScheduler | null = null;
 
     let documentLoadToken = 0;
-    let scheduledLoadToken = 0;
+    let currentJob: IPdfSourceJob | null = null;
     let activePlan: IPdfDocumentLoadPlan = IDLE_PLAN;
     let presentingLoad: IPdfDocumentPresentingLoad | null = null;
     let pendingPreserveVisibleContent = false;
@@ -785,6 +790,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             lifecycleKey?: string;
             preservePageStructure?: boolean;
             preservePageMetrics?: boolean;
+            signal?: AbortSignal;
         },
     ) {
         const version = startLoad(loadOptions?.preservePageStructure === true);
@@ -826,18 +832,13 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             }
         };
         const pageCount = Promise.withResolvers<number | null>();
-        const waitAbortController = new AbortController();
-        teardownWaitAbortController = waitAbortController;
 
         try {
             // Bind this opening's reader before asynchronous loading; only the
             // accepted proxy resolves its count. No geometry query owns admission.
             const admission = Promise.allSettled(path && !activePlan.isReload && options.admitOpeningSource
                 ? [options.admitOpeningSource(path, () => pageCount.promise)] : []);
-            await pdfjsDocumentTeardownCoordinator.waitForIdle(
-                lifecycleKey,
-                waitAbortController.signal,
-            );
+            await pdfjsDocumentTeardownCoordinator.waitForIdle(lifecycleKey, loadOptions?.signal);
             if (version !== getRenderVersion() || loadToken !== documentLoadToken) {
                 return null;
             }
@@ -946,17 +947,12 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             return handleLoadError(error, version);
         } finally {
             pageCount.resolve(null);
-            if (teardownWaitAbortController === waitAbortController) {
-                teardownWaitAbortController = null;
-            }
             finishLoad(version);
         }
     }
 
     function cleanup() {
         restorePageMutationGeometryPreview();
-        teardownWaitAbortController?.abort();
-        teardownWaitAbortController = null;
         pendingRangeReadFailure = null;
         const version = incrementRenderVersion();
         const document = pdfDocument.value;
@@ -1016,7 +1012,6 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     }
 
     async function invalidate(reason: string, isSameDocumentRewrite = false) {
-        scheduledLoadToken += 1;
         documentLoadToken += 1;
         presentingLoad = null;
         await forEachView(view => view.invalidate(reason, isSameDocumentRewrite));
@@ -1030,123 +1025,166 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         pendingPageMutationRevisionSwap = null;
     }
 
-    async function load(isReload = false) {
-        const src = isReload
-            ? options.reloadSrc?.value ?? options.src?.value ?? null
-            : options.src?.value ?? null;
-        if (!options.src?.value) {
-            activePlan = IDLE_PLAN;
-            await invalidate('empty-source');
-            return;
-        }
-
-        const activeLoadToken = ++documentLoadToken;
+    async function load(presenting: IPdfDocumentPresentingLoad, isReload: boolean) {
+        const {job} = presenting;
         activePlan = computeLoadPlan(isReload);
-        const presenting: IPdfDocumentPresentingLoad = {
-            token: activeLoadToken,
-            plan: activePlan,
-            stagedRevisionSwap: pendingPageMutationRevisionSwap,
-            stage: 'loading',
-            views: new Map(),
-        };
+        presenting.plan = activePlan;
+        presenting.stagedRevisionSwap = pendingPageMutationRevisionSwap;
         pendingPageMutationRevisionSwap = null;
-        presentingLoad = presenting;
-        views.value.forEach(view => presenting.views.set(view, view.beginLoad(presenting)));
+        views.value.forEach((view) => {
+            if (!presenting.views.has(view)) presenting.views.set(view, view.beginLoad(presenting));
+        });
         const began = await Promise.all(presenting.views.values());
-        if (activeLoadToken !== documentLoadToken) {
+        if (presenting.token !== documentLoadToken) {
             return;
         }
         if (began.length > 0 && began.every(token => token === null)) {
             // Every view's surface lost its generation: this source is stale.
             // Keep its PDF.js proxy out rather than open a document nobody shows.
             presentingLoad = null;
+            settlePdfSourceJob(job, {status: 'superseded'});
             return;
         }
 
         let loaded: Awaited<ReturnType<typeof loadPdf>> = null;
         let thrownLoadError: unknown = null;
         try {
-            loaded = await loadPdf(src as TPdfSource, {
+            loaded = await loadPdf((isReload ? job.reloadSource : null) ?? job.source as TPdfSource, {
                 ...(options.documentLifecycleKey?.value
                     ? {lifecycleKey: options.documentLifecycleKey.value}
                     : {}),
                 ...(activePlan.preservePageStructure ? {preservePageStructure: true} : {}),
                 ...(activePlan.preservePageMetrics ? {preservePageMetrics: true} : {}),
+                signal: job.abort.signal,
             });
         } catch (error) {
             thrownLoadError = error;
         }
 
-        if (activeLoadToken !== documentLoadToken) {
+        if (presenting.token !== documentLoadToken) {
             return;
         }
-        presenting.stage = 'presenting';
-        const presentations = [...presenting.views].map(async ([
-            view,
-            token,
-        ]) => (loaded
-            ? view.completeLoad(await token)
-            : view.abortLoad(await token, thrownLoadError ?? loadError.value)));
-        await Promise.all(presentations);
+        const error = thrownLoadError ?? loadError.value;
+        // A view that joins while the others present is part of the same job.
+        const settled = new Set<IPdfDocumentViewPresenter>();
+        for (let joined = [...presenting.views]; joined.length > 0; joined = [...presenting.views].filter(([view]) => !settled.has(view))) {
+            await Promise.all(joined.map(async ([
+                view,
+                token,
+            ]) => {
+                settled.add(view);
+                await (loaded ? view.completeLoad(await token) : view.abortLoad(await token, error));
+            }));
+        }
         if (presentingLoad === presenting) {
             presentingLoad = null;
         }
+        settlePdfSourceJob(job, loaded ? {status: 'presented'} : error ? {status: 'failed', error} : {status: 'superseded'});
     }
 
-    function scheduleLoad(isReload = false) {
-        // The lifecycle queue may still be waiting for an older load. Cancel
-        // its pre-submit work before the replacement joins that queue; only
-        // the latest scheduled load runs, so views mounting together open the
-        // document once.
-        sourceLoader.cancelPendingOpen();
-        const activeScheduledLoadToken = ++scheduledLoadToken;
+    /** Starts the admitted job's load behind the lifecycle work before it; a later job or a release skips it. */
+    function runJob(job: IPdfSourceJob, isReload: boolean, invalidation: Promise<void> = Promise.resolve()) {
+        const presenting: IPdfDocumentPresentingLoad = {
+            job,
+            token: ++documentLoadToken,
+            plan: IDLE_PLAN,
+            stagedRevisionSwap: null,
+            views: new Map(),
+        };
+        presentingLoad = presenting;
         runGuardedTask(() => enqueueLifecycleOperation(async () => {
-            if (activeScheduledLoadToken !== scheduledLoadToken) {
-                return;
-            }
-            await load(isReload);
+            await invalidation;
+            if (presentingLoad === presenting) await load(presenting, isReload);
+        }).catch((error: unknown) => {
+            // A failed presentation takes no more views.
+            if (presentingLoad === presenting) presentingLoad = null;
+            settlePdfSourceJob(job, {status: 'failed', error});
+            throw error;
         }), {
             category: 'user-visible-operation',
             scope: 'pdf-viewer',
             message: 'Failed to load PDF source',
         });
+        return job;
     }
 
-    function invalidateAndCleanup(reason: string) {
-        restorePageMutationGeometryPreview();
+    function replaceCurrentJob(job: IPdfSourceJob) {
+        if (currentJob !== job && currentJob) settlePdfSourceJob(currentJob, {status: job.source ? 'superseded' : 'released'});
+        return currentJob = job;
+    }
+
+    /** Loads the published source no job presents: its waiting job, or a new open once that ended. */
+    function loadPublishedSource() {
+        if (presentingLoad || !options.src?.value) {
+            return presentingLoad?.job ?? null;
+        }
         sourceLoader.cancelPendingOpen();
+        return runJob(currentJob?.source && !currentJob.abort.signal.aborted
+            ? currentJob
+            : replaceCurrentJob(createPdfSourceJob('open', options)), false);
+    }
+
+    /**
+     * Retires the outgoing document once the views let go of it, outside the
+     * lifecycle queue: a load still reading its proxy ends instead of holding
+     * the next job. A clear ends even when a view's invalidation fails.
+     */
+    function invalidateAndCleanup(reason: string, job: IPdfSourceJob, isOutgoing = () => currentJob === job) {
+        restorePageMutationGeometryPreview();
         cancelStagedRevisionSwap();
         pendingPreserveVisibleContent = false;
         const invalidation = invalidate(reason);
-        runGuardedTask(async () => {
-            await invalidation;
-            cleanup();
-            views.value.forEach(view => view.clearPresentedDocument());
-        }, {
+        runGuardedTask(() => invalidation.finally(() => {
+            if (isOutgoing()) {
+                cleanup();
+                views.value.forEach(view => view.clearPresentedDocument());
+            }
+            if (!job.source) settlePdfSourceJob(job, {status: 'released'});
+        }), {
             category: 'user-visible-operation',
             scope: 'pdf-viewer',
             message: 'Failed to invalidate PDF document session',
         });
+        return invalidation;
     }
 
-    function scheduleSourceReplacement(isReload: boolean, isSameDocumentRewrite = false) {
+    /** Takes the source just published; its intent, not the previous source, says whether it opens a new document. */
+    function admit(job: IPdfSourceJob) {
+        const previousSource = currentJob?.source ?? null;
+        replaceCurrentJob(job);
         sourceLoader.cancelPendingOpen();
-        const invalidation = invalidate('source-replaced', isSameDocumentRewrite);
-        const activeScheduledLoadToken = scheduledLoadToken;
-        runGuardedTask(() => enqueueLifecycleOperation(async () => {
-            await invalidation;
-            if (activeScheduledLoadToken !== scheduledLoadToken) return;
-            await load(isReload);
-        }), {
-            category: 'user-visible-operation',
-            scope: 'pdf-viewer',
-            message: 'Failed to load replacement PDF source',
-        });
+        if (!job.source) {
+            invalidateAndCleanup('source-cleared', job);
+            return job;
+        }
+        const isReload = job.intent !== 'open';
+        if (!isReload) {
+            cancelStagedRevisionSwap();
+            pendingPreserveVisibleContent = false;
+        }
+        if (!pendingPageMutationRevisionSwap) {
+            restorePageMutationGeometryPreview();
+        }
+        if (views.value.size === 0) {
+            // Nothing presents the document: the next view that does loads it,
+            // and a new document retires the one it replaces before that view can present it.
+            if (!isReload) {
+                void invalidate('source-replaced');
+                cleanup();
+            }
+            return job;
+        }
+        // A new document retires the outgoing proxy as soon as the views let
+        // go of it, so a load still reading that proxy ends instead of holding this job.
+        const outgoing = pdfDocument.value;
+        return runJob(job, isReload, isReload
+            ? invalidate('source-replaced', pendingPageMutationRevisionSwap !== null || isRewriteOfSameDocument(previousSource, job.source))
+            : invalidateAndCleanup('source-replaced', job, () => outgoing !== null && pdfDocument.value === outgoing));
     }
 
     /** No view presents the document any more: release it, as closing its last viewer does. */
     function releaseDocument() {
-        scheduledLoadToken += 1;
+        if (currentJob) settlePdfSourceJob(currentJob, {status: 'released'});
         documentLoadToken += 1;
         presentingLoad = null;
         pendingPageMutationRevisionSwap = null;
@@ -1227,8 +1265,8 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 message: 'Failed to deactivate PDF document session',
             });
         }
-        if (activated.length > 0 && options.src?.value && !pdfDocument.value && !isLoading.value) {
-            scheduleLoad();
+        if (activated.length > 0 && !pdfDocument.value && !isLoading.value) {
+            loadPublishedSource();
         }
     });
 
@@ -1242,27 +1280,6 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         }
         releaseDocument();
     }
-
-    watch(() => options.src?.value ?? null, (newSrc, oldSrc) => {
-        if (newSrc === oldSrc) {
-            return;
-        }
-        if (!newSrc) {
-            cancelStagedRevisionSwap();
-            pendingPreserveVisibleContent = false;
-            invalidateAndCleanup('source-cleared');
-            return;
-        }
-        if (!pendingPageMutationRevisionSwap) {
-            restorePageMutationGeometryPreview();
-        }
-        if (views.value.size === 0) {
-            // Nothing presents the document: the next view that does loads it.
-            return;
-        }
-        scheduleSourceReplacement(Boolean(oldSrc), pendingPageMutationRevisionSwap !== null
-            || isRewriteOfSameDocument(oldSrc, newSrc));
-    });
 
     onScopeDispose(() => {
         void dispose();
@@ -1477,7 +1494,6 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 : pageCache.leasePage(pageNumber)
         ),
         ensurePageMetricsInRange,
-        scheduleLoad,
         beginPageMutationRotationPreview,
         cancelPageMutationRotationPreview,
     };
@@ -1504,8 +1520,6 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         let stagedRevisionSwapPage: number | null = null;
         const disposables: Array<() => void | Promise<void>> = [];
         let viewDisposed = false;
-        let loadSettleResolve: (() => void) | null = null;
-        let loadSettlePromise: Promise<void> = Promise.resolve();
 
         function captureFence(): IPdfDocumentFence {
             return {
@@ -1553,18 +1567,6 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             });
         }
 
-        function beginLoadSettle() {
-            loadSettleResolve?.();
-            loadSettlePromise = new Promise<void>((resolve) => {
-                loadSettleResolve = resolve;
-            });
-        }
-
-        function resolveLoadSettle() {
-            loadSettleResolve?.();
-            loadSettleResolve = null;
-        }
-
         function presentDocument(document: IPdfDocument | null) {
             presentedDocument = document;
             viewOptions.emitDocument?.(document);
@@ -1574,6 +1576,31 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             if (pdfDocument.value) recordPdfDocumentLoadedRevision(pdfDocument.value, activeDocumentRevision);
             presentDocument(pdfDocument.value);
             viewOptions.emitTotalPages?.(numPages.value);
+            commitLoadedOpeningGeometry();
+        }
+
+        // The opening surface takes the loaded geometry of the page the open
+        // presents, once the page count published has clamped that page; a
+        // sparse source measures that page later, in the viewport's ready transition.
+        if (viewOptions.originalDocumentId) watch(() => [viewOptions.chassisAuthority?.openSurface.viewportSession.value.requestedPage, numPages.value, pageMetricsVersion.value,
+            geometrySource.value, surface?.snapshot.value.generation, surface?.snapshot.value.phase, surface?.snapshot.value.identity?.documentId,
+        ], commitLoadedOpeningGeometry, {flush: 'post'});
+        function commitLoadedOpeningGeometry() {
+            const authority = viewOptions.chassisAuthority;
+            const identity = surface?.snapshot.value.identity;
+            if (!authority || !identity || !viewOptions.originalDocumentId?.value) return;
+            const pageNumber = authority.openSurface.viewportSession.value.requestedPage;
+            if (pageNumber > numPages.value || !pageMetrics.value[pageNumber - 1]) return;
+            commitPdfLoadedOpeningPageGeometry(authority, {
+                expectedGeneration: activeOpenSurfaceGeneration,
+                documentId: identity.documentId,
+                metricSource: geometrySource.value,
+                currentSource: options.src?.value ?? null,
+                pageNumber: requirePageNumber(pageNumber, numPages.value),
+                currentPage: pageNumber,
+                pageCount: numPages.value,
+                pageMetrics: pageMetrics.value,
+            });
         }
 
         /**
@@ -1582,7 +1609,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
          * is claimed here, before any presentation owner reacts to `loading`.
          * Returns false when the view's surface is stale for this load.
          */
-        function claimOpenSurfaceGeneration(load: IPdfDocumentPresentingLoad) {
+        function claimOpenSurfaceGeneration(load: TPdfViewLoad) {
             const stagedPage = stagedRevisionSwapPage;
             stagedRevisionSwapPage = null;
             if (!surface) {
@@ -1638,15 +1665,13 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             return activeOpenSurfaceGeneration !== 0;
         }
 
-        async function beginLoad(load: IPdfDocumentPresentingLoad, plan = load.plan) {
+        async function beginLoad(load: TPdfViewLoad, plan = load.plan) {
             if (viewDisposed) {
                 return null;
             }
             const token = ++viewToken;
             viewPlan = plan;
-            beginLoadSettle();
             if (!claimOpenSurfaceGeneration(load)) {
-                resolveLoadSettle();
                 return null;
             }
             presenting.value = true;
@@ -1675,7 +1700,6 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 surface?.cancelRevisionSwap(activeOpenSurfaceGeneration, activeDocumentRevision);
             }
             await publish('invalidated', 'load-aborted');
-            resolveLoadSettle();
         }
 
         async function completeLoad(token: number | null) {
@@ -1705,52 +1729,46 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 surface?.completeRevisionSwap(activeOpenSurfaceGeneration, activeDocumentRevision);
             }
             await publish('settled', reason, readyFence);
-            resolveLoadSettle();
         }
 
         async function invalidateView(reason: string, isSameDocumentRewrite = false) {
             viewToken += 1;
             presenting.value = false;
             await publish('invalidated', reason, captureFence(), isSameDocumentRewrite);
-            resolveLoadSettle();
         }
 
         /**
-         * Presents the document to a viewer that mounted after it opened:
-         * the transition channel does not replay readiness, so the view joins
-         * a load still opening, presents an accepted document on its own, or
-         * loads the source nothing has opened yet.
+         * Presents the document to a viewer that mounted after it was
+         * published: the transition channel does not replay readiness, so the
+         * view joins the job still loading or presenting, presents an accepted
+         * document on its own, or loads the source nothing has opened yet.
          */
         function present() {
             if (viewDisposed || presentingLoad?.views.has(view)) {
                 return;
             }
-            if (presentingLoad?.stage === 'loading') {
+            if (presentingLoad) {
                 presentingLoad.views.set(view, beginLoad(presentingLoad, IDLE_PLAN));
                 return;
             }
             const document = pdfDocument.value;
-            if (document && !isLoading.value) {
-                if (presentedDocument !== document) {
-                    const load: IPdfDocumentPresentingLoad = {
+            if (isLoading.value) {
+                return;
+            }
+            if (!document) {
+                loadPublishedSource();
+            } else if (presentedDocument !== document) {
+                runGuardedTask(async () => {
+                    await completeLoad(await beginLoad({
                         token: documentLoadToken,
                         plan: IDLE_PLAN,
                         stagedRevisionSwap: null,
-                        stage: 'presenting',
-                        views: new Map(),
-                    };
-                    runGuardedTask(async () => {
-                        await completeLoad(await beginLoad(load));
-                    }, {
-                        category: 'user-visible-operation',
-                        scope: 'pdf-viewer',
-                        message: 'Failed to present PDF document in a new view',
-                    });
-                }
-                return;
-            }
-            if (options.src?.value && !isLoading.value) {
-                scheduleLoad();
+                    }));
+                }, {
+                    category: 'user-visible-operation',
+                    scope: 'pdf-viewer',
+                    message: 'Failed to present PDF document in a new view',
+                });
             }
         }
 
@@ -1771,7 +1789,6 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             }
             disposables.length = 0;
             transitions.dispose();
-            resolveLoadSettle();
             if (disposed) {
                 return;
             }
@@ -1793,7 +1810,24 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
 
         const view: IPdfDocumentViewPresenter = {
             isActive: () => viewOptions.isActive?.value ?? true,
-            beginLoad: load => beginLoad(load),
+            beginLoad(load) {
+                // The opening geometry seeds the shared layout before the load
+                // reads the source; a rewrite of the same document keeps the
+                // geometry measured for it, which the outgoing file would undo.
+                const geometry = surface?.snapshot.value.openingPageGeometry;
+                if (
+                    geometry && geometry.documentId === viewOptions.originalDocumentId?.value
+                    && geometry.pageNumber === viewOptions.currentPage?.value
+                    && !(load.plan.isReload && pageMetrics.value[geometry.pageNumber - 1])
+                ) {
+                    seedTrustedPageGeometry({
+                        pageNumber: requirePageNumber(geometry.pageNumber, geometry.pageCount),
+                        pageCount: geometry.pageCount,
+                        pages: geometry.pages ?? undefined,
+                    });
+                }
+                return beginLoad(load);
+            },
             abortLoad,
             completeLoad,
             invalidate: invalidateView,
@@ -1807,19 +1841,6 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         };
         views.value = new Set(views.value).add(view);
 
-        if (viewOptions.originalDocumentId && viewOptions.currentPage && options.src) {
-            usePdfOpeningGeometryLifecycle({
-                geometrySource,
-                chassisAuthority: viewOptions.chassisAuthority ?? null,
-                currentPage: viewOptions.currentPage,
-                documentId: viewOptions.originalDocumentId,
-                numPages,
-                pageMetrics,
-                pageMetricsVersion,
-                seedTrustedPageGeometry,
-                src: options.src,
-            });
-        }
         if (getCurrentInstance()) {
             onMounted(present);
         }
@@ -1861,14 +1882,11 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                     pageCache.evictPage(pageNumber);
                 }
             },
+            /** Resolves when the current source job has ended; throws its load failure. */
             waitForLoadSettled: async () => {
-                // Flush source changes before awaiting their complete presentation.
-                await nextTick();
-                await lifecycleBarrier;
-                await loadSettlePromise;
-                await nextTick();
-                if (loadError.value) {
-                    throw loadError.value instanceof Error ? loadError.value : new Error(getErrorMessage(loadError.value));
+                const outcome = await currentJob?.finished;
+                if (outcome?.status === 'failed') {
+                    throw outcome.error instanceof Error ? outcome.error : new Error(getErrorMessage(outcome.error));
                 }
             },
             preserveNextReloadVisibleContent(shouldPreserve: boolean) {
@@ -1927,7 +1945,8 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         },
         seedTrustedPageGeometry,
         loadPdf,
-        load,
+        admit,
+        loadPublishedSource,
         invalidate,
         dispose,
         cleanup,
@@ -1936,6 +1955,9 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         },
         get pendingPageMutationRevisionSwap() {
             return pendingPageMutationRevisionSwap;
+        },
+        get currentJob() {
+            return currentJob;
         },
         attachView,
     };

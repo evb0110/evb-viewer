@@ -28,6 +28,8 @@ export {
 export {
     createPdfDocumentSessionSlot,
     pdfDocumentSessionSlotKey,
+    type IPdfSourceJob,
+    type TPdfSourceJobIntent,
 } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot';
 export { usePdfSearch } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearch';
 export type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';

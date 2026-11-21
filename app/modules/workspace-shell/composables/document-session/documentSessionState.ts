@@ -16,6 +16,9 @@ import type {
     TPdfSaveMode,
 } from '@app/types/pdfContracts';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import type {
+    IPdfSourceJob, TPdfSourceJobIntent,
+} from '@app/modules/pdf-viewer/public';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
 
 interface IOpenBatchProgressState {
@@ -36,7 +39,7 @@ export type TPdfConformanceAnalysisState =
     | 'on-demand-only';
 
 /** The record the file session reads and writes: its document controller's. */
-export type TDocumentFileRecord = Pick<IWorkspaceDocumentController, 'file' | 'commitFile'>;
+export type TDocumentFileRecord = Pick<IWorkspaceDocumentController, 'file' | 'commitFile' | 'snapshot'>;
 
 /**
  * The file session's state. Where the document lives and which revision it
@@ -58,6 +61,8 @@ export interface IDocumentSessionState {
     pdfRasterDisplayProfile: Ref<TPdfRasterDisplayProfile | null>;
     pdfReloadSrc: Ref<TPdfSource | null>;
     pdfSrc: Ref<TPdfSource | null>;
+    /** The one place the PDF source is published; returns the job its views load. */
+    publishPdfSource: (source: TPdfSource | null, intent: TPdfSourceJobIntent) => IPdfSourceJob;
     pendingDjvu: Ref<TDocumentRef | null>;
     /** True only after the current document completed a password-protected open. */
     wasEncrypted: Ref<boolean>;
@@ -77,6 +82,7 @@ export interface IDocumentSessionState {
 export function createDocumentSessionState(deps: {
     isDesktopRuntime: Ref<boolean> | ComputedRef<boolean>;
     document: TDocumentFileRecord;
+    admitPdfSource: (intent: TPdfSourceJobIntent) => IPdfSourceJob;
 }): IDocumentSessionState {
     const {
         file, commitFile,
@@ -117,9 +123,14 @@ export function createDocumentSessionState(deps: {
     const pendingDjvu = ref<TDocumentRef | null>(null);
     const openBatchProgress = ref<IOpenBatchProgressState | null>(null);
 
+    function publishPdfSource(source: TPdfSource | null, intent: TPdfSourceJobIntent) {
+        pdfSrc.value = source;
+        pdfReloadSrc.value = source;
+        return deps.admitPdfSource(intent);
+    }
+
     function resetForClose() {
-        pdfSrc.value = null;
-        pdfReloadSrc.value = null;
+        publishPdfSource(null, 'clear');
         pdfData.value = null;
         pdfRasterDisplayProfile.value = null;
         openedWorkingCopyPath.value = null;
@@ -159,6 +170,7 @@ export function createDocumentSessionState(deps: {
         pdfRasterDisplayProfile,
         pdfReloadSrc,
         pdfSrc,
+        publishPdfSource,
         pendingDjvu,
         requiresSaveAsOnFirstSave,
         recoveryDirtyBaseline,
@@ -168,18 +180,5 @@ export function createDocumentSessionState(deps: {
         openedWorkingCopyPath,
         documentRevisionInfo,
         documentRevisionToken,
-    };
-}
-
-export function createEpochGuard() {
-    let epoch = 0;
-    return {
-        begin: () => {
-            epoch += 1;
-            return epoch;
-        },
-        current: () => epoch,
-        invalidate: () => { epoch += 1; },
-        isCurrent: (token: number) => token === epoch,
     };
 }

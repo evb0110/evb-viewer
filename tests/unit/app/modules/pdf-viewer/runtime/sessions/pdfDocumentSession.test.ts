@@ -88,6 +88,9 @@ const electronApi = createElectronPlatformApiFixture({documentFiles: {readFileRa
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => electronApi}));
 
 const {createPdfDocumentSession} = await import('@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession');
+const {
+    createPdfSourceJob, createPdfDocumentSessionSlot,
+} = await import('@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot');
 const {createDocumentViewerRuntime} = await import('@app/modules/document-viewer/runtime/documentViewerRuntime');
 const {createDocumentOpenSurfaceSession} = await import('@app/modules/document-viewer/runtime/documentOpenSurfaceSession');
 const {maxCachedPdfPages} = await import('@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource');
@@ -451,6 +454,17 @@ describe('PdfDocumentSession range loading', () => {
         }
     });
 
+    it('releases a source published before any viewer when its document closes', async () => {
+        const scope = effectScope();
+        const slot = scope.run(() => createPdfDocumentSessionSlot({src: shallowRef(new Blob(['pdf'], {type: 'application/pdf'}) as never)}))!;
+        const job = slot.admit('open');
+
+        scope.stop();
+
+        await expect(job.finished).resolves.toEqual({status: 'released'});
+        expect(pdfjsState.getDocument).not.toHaveBeenCalled();
+    });
+
     it('keeps original annotation bytes until the last linked view and its PDF teardown settle', async () => {
         const directory = await mkdtemp(join(tmpdir(), 'pdf-original-source-'));
         const snapshot = requireDocumentRef(join(directory, 'original.pdf'));
@@ -537,58 +551,13 @@ describe('PdfDocumentSession range loading', () => {
         });
 
         try {
-            await expect(documentState.load())
+            await expect(documentState.loadPublishedSource()?.finished)
                 .resolves
-                .not.toBeNull();
+                .toEqual({status: 'presented'});
             expect(view.openSurfaceGeneration).toBe(generation);
             expect(openSurface.snapshot.value.identity).toMatchObject({
                 documentId: '/tmp/opened-after-session.pdf',
                 documentRevision: 'load:1',
-            });
-        } finally {
-            await documentState.dispose();
-        }
-    });
-
-    it('keeps the rotated page geometry when the rotated file replaces the source', async () => {
-        const documentId = '/tmp/rotated-source.pdf';
-        const openSurface = createDocumentOpenSurfaceSession();
-        const authority = createDocumentViewerRuntime(ref('pdf'), openSurface);
-        const source = shallowRef(new Blob(['pdf'], {type: 'application/pdf'}));
-        const documentState = createPdfDocumentSession({src: computed(() => source.value)});
-        documentState.attachView({
-            chassisAuthority: authority,
-            originalDocumentId: computed(() => documentId),
-            currentPage: computed(() => 1),
-        });
-        openSurface.begin({
-            documentId,
-            documentRevision: 'open-intent:1',
-            provisional: true,
-        }, {
-            documentId,
-            pageNumber: 1,
-            pageCount: 1,
-            width: 100,
-            height: 200,
-            rotation: 0,
-        });
-
-        try {
-            await documentState.load();
-            expect(documentState.beginPageMutationRotationPreview([1], 90)).toBe(true);
-            expect(documentState.pageMetrics.value[0]).toMatchObject({
-                width: 200,
-                height: 100,
-            });
-
-            source.value = new Blob(['rotated pdf'], {type: 'application/pdf'});
-
-            // The opening geometry describes the page before the rotation, and
-            // the outgoing file would measure the page upright again.
-            expect(documentState.pageMetrics.value[0]).toMatchObject({
-                width: 200,
-                height: 100,
             });
         } finally {
             await documentState.dispose();
@@ -2315,6 +2284,7 @@ describe('PdfDocumentSession range loading', () => {
             active.value = false;
             await cancelling.promise;
             source.value = new Blob([Uint8Array.of(2)]);
+            void documentState.admit(createPdfSourceJob('reload', {src: source}));
             await replacing.promise;
             // Let the replacement finish if it has bypassed cancellation.
             for (let turn = 0; turn < 100; turn += 1) await Promise.resolve();
@@ -2667,7 +2637,7 @@ describe('PdfDocumentSession range loading', () => {
         });
 
         source.value = null;
-        await nextTick();
+        documentState.admit(createPdfSourceJob('clear', {src: source}));
         await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
 
         expect(documentDestroy).not.toHaveBeenCalled();

@@ -19,10 +19,7 @@ import { createRequestId } from '@contracts/shared';
 import { parseEpochMs } from '@contracts/timestamps';
 import { isRecord } from '@contracts/runtimeGuards';
 import { DocumentOpenRefusalError } from '@contracts/documentOpenErrors';
-import type {
-    createEpochGuard,
-    IDocumentSessionState,
-} from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
+import type { IDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
 import type { IPdfLoadedState } from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
 import type { IPdfConformanceDeferralOptions } from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -60,7 +57,6 @@ import {
     retainDocumentOpenWorkingCopyForRetry,
 } from '@app/modules/workspace-shell/document-sessions/retainDocumentOpenWorkingCopyForRetry';
 
-type TEpochGuard = ReturnType<typeof createEpochGuard>;
 type TOpenedFileResult = Extract<TOpenFileResult, {kind: 'pdf' | 'djvu'}>;
 export type TDocumentDirectOpenOptions = IPdfRasterDisplayProfileOpenOptions;
 
@@ -73,8 +69,10 @@ export interface ICreateDocumentOpenFlowDeps {
         options?: IPdfConformanceDeferralOptions,
     ) => void;
     incrementSessionVersion: () => void;
-    loadEpoch: TEpochGuard;
-    openEpoch: TEpochGuard;
+    /** The controller's open transaction this file open runs under: a newer claim or a close ends it. */
+    readOpenTransactionId: () => string | null;
+    /** Empties the views of the document a new one replaces, before its source is published. */
+    resetDocumentPresentation: () => void;
     resetHistory: (options?: {isCurrent?: (() => boolean) | undefined}) => Promise<boolean>;
     syncDirtyFromHistory: () => void;
     t: TTranslateFn;
@@ -166,8 +164,7 @@ export function createDocumentOpenFlow(
 
     function beginOpenRequest() {
         cancelPasswordPrompt();
-        deps.loadEpoch.invalidate();
-        return deps.openEpoch.begin();
+        return deps.readOpenTransactionId();
     }
 
     function recordOpenFailure(message: string, error: unknown, data?: unknown) {
@@ -196,16 +193,8 @@ export function createDocumentOpenFlow(
         state.failurePresentation.value = null;
     }
 
-    function isCurrentOpenRequest(requestId: number) {
-        return deps.openEpoch.isCurrent(requestId);
-    }
-
-    function isCurrentLoadRequest(requestId: number) {
-        return deps.loadEpoch.isCurrent(requestId);
-    }
-
-    function isCurrentOpenLoadRequest(openRequestId: number, loadRequestId: number) {
-        return isCurrentOpenRequest(openRequestId) && isCurrentLoadRequest(loadRequestId);
+    function isCurrentOpenRequest(requestId: string | null) {
+        return deps.readOpenTransactionId() === requestId;
     }
 
     async function cleanupAbandonedPdfWorkingCopy(
@@ -297,7 +286,7 @@ export function createDocumentOpenFlow(
     }
 
     async function finishPdfOpenResult(
-        openRequestId: number,
+        openRequestId: string | null,
         result: Extract<TOpenFileResult, { kind: 'pdf' }>,
         openMethod: 'picker' | 'preselected' | 'direct' | 'batch',
         options: IPdfRasterDisplayProfileOpenOptions = {},
@@ -355,7 +344,6 @@ export function createDocumentOpenFlow(
                 recoveryDirtyBaseline: result.recoveryDirtyBaseline === true,
                 openRequestId,
                 validationRevision,
-                resetSourceBeforeCommit: true,
             });
         } catch (error) {
             await cleanupAbandonedPdfWorkingCopy(result, 'failed-pdf-load');
@@ -393,7 +381,7 @@ export function createDocumentOpenFlow(
     }
 
     function openPdfWithPasswordPrompt(
-        openRequestId: number,
+        openRequestId: string | null,
         initialFailure: TPdfPasswordFailureResult,
         openMethod: 'picker' | 'preselected' | 'direct' | 'batch',
         options: IPdfRasterDisplayProfileOpenOptions = {},
@@ -684,9 +672,9 @@ export function createDocumentOpenFlow(
         if (!options?.preserveHistory) {
             state.openedWorkingCopyPath.value = path;
         }
+        if (!options?.preserveHistory && state.pdfSrc.value) deps.resetDocumentPresentation();
         state.pdfData.value = nextState.pdfData;
-        state.pdfSrc.value = nextState.pdfSrc;
-        state.pdfReloadSrc.value = nextState.pdfSrc;
+        state.publishPdfSource(nextState.pdfSrc, options?.preserveHistory ? 'reload' : 'open');
         if (!options?.preserveHistory) state.recoveryDirtyBaseline.value = options?.recoveryDirtyBaseline === true;
         deps.clearPdfConformanceProfile();
 
@@ -743,10 +731,7 @@ export function createDocumentOpenFlow(
 
     async function readPdfStateFromPath(
         path: TDocumentRef,
-        traceContext?: {
-            openRequestId?: number;
-            loadRequestId: number
-        },
+        traceContext?: {openRequestId: string | null},
     ): Promise<IPdfLoadedState> {
         const statStartedAt = performance.now();
         logPdfRenderTrace('pdf-open-source-stat-start', {
@@ -804,26 +789,15 @@ export function createDocumentOpenFlow(
         };
     }
 
-    async function loadPdfFromPath(path: TDocumentRef, opts?: {
+    async function loadPdfFromPath(path: TDocumentRef, opts: {
         originalPath?: TDocumentRef;
         markDirty?: boolean;
         recoveryDirtyBaseline?: boolean;
-        openRequestId?: number;
-        resetSourceBeforeCommit?: boolean;
+        openRequestId: string | null;
         validationRevision?: Promise<IPdfValidationSourceRevision | null>;
     }) {
-        const requestId = deps.loadEpoch.begin();
-        const traceContext = {
-            ...(opts?.openRequestId === undefined ? {} : { openRequestId: opts.openRequestId }),
-            loadRequestId: requestId,
-        };
-        const isCurrent = () => (
-            isCurrentLoadRequest(requestId)
-            && (
-                opts?.openRequestId === undefined
-                || isCurrentOpenLoadRequest(opts.openRequestId, requestId)
-            )
-        );
+        const traceContext = {openRequestId: opts.openRequestId};
+        const isCurrent = () => isCurrentOpenRequest(opts.openRequestId);
         // Yield one visual frame so upstream loading indicators (e.g. the
         // workspace host spinner) can paint before the potentially heavy file
         // read blocks the renderer thread during IPC deserialization.
@@ -854,15 +828,15 @@ export function createDocumentOpenFlow(
         if (!isCurrent()) {
             BrowserLogger.debug('pdf-file', 'Skipped stale PDF load result', {
                 path,
-                requestId,
-                currentLoadRequestId: deps.loadEpoch.current(),
+                ...traceContext,
+                currentOpenRequestId: deps.readOpenTransactionId(),
             });
             return;
         }
 
         // The open capability only stages a working copy. Keep the currently
         // displayed document intact until a real PDF parser accepts that copy.
-        // This is intentionally before the transient source reset and before
+        // This is intentionally before the outgoing document's reset and
         // any working-copy/history ownership changes, which also means a slow
         // validation is time the user spends looking at the previous document
         // under the new document's title.
@@ -874,7 +848,7 @@ export function createDocumentOpenFlow(
         const {
             validation,
             cacheResult,
-        } = await (opts?.validationRevision ?? Promise.resolve(null))
+        } = await (opts.validationRevision ?? Promise.resolve(null))
             .then(revision => validatePdfRevision(
                 revision,
                 () => getDocumentPdfCapability().validatePdfPath(path, {purpose: 'opening'}),
@@ -893,20 +867,11 @@ export function createDocumentOpenFlow(
         if (!validation.isValid) {
             BrowserLogger.warn('pdf-file', 'Rejected invalid staged PDF', {
                 path,
-                requestId,
+                ...traceContext,
                 validationErrors: validation.errors,
             });
             throw new DocumentOpenRefusalError('invalid-pdf', `Staged PDF failed ${validation.tool} validation`);
         }
-        if (opts?.resetSourceBeforeCommit && state.pdfSrc.value) {
-            state.pdfSrc.value = null;
-            state.pdfReloadSrc.value = null;
-            await nextTick();
-            if (!isCurrent()) {
-                return;
-            }
-        }
-
         // Keep the previous working copy until the new file is fully validated and loaded.
         // This avoids dropping recoverable state when opening the next file fails midway.
         const commitStartedAt = performance.now();
@@ -916,10 +881,10 @@ export function createDocumentOpenFlow(
             sourceKind: nextState.pdfData ? 'data' : 'path',
         });
         const didCommit = await applyLoadedPdfState(path, nextState, {
-            ...(opts?.originalPath ? {originalPath: opts.originalPath} : {}),
+            ...(opts.originalPath ? {originalPath: opts.originalPath} : {}),
             isCurrent,
-            markDirty: !!opts?.markDirty,
-            recoveryDirtyBaseline: opts?.recoveryDirtyBaseline === true,
+            markDirty: !!opts.markDirty,
+            recoveryDirtyBaseline: opts.recoveryDirtyBaseline === true,
             previousPath: state.workingCopyPath.value,
         });
         logPdfRenderTrace('pdf-open-state-commit-end', {
