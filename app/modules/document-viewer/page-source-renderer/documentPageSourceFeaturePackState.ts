@@ -41,6 +41,14 @@ export interface IDocumentPageSourceFence {
     readonly src: TDocumentRef | null;
 }
 export interface IDocumentPageSourceTransition extends IDocumentTransition<IDocumentPageSourceFence> {readonly kind: 'open' | 'settle' | 'invalidate' | 'restore';}
+/** One admitted open: its cancellation, and whether its first page committed (false on failure or retirement). */
+export function createDocumentPageSourceOpenJob() {
+    const abort = new AbortController();
+    const visual = Promise.withResolvers<boolean>();
+    abort.signal.addEventListener('abort', () => visual.resolve(false), {once: true});
+    return {abort, visual: visual.promise, settleVisual: visual.resolve};
+}
+export type TDocumentPageSourceOpenJob = ReturnType<typeof createDocumentPageSourceOpenJob>;
 export function createDocumentPageSourceLifecycle(options: {
     chassisAuthority: IDocumentViewerRuntime | null;
     readIsActive: () => boolean;
@@ -76,34 +84,36 @@ export function createDocumentPageSourceLifecycle(options: {
         openSurfaceGeneration.value = null;
         documentRevision.value = null;
     }
+    /** Admits the current source and revision; resolves when its open job has finished delivering. */
+    function admit() {
+        supersede();
+        const src = options.readSrc();
+        const generation = ++loadGeneration.value;
+        documentRevision.value = src
+            ? String(options.readRevisionToken() ?? `page-source:${String(generation)}`)
+            : null;
+        const chassisAuthority = options.chassisAuthority;
+        openSurfaceGeneration.value = src && chassisAuthority
+            ? chassisAuthority.openSurface.acquireSource({
+                documentId: chassisAuthority.openSurface.snapshot.value.identity?.documentId
+                    ?? String(src),
+                documentRevision: documentRevision.value ?? '',
+            }, chassisAuthority.openSurface.snapshot.value.generation)
+            : null;
+        return channel.publish({
+            kind: 'open',
+            fence: readFence(),
+        });
+    }
     function start() {
+        // Registration admits the current source, so a late renderer opens the same source and revision.
+        void admit();
         watch(
             [
                 options.readSrc,
                 options.readRevisionToken,
             ],
-            ([src], previous) => {
-                if (previous[0]) {
-                    supersede();
-                }
-                const generation = ++loadGeneration.value;
-                documentRevision.value = src
-                    ? String(options.readRevisionToken() ?? `page-source:${String(generation)}`)
-                    : null;
-                const chassisAuthority = options.chassisAuthority;
-                openSurfaceGeneration.value = src && chassisAuthority
-                    ? chassisAuthority.openSurface.acquireSource({
-                        documentId: chassisAuthority.openSurface.snapshot.value.identity?.documentId
-                            ?? String(src),
-                        documentRevision: documentRevision.value ?? '',
-                    }, chassisAuthority.openSurface.snapshot.value.generation)
-                    : null;
-                void channel.publish({
-                    kind: 'open',
-                    fence: readFence(),
-                });
-            },
-            {immediate: true},
+            () => void admit(),
         );
         watch(
             () => options.chassisAuthority?.openSurface.snapshot.value,
@@ -152,6 +162,7 @@ export function createDocumentPageSourceLifecycle(options: {
         }, {flush: 'post'});
     }
     return {
+        admit,
         channel,
         dispose() {
             supersede();
@@ -279,11 +290,8 @@ export async function openDocumentPageSource(
         }
         context.publishPageMetrics(createProvisionalDocumentPageMetrics(nextSource.pageCount, initialMetric));
         context.markExactPageMetric(initialPage);
+        // The count publishes synchronously: the surface now holds the admitted or clamped target.
         context.emit('update:totalPages', nextSource.pageCount);
-        await nextTick();
-        if (!transition.isCurrent()) {
-            return false;
-        }
         const restoredPage = normalizePage();
         if (restoredPage !== initialPage) {
             initialPage = restoredPage;

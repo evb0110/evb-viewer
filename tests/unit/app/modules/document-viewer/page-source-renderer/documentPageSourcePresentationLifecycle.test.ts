@@ -23,6 +23,7 @@ import { SerializableError } from '@contracts/serializableError';
 import { requireEpochMs } from '@contracts/timestamps';
 import { requireDocumentRef } from '@contracts/documentRef';
 import { createDocumentPageSlotRegistry } from '@app/modules/document-viewer/page-slots/createDocumentPageSlotRegistry';
+import { createDocumentPageSourceOpenJob } from '@app/modules/document-viewer/page-source-renderer/documentPageSourceFeaturePackState';
 
 function createCurrentTargetEvent(target: EventTarget): Event {
     const event = new Event('load');
@@ -61,7 +62,7 @@ function createPresentationHarness() {
         openSurfaceGeneration: null,
         src: documentRef,
     });
-    const loadController = new AbortController();
+    const openJob = createDocumentPageSourceOpenJob();
     const oldRelease = vi.fn();
     const oldUnsubscribeInvalidation = vi.fn();
     let invalidateOldLease = () => {};
@@ -136,7 +137,7 @@ function createPresentationHarness() {
         readCurrentPage: () => 1,
         readFence: () => fence,
         readIsActive: () => true,
-        readLoadSignal: () => loadController.signal,
+        readOpenJob: () => openJob,
         readMetric: () => ({
             heightPoints: 100,
             rotation: 0,
