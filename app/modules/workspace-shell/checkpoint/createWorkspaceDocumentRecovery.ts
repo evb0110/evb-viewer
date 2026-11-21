@@ -2,6 +2,7 @@ import type {IPdfViewerExpose, TPdfDocumentAnnotations} from '@app/modules/pdf-v
 import type {useMetadataSession} from '@app/modules/workspace-shell/composables/useMetadataSession';
 import type {useWorkspaceAnnotationSession} from '@app/modules/workspace-shell/composables/useWorkspaceAnnotationSession';
 import type {IWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {isRecord} from '@contracts/runtimeGuards';
 import {readWorkspaceRecoveryMetadata} from '@contracts/workspaceCheckpoint';
 import type {IWorkspaceDocumentRecovery} from '@app/types/workspaceDocumentRecovery';
 import {getErrorMessage} from '@app/utils/error';
@@ -10,7 +11,7 @@ import {getWindowTabsCapability} from '@app/utils/platformWindowTabs';
 interface IWorkspaceDocumentRecoveryOptions {
     controller: Pick<IWorkspaceDocumentController, 'snapshot'>;
     pdfViewer: () => IPdfViewerExpose | null;
-    pdfDocumentAnnotations: Pick<TPdfDocumentAnnotations, 'application' | 'textBoxDrafts'>;
+    pdfDocumentAnnotations: Pick<TPdfDocumentAnnotations, 'application' | 'textBoxDrafts' | 'joinRead'>;
     annotations: Pick<ReturnType<typeof useWorkspaceAnnotationSession>, 'captureAnnotationNoteDrafts' | 'getAnnotationNoteDraftsChangeSignature' | 'restoreAnnotationNoteDraft'>;
     metadata: Pick<ReturnType<typeof useMetadataSession>, 'bookmarkState' | 'pageLabelState' | 'captureRecovery' | 'restoreRecovery'>;
     reportFailure: (cause: unknown) => void;
@@ -137,9 +138,18 @@ export function createWorkspaceDocumentRecovery(options: IWorkspaceDocumentRecov
                 markStale();
             };
         },
-        /** Puts recovered drafts back through `viewer`, the view the restored tab shows. */
-        restoreCanonicalAnnotationRecovery: (viewer: IPdfViewerExpose | null, value: unknown) => {
+        /**
+         * Puts recovered drafts back through `viewer`, the view the restored tab shows. Drafts captured before the
+         * read of the recovered bytes landed take that read's geometry, so they wait for it once a view has the
+         * document; when the read fails they stay stored.
+         */
+        restoreCanonicalAnnotationRecovery: async (viewer: IPdfViewerExpose | null, value: unknown) => {
             const recoveredMetadata = readWorkspaceRecoveryMetadata(value);
+            const readRevision = isRecord(value) ? value.annotationReadRevision : undefined;
+            if (readRevision !== undefined && readRevision !== controller.snapshot.value.identity.revisionInfo?.token
+                && await pdfDocumentAnnotations.joinRead() === false) {
+                throw new Error('The recovered document\'s annotations could not be read');
+            }
             const recovery = viewer?.restoreCanonicalAnnotationRecovery?.(value);
             if (!recovery) throw new Error('Canonical annotation recovery is unavailable');
             recovery.drafts.forEach(draft => annotations.restoreAnnotationNoteDraft(draft));

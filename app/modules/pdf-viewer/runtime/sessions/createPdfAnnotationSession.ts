@@ -886,10 +886,15 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                     ...drafts,
                     ...(typeof additionalDrafts === 'function' ? additionalDrafts(entities) : additionalDrafts),
                 ],
+                documentAnnotations.readRevision(documentSession.pdfDocument.value),
             );
         },
         restoreCanonicalAnnotationRecovery: (value: unknown) => {
-            const recovery = restoreCanonicalAnnotationRecovery(annotationApplication.value.store, value);
+            const recovery = restoreCanonicalAnnotationRecovery(
+                annotationApplication.value.store,
+                value,
+                documentAnnotations.readRevision(documentSession.pdfDocument.value),
+            );
             const textBoxDraftRecovery = recovery.drafts.filter(draft => draft.kind === 'text-box');
             documentAnnotations.restoreTextBoxDrafts(textBoxDraftRecovery);
             textBoxDraftRecovery.forEach((draft) => {

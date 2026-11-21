@@ -472,15 +472,20 @@ export function semanticEntityFingerprint(entity: AnnotationEntity) {
 }
 
 /**
- * The authored fields of `entity` that still hold the value of `fingerprint`,
- * an entry of the same kind, compared at fingerprint precision. Page, deletion
- * and author are not authored fields.
+ * The semantic fields of `entity` whose value differs from `fingerprint`, an
+ * entry of the same kind, compared at fingerprint precision; all of them
+ * without one.
  */
-export function semanticFieldsUnchangedSince(entity: AnnotationEntity, fingerprint: string) {
-    const base = JSON.parse(fingerprint) as Record<string, unknown>;
+export function semanticFieldsChangedSince(entity: AnnotationEntity, fingerprint: string | null) {
+    const base = JSON.parse(fingerprint ?? '{}') as Record<string, unknown>;
     const current: Record<string, unknown> = canonicalSemanticEntity(entity);
-    const notAuthored = new Set(Object.keys(semanticBase(entity)));
-    return Object.keys(current).filter(key => !notAuthored.has(key) && JSON.stringify(current[key]) === JSON.stringify(base[key]));
+    return Object.keys(current).filter(key => fingerprint === null || JSON.stringify(current[key]) !== JSON.stringify(base[key]));
+}
+
+/** The authored fields `semanticFieldsChangedSince` leaves out. Page, deletion and author are not authored fields. */
+export function semanticFieldsUnchangedSince(entity: AnnotationEntity, fingerprint: string) {
+    const notAuthored = [...Object.keys(semanticBase(entity)), ...semanticFieldsChangedSince(entity, fingerprint)];
+    return semanticFieldsChangedSince(entity, null).filter(key => !notAuthored.includes(key));
 }
 
 export function semanticSnapshot(entities: Iterable<AnnotationEntity>) {

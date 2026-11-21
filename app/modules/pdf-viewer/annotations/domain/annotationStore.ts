@@ -159,14 +159,11 @@ function isDirty(entity: AnnotationEntity) {
 }
 
 /**
- * A re-read reads bytes that hold no unsaved edit. A field still at the working
- * baseline takes the parse, such as a rotated page's geometry; a field changed
- * since keeps the edit. A label's rect and rotation go together, and its frame
- * and read-only state are the parser's. A tombstone merges the same way.
+ * `current` with the fields in `unchanged` taken from `parsed`, which ends as
+ * the fields taken. A label's rect and rotation go together, and its frame and
+ * read-only state are the parser's.
  */
-function mergeReread(current: AnnotationEntity, parsed: AnnotationEntity, base: ISavedSemanticEntry | undefined) {
-    if (!base || base.kind !== current.kind || parsed.kind !== current.kind) return current;
-    const unchanged = new Set(semanticFieldsUnchangedSince(current, base.fingerprint));
+export function takeParsedFields(current: AnnotationEntity, parsed: AnnotationEntity, unchanged: Set<string>) {
     const merged = {...current};
     const fields: Record<string, unknown> = merged;
     const read: Record<string, unknown> = {...parsed};
@@ -180,6 +177,16 @@ function mergeReread(current: AnnotationEntity, parsed: AnnotationEntity, base: 
         else delete fields[key];
     });
     return merged;
+}
+
+/**
+ * A re-read reads bytes that hold no unsaved edit. A field still at the working
+ * baseline takes the parse, such as a rotated page's geometry; a field changed
+ * since keeps the edit. A tombstone merges the same way.
+ */
+function mergeReread(current: AnnotationEntity, parsed: AnnotationEntity, base: ISavedSemanticEntry | undefined) {
+    if (!base || base.kind !== current.kind || parsed.kind !== current.kind) return current;
+    return takeParsedFields(current, parsed, new Set(semanticFieldsUnchangedSince(current, base.fingerprint)));
 }
 
 /**

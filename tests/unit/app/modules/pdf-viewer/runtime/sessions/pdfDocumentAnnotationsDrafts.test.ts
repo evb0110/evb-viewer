@@ -317,6 +317,56 @@ describe('writer annotations shared by linked views', () => {
         };
     }
 
+    it('records the revision whose parse placed the annotations, through a save in place and a failed re-read', async () => {
+        const {annotations, revision, resource, document, replaceVersion} = setup();
+        const empty = (token: typeof initialRevision) => ({...parsed('unused', token), entities: []});
+        const readRevision = () => annotations.readRevision(document.value);
+        recordPdfDocumentLoadedRevision(document.value!, initialRevision);
+        parsePdfAnnotations.mockResolvedValueOnce(empty(initialRevision));
+
+        expect(readRevision()).toBeNull();
+        await expect(annotations.feedStoreFromWriterParse(resource, shallowRef(null))).resolves.toBe(true);
+        expect(readRevision()).toBe(initialRevision);
+
+        // A save in place mints a revision and keeps the PDF.js document and its geometry.
+        revision.value = nextRevision;
+        expect(readRevision()).toBe(nextRevision);
+
+        // A rotation loads other bytes; until their parse lands the geometry is the older document's,
+        // and a parse that fails leaves it there.
+        const rotatedRevision = requireDocumentRevisionToken('drt1:shared-writer-3');
+        revision.value = rotatedRevision;
+        document.value = cast<TPdfDocumentView['pdfDocument']['value']>({});
+        recordPdfDocumentLoadedRevision(document.value!, rotatedRevision);
+        replaceVersion();
+        expect(readRevision()).toBe(initialRevision);
+        parsePdfAnnotations.mockRejectedValueOnce(new Error('simulated failure'));
+        await expect(annotations.feedStoreFromWriterParse(resource, shallowRef(null))).resolves.toBe(false);
+        expect(readRevision()).toBeNull();
+        parsePdfAnnotations.mockResolvedValueOnce(empty(rotatedRevision));
+        await expect(annotations.feedStoreFromWriterParse(resource, shallowRef(null))).resolves.toBe(true);
+        expect(readRevision()).toBe(rotatedRevision);
+    });
+
+    it('records no read revision for a re-read whose original source could not be kept', async () => {
+        const {annotations, revision, resource, document, replaceVersion} = setup();
+        recordPdfDocumentLoadedRevision(document.value!, initialRevision);
+        parsePdfAnnotations.mockResolvedValueOnce(parsed('Old frame'));
+        createWorkingCopyFromPath.mockResolvedValueOnce(requireDocumentRef('/managed/pinned.pdf'));
+        await expect(annotations.feedStoreFromWriterParse(resource, shallowRef(null))).resolves.toBe(true);
+
+        revision.value = nextRevision;
+        document.value = cast<TPdfDocumentView['pdfDocument']['value']>({});
+        recordPdfDocumentLoadedRevision(document.value!, nextRevision);
+        replaceVersion();
+        parsePdfAnnotations.mockResolvedValueOnce(parsed('New frame', nextRevision));
+        createWorkingCopyFromPath.mockRejectedValueOnce(new Error('simulated failure'));
+        await expect(annotations.feedStoreFromWriterParse(resource, shallowRef(null))).resolves.toBe(false);
+
+        expect(annotations.application.value.listCommentSummaries().map(row => row.text)).toEqual(['Old frame']);
+        expect(annotations.readRevision(document.value)).toBeNull();
+    });
+
     it('A1 review late original capture keeps current document readiness', async () => {
         const workingCopyPath = shallowRef(requireDocumentRef('/managed/A.pdf'));
         const revision = shallowRef(initialRevision);

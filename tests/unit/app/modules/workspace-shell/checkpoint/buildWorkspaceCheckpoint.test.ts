@@ -26,7 +26,10 @@ import { buildWorkspaceCheckpoint } from '@app/modules/workspace-shell/checkpoin
 import {createWorkspaceDocumentRecovery} from '@app/modules/workspace-shell/checkpoint/createWorkspaceDocumentRecovery';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
-import {captureCanonicalAnnotationRecovery} from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
+import {
+    captureCanonicalAnnotationRecovery, restoreCanonicalAnnotationRecovery,
+} from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
+import type {IPdfViewerExpose} from '@app/modules/pdf-viewer/public';
 import {
     asAnnotationId,
     type INoteEntity,
@@ -331,15 +334,11 @@ const highlight: ITextMarkupEntity = {
     opacity: 0.5,
 };
 
-function createRecovery(options: {phase?: string; noteText?: () => string | null; bookmarks?: boolean} = {}) {
+function createRecovery(options: {phase?: string; noteText?: () => string | null; bookmarks?: boolean; joinRead?: () => Promise<boolean> | null} = {}) {
     const store = new AnnotationStore();
     store.replaceFromDocument([highlight], []);
-    const recovery = createWorkspaceDocumentRecovery({
-        controller: cast({snapshot: ref({
-            phase: options.phase ?? 'presented',
-            identity: {documentInstanceId: 'instance-1', workingCopyPath: '/managed/drafts.pdf', revisionInfo: {token: '1'}},
-        })}),
-        pdfViewer: () => cast({captureCanonicalAnnotationRecovery: () => {
+    const viewer = cast<IPdfViewerExpose>({
+        captureCanonicalAnnotationRecovery: () => {
             const text = options.noteText?.() ?? null;
             return captureCanonicalAnnotationRecovery(store, text === null ? [] : [{
                 annotationId: highlight.identity.id,
@@ -348,9 +347,17 @@ function createRecovery(options: {phase?: string; noteText?: () => string | null
                 text,
                 generation: 1,
             }]);
-        }}),
-        pdfDocumentAnnotations: cast({application: shallowRef({store}), textBoxDrafts: new Map()}),
-        annotations: cast({captureAnnotationNoteDrafts: () => [], getAnnotationNoteDraftsChangeSignature: () => []}),
+        },
+        restoreCanonicalAnnotationRecovery: (value: unknown) => restoreCanonicalAnnotationRecovery(store, value),
+    });
+    const recovery = createWorkspaceDocumentRecovery({
+        controller: cast({snapshot: ref({
+            phase: options.phase ?? 'presented',
+            identity: {documentInstanceId: 'instance-1', workingCopyPath: '/managed/drafts.pdf', revisionInfo: {token: '1'}},
+        })}),
+        pdfViewer: () => viewer,
+        pdfDocumentAnnotations: cast({application: shallowRef({store}), textBoxDrafts: new Map(), joinRead: options.joinRead ?? (() => null)}),
+        annotations: cast({captureAnnotationNoteDrafts: () => [], getAnnotationNoteDraftsChangeSignature: () => [], restoreAnnotationNoteDraft: vi.fn()}),
         metadata: cast({
             bookmarkState: {bookmarkItems: ref([])},
             pageLabelState: {pageLabelRanges: ref([])},
@@ -358,7 +365,7 @@ function createRecovery(options: {phase?: string; noteText?: () => string | null
         }),
         reportFailure: vi.fn(),
     });
-    return {store, recovery};
+    return {store, recovery, viewer};
 }
 
 describe('createWorkspaceDocumentRecovery', () => {
@@ -380,6 +387,28 @@ describe('createWorkspaceDocumentRecovery', () => {
 
     it('keeps a bookmark edit, which an empty annotation store does not represent', () => {
         expect(createRecovery({bookmarks: true}).recovery.capture()?.metadata?.bookmarks).toMatchObject({dirty: true, items: []});
+    });
+
+    it('replays drafts captured during an older read once the recovered bytes are read, and keeps them stored when that read fails', async () => {
+        const captured = new AnnotationStore();
+        captured.createNote(cast<INoteEntity>({
+            kind: 'note', identity: {id: asAnnotationId('recovered-note')}, pageIndex: requirePageIndex(0), revision: 0, persistedRevision: -1,
+            deleted: false, createdAt: null, modifiedAt: null, author: null, contents: 'Recovered', position: {left: 0.1, top: 0.1, width: 0.02, height: 0.02},
+            color: '#ffff00', open: false,
+        }));
+        const duringOlderRead = captureCanonicalAnnotationRecovery(captured, [], 'rev-0');
+        const restore = async (joinRead: () => Promise<boolean> | null, payload: unknown = duringOlderRead) => {
+            const {store, recovery, viewer} = createRecovery({joinRead});
+            const restored = recovery.restoreCanonicalAnnotationRecovery(viewer, payload).then(() => true, () => false);
+            return {restored: await restored, note: store.get(asAnnotationId('recovered-note'))};
+        };
+
+        await expect(restore(() => Promise.resolve(true))).resolves.toMatchObject({restored: true, note: {contents: 'Recovered'}});
+        await expect(restore(() => Promise.resolve(false))).resolves.toEqual({restored: false, note: null});
+        // A tab whose document has not loaded has no read to wait for; drafts taken after the current read need none.
+        await expect(restore(() => null)).resolves.toMatchObject({restored: true, note: {contents: 'Recovered'}});
+        await expect(restore(() => Promise.resolve(false), {...duringOlderRead, annotationReadRevision: '1'}))
+            .resolves.toMatchObject({restored: true, note: {contents: 'Recovered'}});
     });
 
     it('stores a burst of edits with one write, and holds stored drafts until recovered ones are applied', async () => {

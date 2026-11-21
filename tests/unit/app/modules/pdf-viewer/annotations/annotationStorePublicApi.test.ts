@@ -18,6 +18,7 @@ import {requireEpochMs} from '@contracts/timestamps';
 import {
     captureCanonicalAnnotationRecovery,
     restoreCanonicalAnnotationRecovery,
+    type ICanonicalAnnotationRecovery,
 } from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
 
 const rect = {
@@ -276,6 +277,229 @@ describe('AnnotationStore public API', () => {
             error: expect.stringContaining('active canonical entity'),
         }]);
         expect(store.get(entity.identity.id)).toMatchObject({text: 'Text'});
+    });
+
+    describe('drafts captured while a re-read of other bytes was pending', () => {
+        const rotated = {
+            left: 0.76,
+            top: 0.1,
+            width: 0.04,
+            height: 0.3,
+        };
+        const moved = {
+            left: 0.5,
+            top: 0.6,
+            width: 0.3,
+            height: 0.04,
+        };
+        const foreignFreeText = {
+            kind: 'foreign' as const,
+            pageIndex: 1,
+            subtype: 'FreeText',
+            name: 'free-text',
+            objectNumber: 9,
+            generationNumber: 0,
+            reason: 'rotated page',
+        };
+        function editorDraft(id: string, canonicalRevision: number, geometry: typeof rect) {
+            return {
+                annotationId: asAnnotationId(id),
+                kind: 'text-box' as const,
+                canonicalRevision,
+                text: `${id} editor text`,
+                geometry,
+                generation: 2,
+            };
+        }
+        // The store as the old bytes read it: saved entities, edits the bytes do not hold and open editors.
+        // The recovered bytes' read has every entity in a rotated frame, and one note on the page that moved up.
+        function captureDuringReread() {
+            const captured = new AnnotationStore();
+            captured.replaceFromDocument([
+                ...['saved-note', 'moved-note', 'typed-note', 'moved-up-note', 'deleted-note'].map(id => note(id)),
+                textBox('label'), textBox('moved-label'), textBox('free-text'),
+            ], []);
+            captured.updateNote(asAnnotationId('moved-note'), {position: moved});
+            captured.updateNote(asAnnotationId('typed-note'), {contents: 'Typed'});
+            captured.updateNote(asAnnotationId('moved-up-note'), {contents: 'Typed'});
+            captured.delete(asAnnotationId('deleted-note'));
+            captured.updateTextBox(asAnnotationId('moved-label'), {rect: moved});
+            const created = captured.createShape(shape('new-shape'));
+            const recovery = captureCanonicalAnnotationRecovery(captured, [
+                editorDraft('label', 0, rect),
+                editorDraft('moved-label', 1, moved),
+            ], 'rev-1');
+            const recovered = new AnnotationStore();
+            recovered.replaceFromDocument([
+                ...['saved-note', 'moved-note', 'typed-note', 'deleted-note'].map(id => ({...note(id), position: rotated})),
+                {...note('moved-up-note'), position: rotated, pageIndex: requirePageIndex(0)},
+                {...textBox('label'), rect: rotated, rotation: 90},
+                {...textBox('moved-label'), rect: rotated, rotation: 90},
+            ], [foreignFreeText]);
+            return {recovery, recovered, created};
+        }
+
+        it.each([
+            ['a version 1 snapshot', (recovery: ICanonicalAnnotationRecovery) => ({...recovery, version: 1, annotationReadRevision: undefined})],
+            ['a snapshot taken after the read of the recovered bytes', (recovery: ICanonicalAnnotationRecovery) => ({...recovery, annotationReadRevision: 'rev-2'})],
+        ])('replays %s as captured', (_label, payload) => {
+            const {recovery, recovered} = captureDuringReread();
+            const result = restoreCanonicalAnnotationRecovery(recovered, payload(recovery), 'rev-2');
+
+            expect(recovered.get(asAnnotationId('saved-note'))).toMatchObject({position: rect, contents: 'Contents'});
+            expect(recovered.get(asAnnotationId('typed-note'))).toMatchObject({position: rect, contents: 'Typed'});
+            expect(recovered.get(asAnnotationId('free-text'))).toMatchObject({rect});
+            expect(recovered.foreign).toEqual([]);
+            expect(result.drafts[0]).toMatchObject({text: 'label editor text', geometry: rect});
+        });
+
+        it('takes the recovered read\'s entity for an unchanged one and drops its editor rectangle', () => {
+            const {recovery, recovered, created} = captureDuringReread();
+            const read = recovered.get(asAnnotationId('saved-note'));
+            const result = restoreCanonicalAnnotationRecovery(recovered, recovery, 'rev-2');
+
+            expect(recovered.get(asAnnotationId('saved-note'))).toEqual(read);
+            expect(recovered.get(asAnnotationId('label'))).toMatchObject({rect: rotated, rotation: 90, text: 'Text'});
+            expect(recovered.get(created.identity.id)).toEqual(created);
+            expect(result.drafts[0]).toEqual({
+                annotationId: asAnnotationId('label'),
+                kind: 'text-box',
+                canonicalRevision: 0,
+                text: 'label editor text',
+                generation: 2,
+            });
+        });
+
+        it('keeps the fields the user changed and takes the read\'s position and page for the others', () => {
+            const {recovery, recovered} = captureDuringReread();
+            restoreCanonicalAnnotationRecovery(recovered, recovery, 'rev-2');
+
+            expect(recovered.get(asAnnotationId('typed-note'))).toMatchObject({position: rotated, pageIndex: 1, contents: 'Typed'});
+            expect(recovered.get(asAnnotationId('moved-up-note'))).toMatchObject({position: rotated, pageIndex: 0, contents: 'Typed'});
+            expect(recovered.get(asAnnotationId('deleted-note'))).toMatchObject({position: rotated, deleted: true});
+            expect(recovered.hasChangesSinceSavedBaseline('note')).toBe(true);
+        });
+
+        it('keeps a geometry edit the user made, with its editor rectangle', () => {
+            const {recovery, recovered} = captureDuringReread();
+            const result = restoreCanonicalAnnotationRecovery(recovered, recovery, 'rev-2');
+
+            expect(recovered.get(asAnnotationId('moved-note'))).toMatchObject({position: moved, contents: 'Contents'});
+            expect(recovered.get(asAnnotationId('moved-label'))).toMatchObject({rect: moved, rotation: 0});
+            expect(result.drafts[1]).toMatchObject({text: 'moved-label editor text', geometry: moved});
+        });
+
+        it('keeps moved geometry when the app stops again before the restored read is recorded', () => {
+            const {recovery} = captureDuringReread();
+            const readOfSameBytes = () => {
+                const store = new AnnotationStore();
+                store.replaceFromDocument([note('saved-note'), note('moved-note'), note('typed-note'), textBox('label'), textBox('moved-label')], []);
+                return store;
+            };
+            const firstRestore = readOfSameBytes();
+            restoreCanonicalAnnotationRecovery(firstRestore, recovery, 'rev-1');
+            const secondRestore = readOfSameBytes();
+            restoreCanonicalAnnotationRecovery(secondRestore, captureCanonicalAnnotationRecovery(firstRestore, [], null), 'rev-1');
+
+            expect(secondRestore.get(asAnnotationId('moved-note'))).toMatchObject({position: moved});
+            expect(secondRestore.get(asAnnotationId('moved-label'))).toMatchObject({rect: moved});
+            expect(secondRestore.get(asAnnotationId('saved-note'))).toMatchObject({position: rect});
+            expect(secondRestore.get(asAnnotationId('typed-note'))).toMatchObject({position: rect, contents: 'Typed'});
+        });
+
+        it('leaves out a clean entity the recovered read keeps as foreign', () => {
+            const {recovery, recovered} = captureDuringReread();
+            restoreCanonicalAnnotationRecovery(recovered, recovery, 'rev-2');
+
+            expect(recovered.get(asAnnotationId('free-text'))).toBeNull();
+            expect(recovered.foreign).toEqual([foreignFreeText]);
+        });
+
+        it('replays as captured while the store holds no read', () => {
+            const {recovery, recovered} = captureDuringReread();
+            restoreCanonicalAnnotationRecovery(recovered, recovery, null);
+
+            expect(recovered.get(asAnnotationId('saved-note'))).toMatchObject({position: rect});
+            expect(recovered.get(asAnnotationId('free-text'))).toMatchObject({rect});
+        });
+
+        it('restores an edit beside an unchanged imported annotation named like an object property', () => {
+            const notes = [note('constructor'), note('edited-note')];
+            const captured = new AnnotationStore();
+            captured.replaceFromDocument(notes, []);
+            captured.updateNote(asAnnotationId('edited-note'), {contents: 'Typed'});
+            const recovery = JSON.parse(JSON.stringify(captureCanonicalAnnotationRecovery(captured, [], 'rev-1')));
+            const recovered = new AnnotationStore();
+            recovered.replaceFromDocument(notes.map(entry => ({...entry, position: rotated})), []);
+            restoreCanonicalAnnotationRecovery(recovered, recovery, 'rev-2');
+
+            expect(recovered.get(asAnnotationId('edited-note'))).toMatchObject({contents: 'Typed', position: rotated});
+            expect(recovered.get(asAnnotationId('constructor'))).toMatchObject({contents: 'Contents', position: rotated});
+        });
+    });
+
+    describe('the 4 MiB recovery budget', () => {
+        const budget = 4 * 1024 * 1024;
+        const noteTextLimit = 64 * 1024;
+        const encodedBytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength;
+        // The snapshot as version 1 stored it, without the read revision and changed-field names.
+        const snapshotBytes = ({annotationReadRevision: _readRevision, changedFields: _changedFields, ...snapshot}: ICanonicalAnnotationRecovery) => encodedBytes(snapshot);
+        // Saved notes, each within the note text limit, and one unsaved edit, captured at `bytes`.
+        function editedStoreOfSize(bytes: number) {
+            const notes = Array.from({length: 66}, (_, index) => note(`note-${index}`));
+            const edited = (entries: INoteEntity[]) => {
+                const store = new AnnotationStore();
+                store.replaceFromDocument(entries, []);
+                store.updateNote(asAnnotationId('note-0'), {contents: 'Typed'});
+                return {store, entries};
+            };
+            let remaining = bytes - snapshotBytes(captureCanonicalAnnotationRecovery(edited(notes).store, [], 'rev-1'));
+            return edited(notes.map((entry, index) => {
+                const length = index === 0 ? 0 : Math.max(0, Math.min(remaining, noteTextLimit - entry.contents.length));
+                remaining -= length;
+                return {...entry, contents: entry.contents + 'a'.repeat(length)};
+            }));
+        }
+
+        it('captures a snapshot that fills the budget, its version 2 metadata beside it', () => {
+            const {store} = editedStoreOfSize(budget);
+            const recovery = captureCanonicalAnnotationRecovery(store, [], 'rev-1');
+
+            expect(snapshotBytes(recovery)).toBe(budget);
+            expect(encodedBytes(recovery)).toBeGreaterThan(budget);
+            expect(recovery.changedFields).toEqual({'note-0': ['contents']});
+            expect(() => captureCanonicalAnnotationRecovery(editedStoreOfSize(budget + 1).store, [], 'rev-1'))
+                .toThrow(`exceeds the ${budget}-byte annotation budget`);
+        });
+
+        it('replays the edit from a snapshot admitted at the budget, and admits nothing past it', () => {
+            // Admission measures the snapshot with its derived draft errors, 17 bytes for none.
+            const {store, entries} = editedStoreOfSize(budget - 17);
+            const stored = JSON.parse(JSON.stringify(captureCanonicalAnnotationRecovery(store, [], 'rev-1')));
+            const recovered = new AnnotationStore();
+            recovered.replaceFromDocument(entries, []);
+            restoreCanonicalAnnotationRecovery(recovered, stored, 'rev-2');
+
+            expect(recovered.get(asAnnotationId('note-0'))).toMatchObject({contents: 'Typed'});
+            const past = editedStoreOfSize(budget - 16);
+            expect(() => restoreCanonicalAnnotationRecovery(new AnnotationStore(), JSON.parse(JSON.stringify(
+                captureCanonicalAnnotationRecovery(past.store, [], 'rev-1'),
+            )), 'rev-2')).toThrow(`exceeds the ${budget}-byte annotation budget`);
+        });
+
+        it('refuses changed-field names past their own bound', () => {
+            const {store} = editedStoreOfSize(0);
+            const recovery = captureCanonicalAnnotationRecovery(store, [], 'rev-1');
+
+            expect(() => restoreCanonicalAnnotationRecovery(new AnnotationStore(), {
+                ...recovery,
+                changedFields: {'note-0': Array.from({length: 33}, (_, index) => `field-${index}`)},
+            })).toThrow('Recovery changed fields are invalid');
+            expect(() => restoreCanonicalAnnotationRecovery(new AnnotationStore(), {
+                ...recovery,
+                changedFields: {'not-captured': ['contents']},
+            })).toThrow('Recovery changed fields are invalid');
+        });
     });
 
     it.each(creators)('creates a canonical %s', (_label, create, fixture) => {

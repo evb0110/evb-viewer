@@ -1,6 +1,6 @@
 import {parseDocumentRef} from '@contracts/documentRef';
 import type {TPdfDocumentView} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
-import {recordPdfDocumentOriginalAnnotations} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision';
+import {readPdfDocumentOriginalAnnotations, recordPdfDocumentOriginalAnnotations} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision';
 import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
 import {
     applyParsedHighlightTextToStore, commitPdfAnnotationParseToStore,
@@ -402,6 +402,25 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
         adoptCurrentRevision,
         feedStoreFromWriterParse,
         getWriterParseResult: () => writerParseTask?.result ?? null,
+        /**
+         * The byte revision whose read the store's geometry reflects: the current one once a parse
+         * of `document` committed to the store (a save in place keeps it), an older document's, or
+         * null while the settled read committed nothing, such as one that failed before its commit.
+         */
+        readRevision(document: TPdfDocumentView['pdfDocument']['value']) {
+            const settled = read.value?.store === application.value.store ? read.value.document : null;
+            const parsed = settled && readPdfDocumentOriginalAnnotations(settled);
+            if (!parsed) return null;
+            if (settled !== document) return parsed.documentRevisionToken;
+            // A revision past the document's own is a save in place; at its own, only a committed parse keeps a result.
+            const current = options.documentRevisionToken.value;
+            return parsed.documentRevisionToken !== current || writerParseTask?.result ? current : null;
+        },
+        /** Joins the read of the revision a view presents; null while no view has its document. */
+        joinRead() {
+            const view = [...views].find(candidate => candidate.document.pdfDocument.value);
+            return view ? feedStoreFromWriterParse(view.document, view.originalPath) : null;
+        },
         /** The rectangle of a draft in the viewer whose editor holds it open. */
         getTextBoxDraftRect(annotationId: string) {
             return [...views].map(view => view.getTextBoxDraftRect(annotationId)).find(rect => rect !== null)
