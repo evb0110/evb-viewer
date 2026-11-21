@@ -2,6 +2,7 @@ import {existsSync} from 'node:fs';
 import * as fsPromises from 'node:fs/promises';
 import {
     chmod,
+    link,
     mkdir,
     mkdtemp,
     readFile,
@@ -54,6 +55,7 @@ const {registerMainOperation, runWithMainOperationCancellationSignal} = await im
 const {allowOpenPath, removeAllowedOpenPath} = await import('@electron/file-access/openPathCapabilities');
 const {handleFileReadRange} = await import('@electron/features/documents/main/documentFileReadHandlers');
 const {clearWorkingCopyQuarantinesForTests, quarantineWorkingCopy} = await import('@electron/file-access/workingCopyQuarantine');
+const {resolveNativePageOpsPath} = await import('@electron/features/page-ops/public/nativePageOpsPath');
 
 const ORIGINAL = new TextEncoder().encode('%PDF-1.7\noriginal bytes\n%%EOF\n');
 const EDITED = new TextEncoder().encode('%PDF-1.7\nedited bytes\n%%EOF\n');
@@ -99,12 +101,12 @@ async function crashDuringPublish(entry: Awaited<ReturnType<typeof store.openDoc
     await store.commitDocumentMutation(entry, store.documentRevisionToken(entry), {kind: 'rewrite', source: edited}, 'write');
     const {doc} = entry;
     const destination = doc.state().destination!;
-    const copy = join(dirname(destination), '.publishing.tmp');
+    const copy = join(dirname(destination), '.0123456789abcdef.tmp');
     await writeFile(copy, await readAll(entry));
     const witness = (await doc.store.publication.witness(copy))!;
     await doc.run(async () => {
         const current = (await doc.ensureCurrent())!;
-        await doc.commit({...doc.snapshot(), current: {...current, witness}, pendingPublish: {destination, witness}});
+        await doc.commit({...doc.snapshot(), current: {...current, witness}, pendingPublish: {destination, witness, temp: copy}});
     });
     return copy;
 }
@@ -164,6 +166,27 @@ describe('desktop document store', () => {
         expect(await readAll(entry)).toEqual(EDITED);
         expect(await readFile(pdf)).toEqual(Buffer.from(ORIGINAL));
         expect(entry.doc.state().dirty).toBe(true);
+    });
+
+    it.runIf(process.platform !== 'win32' && resolveNativePageOpsPath() !== null)('keeps the PDF at its path throughout a Save on a volume that can exchange', async () => {
+        const {pdf, entry} = await openPdf();
+        const edited = await writeTemp('edited.pdf', EDITED);
+        let missing = 0;
+        let watching = true;
+        const watch = () => {
+            if (!existsSync(pdf)) missing += 1;
+            if (watching) setImmediate(watch);
+        };
+        watch();
+        try {
+            expect(await store.saveOpenDocument(entry, '1' as never, {commit: {kind: 'rewrite', source: edited}})).toMatchObject({status: 'saved'});
+        } finally {
+            watching = false;
+        }
+
+        expect(missing).toBe(0);
+        expect(await readFile(pdf)).toEqual(Buffer.from(EDITED));
+        expect((await readdir(dirname(pdf))).filter(name => name.startsWith('.') || name.includes('report'))).toEqual(['report.pdf']);
     });
 
     it('saves by committing, checking, publishing and acknowledging, leaving nothing beside the PDF', async () => {
@@ -320,6 +343,35 @@ describe('desktop document store', () => {
         expect(await findKeptOriginal(pdf)).toBe(kept);
         expect(reopened.doc.state().dirty).toBe(true);
         expect(await readAll(reopened)).toEqual(EDITED);
+    });
+
+    it.each([
+        ['the PDF it replaced', 'baseline'],
+        ['the PDF it replaced, already linked at its displaced name', 'linked'],
+        ["a file another program put in the PDF's place", 'foreign'],
+    ] as const)('settles a Save a crash cut right after its exchange, the staging name holding %s', async (_holding, state) => {
+        const {pdf, entry} = await openPdf();
+        const copy = await crashDuringPublish(entry, await writeTemp('edited.pdf', EDITED));
+        const outside = new TextEncoder().encode('%PDF-1.7\nwritten elsewhere\n%%EOF\n');
+        if (state === 'foreign') await rename(await writeTemp('outside.pdf', outside), pdf);
+        // What the exchange leaves: the PDF's name holds the staged copy, the staging name the file it displaced.
+        const aside = join(tempRoot, 'exchanging');
+        await rename(pdf, aside);
+        await rename(copy, pdf);
+        await rename(aside, copy);
+        if (state === 'linked') await link(copy, displaced(pdf));
+        const id = entry.doc.id;
+        await restart();
+
+        const reopened = await store.reopenStoredDocument(id, {});
+
+        const kept = join(dirname(pdf), 'report (original).pdf');
+        expect(await readFile(pdf)).toEqual(Buffer.from(EDITED));
+        expect(reopened.doc.state().dirty).toBe(false);
+        expect((await readdir(dirname(pdf))).filter(name => name.startsWith('.') || name.includes('report')).sort())
+            .toEqual(state === 'foreign' ? ['report (original).pdf', 'report.pdf'] : ['report.pdf']);
+        expect(await findKeptOriginal(pdf)).toBe(state === 'foreign' ? kept : undefined);
+        if (state === 'foreign') expect(await readFile(kept)).toEqual(Buffer.from(outside));
     });
 
     it.each([true, false])('settles an interrupted Save before a Save As elsewhere, or keeps it to settle later (PDF readable: %s)', async (readable) => {

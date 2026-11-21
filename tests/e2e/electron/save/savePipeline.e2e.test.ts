@@ -1301,16 +1301,18 @@ import fsSync from 'node:fs';
 import {spawnSync} from 'node:child_process';
 import {syncBuiltinESMExports} from 'node:module';
 const target = ${JSON.stringify(pdfPath)}, proof = ${JSON.stringify(externalProof)};
+const displaced = ${JSON.stringify(join(dirname(pdfPath), `.${basename(pdfPath)}.evb-replaced`))};
 const rename = fs.rename, link = fs.link, stat = fsSync.statSync;
+// Once the Save moves the original it displaces to its kept name, the next look at the PDF finds another program changed it.
 let published = false;
 fs.link = async (source, destination) => {
     const result = await link(source, destination);
-    if (destination === target) published = true;
+    if (destination === displaced) published = true;
     return result;
 };
 fs.rename = async (source, destination) => {
     const result = await rename(source, destination);
-    if (destination === target) published = true;
+    if (destination === displaced) published = true;
     return result;
 };
 fsSync.statSync = (path, ...args) => {
@@ -1377,21 +1379,22 @@ syncBuiltinESMExports();
         // the document manifest. A later Save must detect that new version.
         await writeFile(seamPath, `
 import fs from 'node:fs/promises';
-import {dirname, join} from 'node:path';
+import {basename, dirname, join} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {syncBuiltinESMExports} from 'node:module';
 const target = ${JSON.stringify(pdfPath)}, workingPathFile = ${JSON.stringify(workingPathFile)}, proof = ${JSON.stringify(externalProof)};
+const replaced = join(dirname(target), '.' + basename(target) + '.evb-replaced');
 const rename = fs.rename, link = fs.link;
 let published = false, fired = false;
 fs.link = async (source, destination) => {
     const result = await link(source, destination);
-    if (destination === target) published = true;
+    if (destination === target || destination === replaced) published = true;
     return result;
 };
 fs.rename = async (source, destination) => {
     const result = await rename(source, destination);
     const workingPath = await fs.readFile(workingPathFile, 'utf8').catch(() => '');
-    if (destination === target) published = true;
+    if (destination === target || destination === replaced) published = true;
     if (published && !fired && workingPath && destination === join(dirname(workingPath), 'manifest.json')) {
         fired = true;
         const writer = spawnSync(process.execPath, ['--input-type=module', '-e',

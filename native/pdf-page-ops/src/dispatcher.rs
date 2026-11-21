@@ -87,6 +87,12 @@ pub(crate) struct Config {
 }
 
 pub fn run_cli_entry(args: Vec<String>) -> Result<()> {
+    if let Some(("exchange-paths", paths)) = args
+        .split_first()
+        .map(|(command, rest)| (command.as_str(), rest))
+    {
+        return exchange_paths::run_exchange_paths(paths);
+    }
     let config = parse_args(args.into_iter())
         .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
     mutate_pdf(config)

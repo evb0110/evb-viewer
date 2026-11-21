@@ -245,6 +245,12 @@ it is now with those edits; the changed original stays untouched.
 An inserted page with readable source labels keeps them. A page from an
 unlabelled source joins the destination's label range.
 
+A checked desktop Save keeps the PDF's path resolving to complete old or new
+bytes on volumes with an atomic exchange: APFS, and Linux filesystems with
+`RENAME_EXCHANGE` other than FAT and exFAT. Elsewhere (Windows, exFAT or FAT on
+macOS, network volumes) the path can be missing briefly during the save, and
+recovery restores it after a crash.
+
 On ext4, NTFS or APFS paths where hard links are unsupported, save and recovery
 can race another program recreating the destination pathname. That revision can
 be overwritten. The person keeps EVB's complete saved or working revision;
