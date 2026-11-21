@@ -542,6 +542,9 @@ function bootWindowLifecycle(
         window.on('closed', () => {
             markNotReady('window closed');
             markWindowTabTransferWindowClosed(windowId);
+            // Electron marks the window destroyed before 'closed', so the registry
+            // already names a surviving window as main; if it is ready, deliver to it.
+            externalOpenManager.scheduleFlushPendingFiles();
         });
     });
 

@@ -6,11 +6,7 @@ import {
 } from 'vitest';
 import type { IHostCapability } from '@contracts/hostPlatformFeature';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
-import {
-    shouldPreferDesktopPlatform,
-    waitForDesktopPlatformBridge,
-    waitForPreferredDesktopPlatformBridge,
-} from '@app/utils/platform';
+import { shouldPreferDesktopPlatform } from '@app/utils/platform';
 
 describe('platform runtime detection', () => {
     it('prefers the desktop platform only when runtime state or the bridge requires it', () => {
@@ -18,27 +14,6 @@ describe('platform runtime detection', () => {
         expect(shouldPreferDesktopPlatform('/electron', false, false)).toBe(true);
         expect(shouldPreferDesktopPlatform('/', false, true)).toBe(true);
         expect(shouldPreferDesktopPlatform('/', false, false)).toBe(false);
-    });
-
-    it('short-circuits bridge waiting when desktop is not required', async () => {
-        await expect(waitForDesktopPlatformBridge({shouldWait: false})).resolves.toBe(false);
-    });
-
-    it('reports whether the preferred desktop bridge was required', async () => {
-        await expect(waitForPreferredDesktopPlatformBridge({
-            routePath: '/electron',
-            attempts: 0,
-        })).resolves.toEqual({
-            shouldWait: true,
-            bridgeReady: false,
-        });
-        await expect(waitForPreferredDesktopPlatformBridge({
-            routePath: '/',
-            attempts: 0,
-        })).resolves.toEqual({
-            shouldWait: false,
-            bridgeReady: false,
-        });
     });
 
     it('does not load the browser platform fallback while an electron api is present', async () => {

@@ -14,10 +14,7 @@ import type {
     IWorkspaceExpose,
     IWorkspaceToolbarSnapshot,
 } from '@app/types/workspaceExpose';
-import {
-    shouldPreferDesktopPlatform,
-    waitForDesktopPlatformBridge,
-} from '@app/utils/platform';
+import { shouldPreferDesktopPlatform } from '@app/utils/platform';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { useFatalRuntimeError } from '@app/composables/useFatalRuntimeError';
 import { useFailureToast } from '@app/composables/useFailureToast';
@@ -570,17 +567,6 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         }
 
         void (async () => {
-            const shouldWaitForDesktopBridge = shouldPreferDesktopPlatform(route.path);
-            const bridgeReady = await waitForDesktopPlatformBridge({shouldWait: shouldWaitForDesktopBridge});
-            if (lifecycle.isDisposed.valueOf()) {
-                return;
-            }
-            traceRendererStartup('tabs shell platform bridge resolved', {
-                bridgeReady,
-                routePath: route.path,
-                shouldWaitForDesktopBridge,
-            });
-
             const windowTabsCapability = getWindowTabsCapability();
             const registeredMenuCleanups = registerTabsMenuBindings({
                 documentMenu: getDocumentMenuCapability(),
@@ -604,10 +590,6 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
                 handleWindowTabsAction,
                 toggleAssistant,
             });
-            if (lifecycle.isDisposed.valueOf()) {
-                registeredMenuCleanups.forEach(cleanup => cleanup());
-                return;
-            }
             menuCleanups.push(...registeredMenuCleanups);
             traceRendererStartup('tabs shell menu bindings registered');
 

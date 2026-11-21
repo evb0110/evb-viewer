@@ -4,7 +4,7 @@
 
 <script setup lang="ts">
 import { AppShellRoot } from '@app/modules/workspace-shell/public/component-exports/appShellRoot';
-import { waitForDesktopPlatformBridge } from '@app/utils/platform';
+import { hasElectronPlatformBridge } from '@app/utils/electronPlatformBridge';
 import { getOrCaptureRendererBootstrapFailure } from '@app/utils/getOrCaptureRendererBootstrapFailure';
 
 const { t } = useTypedI18n();
@@ -18,10 +18,8 @@ definePageMeta({
 if (import.meta.server) useSeoMeta({ robots: 'noindex, nofollow' });
 useHead(() => ({ title: t('app.title') }));
 
-onMounted(async () => {
-    const bridgeAvailable = await waitForDesktopPlatformBridge({ shouldWait: true });
-
-    if (!bridgeAvailable) {
+onMounted(() => {
+    if (!hasElectronPlatformBridge()) {
         const presentation = getOrCaptureRendererBootstrapFailure({
             error: new Error('Electron preload bridge is unavailable during app bootstrap.'),
             key: 'electron-preload-bridge',
