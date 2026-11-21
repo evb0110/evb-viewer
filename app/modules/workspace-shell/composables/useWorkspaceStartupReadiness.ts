@@ -36,7 +36,11 @@ export const useWorkspaceStartupReadiness = (documentOpenSettled: Readonly<Ref<b
             timeout: STARTUP_OPEN_VISUAL_READY_TIMEOUT_MS,
         }).then(() => {
             if (latestRequest === request) {
-                dispatchStartupOpenVisualReady(reason, !documentOpenSettled.value);
+                // An expired wait reports that, never that the document painted.
+                dispatchStartupOpenVisualReady(
+                    documentOpenSettled.value ? reason : 'timed-out',
+                    !documentOpenSettled.value,
+                );
             }
         });
     }

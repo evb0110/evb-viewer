@@ -21,8 +21,12 @@ function dispatchAppReady() {
     window.dispatchEvent(new Event('evb:app-ready'));
 }
 
-function dispatchVisualReady() {
-    window.dispatchEvent(new CustomEvent('evb:startup-open-visual-ready', {detail: {reason: 'first-page-painted'}}));
+function dispatchVisualReady(reason: 'painted' | 'password-prompt' | 'timed-out') {
+    window.dispatchEvent(new CustomEvent('evb:startup-open-visual-ready', {detail: {reason}}));
+}
+
+function dispatchStartupFailed() {
+    window.dispatchEvent(new Event('evb:startup-failed'));
 }
 
 function hideDocumentNode(name: 'head' | 'body') {
@@ -55,16 +59,14 @@ function install(defaultApp = false) {
 
 describe('installStartupOverlayLifecycle', () => {
     beforeEach(() => {
-        vi.useFakeTimers();
         document.head.innerHTML = '';
         document.body.innerHTML = '';
         window.sessionStorage.clear();
-        delete (window as Window & {__appReady?: boolean}).__appReady;
     });
 
     afterEach(() => {
-        vi.runOnlyPendingTimers();
-        vi.useRealTimers();
+        dispatchStartupFailed();
+        window.dispatchEvent(new Event('DOMContentLoaded'));
         vi.restoreAllMocks();
         Reflect.deleteProperty(process, 'defaultApp');
     });
@@ -75,7 +77,6 @@ describe('installStartupOverlayLifecycle', () => {
         browser.setURL('about:blank');
         try {
             const deps = install();
-            vi.advanceTimersByTime(60_000);
             expect(document.getElementById(OVERLAY_ID)).toBeNull();
             expect(deps.forwardPreloadLogToMain).not.toHaveBeenCalled();
         } finally {
@@ -83,73 +84,59 @@ describe('installStartupOverlayLifecycle', () => {
         }
     });
 
-    it('retains app-ready-only startup until the startup-open claim arrives', () => {
+    it('leaves Chromium’s failed-navigation page without an overlay or log', () => {
+        const browser = cast<{happyDOM: {setURL: (url: string) => void}}>(window).happyDOM;
+        const url = window.location.href;
+        browser.setURL('chrome-error://chromewebdata/');
+        try {
+            const deps = install();
+            expect(document.getElementById(OVERLAY_ID)).toBeNull();
+            expect(deps.forwardPreloadLogToMain).not.toHaveBeenCalled();
+        } finally {
+            browser.setURL(url);
+        }
+    });
+
+    it('removes after app-ready followed by an empty claim', () => {
         install();
         dispatchAppReady();
-
-        vi.advanceTimersByTime(300);
-        expect(document.getElementById(OVERLAY_ID)).not.toBeNull();
-        vi.advanceTimersByTime(60_000);
         expect(document.getElementById(OVERLAY_ID)).not.toBeNull();
 
         dispatchClaim(0);
-        vi.advanceTimersByTime(300);
         expect(document.getElementById(OVERLAY_ID)).toBeNull();
     });
 
-    it('removes after app-ready and an empty claim', () => {
-        install();
-        dispatchAppReady();
-        dispatchClaim(0);
-
-        vi.advanceTimersByTime(299);
-        expect(document.getElementById(OVERLAY_ID)).not.toBeNull();
-        vi.advanceTimersByTime(1);
-        expect(document.getElementById(OVERLAY_ID)).toBeNull();
-    });
-
-    it('retains a positive claim through renderer-ready timing until visual-ready', () => {
+    it.each(['painted', 'password-prompt', 'timed-out'] as const)('retains a positive claim until the %s visual receipt', (reason) => {
         install();
         dispatchAppReady();
         dispatchClaim(1);
-
-        vi.advanceTimersByTime(300);
-        window.dispatchEvent(new Event('app:rendererReady'));
-        vi.advanceTimersByTime(30_000);
         expect(document.getElementById(OVERLAY_ID)).not.toBeNull();
 
-        dispatchVisualReady();
+        dispatchVisualReady(reason);
         expect(document.getElementById(OVERLAY_ID)).toBeNull();
     });
 
     it('handles an empty claim before app-ready', () => {
         install();
         dispatchClaim(0);
-        vi.advanceTimersByTime(5_000);
         expect(document.getElementById(OVERLAY_ID)).not.toBeNull();
 
         dispatchAppReady();
-        vi.advanceTimersByTime(300);
         expect(document.getElementById(OVERLAY_ID)).toBeNull();
     });
 
-    it('removes fatal no-claim startup at the original hard deadline', () => {
+    it('removes on a startup failure before the claim or app-ready', () => {
         install();
-
-        vi.advanceTimersByTime(29_999);
         expect(document.getElementById(OVERLAY_ID)).not.toBeNull();
-        vi.advanceTimersByTime(1);
+        dispatchStartupFailed();
         expect(document.getElementById(OVERLAY_ID)).toBeNull();
     });
 
-    it('preserves the development stabilization delay', () => {
+    it('removes in development after app-ready and an empty claim', () => {
         install(true);
         dispatchAppReady();
-        dispatchClaim(0);
-
-        vi.advanceTimersByTime(2_199);
         expect(document.getElementById(OVERLAY_ID)).not.toBeNull();
-        vi.advanceTimersByTime(1);
+        dispatchClaim(0);
         expect(document.getElementById(OVERLAY_ID)).toBeNull();
     });
 
@@ -187,21 +174,18 @@ describe('installStartupOverlayLifecycle', () => {
         expect(document.getElementById(OVERLAY_ID)).not.toBeNull();
     });
 
-    it('does not remount or remove twice after duplicate and late events', () => {
-        const deps = install();
+    it('keeps the overlay absent after duplicate and late receipts', () => {
+        install();
         dispatchAppReady();
         dispatchClaim(0);
-        vi.advanceTimersByTime(300);
+        expect(document.getElementById(OVERLAY_ID)).toBeNull();
 
         dispatchAppReady();
         dispatchClaim(1);
-        dispatchVisualReady();
+        dispatchVisualReady('painted');
+        dispatchStartupFailed();
+        window.dispatchEvent(new Event('DOMContentLoaded'));
 
         expect(document.getElementById(OVERLAY_ID)).toBeNull();
-        expect(deps.tracePreload).toHaveBeenCalledWith(
-            'startup overlay removed',
-            expect.any(Object),
-        );
-        expect(deps.tracePreload.mock.calls.filter(([stage]) => stage === 'startup overlay removed')).toHaveLength(1);
     });
 });

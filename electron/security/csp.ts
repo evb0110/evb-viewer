@@ -122,10 +122,11 @@ function isTrustedClipboardRequest(
 }
 
 export function setupContentSecurityPolicy() {
+    // Marked configured only after every handler is installed: a throw here
+    // (the production hash read) leaves setup to run again before the next load.
     if (isCspConfigured) {
         return;
     }
-    isCspConfigured = true;
 
     const inlineScriptHashes = config.isDev
         ? []
@@ -166,4 +167,5 @@ export function setupContentSecurityPolicy() {
             'Content-Security-Policy': [csp],
         }});
     });
+    isCspConfigured = true;
 }

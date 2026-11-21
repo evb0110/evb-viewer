@@ -500,7 +500,11 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
     onIncomingTransfer: () => functionUtils.noop,
     onWindowAction: () => functionUtils.noop,
     closeCurrentWindow: () => Promise.resolve(false),
-    notifyRendererReady() {
+    notifyRendererReady(phase) {
+        // A failed startup is not announced to the other windows.
+        if (phase.phase !== 'shell-interactive') {
+            return;
+        }
         initializeBrowserWindowTabs();
         isCurrentWindowReady = true;
         announceCurrentWindow();

@@ -85,7 +85,11 @@ import {
     getAllRegisteredAppWindows,
     getRegisteredMainWindow,
 } from '@electron/window/registry';
-import { markWindowRendererReady } from '@electron/window/rendererReady';
+import {
+    getWindowStartupPhase,
+    publishWindowStartupPhase,
+    requestInitialReveal,
+} from '@electron/window/rendererReady';
 import { focusWindowForUser } from '@electron/window/focusWindowForUser';
 import {
     markWindowTabTransferNotReady,
@@ -330,22 +334,17 @@ const aboutIconPath = app.isPackaged
     : devDockIconPath;
 const DEV_DOCK_BADGE_TEXT = 'DEV';
 
-const readyWindowIds = new Set<number>();
 let defaultViewerPromptShown = false;
 let defaultViewerPromptTimer: NodeJS.Timeout | null = null;
 
 function isMainWindowRendererReady() {
     const mainWindow = getRegisteredMainWindow();
-    if (!mainWindow) {
-        return false;
-    }
-
-    return readyWindowIds.has(mainWindow.id);
+    return mainWindow !== null && getWindowStartupPhase(mainWindow.id)?.phase === 'shell-interactive';
 }
 
 function focusMainWindow() {
     const window = getRegisteredMainWindow();
-    if (!window) {
+    if (!window || requestInitialReveal(window.id)) {
         return;
     }
 
@@ -355,17 +354,12 @@ function focusMainWindow() {
     });
 }
 const externalOpenManager = createExternalOpenManager({
-    application: app,
     logger,
-    noFocus: config.automation.noFocus,
     logStartupPhase: startupTrace.log,
     isMainWindowRendererReady,
-    getMainWindow: getRegisteredMainWindow,
+    focusMainWindow,
     hasWindows,
-    createWindow: async () => {
-        readyWindowIds.clear();
-        await createWindow();
-    },
+    createWindow: () => createWindow(),
     dispatchOpenPaths: (paths) => {
         const window = resolveExternalOpenDispatchWindow({
             mainWindow: getRegisteredMainWindow(),
@@ -800,9 +794,9 @@ void runInitSequence({
     loadSettings,
     logStartupPhase: startupTrace.log,
     onPrimaryInstanceReady: consumeStartupCrashMarker,
-    markWindowRendererReady: (windowId) => {
-        markWindowRendererReady(windowId);
-        if (windowId !== getRegisteredMainWindow()?.id) {
+    publishWindowStartupPhase: (windowId, phase) => {
+        publishWindowStartupPhase(windowId, phase);
+        if (phase.phase !== 'shell-interactive' || windowId !== getRegisteredMainWindow()?.id) {
             return;
         }
         runDetached(
@@ -817,7 +811,6 @@ void runInitSequence({
     markWindowTabTransferReady,
     markWindowTabTransferWindowClosed,
     maybePromptForDefaultViewer,
-    readyWindowIds,
     registerIpcHandlers: options => {
         featureRegistrationRuntime = registerIpcHandlers({
             ...options,

@@ -4,7 +4,10 @@ import {
     it,
 } from 'vitest';
 import { requireDocumentRef } from '@contracts/documentRef';
-import { WINDOW_TABS_PLATFORM_FEATURE } from '@contracts/windowTabsPlatformFeature';
+import {
+    decodeRendererStartupPhase,
+    WINDOW_TABS_PLATFORM_FEATURE,
+} from '@contracts/windowTabsPlatformFeature';
 import type {IWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
 import type {IWindowTabTransferRequest} from '@contracts/windowTabs';
 import {requireEpochMs} from '@contracts/timestamps';
@@ -58,6 +61,17 @@ const transferResult = {
 describe('window tabs platform feature schemas', () => {
     const channels = WINDOW_TABS_PLATFORM_FEATURE.invokeChannels;
     const codecs = WINDOW_TABS_PLATFORM_FEATURE.ipcCodecs;
+
+    it('decodes only the startup phases a renderer can report', () => {
+        const interactive = {phase: 'shell-interactive'};
+        const failed = {phase: 'failed', reason: 'renderer-error'};
+        expect(decodeRendererStartupPhase(interactive)).toEqual(interactive);
+        expect(decodeRendererStartupPhase(failed)).toEqual(failed);
+        expect(decodeRendererStartupPhase(undefined)).toBeNull();
+        expect(decodeRendererStartupPhase({phase: 'shell-interactive', reason: 'renderer-error'})).toBeNull();
+        expect(decodeRendererStartupPhase({phase: 'failed'})).toBeNull();
+        expect(decodeRendererStartupPhase({phase: 'failed', reason: 'timed-out'})).toBeNull();
+    });
 
     it('owns all request/response and renderer event members but not renderer readiness', () => {
 

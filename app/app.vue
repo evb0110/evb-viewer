@@ -41,6 +41,7 @@ import {onBrowserDocumentPersistenceWarning} from '@app/platform/browser/browser
 import { shouldPreferDesktopPlatform } from '@app/utils/platform';
 import { getSettingsCapability } from '@app/utils/getSettingsCapability';
 import { hasElectronPlatformBridge } from '@app/utils/electronPlatformBridge';
+import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
 
 // Every failure and notice is a toast, stacked upward from the bottom-right
 // corner, at most three at a time.
@@ -379,6 +380,19 @@ function dispatchAppReady() {
     traceRendererStartup('evb:app-ready dispatched');
 }
 
+// The startup overlay yields to the fatal dialog at once, and main reveals the
+// window instead of waiting for its startup deadline. Without the bridge only
+// the overlay hears it; main's deadline covers that window.
+function publishStartupFailure() {
+    window.dispatchEvent(new Event('evb:startup-failed'));
+    if (hasElectronPlatformBridge()) {
+        getWindowTabsCapability().notifyRendererReady({
+            phase: 'failed',
+            reason: 'renderer-error',
+        });
+    }
+}
+
 function installViteReloadDiagnostics() {
     if (!import.meta.dev || typeof window === 'undefined') {
         return;
@@ -463,6 +477,7 @@ onMounted(async () => {
                 title: t('errors.runtime.title'),
             });
             setFatalRuntimeError('startup', presentation);
+            publishStartupFailure();
             return;
         }
 
@@ -502,6 +517,7 @@ onMounted(async () => {
             title: t('errors.runtime.title'),
         });
         setFatalRuntimeError('startup', presentation);
+        publishStartupFailure();
     }
 });
 </script>

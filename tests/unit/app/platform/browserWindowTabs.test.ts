@@ -166,13 +166,13 @@ describe('browserWindowTabsCapability', () => {
 
     it('keeps the recovery owner across hot reload in the same browser tab', async () => {
         const firstModule = await import('@app/platform/browserWindowTabs');
-        firstModule.browserWindowTabsCapability.notifyRendererReady();
+        firstModule.browserWindowTabsCapability.notifyRendererReady({phase: 'shell-interactive'});
         const firstWindowId = firstModule.getBrowserWindowId();
 
         vi.resetModules();
 
         const secondModule = await import('@app/platform/browserWindowTabs');
-        secondModule.browserWindowTabsCapability.notifyRendererReady();
+        secondModule.browserWindowTabsCapability.notifyRendererReady({phase: 'shell-interactive'});
 
         expect(secondModule.getBrowserWindowId()).toBe(firstWindowId);
         expect(MockBroadcastChannel.channels).toHaveLength(1);
@@ -180,23 +180,23 @@ describe('browserWindowTabsCapability', () => {
 
     it('can initialize again after a non-persisted page hide tears down the instance', async () => {
         const browserWindow = stubBrowserGlobals('http://localhost:3235/?evbWindowId=100');
+        const externalWindow = new MockBroadcastChannel(WINDOW_TABS_CHANNEL);
+        const messages: unknown[] = [];
+        externalWindow.addEventListener('message', event => messages.push(event.data));
         const {browserWindowTabsCapability} = await import('@app/platform/browserWindowTabs');
-        browserWindowTabsCapability.notifyRendererReady();
-        expect(MockBroadcastChannel.channels.size).toBe(1);
+        browserWindowTabsCapability.notifyRendererReady({phase: 'shell-interactive'});
 
         browserWindow.dispatch('pagehide');
-        expect(MockBroadcastChannel.channels.size).toBe(0);
-
-        browserWindowTabsCapability.notifyRendererReady();
         expect(MockBroadcastChannel.channels.size).toBe(1);
-        for (const type of [
-            'pagehide',
-            'pageshow',
-            'focus',
-        ]) {
-            expect(browserWindow.addEventListener.mock.calls.filter(([registered]) => registered === type))
-                .toHaveLength(2);
-        }
+
+        browserWindowTabsCapability.notifyRendererReady({phase: 'shell-interactive'});
+        messages.length = 0;
+        browserWindow.dispatch('focus');
+        expect(messages).toEqual([expect.objectContaining({
+            type: 'announce',
+            windowId: 100,
+            ready: true,
+        })]);
     });
 
     it('re-announces a window restored from the browser back-forward cache', async () => {
@@ -205,7 +205,7 @@ describe('browserWindowTabsCapability', () => {
         const messages: unknown[] = [];
         externalWindow.addEventListener('message', event => messages.push(event.data));
         const { browserWindowTabsCapability } = await import('@app/platform/browserWindowTabs');
-        browserWindowTabsCapability.notifyRendererReady();
+        browserWindowTabsCapability.notifyRendererReady({phase: 'shell-interactive'});
         messages.length = 0;
 
         browserWindow.dispatch('pagehide', createPageTransitionEvent('pagehide', true));
@@ -227,6 +227,24 @@ describe('browserWindowTabsCapability', () => {
         }));
     });
 
+    it('announces readiness to other windows only after the shell becomes interactive', async () => {
+        stubBrowserGlobals('http://localhost:3235/?evbWindowId=100');
+        const externalWindow = new MockBroadcastChannel(WINDOW_TABS_CHANNEL);
+        const messages: unknown[] = [];
+        externalWindow.addEventListener('message', event => messages.push(event.data));
+        const {browserWindowTabsCapability} = await import('@app/platform/browserWindowTabs');
+        const readyAnnouncement = expect.objectContaining({
+            type: 'announce',
+            windowId: 100,
+            ready: true,
+        });
+
+        browserWindowTabsCapability.notifyRendererReady({phase: 'failed', reason: 'renderer-error'});
+        expect(messages).not.toContainEqual(readyAnnouncement);
+
+        browserWindowTabsCapability.notifyRendererReady({phase: 'shell-interactive'});
+        expect(messages).toContainEqual(readyAnnouncement);
+    });
 });
 
 

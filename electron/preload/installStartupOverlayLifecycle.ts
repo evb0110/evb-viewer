@@ -13,6 +13,7 @@ const STARTUP_OVERLAY_STYLE_ID = 'evb-startup-overlay-style';
 const APP_READY_EVENT_NAME = 'evb:app-ready';
 const STARTUP_OPEN_CLAIMED_EVENT_NAME = 'evb:startup-open-claimed';
 const STARTUP_OPEN_VISUAL_READY_EVENT_NAME = 'evb:startup-open-visual-ready';
+const STARTUP_FAILED_EVENT_NAME = 'evb:startup-failed';
 const DEV_STARTUP_OVERLAY_SHOWN_KEY = 'evb-viewer:dev:startup-overlay-shown';
 const STARTUP_OVERLAY_SPINNER_SIZE_PX = 20;
 const STARTUP_OVERLAY_GAP_PX = 10;
@@ -20,9 +21,6 @@ const STARTUP_OVERLAY_TEXT_FONT_SIZE_PX = 13;
 const STARTUP_OVERLAY_TEXT_LINE_HEIGHT_PX = 13;
 const STARTUP_OVERLAY_Z_INDEX = 2_147_483_647;
 const STARTUP_OVERLAY_INNER_WIDTH_PX = 128;
-const DEV_STARTUP_OVERLAY_APP_READY_DELAY_MS = 2200;
-const STARTUP_OPEN_CLAIM_GRACE_MS = 300;
-const MAX_WAIT_MS = 30_000;
 
 function ensureStartupOverlayStyles(head: HTMLHeadElement) {
     if (document.getElementById(STARTUP_OVERLAY_STYLE_ID)) {
@@ -127,67 +125,22 @@ function unmountStartupOverlay(reason: string, deps: IStartupOverlayLifecycleDep
     }
 }
 
+/**
+ * The overlay covers the document until the app has a first view: an empty
+ * startup claim together with the app's root (in either order), the first
+ * claimed document's visual readiness, or a startup failure, which the app
+ * then shows itself. Its producers live in this document and dispatch events.
+ */
 export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDeps) {
-    // The window's placeholder about:blank document also runs the preload. It
-    // never shows the app, and main rejects its IPC as an untrusted sender.
-    if (window.location.protocol === 'about:') {
+    // The placeholder about:blank document and Chromium's error page for a
+    // failed main-frame navigation (chrome-error://chromewebdata/) also run the
+    // preload. Neither shows the app, so nothing would ever remove an overlay.
+    if (window.location.protocol === 'about:' || window.location.protocol === 'chrome-error:') {
         return;
     }
-    const overlayLifecycleStartedAt = Date.now();
-    let waitingForStartupOpenVisual = false;
     let appReadySeen = false;
-    let startupOpenClaimSeen = false;
+    let emptyStartupClaimSeen = false;
     let overlayRemoved = false;
-    let checkInterval: number | null = null;
-    let appReadyRemovalTimer: number | null = null;
-    let devRemovalTimer: number | null = null;
-    let hardDeadlineTimer: number | null = null;
-
-    function clearAppReadyRemovalTimer() {
-        if (appReadyRemovalTimer === null) {
-            return;
-        }
-
-        window.clearTimeout(appReadyRemovalTimer);
-        appReadyRemovalTimer = null;
-    }
-
-    function clearDevRemovalTimer() {
-        if (devRemovalTimer === null) {
-            return;
-        }
-
-        window.clearTimeout(devRemovalTimer);
-        devRemovalTimer = null;
-    }
-
-    function clearHardDeadlineTimer() {
-        if (hardDeadlineTimer === null) {
-            return;
-        }
-
-        window.clearTimeout(hardDeadlineTimer);
-        hardDeadlineTimer = null;
-    }
-
-    function clearCheckInterval() {
-        if (checkInterval === null) {
-            return;
-        }
-
-        window.clearInterval(checkInterval);
-        checkInterval = null;
-    }
-
-    function cleanupOverlayLifecycleListeners() {
-        clearCheckInterval();
-        clearAppReadyRemovalTimer();
-        clearDevRemovalTimer();
-        clearHardDeadlineTimer();
-        window.removeEventListener(APP_READY_EVENT_NAME, handleAppReady);
-        window.removeEventListener(STARTUP_OPEN_CLAIMED_EVENT_NAME, handleStartupOpenClaimed);
-        window.removeEventListener(STARTUP_OPEN_VISUAL_READY_EVENT_NAME, handleStartupOpenVisualReady);
-    }
 
     function removeOverlay(reason: string) {
         if (overlayRemoved) {
@@ -195,7 +148,10 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
         }
 
         overlayRemoved = true;
-        cleanupOverlayLifecycleListeners();
+        window.removeEventListener(APP_READY_EVENT_NAME, handleAppReady);
+        window.removeEventListener(STARTUP_OPEN_CLAIMED_EVENT_NAME, handleStartupOpenClaimed);
+        window.removeEventListener(STARTUP_OPEN_VISUAL_READY_EVENT_NAME, handleStartupOpenVisualReady);
+        window.removeEventListener(STARTUP_FAILED_EVENT_NAME, handleStartupFailed);
         unmountStartupOverlay(reason, deps);
     }
 
@@ -205,64 +161,6 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
         }
 
         mountStartupOverlay(deps);
-    }
-
-    function requestOverlayUnmount(reason: string) {
-        if (!process.defaultApp) {
-            removeOverlay(reason);
-            return;
-        }
-
-        const removeWithDelay = () => {
-            const elapsedMs = Date.now() - overlayLifecycleStartedAt;
-            if (elapsedMs >= DEV_STARTUP_OVERLAY_APP_READY_DELAY_MS) {
-                removeOverlay(reason);
-                return;
-            }
-
-            const delayMs = DEV_STARTUP_OVERLAY_APP_READY_DELAY_MS - elapsedMs;
-            deps.forwardPreloadLogToMain('debug', 'loader', 'Startup overlay removal delayed for dev stabilization', {
-                variant: 'startup-overlay',
-                reason,
-                delayMs,
-                elapsedMs,
-            });
-            clearDevRemovalTimer();
-            devRemovalTimer = window.setTimeout(() => {
-                devRemovalTimer = null;
-                removeOverlay(reason);
-            }, delayMs);
-        };
-
-        removeWithDelay();
-    }
-
-    function scheduleAppReadyRemoval(reason: string) {
-        appReadySeen = true;
-        clearCheckInterval();
-        clearHardDeadlineTimer();
-        clearAppReadyRemovalTimer();
-
-        appReadyRemovalTimer = window.setTimeout(() => {
-            appReadyRemovalTimer = null;
-            if (waitingForStartupOpenVisual) {
-                deps.forwardPreloadLogToMain('debug', 'loader', 'Startup overlay retained for startup document visual readiness', {
-                    variant: 'startup-overlay',
-                    reason,
-                });
-                return;
-            }
-
-            if (!startupOpenClaimSeen) {
-                deps.forwardPreloadLogToMain('debug', 'loader', 'Startup overlay retained until startup open claim is observed', {
-                    variant: 'startup-overlay',
-                    reason,
-                });
-                return;
-            }
-
-            requestOverlayUnmount(reason);
-        }, STARTUP_OPEN_CLAIM_GRACE_MS);
     }
 
     function getStartupOpenPathCount(event: Event) {
@@ -280,12 +178,8 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
     }
 
     function handleStartupOpenClaimed(event: Event) {
-        startupOpenClaimSeen = true;
-        clearHardDeadlineTimer();
         const pathCount = getStartupOpenPathCount(event);
         if (pathCount > 0) {
-            waitingForStartupOpenVisual = true;
-            clearAppReadyRemovalTimer();
             deps.forwardPreloadLogToMain('debug', 'loader', 'Startup external open claimed; retaining overlay until first document paint', {
                 variant: 'startup-overlay',
                 pathCount,
@@ -293,25 +187,31 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
             return;
         }
 
-        waitingForStartupOpenVisual = false;
-        if (appReadySeen || (window as Window & { __appReady?: boolean }).__appReady) {
-            scheduleAppReadyRemoval('startup-open-claimed-empty');
+        emptyStartupClaimSeen = true;
+        if (appReadySeen) {
+            removeOverlay('startup-open-claimed-empty');
         }
     }
 
     function handleStartupOpenVisualReady(event: Event) {
-        waitingForStartupOpenVisual = false;
         const detail = event instanceof CustomEvent ? event.detail as Record<string, unknown> | null : null;
         deps.forwardPreloadLogToMain('debug', 'loader', 'Startup document visual readiness reached', {
             variant: 'startup-overlay',
             reason: typeof detail?.reason === 'string' ? detail.reason : 'startup-open-visual-ready',
             timedOut: detail?.timedOut === true,
         });
-        requestOverlayUnmount('startup-open-visual-ready');
+        removeOverlay('startup-open-visual-ready');
     }
 
     function handleAppReady() {
-        scheduleAppReadyRemoval('app-ready-event');
+        appReadySeen = true;
+        if (emptyStartupClaimSeen) {
+            removeOverlay('app-ready-event');
+        }
+    }
+
+    function handleStartupFailed() {
+        removeOverlay('startup-failed');
     }
 
     if (process.defaultApp) {
@@ -330,31 +230,10 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
 
     mountOverlayIfActive();
 
-    hardDeadlineTimer = window.setTimeout(() => {
-        hardDeadlineTimer = null;
-        if (appReadySeen || startupOpenClaimSeen || waitingForStartupOpenVisual) {
-            return;
-        }
-        requestOverlayUnmount('timeout');
-    }, MAX_WAIT_MS);
-
-    // The app-ready event covers the normal path; this poll only catches a flag that was
-    // set outside it, so it checks once immediately and then idles instead of waking the
-    // renderer 20 times a second through the whole startup window.
-    if ((window as Window & { __appReady?: boolean }).__appReady) {
-        scheduleAppReadyRemoval('__appReady-initial');
-    } else {
-        checkInterval = window.setInterval(() => {
-            const windowWithReady = window as Window & { __appReady?: boolean };
-            if (windowWithReady.__appReady) {
-                scheduleAppReadyRemoval('__appReady-interval');
-            }
-        }, 250);
-    }
-
     window.addEventListener(APP_READY_EVENT_NAME, handleAppReady, { once: true });
     window.addEventListener(STARTUP_OPEN_CLAIMED_EVENT_NAME, handleStartupOpenClaimed, { once: true });
     window.addEventListener(STARTUP_OPEN_VISUAL_READY_EVENT_NAME, handleStartupOpenVisualReady, { once: true });
+    window.addEventListener(STARTUP_FAILED_EVENT_NAME, handleStartupFailed, { once: true });
 
     if (document.readyState === 'loading') {
         window.addEventListener('DOMContentLoaded', () => {

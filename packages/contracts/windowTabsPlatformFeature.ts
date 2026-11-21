@@ -187,8 +187,33 @@ export interface IBrowserWorkspaceRecoveryCapability {
     save(checkpoint: IWorkspaceCheckpoint): Promise<void>;
 }
 
+/**
+ * What a renderer reports on `app:rendererReady`: its shell accepts input, or
+ * its startup failed and it shows the failure itself.
+ */
+const rendererStartupPhaseSchema = v.variant('phase', [
+    v.strictObject({phase: v.literal('shell-interactive')}),
+    v.strictObject({
+        phase: v.literal('failed'),
+        reason: v.literal('renderer-error'),
+    }),
+]);
+export type TRendererReportedStartupPhase = v.InferOutput<typeof rendererStartupPhaseSchema>;
+/** A window's startup phase; main adds the failures only it can observe. */
+export type TRendererStartupPhase = TRendererReportedStartupPhase | {
+    phase: 'failed';
+    reason: 'load-failed' | 'renderer-gone' | 'timed-out';
+};
+export type TRendererStartupFailure = Extract<TRendererStartupPhase, {phase: 'failed'}>;
+export type TRendererStartupFailureReason = TRendererStartupFailure['reason'];
+
+export function decodeRendererStartupPhase(value: unknown): TRendererReportedStartupPhase | null {
+    const result = v.safeParse(rendererStartupPhaseSchema, value);
+    return result.success ? result.output : null;
+}
+
 interface IWindowTabsLifecycleCapability {
-    notifyRendererReady: () => void;
+    notifyRendererReady: (phase: TRendererReportedStartupPhase) => void;
     browserRecovery?: IBrowserWorkspaceRecoveryCapability;
 }
 

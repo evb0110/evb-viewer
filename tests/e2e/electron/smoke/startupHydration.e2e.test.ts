@@ -406,9 +406,10 @@ describe('Electron E2E - Startup Hydration', () => {
         await session.page.reload({waitUntil: 'domcontentloaded'});
         await session.page.waitForFunction(() => {
             const sample = (window as Window & {__evbStartupReadinessSample?: IStartupReadinessSample;}).__evbStartupReadinessSample;
-            return sample?.appReadyEventAt !== null
-                && sample?.claimAt !== null
-                && sample?.overlayRemovedAt !== null;
+            return sample !== undefined
+                && sample.appReadyEventAt !== null
+                && sample.claimAt !== null
+                && sample.overlayRemovedAt !== null;
         }, {timeout: STARTUP_READY_MAX_WAIT_MS});
 
         const result = await session.page.evaluate(() => {
@@ -430,8 +431,8 @@ describe('Electron E2E - Startup Hydration', () => {
         expect(result.sample?.claimAt).not.toBeNull();
         expect(result.sample?.overlayRemovedAt).not.toBeNull();
         expect(result.shellInteractiveAt!).toBeLessThanOrEqual(result.sample!.appReadyEventAt!);
-        expect(result.sample!.appReadyEventAt!).toBeLessThan(result.sample!.overlayRemovedAt!);
-        expect(result.sample!.claimAt!).toBeLessThan(result.sample!.overlayRemovedAt!);
+        expect(result.sample!.appReadyEventAt!).toBeLessThanOrEqual(result.sample!.overlayRemovedAt!);
+        expect(result.sample!.claimAt!).toBeLessThanOrEqual(result.sample!.overlayRemovedAt!);
         expect(result.sample!.appReadyAt!).toBeGreaterThanOrEqual(result.sample!.navigationStartedAt);
         expect(result.sample!.appReadyAt!).toBeLessThanOrEqual(result.sample!.appReadyObservedAt!);
     });
