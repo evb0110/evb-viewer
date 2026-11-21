@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { setImmediate as nextEventLoopTurn } from 'node:timers/promises';
 import {
     describe,
     expect,
@@ -23,6 +24,7 @@ import { requireDocumentInstanceId } from '@contracts/documentInstanceId';
 import { requirePaneId } from '@contracts/editorPanes';
 import type { TTabId } from '@contracts/windowTabs';
 import { requireTabId } from '@contracts/windowTabs';
+import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
@@ -265,6 +267,85 @@ describe('useWorkspaceCrashCheckpoint', () => {
             await persistCheckpointNow();
             expect(saveWorkspaceCheckpoint).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({activeTabId: 'tab-b'}));
         } finally {
+            app.unmount();
+            if (originalElectronApi === undefined) {
+                delete window.electronAPI;
+            } else {
+                window.electronAPI = originalElectronApi;
+            }
+        }
+    });
+
+    it('writes a checkpoint queued during the writer\'s entry yield before the second caller resolves', async () => {
+        const options = createSignatureOptions();
+        const secondPaneId = requirePaneId('pane-2');
+        options.panes.value.push({
+            paneId: secondPaneId,
+            tabIds: [],
+            activeTabId: null,
+        });
+        const firstLayout: TEditorLayoutNode = {
+            type: 'split',
+            id: 'split-1',
+            orientation: 'horizontal',
+            ratio: 0.5,
+            first: {
+                type: 'leaf',
+                paneId: requirePaneId('pane-1'),
+            },
+            second: {
+                type: 'leaf',
+                paneId: secondPaneId,
+            },
+        };
+        const secondLayout = {
+            ...firstLayout,
+            ratio: 0.7,
+        };
+        options.layout.value = firstLayout;
+
+        const writeStarted = Promise.withResolvers<void>();
+        const finishWrite = Promise.withResolvers<void>();
+        const savedLayouts: IWorkspaceCheckpoint['layout'][] = [];
+        const saveWorkspaceCheckpoint = vi.fn(async ({layout}: IWorkspaceCheckpoint) => {
+            writeStarted.resolve();
+            await finishWrite.promise;
+            savedLayouts.push(layout);
+            return true;
+        });
+        const originalElectronApi = window.electronAPI;
+        window.electronAPI = createElectronPlatformApiFixture({windowTabs: {saveWorkspaceCheckpoint}});
+        let checkpoint!: ReturnType<typeof useWorkspaceCrashCheckpoint>;
+        const app = createApp({
+            setup() {
+                checkpoint = useWorkspaceCrashCheckpoint({
+                    ...options,
+                    enabled: ref(true),
+                    isStartupOpenClaimPending: ref(false),
+                });
+                return () => null;
+            },
+        });
+        app.mount(document.createElement('div'));
+        const {persistCheckpointNow} = checkpoint;
+        try {
+            // Change the layout between the two nextTick captures, before the writer resumes.
+            const first = persistCheckpointNow();
+            queueMicrotask(() => {
+                options.layout.value = secondLayout;
+            });
+            const savedWhenSecondCallerResolves = persistCheckpointNow().then(() => savedLayouts.at(-1));
+
+            await writeStarted.promise;
+            // Let any prematurely resolved caller finish while the save is still blocked.
+            await nextEventLoopTurn();
+            finishWrite.resolve();
+            await first;
+            const layoutAtResolution = await savedWhenSecondCallerResolves;
+            expect(savedLayouts.at(-1)).toEqual(secondLayout);
+            expect(layoutAtResolution).toEqual(secondLayout);
+        } finally {
+            finishWrite.resolve();
             app.unmount();
             if (originalElectronApi === undefined) {
                 delete window.electronAPI;
