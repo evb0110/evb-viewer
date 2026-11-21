@@ -11,8 +11,15 @@ import {
 import {
     readFile, readdir, rm, stat, writeFile,
 } from 'fs/promises';
-import {dirname} from 'path';
+import {
+    dirname, join,
+} from 'path';
 import type {IScanCleanupPreviewRequest} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {SCAN_CLEANUP_ERROR_ENVELOPE_SCHEMA} from '@contracts/scan-cleanup/ipc';
+import {findSerializableErrorEnvelope} from '@contracts/serializableError';
+import {formatScanCleanupErrorByCode} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
+import EN_MESSAGES from '@i18n-app/messages/en';
+import type {TTranslateFn} from '@i18n-app';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {requireRequestId} from '@contracts/shared';
 import {atomicReplace} from '@electron/utils/atomicReplace';
@@ -112,6 +119,30 @@ afterEach(async () => {
         recursive: true,
         force: true,
     })));
+});
+
+it('tells the reader when the source PDF disappeared before a preview', async () => {
+    const {
+        dir, deps,
+    } = await createScanCleanupPreviewTestContext(dirs, {
+        ...dependenciesOverride,
+        getSourceStatIdentity: defaultDependencies.getSourceStatIdentity!,
+    });
+    const service = createRenderingScenarioOwner(deps);
+    try {
+        const error = await previewOf(service, sender(), {
+            ...request,
+            sourcePdfPath: join(dir, 'missing-source.pdf'),
+        }).then(() => null, (cause: unknown) => cause);
+        const envelope = findSerializableErrorEnvelope(error, SCAN_CLEANUP_ERROR_ENVELOPE_SCHEMA);
+        expect(envelope).not.toBeNull();
+        const errors: Record<string, string> = EN_MESSAGES.scanCleanup.errors;
+        const t: TTranslateFn = (key, ..._args) => errors[key.replace('scanCleanup.errors.', '')] ?? key;
+        const message = formatScanCleanupErrorByCode({t, locale: 'en'}, envelope!.code, envelope!.message);
+        expect(message).toMatch(/^The source (?:PDF|file) (?:is missing|is no longer available|could not be found)\b/iu);
+    } finally {
+        await service.dispose();
+    }
 });
 
 export async function scenarioReturnsRealSidecarBytesAndValidatedMetadata(): Promise<void> {

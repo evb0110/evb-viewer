@@ -407,6 +407,7 @@ export default {
             'panic': 'O mecanismo nativo de limpeza da digitalização falhou inesperadamente.',
             'nativeFailure': 'O mecanismo nativo de limpeza da digitalização não conseguiu concluir a operação.',
             'toolsUnavailable': 'As ferramentas necessárias para a limpeza da digitalização não estão disponíveis neste sistema.',
+            'sourceMissing': 'O PDF de origem não está mais disponível. Ele pode ter sido movido ou excluído.',
             'canceled': 'A limpeza da digitalização foi cancelada.',
             'detectionResultsUnavailable': 'Os resultados da detecção de páginas não estão mais disponíveis. Execute a detecção novamente.',
             'internal': 'A limpeza da digitalização falhou inesperadamente.',

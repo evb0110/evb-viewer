@@ -58,6 +58,8 @@ export type IScanCleanupOwnerContext = v.InferOutput<typeof SCAN_CLEANUP_OWNER_C
 export type TScanCleanupErrorCode =
     | TNativeErrorCode
     | 'tools-unavailable'
+    /** The source PDF is gone from its path; a missing tool stays `tools-unavailable`. */
+    | 'source-missing'
     /** Not even one page raster fits the scratch budget. Carries scratch figures. */
     | 'insufficient-scratch'
     | 'canceled'
@@ -67,6 +69,7 @@ export type TScanCleanupErrorCode =
 export const SCAN_CLEANUP_ERROR_CODES = [
     ...NATIVE_ERROR_CODES,
     'tools-unavailable',
+    'source-missing',
     'insufficient-scratch',
     'canceled',
     'detection-results-unavailable',

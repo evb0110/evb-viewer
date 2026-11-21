@@ -406,6 +406,7 @@ export default {
             'panic': 'Il motore nativo di pulizia della scansione ha avuto un errore imprevisto.',
             'nativeFailure': 'Il motore nativo di pulizia della scansione non ha potuto completare l’operazione.',
             'toolsUnavailable': 'Gli strumenti necessari per la pulizia della scansione non sono disponibili su questo sistema.',
+            'sourceMissing': 'Il PDF di origine non è più disponibile. Potrebbe essere stato spostato o eliminato.',
             'canceled': 'La pulizia della scansione è stata annullata.',
             'detectionResultsUnavailable': 'I risultati del rilevamento delle pagine non sono più disponibili. Esegui di nuovo il rilevamento.',
             'internal': 'La pulizia della scansione ha avuto un errore imprevisto.',
