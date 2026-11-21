@@ -2,11 +2,14 @@ import {
     mkdirSync, readFileSync, writeFileSync,
 } from 'node:fs';
 import {resolve} from 'node:path';
+import type {Page} from 'puppeteer-core';
 import {
     describe, expect, it,
 } from 'vitest';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import {createLargeScannedFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
+import {
+    createLargeScannedFixturePdf, createMultiPageTextFixturePdf,
+} from '@tests/e2e/electron/helpers/fixtures';
 import {
     clickVisibleToolbarButton, dismissScanCleanupFirstRunGuidance, openPdfInApp,
     setTabMemoryPolicyForE2E, waitForPdfLoaded,
@@ -22,6 +25,65 @@ import {
 } from '@tests/e2e/electron/helpers/workspaceTabs';
 
 const fixture = createElectronE2ESessionFixture({sessionName: () => `e2e-scan-cleanup-tab-restore-${Date.now()}`});
+const linkedMargin = 'input[data-margin-side="all"]';
+const previewMode = '.preview-header [aria-label="Preview comparison"]';
+
+function cleanupThumbnail(pageNumber: number) {
+    return `[data-document-thumbnail-item]:has(.scan-thumbnail-overlay[data-page-number="${pageNumber}"])`;
+}
+
+async function waitForScanCleanupReady(page: Page) {
+    await page.waitForSelector('.scan-cleanup-surface[data-detection-status="completed"]', {visible: true, timeout: 120_000});
+    // Cached detection can finish before this document's settings have loaded.
+    await page.waitForSelector(`${SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR}:not(:disabled)`, {visible: true});
+}
+
+async function openScanCleanup(page: Page, source: string) {
+    await openPdfInApp(page, source);
+    await clickVisibleToolbarButton(page, 'Scan cleanup');
+    await page.waitForSelector('.scan-cleanup-surface', {visible: true});
+    await dismissScanCleanupFirstRunGuidance(page);
+    await waitForScanCleanupReady(page);
+}
+
+async function setMargin(page: Page, value: string) {
+    await clickAsUser(page, linkedMargin, {count: 3});
+    await page.type(linkedMargin, value);
+    await page.keyboard.press('Enter');
+    expect(await page.$eval(linkedMargin, input => input.value)).toBe(value);
+}
+
+async function selectPageTwoSettings(page: Page) {
+    await clickAsUser(page, `${cleanupThumbnail(2)} .scan-thumbnail-label-band`);
+    await clickAsUser(page, '[data-settings-scope="page"]');
+    await page.waitForSelector(linkedMargin, {visible: true});
+}
+
+async function setPageTwoMarginOverride(page: Page) {
+    await clickAsUser(page, '[data-settings-scope="all"]');
+    await setMargin(page, '9');
+    await selectPageTwoSettings(page);
+    expect(await page.$eval(linkedMargin, input => input.value)).toBe('9');
+    await setMargin(page, '13');
+    await page.waitForSelector(`${cleanupThumbnail(2)} .scan-thumbnail-customized`, {visible: true});
+}
+
+async function readPageTwoSettings(page: Page) {
+    return page.evaluate((margin, dot) => ({
+        margin: document.querySelector<HTMLInputElement>(margin)?.value,
+        customized: document.querySelector<HTMLElement>(dot)?.checkVisibility() ?? false,
+    }), linkedMargin, `${cleanupThumbnail(2)} .scan-thumbnail-customized`);
+}
+
+async function evictCleanupTab(tab: string, filename: string) {
+    const session = fixture.getSession();
+    const {page} = session;
+    const other = await createMultiPageTextFixturePdf(filename, 2);
+    await createNewWorkspaceTab(session);
+    await openPdfInApp(page, other);
+    await page.waitForFunction(id => !document.querySelector(`.workspace-host[data-workspace-tab-id="${id}"]`), {}, tab);
+    await page.waitForSelector(`.tab[data-tab-id="${tab}"]:not(.is-active)`, {visible: true});
+}
 
 describe('scan cleanup tab restore', () => {
     it('leaves queued cleanup through Done during analysis without a failure toast', async () => {
@@ -162,6 +224,65 @@ describe('scan cleanup tab restore', () => {
             cleanupVisible: true,
             errorText: null,
             pages: 2,
+        });
+    }, 240_000);
+
+    it('restores the preview and page margin after Scan Cleanup tab eviction', async () => {
+        const {page} = fixture.getSession();
+        await setTabMemoryPolicyForE2E(page, 'aggressive');
+        const source = await createLargeScannedFixturePdf('cleanup-evicted-page-margin.pdf', 4, 0);
+        await openScanCleanup(page, source);
+        await setPageTwoMarginOverride(page);
+
+        await clickAsUser(page, `${cleanupThumbnail(3)} .scan-thumbnail-label-band`);
+        await clickAsUser(page, `${previewMode} [role="radio"][aria-label="Original"]`);
+        const readPreview = () => page.evaluate(mode => ({
+            page: document.querySelector<HTMLElement>('.preview-header .page-label .scan-cleanup-stable-width-value')?.innerText,
+            mode: document.querySelector<HTMLElement>(`${mode} [role="radio"][aria-checked="true"]`)?.innerText,
+        }), previewMode);
+        const expectedPreview = {
+            page: 'Page 3 of 4',
+            mode: 'Original',
+        };
+        expect(await readPreview()).toEqual(expectedPreview);
+        const tab = await page.$eval('.tab.is-active[data-tab-id]', element => (element as HTMLElement).dataset.tabId!);
+        await evictCleanupTab(tab, 'cleanup-eviction-other.pdf');
+
+        await clickAsUser(page, `.tab[data-tab-id="${tab}"]`);
+        await waitForScanCleanupReady(page);
+        const preview = await readPreview();
+        await selectPageTwoSettings(page);
+        expect({preview, pageTwo: await readPageTwoSettings(page)}, 'An open Scan Cleanup tab keeps its preview and per-page settings through eviction').toEqual({
+            preview: expectedPreview,
+            pageTwo: {margin: '13', customized: true},
+        });
+    }, 240_000);
+
+    it.each(['warm', 'cold'])('resets the page margin override after closing a %s Scan Cleanup tab', async (state) => {
+        const {page} = fixture.getSession();
+        await setTabMemoryPolicyForE2E(page, 'aggressive');
+        const source = await createLargeScannedFixturePdf(`cleanup-close-${state}-page-margin.pdf`, 4, 0);
+        await openScanCleanup(page, source);
+        await setPageTwoMarginOverride(page);
+
+        const tab = await page.$eval('.tab.is-active[data-tab-id]', element => (element as HTMLElement).dataset.tabId!);
+        if (state === 'cold') {
+            await evictCleanupTab(tab, 'cleanup-close-other.pdf');
+        }
+        await clickAsUser(page, `.tab[data-tab-id="${tab}"] .tab-close`);
+
+        if (state === 'cold') {
+            await page.waitForFunction(id => !document.querySelector(`.tab[data-tab-id="${id}"]`), {}, tab);
+            await createNewWorkspaceTab(fixture.getSession());
+        } else {
+            // Closing the last document leaves its tab as the empty Start tab.
+            await page.waitForSelector(`.tab[data-tab-id="${tab}"][aria-label="New Tab"]`, {visible: true});
+        }
+        await openScanCleanup(page, source);
+        await selectPageTwoSettings(page);
+        expect(await readPageTwoSettings(page)).toEqual({
+            margin: '9',
+            customized: false,
         });
     }, 240_000);
 });
