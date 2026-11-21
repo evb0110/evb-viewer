@@ -78,6 +78,8 @@ import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/resolveOpenPathSecondaryPerformancePolicy';
 import {
     createDocumentPageSourceLifecycle,
+    createDocumentPageSourceOpenJob,
+    type TDocumentPageSourceOpenJob,
     type IDocumentPageSourceTransition,
     openDocumentPageSource,
     type IDocumentPageSourceFeaturePackEmit,
@@ -346,7 +348,7 @@ export const useDocumentPageSourceRuntime = (options: {
         const target = chassisAuthority?.openSurface.navigationTicket.value?.request.target;
         return target && 'page' in target ? target.page : null;
     });
-    let loadController: AbortController | null = null;
+    let openJob: TDocumentPageSourceOpenJob | null = null;
     let releaseViewportFeature: (() => void) | null = null;
     let inactiveLeaseReleaseTimer: ReturnType<typeof setTimeout> | null = null;
     // The reader's point when the view was last hidden: a page and the offset within it.
@@ -668,7 +670,7 @@ export const useDocumentPageSourceRuntime = (options: {
         readCurrentPage: () => currentPage.value,
         readFence: transitions.readFence,
         readIsActive: () => props.value.isActive,
-        readLoadSignal: () => loadController?.signal ?? null,
+        readOpenJob: () => openJob,
         readMetric: pageNumber => pageMetrics.value[pageNumber - 1],
         readPageScale: pageNumber => (
             pageDisplayLayouts.value[pageNumber - 1]?.scale ?? effectiveZoom.value
@@ -976,7 +978,7 @@ export const useDocumentPageSourceRuntime = (options: {
             `page-source-navigation:${String(targetPage)}:${String(transitions.loadGeneration.value)}`,
         );
         const activeSource = source.value;
-        const signal = loadController?.signal;
+        const signal = openJob?.abort.signal;
         const metricFence = transitions.readFence();
         if (activeSource && signal && !exactPageMetricNumbers.has(targetPage)) {
             void ensureExactPageMetric(
@@ -1125,13 +1127,13 @@ export const useDocumentPageSourceRuntime = (options: {
         emit('update:totalPages', geometry.pageCount);
         return true;
     }
-    function applyOpenTransition(transition: IDocumentPageSourceTransition) {
+    async function applyOpenTransition(transition: IDocumentPageSourceTransition) {
         const documentRef = transition.fence.src;
         readingPoint = null;
         pagedWheelNavigation.reset();
-        loadController?.abort();
-        const activeLoadController = new AbortController();
-        loadController = activeLoadController;
+        openJob?.abort.abort();
+        const job = createDocumentPageSourceOpenJob();
+        openJob = job;
         exactPageMetricNumbers.clear();
         exactPageMetricLoads.clear();
         metricPublication.clear();
@@ -1153,9 +1155,10 @@ export const useDocumentPageSourceRuntime = (options: {
         isLoading.value = Boolean(documentRef);
         if (!documentRef) {
             emit('update:totalPages', 0);
+            job.settleVisual(false);
             return;
         }
-        void openDocumentPageSource(transition, {
+        const opened = await openDocumentPageSource(transition, {
             chassisAuthority,
             commitPageTerminalError: presentation.commitTerminalError,
             createPageFailureError: presentation.createFailureError,
@@ -1163,7 +1166,7 @@ export const useDocumentPageSourceRuntime = (options: {
             isLoading,
             ensureExactPageMetric,
             layoutLifecycle,
-            loadController: activeLoadController,
+            loadController: job.abort,
             markExactPageMetric: pageNumber => exactPageMetricNumbers.add(pageNumber),
             measureViewport,
             openingPageFrameOwnerId,
@@ -1198,15 +1201,13 @@ export const useDocumentPageSourceRuntime = (options: {
                 source.value = nextSource;
             },
             surfaceBudget,
-        }).then((settled) => {
-            if (settled && transition.isCurrent()) {
-                return transitions.channel.publish({
-                    kind: 'settle',
-                    fence: transition.fence,
-                });
-            }
-            return false;
         });
+        if (opened && transition.isCurrent()) {
+            scheduleRender.schedule();
+            await job.visual;
+        } else {
+            job.settleVisual(false);
+        }
     }
     function applySuspendTransition() {
         readingPoint = captureReadingPoint();
@@ -1231,29 +1232,18 @@ export const useDocumentPageSourceRuntime = (options: {
             restoreViewport: () => layoutLifecycle.placeAnchor(readingPoint),
         });
     }
-    watch(
-        () => chassisAuthority?.openSurface.snapshot.value.openingPageGeometry ?? null,
-        (geometry) => {
-            if (!geometry) {
-                return;
-            }
-            if (!source.value) {
-                seedOpeningPageMetrics();
-            }
-        },
-        {immediate: true},
-    );
+    // Opening geometry the host commits before this source is acquired seeds the cold page metrics.
+    watch(() => chassisAuthority?.openSurface.snapshot.value.openingPageGeometry ?? null, (geometry) => {
+        if (geometry && !source.value) seedOpeningPageMetrics();
+    }, {immediate: true});
     transitions.channel.subscribe((transition) => {
         switch (transition.kind) {
             case 'open':
-                applyOpenTransition(transition);
-                return;
+                return applyOpenTransition(transition);
             case 'invalidate':
-                applySuspendTransition();
-                return;
+                return applySuspendTransition();
             case 'restore':
-                applyRestoreTransition(transition);
-                return;
+                return applyRestoreTransition(transition);
             case 'settle':
                 scheduleRender.schedule();
         }
@@ -1304,7 +1294,7 @@ export const useDocumentPageSourceRuntime = (options: {
             pageSlots?.markUnmounted(chassisOpeningSlotPage);
             chassisOpeningSlotPage = null;
         }
-        loadController?.abort();
+        openJob?.abort.abort();
         const activeSource = source.value;
         activeSource?.dispose();
         if (chassisAuthority?.source.value === activeSource) {
