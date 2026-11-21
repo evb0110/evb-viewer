@@ -21,6 +21,7 @@ const SCAN_CLEANUP_ERROR_MESSAGE_KEYS = {
     panic: 'scanCleanup.errors.panic',
     'native-failure': 'scanCleanup.errors.nativeFailure',
     'tools-unavailable': 'scanCleanup.errors.toolsUnavailable',
+    'source-missing': 'scanCleanup.errors.sourceMissing',
     'insufficient-scratch': 'scanCleanup.errors.insufficientScratch',
     canceled: 'scanCleanup.errors.canceled',
     'detection-results-unavailable': 'scanCleanup.errors.detectionResultsUnavailable',
@@ -85,5 +86,9 @@ export function formatScanCleanupErrorByCode(
     if (errorCode === 'insufficient-scratch') {
         return formatScanCleanupScratchMessage(format, scratchShortfall);
     }
-    return formatScanCleanupErrorMessage(format.t(SCAN_CLEANUP_ERROR_MESSAGE_KEYS[errorCode]), technicalDetail);
+    // A gone source is the whole story; its bridge text would only repeat it.
+    return formatScanCleanupErrorMessage(
+        format.t(SCAN_CLEANUP_ERROR_MESSAGE_KEYS[errorCode]),
+        errorCode === 'source-missing' ? '' : technicalDetail,
+    );
 }

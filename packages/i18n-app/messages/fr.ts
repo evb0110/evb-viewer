@@ -406,6 +406,7 @@ export default {
             'panic': 'Le moteur natif de nettoyage du scan a échoué de manière inattendue.',
             'nativeFailure': 'Le moteur natif de nettoyage du scan n’a pas pu terminer l’opération.',
             'toolsUnavailable': 'Les outils nécessaires au nettoyage du scan ne sont pas disponibles sur ce système.',
+            'sourceMissing': 'Le PDF source n’est plus disponible. Il a peut-être été déplacé ou supprimé.',
             'canceled': 'Le nettoyage du scan a été annulé.',
             'detectionResultsUnavailable': 'Les résultats de détection des pages ne sont plus disponibles. Relancez la détection.',
             'internal': 'Le nettoyage du scan a échoué de manière inattendue.',

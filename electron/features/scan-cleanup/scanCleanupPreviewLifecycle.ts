@@ -19,6 +19,7 @@ import {
     stat,
     writeFile,
 } from 'fs/promises';
+import {isErrnoException} from '@contracts/runtimeGuards';
 import {getPdfPageCount} from '@electron/pdf/pdfPageCount';
 import {createPdfPageSizeStore} from '@electron/pdf/pdfPageSizes';
 import {atomicReplace} from '@electron/utils/atomicReplace';
@@ -203,7 +204,12 @@ export const defaultDependencies: IScanCleanupPreviewDependencies = {
         });
     },
     getSourceStatIdentity: async sourcePdfPath => {
-        const sourceStat = await stat(sourcePdfPath, {bigint: true});
+        // A source gone from its path is the reader's file, not a missing
+        // tool: name it before the broad ENOENT fallback can.
+        const sourceStat = await stat(sourcePdfPath, {bigint: true}).catch((cause: unknown) => {
+            if (!isErrnoException(cause) || cause.code !== 'ENOENT') throw cause;
+            throw Object.assign(new Error('Scan cleanup source PDF is missing', {cause}), {code: 'source-missing'});
+        });
         return `${sourceStat.size}:${sourceStat.mtimeNs}`;
     },
     materializeWorkingCopy: (logicalRef, options) => {

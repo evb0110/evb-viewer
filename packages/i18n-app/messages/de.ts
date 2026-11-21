@@ -406,6 +406,7 @@ export default {
             'panic': 'Die native Scanbereinigungs-Engine ist unerwartet fehlgeschlagen.',
             'nativeFailure': 'Die native Scanbereinigungs-Engine konnte den Vorgang nicht abschließen.',
             'toolsUnavailable': 'Die für die Scanbereinigung benötigten Werkzeuge sind auf diesem System nicht verfügbar.',
+            'sourceMissing': 'Die Quell-PDF ist nicht mehr verfügbar. Sie wurde möglicherweise verschoben oder gelöscht.',
             'canceled': 'Die Scanbereinigung wurde abgebrochen.',
             'detectionResultsUnavailable': 'Die Ergebnisse der Seitenerkennung sind nicht mehr verfügbar. Führen Sie die Erkennung erneut aus.',
             'internal': 'Die Scanbereinigung ist unerwartet fehlgeschlagen.',

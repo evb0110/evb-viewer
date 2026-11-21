@@ -405,6 +405,54 @@ describe('browser scan cleanup preview admission', () => {
         expect('requestId' in firstResult && 'requestId' in secondResult && firstResult.requestId !== secondResult.requestId).toBe(true);
     });
 
+    it('renders a visible page once when navigation retains and reschedules it', async () => {
+        const capability = await loadCapability();
+        const visible = request();
+        const first = capability.preview(visible);
+        await vi.waitFor(() => expect(renders.pending).toHaveLength(1));
+
+        const navigation = {
+            sourcePdfPath: visible.sourcePdfPath,
+            ownerId: visible.ownerId,
+            documentRevision: visible.documentRevision,
+            retainPages: [visible.pageNumber],
+            invalidateRawCache: false,
+        };
+        const retired = await capability.cancelPreview(navigation);
+        const replacement = request();
+        const second = capability.preview(replacement);
+        try {
+            // Queue behind the replacement's admission before releasing the
+            // engine. This cancellation is for an unrelated owner.
+            await capability.cancelPreview({...navigation, ownerId: 'other-owner'});
+            if (retired) {
+                await vi.waitFor(() => expect(renders.pending).toHaveLength(2));
+            }
+            for (const render of renders.pending) {
+                render.resolve(rendering(1));
+            }
+            const results = await Promise.all([
+                first,
+                second,
+            ]);
+            expect(renders.pending.map(render => render.input.request.pageNumber)).toEqual([visible.pageNumber]);
+            expect(results).toMatchObject([
+                {pageNumber: visible.pageNumber, requestId: visible.requestId},
+                {pageNumber: visible.pageNumber, requestId: replacement.requestId},
+            ]);
+        } finally {
+            await capability.cancelPreview({
+                ...navigation,
+                retainPages: [],
+                invalidateRawCache: true,
+            });
+            await Promise.allSettled([
+                first,
+                second,
+            ]);
+        }
+    });
+
     it('retires a base for another page and answers it canceled', async () => {
         const capability = await loadCapability();
         const first = capability.preview(request());
