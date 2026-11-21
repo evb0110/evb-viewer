@@ -724,13 +724,10 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             parse: parseEmptyAgentActionInput,
             async run(_input, _actionId, context) {
                 context?.assertCurrentDocument();
-                if (annotationTool.value !== 'note') {
-                    if (await handleQuickNoteAction() === false) return {
-                        ok: false,
-                        annotationTool: annotationTool.value,
-                    };
-                }
-                await nextTick();
+                if (annotationTool.value !== 'note' && await handleQuickNoteAction() === false) return {
+                    ok: false,
+                    annotationTool: annotationTool.value,
+                };
                 return {annotationTool: annotationTool.value};
             },
         },
@@ -770,7 +767,6 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
                     ok: false,
                     annotationTool: annotationTool.value,
                 };
-                await nextTick();
                 return {annotationTool: annotationTool.value};
             },
         },
@@ -790,7 +786,6 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
                 if (!result) {
                     throw new Error('PDF viewer is not ready for annotation.create_text_markup.');
                 }
-                await nextTick();
                 return {...result};
             },
         },
@@ -810,7 +805,6 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
                 if (!result) {
                     throw new Error('PDF viewer is not ready for annotation.create_shape.');
                 }
-                await nextTick();
                 return {
                     ...result,
                     shape: result.shape ? normalizeAgentAnnotationComment(result.shape) : null,

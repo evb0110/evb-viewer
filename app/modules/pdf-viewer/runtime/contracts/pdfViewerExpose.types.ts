@@ -6,6 +6,7 @@ import type {
     IAnnotationPropertyUpdate,
     IAnnotationMarkerRect,
     IShapeAnnotation,
+    TAnnotationTool,
     TMarkupSubtype,
 } from '@app/types/annotations';
 import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
@@ -142,7 +143,8 @@ export interface IPdfViewerAnnotationCommandExpose {
     getDeletedCanonicalAnnotationIds?: (() => string[]) | undefined;
     getDeletedPersistedCanonicalAnnotationCount?: (() => number) | undefined;
     setWorkspaceCommandSink?: (sink: IWorkspaceCommandSink | null) => void;
-    highlightSelection: () => Promise<boolean>;
+    /** Marks the selection with the tool named, else with this viewer's tool. */
+    highlightSelection: (tool?: TAnnotationTool) => Promise<boolean>;
     commentSelection: () => Promise<boolean>;
     createTextMarkupFromText: (
         options: ICreateTextMarkupFromTextOptions,

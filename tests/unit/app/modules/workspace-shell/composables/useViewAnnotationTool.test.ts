@@ -14,6 +14,8 @@ function createHarness() {
     const deps = {
         pdfViewerRef: ref(viewer),
         dragMode: ref(true),
+        showSidebar: ref(false),
+        sidebarTab: ref<'thumbnails' | 'annotations'>('thumbnails'),
         annotationKeepActive: keepActive,
         closeAnnotationContextMenu: () => {menuOpen.value = false;},
     };
