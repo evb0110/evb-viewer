@@ -51,7 +51,7 @@ export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpoin
             await Promise.resolve();
             let firstError: unknown;
             try {
-                for (let next: IWorkspaceCheckpoint | null = checkpoint; next && !disposed && options.enabled.value; next = pendingLatest) {
+                for (let next: IWorkspaceCheckpoint | null = pendingLatest ?? checkpoint; next && !disposed && options.enabled.value; next = pendingLatest) {
                     pendingLatest = null;
                     await Promise.resolve(getWindowTabsCapability().saveWorkspaceCheckpoint?.(next)).catch((error: unknown) => {
                         firstError ??= error;
