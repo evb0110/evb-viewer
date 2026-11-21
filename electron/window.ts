@@ -17,7 +17,8 @@ import { createWindowSecurity } from '@electron/window/createWindowSecurity';
 import { setupContentSecurityPolicy } from '@electron/security/csp';
 import { getErrorMessage } from '@electron/utils/error';
 import {
-    notifyWindowRendererLoadFailure,
+    getWindowStartupPhase,
+    publishWindowStartupPhase,
     waitForInitialRendererReady,
 } from '@electron/window/rendererReady';
 import { loadStartupPlaceholder } from '@electron/window/loadStartupPlaceholder';
@@ -32,6 +33,7 @@ import type {IRawIpcRegistrationAudit} from '@electron/platform-ipc/rawIpcRegist
 import { captureMainFailure } from '@electron/features/diagnostics/public';
 import { createWindowStartupOptions } from '@electron/window/createWindowStartupOptions';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import type {TRendererStartupFailure} from '@contracts/windowTabsPlatformFeature';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -167,6 +169,7 @@ interface IRendererDiagnosticsOptions {
 
 interface IRendererDiagnosticsHandle {
     isRecoveryLoadInFlight: () => boolean;
+    presentFailure: (failure: TRendererStartupFailure, reload: () => void) => void;
     reportRecoveryLoadFailure: (error: unknown) => FailureReceipt | undefined;
 }
 
@@ -174,15 +177,11 @@ const windowSecurity = createWindowSecurity({
     getTrustedRendererUrl: () => config.renderer.trustedUrl,
     logger,
 });
-let isCspConfigured = false;
 
 function ensureWindowRuntimeReady() {
     const runtimeStart = Date.now();
     try {
-        if (!isCspConfigured) {
-            isCspConfigured = true;
-            setupContentSecurityPolicy();
-        }
+        setupContentSecurityPolicy();
         logWindowStartup(`Window runtime ready (step +${Date.now() - runtimeStart}ms)`);
         return Promise.resolve();
     } catch (error) {
@@ -286,19 +285,26 @@ async function promptUnresponsiveRendererRecovery(
     }
 }
 
-// Once its recovery attempts run out a window has no renderer. Instead of
-// leaving it blank, the user may reload it once more or close it; unsaved work
-// stays in the workspace recovery record either way.
-async function promptCrashedRendererRecovery(
+// A window whose renderer ran out of recovery attempts, whose page did not load
+// or whose startup timed out shows no app. Instead of leaving it blank, the
+// user may reload it once more or close it; unsaved work stays in the
+// workspace recovery record either way. The answer acts only while that failure
+// is still the window's phase: a recovered shell or a newer load supersedes it.
+async function promptFailedRendererRecovery(
     window: BrowserWindow,
     windowId: number,
+    failure: Exclude<TRendererStartupFailure, {reason: 'renderer-error'}>,
     reloadRenderer: () => void,
 ) {
+    const {reason} = failure;
     if (window.isDestroyed()) {
         return;
     }
     if (config.automation.hideWindow || config.automation.noFocus) {
-        logger.warn('Renderer recovery attempts are exhausted; the automation window keeps no renderer', {windowId});
+        logger.warn('The automation window keeps no renderer after its failure', {
+            windowId,
+            reason,
+        });
         return;
     }
 
@@ -308,9 +314,17 @@ async function promptCrashedRendererRecovery(
     // A dialog that cannot be shown closes the window rather than leave it blank.
     const response = await dialog.showMessageBox(window, {
         type: 'error',
-        title: te('dialogs.rendererCrashed.title'),
-        message: te('dialogs.rendererCrashed.message'),
-        detail: te('dialogs.rendererCrashed.detail'),
+        ...(reason === 'renderer-gone'
+            ? {
+                title: te('dialogs.rendererCrashed.title'),
+                message: te('dialogs.rendererCrashed.message'),
+                detail: te('dialogs.rendererCrashed.detail'),
+            }
+            : {
+                title: te('errors.runtime.startupTitle'),
+                message: te('errors.runtime.startupTitle'),
+                detail: te('errors.runtime.startupDescription'),
+            }),
         buttons: [
             te('dialogs.rendererCrashed.close'),
             te('dialogs.rendererCrashed.reload'),
@@ -326,7 +340,7 @@ async function promptCrashedRendererRecovery(
         );
         return BUTTON_CLOSE;
     });
-    if (window.isDestroyed()) {
+    if (window.isDestroyed() || getWindowStartupPhase(windowId) !== failure) {
         return;
     }
     if (response === BUTTON_RELOAD) {
@@ -390,9 +404,9 @@ function attachRendererDiagnostics(
             });
         } else {
             receipt = reportWindowFailure(
-                failure.reason.startsWith('render-process-gone:')
-                    ? 'MAIN_RENDERER_RECOVERY_FAILED'
-                    : 'MAIN_UNRESPONSIVE_RECOVERY_FAILED',
+                failure.reason.startsWith('unresponsive-')
+                    ? 'MAIN_UNRESPONSIVE_RECOVERY_FAILED'
+                    : 'MAIN_RENDERER_RECOVERY_FAILED',
                 message,
                 error,
             );
@@ -460,10 +474,11 @@ function attachRendererDiagnostics(
             'MAIN_RENDERER_PROCESS_GONE',
             message,
         );
-        if (!config.isDev && !recoveryInFlight && isRecoveryUnavailable()) {
-            void promptCrashedRendererRecovery(window, windowId, () => {
-                recentRecoveryAttempts = [];
-                recoverRenderer(`render-process-gone:${details.reason}:reload-after-prompt`);
+        // Development runs no recovery, so its renderer is as gone as one out of attempts.
+        if (config.isDev || (!recoveryInFlight && isRecoveryUnavailable())) {
+            publishWindowStartupPhase(windowId, {
+                phase: 'failed',
+                reason: 'renderer-gone',
             });
             return;
         }
@@ -532,6 +547,21 @@ function attachRendererDiagnostics(
 
     const rendererDiagnostics: IRendererDiagnosticsHandle = {
         isRecoveryLoadInFlight: () => recoveryInFlight,
+        // The renderer presents its own failure; development keeps the window as it is.
+        // A reload replaces any pending recovery load and gets a fresh recovery budget.
+        presentFailure: (failure, reload) => {
+            if (config.isDev || failure.reason === 'renderer-error') {
+                return;
+            }
+            void promptFailedRendererRecovery(window, windowId, failure, () => {
+                recentRecoveryAttempts = [];
+                logger.warn('Reloading the renderer after its failure prompt', {
+                    reason: failure.reason,
+                    windowId,
+                });
+                reload();
+            });
+        },
         reportRecoveryLoadFailure,
     };
 
@@ -623,11 +653,33 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
             windowLoadFailureOwner.adopt(windowLoadFailureOwner.getCurrentAttempt(), receipt);
         },
     });
+    // The initial load and a reload after a failure prompt share one startup
+    // deadline; its timeout belongs to the current load.
+    const loadRenderer = (beforeLoad: Promise<unknown>) => ({
+        readyPromise: waitForInitialRendererReady(window, {
+            onInitialLoadFailure: error => {
+                windowLoadFailureOwner.report(windowLoadFailureOwner.getCurrentAttempt(), error);
+            },
+        }),
+        loadPromise: (async () => {
+            await beforeLoad;
+            if (window.isDestroyed()) {
+                return;
+            }
+            await window.loadURL(config.renderer.url);
+        })(),
+    });
+    // A failure the reload meets is published as a startup phase and presented again.
+    const reloadAfterFailure = () => {
+        const {readyPromise, loadPromise} = loadRenderer(ensureWindowRuntimeReady());
+        void readyPromise.catch(() => {});
+        void loadPromise.catch(() => {});
+    };
     const showLifecycle = attachShowLifecycle(window, {
         blockShowUntilRendererReady: shouldWaitForInitialRendererReady,
-        isDev: config.isDev,
         logger,
         showAndFocusMaximizedWindow,
+        presentStartupFailure: failure => rendererDiagnostics.presentFailure(failure, reloadAfterFailure),
         logWindowStartup,
     });
 
@@ -658,15 +710,21 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
         );
         if (attempt === initialLoadAttempt && initialRendererGone) {
             // The renderer-gone listener already owns this startup failure.
-        } else if (rendererDiagnostics.isRecoveryLoadInFlight()) {
+            showLifecycle.reveal();
+            return;
+        }
+        if (rendererDiagnostics.isRecoveryLoadInFlight()) {
             rendererDiagnostics.reportRecoveryLoadFailure(error);
         } else {
             windowLoadFailureOwner.report(attempt, error);
         }
-        if (attempt === initialLoadAttempt) {
-            notifyWindowRendererLoadFailure(window.id, error);
+        // An aborted load (-3) was replaced by another navigation, which reports its own outcome.
+        if (errorCode !== -3) {
+            publishWindowStartupPhase(window.id, {
+                phase: 'failed',
+                reason: 'load-failed',
+            }, error);
         }
-        showLifecycle.handleMainFrameLoadFailure();
     };
     windowWebContents.on('did-start-navigation', handleTopLevelNavigationStart);
     windowWebContents.on('did-fail-load', handleMainFrameLoadFailure);
@@ -685,16 +743,18 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
         })
         : Promise.resolve();
     const runtimeReadyPromise = ensureWindowRuntimeReady();
-    void runtimeReadyPromise.catch(() => {});
+    // A navigation's failure arrives as did-fail-load; without a runtime none starts.
+    void runtimeReadyPromise.catch((error) => {
+        publishWindowStartupPhase(window.id, {
+            phase: 'failed',
+            reason: 'load-failed',
+        }, new Error(`Initial loadURL failed: ${getErrorMessage(error)}`));
+    });
 
-    const initialLoadPromise = (async () => {
-        await runtimeReadyPromise;
-        await startupPlaceholderPromise.catch(() => {});
-        if (window.isDestroyed()) {
-            return;
-        }
-        await window.loadURL(config.renderer.url);
-    })();
+    const {
+        readyPromise: initialRendererReadyPromise,
+        loadPromise: initialLoadPromise,
+    } = loadRenderer(runtimeReadyPromise.then(() => startupPlaceholderPromise.catch(() => {})));
     void initialLoadPromise.catch((error) => {
         if (!initialRendererGone) {
             windowLoadFailureOwner.report(
@@ -703,16 +763,10 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
             );
         }
     });
-    const initialRendererReadyPromise = shouldWaitForInitialRendererReady
-        ? waitForInitialRendererReady(window, initialLoadPromise, {
-            onInitialLoadFailure: error => {
-                if (!initialRendererGone) {
-                    windowLoadFailureOwner.report(initialLoadAttempt, error);
-                }
-            },
-            onRendererGone: markInitialRendererGone,
-        })
-        : null;
+    if (!shouldWaitForInitialRendererReady) {
+        // Its failure is presented in the window, which stays open.
+        void initialRendererReadyPromise.catch(() => {});
+    }
     windowWebContents.on('did-finish-load', () => {
         void lockRendererZoom(window);
         if (keepAutomationRendererActive && process.platform !== 'darwin') {
@@ -724,14 +778,14 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
     });
     await startupPlaceholderPromise.catch(() => {});
     if (shouldShowStartupPlaceholder) {
-        showAndFocusMaximizedWindow(window);
+        showLifecycle.reveal();
     }
     logWindowStartup(`BrowserWindow created and loadURL dispatched (step +${Date.now() - createStart}ms)`, {
         windowId: window.id,
         url: config.renderer.url,
     });
 
-    if (initialRendererReadyPromise) {
+    if (shouldWaitForInitialRendererReady) {
         try {
             await initialRendererReadyPromise;
         } catch (error) {
@@ -741,7 +795,7 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
             throw error;
         }
     } else {
-        await initialLoadPromise;
+        await initialLoadPromise.catch(() => {});
     }
 
     return window;

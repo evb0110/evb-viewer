@@ -8,6 +8,10 @@ import type {
 import { config } from '@electron/config';
 import { getErrorMessage } from '@electron/utils/error';
 import type { IAppUpdateStatus } from '@contracts/updatesPlatformFeature';
+import type {
+    TRendererReportedStartupPhase,
+    TRendererStartupPhase,
+} from '@contracts/windowTabsPlatformFeature';
 import type { ISettingsData } from '@contracts/shared';
 import {
     parseDocumentRef,
@@ -21,6 +25,7 @@ import {
 import { resolveApplicationVersion } from '@electron/appVersion';
 import {runtimeConfig} from '@electron/runtimeConfig';
 import { setNativeWindowCloseCancelHandler } from '@electron/window';
+import { resetWindowStartupPhase } from '@electron/window/rendererReady';
 
 interface IShutdownCoordinator {
     isGracefulQuitInProgress(): boolean;
@@ -52,7 +57,7 @@ function normalizeAcknowledgedExternalOpenPaths(paths: string[]) {
 }
 
 interface IRegisterIpcHandlersOptions {
-    onRendererReady?: (event: IpcMainEvent) => void;
+    onRendererReady?: (event: IpcMainEvent, phase: TRendererReportedStartupPhase) => void;
     onWorkspaceCheckpointClaimed?: () => void | Promise<void>;
     claimPendingExternalOpenPaths?: (sender: WebContents) => Promise<TDocumentRef[]>;
     acknowledgePendingExternalOpenPaths?: (sender: WebContents, failedPaths: TDocumentRef[]) => void;
@@ -98,7 +103,6 @@ export interface IRunInitSequenceOptions {
     logger: ILogger;
     loadSettings(): Promise<ISettingsData>;
     logStartupPhase(message: string): void;
-    markWindowRendererReady(windowId: number): void;
     markWindowTabTransferNotReady(windowId: number): void;
     markWindowTabTransferReady(windowId: number): void;
     markWindowTabTransferWindowClosed(windowId: number): void;
@@ -109,7 +113,7 @@ export interface IRunInitSequenceOptions {
      */
     onPrimaryInstanceReady(): void;
     maybePromptForDefaultViewer(): void;
-    readyWindowIds: Set<number>;
+    publishWindowStartupPhase(windowId: number, phase: TRendererStartupPhase): void;
     registerIpcHandlers(options: IRegisterIpcHandlersOptions): void;
     setupAppProtocolHandler(): void;
     setupMenu(): void;
@@ -295,10 +299,9 @@ function bootIpc(
         getWindowFromWebContents,
         logStartupPhase,
         logger,
-        markWindowRendererReady,
         markWindowTabTransferReady,
         maybePromptForDefaultViewer,
-        readyWindowIds,
+        publishWindowStartupPhase,
         registerIpcHandlers,
     } = options;
     const rendererReadyFocusHandled = new WeakSet<WebContents>();
@@ -329,19 +332,22 @@ function bootIpc(
     };
     registerIpcHandlers({
         onWorkspaceCheckpointClaimed: scheduleWorkspaceRecoveryWindow,
-        onRendererReady: (event) => {
+        onRendererReady: (event, phase) => {
             const window = getWindowFromWebContents(event.sender);
             if (!window) {
                 return;
             }
 
+            // Delivery reads this phase, so it is recorded before the flush.
+            publishWindowStartupPhase(window.id, phase);
+            if (phase.phase === 'failed') {
+                return;
+            }
             const shouldFocusForInitialReady = !rendererReadyFocusHandled.has(event.sender);
             rendererReadyFocusHandled.add(event.sender);
-            readyWindowIds.add(window.id);
             markWindowTabTransferReady(window.id);
 
             externalOpenManager.scheduleFlushPendingFiles();
-            markWindowRendererReady(window.id);
             if (window.id === getMainWindow()?.id) {
                 if (shouldFocusForInitialReady) {
                     focusMainWindow();
@@ -508,7 +514,6 @@ function bootWindowLifecycle(
         logger,
         markWindowTabTransferNotReady,
         markWindowTabTransferWindowClosed,
-        readyWindowIds,
         shouldResetRendererReadyOnNavigation,
         shutdownCoordinator,
     } = options;
@@ -523,7 +528,7 @@ function bootWindowLifecycle(
         const windowWebContents = window.webContents;
 
         const markNotReady = (reason: string) => {
-            readyWindowIds.delete(windowId);
+            resetWindowStartupPhase(windowId);
             markWindowTabTransferNotReady(windowId);
             startupExternalOpenClaims.requeue(windowWebContents, reason);
         };
@@ -592,7 +597,6 @@ function bootWindowLifecycle(
         }
 
         if (!hasWindows()) {
-            readyWindowIds.clear();
             void createWindow().catch((error) => {
                 logger.error(`Failed to create window on activate: ${getErrorMessage(error)}`, {
                     code: 'MAIN_STARTUP_INITIALIZATION_FAILED',
@@ -613,11 +617,9 @@ async function bootMainWindow(options: IRunInitSequenceOptions) {
         externalOpenManager,
         logger,
         logStartupPhase,
-        readyWindowIds,
     } = options;
 
     externalOpenManager.markBootstrapReady();
-    readyWindowIds.clear();
     logStartupPhase('Creating main window');
     await createWindow({
         showStartupPlaceholder: false,

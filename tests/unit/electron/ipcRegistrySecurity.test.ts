@@ -564,8 +564,10 @@ describe('IPC registry sender trust', () => {
         );
     });
 
-    it('rejects untrusted event-channel senders before file port attachment or rendererReady', async () => {
+    it('requires a trusted sender and a valid startup phase on rendererReady', async () => {
         const onRendererReady = vi.fn();
+        const shellInteractive = {phase: 'shell-interactive'};
+        const rendererFailure = {phase: 'failed', reason: 'renderer-error'};
         const { registerIpcHandlers } = await import('@electron/platform-ipc/registerIpcHandlers');
         registerIpcHandlers({onRendererReady});
 
@@ -576,18 +578,22 @@ describe('IPC registry sender trust', () => {
 
         filePortHandler?.(createEvent('http://127.0.0.1:41001/admin'), 'session-1');
         filePortHandler?.(createDestroyedEvent(), 'session-2');
-        rendererReadyHandler?.(createSubframeEvent());
+        rendererReadyHandler?.(createSubframeEvent(), shellInteractive);
+        const trustedReadyEvent = createEvent('http://127.0.0.1:41001/electron/viewer');
+        rendererReadyHandler?.(trustedReadyEvent);
+        rendererReadyHandler?.(trustedReadyEvent, {phase: 'failed', reason: 'timed-out'});
 
         expect(mocks.attachSerializedPdfPersistencePort).not.toHaveBeenCalled();
         expect(onRendererReady).not.toHaveBeenCalled();
 
         const trustedFileEvent = createEvent('http://127.0.0.1:41001/electron/viewer');
-        const trustedReadyEvent = createEvent('http://127.0.0.1:41001/electron/viewer');
         filePortHandler?.(trustedFileEvent, 'session-3');
-        rendererReadyHandler?.(trustedReadyEvent);
+        rendererReadyHandler?.(trustedReadyEvent, shellInteractive);
+        rendererReadyHandler?.(trustedReadyEvent, rendererFailure);
 
         expect(mocks.attachSerializedPdfPersistencePort).toHaveBeenCalledWith(trustedFileEvent, 'session-3');
-        expect(onRendererReady).toHaveBeenCalledWith(trustedReadyEvent);
+        expect(onRendererReady).toHaveBeenCalledWith(trustedReadyEvent, shellInteractive);
+        expect(onRendererReady).toHaveBeenCalledWith(trustedReadyEvent, rendererFailure);
     }, ipcRegistrySecurityImportTimeoutMs);
 
     it('does not consume shell open rate-limit quota for invalid external URLs', async () => {

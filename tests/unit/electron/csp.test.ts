@@ -49,6 +49,17 @@ const checkHandler = mocks.setPermissionCheckHandler.mock.calls[0]?.[0];
 const requestHandler = mocks.setPermissionRequestHandler.mock.calls[0]?.[0];
 const headersListener = mocks.onHeadersReceived.mock.calls[0]?.[0];
 
+it('retries the policy installation after header registration fails', async () => {
+    vi.resetModules();
+    const {setupContentSecurityPolicy: installPolicy} = await import('@electron/security/csp');
+    mocks.onHeadersReceived.mockImplementationOnce(() => {
+        throw new Error('Header registration failed');
+    });
+    expect(() => installPolicy()).toThrow('Header registration failed');
+    installPolicy();
+    expect(mocks.onHeadersReceived).toHaveBeenCalledTimes(2);
+});
+
 function parseCsp(csp: string) {
     return Object.fromEntries(csp.split('; ').map((directive) => {
         const [

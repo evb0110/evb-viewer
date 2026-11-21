@@ -8,7 +8,6 @@ import {
 import { fileURLToPath } from 'url';
 import { uniq } from 'es-toolkit/array';
 import { getErrorMessage } from '@electron/utils/error';
-import { focusWindowForUser } from '@electron/window/focusWindowForUser';
 
 const EXTERNAL_OPEN_SINGLETON_BATCH_WINDOW_MS = 100;
 const EXTERNAL_OPEN_MULTI_PATH_BATCH_WINDOW_MS = 800;
@@ -26,25 +25,12 @@ interface IExternalOpenManagerSink {
     requestMainWindowForExternalOpen(): void;
 }
 
-interface IWindowLike {
-    isDestroyed(): boolean;
-    isMinimized(): boolean;
-    isVisible(): boolean;
-    restore(): void;
-    show(): void;
-    focus(): void;
-    webContents: {focus(): void;};
-}
-
-interface IApplicationLike {focus(options: { steal: true; }): void;}
-
 interface ICreateExternalOpenManagerOptions {
-    application: IApplicationLike;
     logger: ILogger;
-    noFocus: boolean;
     logStartupPhase: (phase: string) => void;
     isMainWindowRendererReady: () => boolean;
-    getMainWindow: () => IWindowLike | null;
+    /** Brings the main window forward; before its first reveal, through that reveal. */
+    focusMainWindow: () => void;
     hasWindows: () => boolean;
     createWindow: () => Promise<unknown>;
     dispatchOpenPaths: (paths: string[]) => boolean;
@@ -347,18 +333,6 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
         queueOpenRequest(parsedPaths);
     }
 
-    function focusMainWindow() {
-        const window = options.getMainWindow();
-        if (!window) {
-            return;
-        }
-
-        focusWindowForUser(window, {
-            application: options.application,
-            noFocus: options.noFocus,
-        });
-    }
-
     function clearRetryPendingFilesTimer() {
         if (!retryPendingFilesTimer) {
             return;
@@ -391,7 +365,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
             options.logStartupPhase('Main window creation requested by external open');
         }
 
-        focusMainWindow();
+        options.focusMainWindow();
         scheduleFlushPendingFiles();
     }
 

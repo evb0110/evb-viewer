@@ -6,8 +6,10 @@ import {
 import type { IWindowTabTargetWindow } from '@contracts/windowTabs';
 import type { TDocumentRef } from '@contracts/documentRef';
 import {
+    decodeRendererStartupPhase,
     WINDOW_TABS_PLATFORM_FEATURE,
     type IWindowTabsInvokeMap,
+    type TRendererReportedStartupPhase,
 } from '@contracts/windowTabsPlatformFeature';
 import type { TFeatureMainBindings } from '@contracts/platformFeature';
 import { te } from '@electron/te';
@@ -48,7 +50,7 @@ import {
 } from '@electron/menu';
 
 export interface ICoreIpcHandlerOptions {
-    onRendererReady?: (event: Electron.IpcMainEvent) => void;
+    onRendererReady?: (event: Electron.IpcMainEvent, phase: TRendererReportedStartupPhase) => void;
     onWorkspaceCheckpointClaimed?: () => void | Promise<void>;
     claimPendingExternalOpenPaths?: (sender: Electron.WebContents) => Promise<TDocumentRef[]>;
     acknowledgePendingExternalOpenPaths?: (sender: Electron.WebContents, failedPaths: TDocumentRef[]) => void;
@@ -134,8 +136,11 @@ export function registerCoreIpcHandlers(
     if (runtimeConfig.automationRendererHooksEnabled) {
         registerAutomationHandlers(ipcMain, options.requestGracefulQuit);
     }
-    eventRegistrar.on(CORE_IPC_CHANNELS.rendererReady, (event) => {
-        options.onRendererReady?.(event);
+    eventRegistrar.on(CORE_IPC_CHANNELS.rendererReady, (event, payload) => {
+        const phase = decodeRendererStartupPhase(payload);
+        if (phase) {
+            options.onRendererReady?.(event, phase);
+        }
     });
     eventRegistrar.on(CORE_IPC_SEND_CHANNELS.ipcInvokeCanceled, (event, payload) => {
         const requestId = decodeIpcInvokeRequestId(payload);

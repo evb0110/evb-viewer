@@ -49,6 +49,7 @@ import { isAutomationSession } from '@app/utils/isAutomationSession';
 import { readShortcutKey } from '@app/utils/shortcutKey';
 
 const STARTUP_OPEN_CLAIMED_EVENT_NAME = 'evb:startup-open-claimed';
+const STARTUP_FAILED_EVENT_NAME = 'evb:startup-failed';
 type TTabKeyboardShortcutAction = 'new-tab' | 'close-tab' | 'next-tab' | 'previous-tab' | 'new-pane-right';
 type TRendererDocumentShortcutAction = 'open-file' | 'save-as' | 'export-docx' | 'undo' | 'redo';
 type TRendererDocumentCommandShortcutAction = Exclude<TRendererDocumentShortcutAction, 'open-file'>;
@@ -449,16 +450,11 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         {capture: true},
     );
     const lifecycle: { isDisposed: boolean } = { isDisposed: false };
-    let rendererReadyNotified = false;
     let desktopViewerWarmupHandle: IDesktopViewerWarmupHandle | null = null;
 
     function notifyRendererReadyAndScheduleViewerWarmup() {
-        if (rendererReadyNotified) {
-            return;
-        }
-        rendererReadyNotified = true;
         traceRendererStartup('tabs shell dispatching app:rendererReady');
-        getWindowTabsCapability().notifyRendererReady();
+        getWindowTabsCapability().notifyRendererReady({phase: 'shell-interactive'});
         const profile = resolveStartupWorkProfile();
         desktopViewerWarmupHandle = scheduleDesktopViewerWarmup({
             isDesktopRuntime: shouldPreferDesktopPlatform(route.path),
@@ -626,10 +622,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
                 const failedPaths = await beginOpenPathsInAppropriateTab(startupExternalPaths);
                 await windowTabsCapability.acknowledgePendingExternalOpenPaths(failedPaths);
             })();
-            await nextTick();
-            if (!lifecycle.isDisposed.valueOf()) {
-                notifyRendererReadyAndScheduleViewerWarmup();
-            }
+            notifyRendererReadyAndScheduleViewerWarmup();
             await startupOpen;
             if (lifecycle.isDisposed.valueOf()) {
                 return;
@@ -647,9 +640,12 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
                 title: t('errors.runtime.title'),
             });
             setFatalRuntimeError('startup', presentation);
-            dispatchStartupOpenClaimed(0);
             isStartupOpenClaimPending.value = false;
-            notifyRendererReadyAndScheduleViewerWarmup();
+            window.dispatchEvent(new Event(STARTUP_FAILED_EVENT_NAME));
+            getWindowTabsCapability().notifyRendererReady({
+                phase: 'failed',
+                reason: 'renderer-error',
+            });
         });
 
         traceRendererStartup('tabs shell onMounted finished', {durationMs: Math.round(performance.now() - onMountedStart)});

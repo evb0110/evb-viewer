@@ -26,12 +26,16 @@ import {
 } from '@electron/bootstrap/runInitSequence';
 import { shouldResetRendererReadyOnNavigation } from '@electron/bootstrap/rendererReady';
 import { attachShowLifecycle } from '@electron/window/attachShowLifecycle';
+import { focusWindowForUser } from '@electron/window/focusWindowForUser';
 import {
     getAllRegisteredAppWindows,
     getRegisteredMainWindow,
     registerAppWindow,
 } from '@electron/window/registry';
-import { markWindowRendererReady } from '@electron/window/rendererReady';
+import {
+    getWindowStartupPhase,
+    publishWindowStartupPhase,
+} from '@electron/window/rendererReady';
 import { createTestEventSender } from '@tests/helpers/electronEventEmitterHarness';
 
 const mocks = vi.hoisted(() => ({existsSync: vi.fn((_path: string) => true)}));
@@ -141,7 +145,6 @@ describe('external open delivery across windows', () => {
             setAboutPanelOptions: noop,
             whenReady: noopAsync,
         });
-        const readyWindowIds = new Set<number>();
         const hasWindows = () => getAllRegisteredAppWindows().length > 0;
 
         function createWindow(id: number) {
@@ -156,10 +159,10 @@ describe('external open delivery across windows', () => {
             app.emit('browser-window-created', {}, window);
             registerAppWindow(window);
             attachShowLifecycle(window, {
-                isDev: false,
                 logger,
                 showAndFocusMaximizedWindow: noop,
                 logWindowStartup: noop,
+                presentStartupFailure: noop,
             });
             return {
                 window,
@@ -174,12 +177,10 @@ describe('external open delivery across windows', () => {
         }
 
         const externalOpenManager = createExternalOpenManager({
-            application: app,
             logger,
-            noFocus: true,
             logStartupPhase: noop,
-            isMainWindowRendererReady: () => readyWindowIds.has(getRegisteredMainWindow()?.id ?? -1),
-            getMainWindow: getRegisteredMainWindow,
+            isMainWindowRendererReady: () => getWindowStartupPhase(getRegisteredMainWindow()?.id ?? -1)?.phase === 'shell-interactive',
+            focusMainWindow: noop,
             hasWindows,
             createWindow: noopAsync,
             dispatchOpenPaths(paths) {
@@ -219,13 +220,12 @@ describe('external open delivery across windows', () => {
             logger,
             loadSettings: async () => DEFAULT_SETTINGS,
             logStartupPhase: noop,
-            markWindowRendererReady,
             markWindowTabTransferNotReady: noop,
             markWindowTabTransferReady: noop,
             markWindowTabTransferWindowClosed: noop,
             onPrimaryInstanceReady: noop,
             maybePromptForDefaultViewer: noop,
-            readyWindowIds,
+            publishWindowStartupPhase,
             registerIpcHandlers: handlers => { Object.assign(ipcHandlers, handlers); },
             setupAppProtocolHandler: noop,
             setupMenu: noop,
@@ -237,11 +237,12 @@ describe('external open delivery across windows', () => {
         const main = await mainWindow.promise;
         const replacement = createWindow(2);
         try {
-            ipcHandlers.onRendererReady!({sender: main.window.webContents} as IpcMainEvent);
-            ipcHandlers.onRendererReady!({sender: replacement.window.webContents} as IpcMainEvent);
+            ipcHandlers.onRendererReady!({sender: main.window.webContents} as IpcMainEvent, {phase: 'shell-interactive'});
+            ipcHandlers.onRendererReady!({sender: replacement.window.webContents} as IpcMainEvent, {phase: 'shell-interactive'});
             main.webContents.emit('did-start-navigation', {}, 'evb-viewer://app/electron', false, true);
             const path = resolve('/docs/during-reload.pdf');
             externalOpenManager.queueOpenRequest([path]);
+            ipcHandlers.onRendererReady!({sender: main.window.webContents} as IpcMainEvent, {phase: 'failed', reason: 'renderer-error'});
 
             expect(main.webContents.send).not.toHaveBeenCalled();
             expect(replacement.webContents.send).not.toHaveBeenCalled();
@@ -262,7 +263,7 @@ describe('createExternalOpenManager', () => {
     function createManagerHarness(options: {
         isRendererReady?: boolean;
         hasWindows?: boolean;
-        noFocus?: boolean;
+        focusMainWindow?: () => void;
         dispatchOpenPaths?: (paths: string[]) => boolean;
     } = {}) {
         const logger = createLogger();
@@ -272,30 +273,11 @@ describe('createExternalOpenManager', () => {
         const createWindow = vi.fn(async () => {
             hasWindows = true;
         });
-        const focus = vi.fn();
-        const webContentsFocus = vi.fn();
-        const restore = vi.fn();
-        const show = vi.fn();
-        const applicationFocus = vi.fn();
-        const isDestroyed = vi.fn(() => false);
-        const isMinimized = vi.fn(() => false);
-        const isVisible = vi.fn(() => true);
-
         const manager = createExternalOpenManager({
-            application: { focus: applicationFocus },
             logger,
-            noFocus: options.noFocus ?? false,
             logStartupPhase: vi.fn(),
             isMainWindowRendererReady: () => rendererReady,
-            getMainWindow: () => ({
-                isDestroyed,
-                isMinimized,
-                isVisible,
-                restore,
-                show,
-                focus,
-                webContents: {focus: webContentsFocus},
-            }),
+            focusMainWindow: options.focusMainWindow ?? (() => {}),
             hasWindows: () => hasWindows,
             createWindow,
             dispatchOpenPaths,
@@ -303,47 +285,41 @@ describe('createExternalOpenManager', () => {
 
         return {
             manager,
-            applicationFocus,
             logger,
             dispatchOpenPaths,
-            focus,
-            isVisible,
-            restore,
-            show,
             setRendererReady(value: boolean) {
                 rendererReady = value;
             },
         };
     }
 
-    it('uses the shared foreground recovery path for external document activation', async () => {
-        const harness = createManagerHarness();
-        harness.isVisible.mockReturnValue(false);
+    it.each([
+        {noFocus: false, foreground: true},
+        {noFocus: true, foreground: false},
+    ])('leaves an existing window foreground=$foreground after external activation with no-focus=$noFocus', ({noFocus, foreground}) => {
+        let visible = false;
+        let focused = false;
+        let appActive = false;
+        const window = {
+            focus() { focused = true; },
+            isDestroyed: () => false,
+            isMinimized: () => false,
+            isVisible: () => visible,
+            restore() {},
+            show() { visible = true; },
+            webContents: {focus() {}},
+        };
+        const application = {focus() { appActive = true; }};
+        const {manager} = createManagerHarness({
+            focusMainWindow: () => focusWindowForUser(window, {application, noFocus}),
+        });
 
-        harness.manager.markBootstrapReady();
-        harness.manager.requestMainWindowForExternalOpen();
-        await vi.waitFor(() => expect(harness.focus).toHaveBeenCalledTimes(1));
+        manager.markBootstrapReady();
+        manager.requestMainWindowForExternalOpen();
 
-        expect(harness.show).toHaveBeenCalledTimes(1);
-        if (process.platform === 'darwin') {
-            expect(harness.applicationFocus).toHaveBeenCalledWith({ steal: true });
-        } else {
-            expect(harness.applicationFocus).not.toHaveBeenCalled();
-        }
-    });
-
-    it('keeps external activation inert in no-focus automation', async () => {
-        const harness = createManagerHarness({ noFocus: true });
-        harness.isVisible.mockReturnValue(false);
-
-        harness.manager.markBootstrapReady();
-        harness.manager.requestMainWindowForExternalOpen();
-        await Promise.resolve();
-
-        expect(harness.restore).not.toHaveBeenCalled();
-        expect(harness.show).not.toHaveBeenCalled();
-        expect(harness.focus).not.toHaveBeenCalled();
-        expect(harness.applicationFocus).not.toHaveBeenCalled();
+        expect(visible).toBe(foreground);
+        expect(focused).toBe(foreground);
+        expect(appActive).toBe(foreground && process.platform === 'darwin');
     });
 
     it('flushes newly queued paths immediately once bootstrap, window, and renderer are ready', () => {

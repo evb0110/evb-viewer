@@ -571,9 +571,9 @@ export function createElectronApi(
 
         windowTabs: {
             ...windowTabsIpc,
-            notifyRendererReady: () => {
-                tracePreloadStartup('app:rendererReady dispatched');
-                ipcRenderer.send(CORE_IPC_CHANNELS.rendererReady);
+            notifyRendererReady: (phase) => {
+                tracePreloadStartup('app:rendererReady dispatched', {phase: phase.phase});
+                ipcRenderer.send(CORE_IPC_CHANNELS.rendererReady, phase);
             },
             claimPendingExternalOpenPaths: () => invokeWithStartupTrace(
                 'app:claimPendingExternalOpenPaths',

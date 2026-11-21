@@ -6,11 +6,40 @@ import {
     it,
     vi,
 } from 'vitest';
+import { EventEmitter } from 'node:events';
 import { createWindowSecurity } from '@electron/window/createWindowSecurity';
+import type * as WindowRegistry from '@electron/window/registry';
+import type * as StartupPhases from '@electron/window/rendererReady';
+import type { TRendererStartupPhase } from '@contracts/windowTabsPlatformFeature';
+import { createTestEventSender } from '@tests/helpers/electronEventEmitterHarness';
 
-const mocks = vi.hoisted(() => ({openExternal: vi.fn(async () => {})}));
+const mocks = vi.hoisted(() => ({
+    automation: {hideWindow: true, noFocus: true},
+    loadURL: vi.fn(async (_url: string) => {}),
+    openExternal: vi.fn(async () => {}),
+    setupContentSecurityPolicy: vi.fn(),
+    showMessageBox: vi.fn<() => Promise<{response: number}>>(),
+}));
 
-vi.mock('electron', () => ({shell: {openExternal: mocks.openExternal}}));
+vi.mock('electron', () => ({
+    app: {isPackaged: true, focus: vi.fn()},
+    get BrowserWindow() { return StartupBrowserWindow; },
+    dialog: {showMessageBox: mocks.showMessageBox},
+    ipcMain: new EventEmitter(),
+    shell: {openExternal: mocks.openExternal},
+}));
+vi.mock('@electron/config', () => ({config: {
+    automation: mocks.automation,
+    isDev: false,
+    renderer: {url: 'evb-viewer://app/electron', trustedUrl: 'evb-viewer://app/electron'},
+    window: {title: 'EVB Viewer'},
+}}));
+vi.mock('@electron/features/diagnostics/public', () => ({captureMainFailure: vi.fn()}));
+vi.mock('@electron/security/csp', () => ({setupContentSecurityPolicy: mocks.setupContentSecurityPolicy}));
+vi.mock('@electron/te', () => ({te: (key: string) => key}));
+vi.mock('@electron/utils/createLogger', () => ({createLogger: createLoggerMock}));
+vi.mock('@electron/window/createWindowStartupOptions', () => ({createWindowStartupOptions: () => ({})}));
+vi.mock('@electron/window/windowCloseHandshake', () => ({attachNativeWindowCloseHandshake: vi.fn()}));
 
 function createWindowMock() {
     return {
@@ -30,6 +59,230 @@ function createLoggerMock() {
         error: vi.fn(),
     };
 }
+
+class StartupBrowserWindow extends EventEmitter {
+    readonly id = 1;
+    readonly webContents = Object.assign(createTestEventSender(this.id), {
+        focus() {},
+        setWindowOpenHandler() {},
+    });
+
+    private destroyed = false;
+
+    async loadURL(url: string) {
+        this.webContents.emit('did-start-navigation', {}, url, false, true);
+        await mocks.loadURL(url);
+    }
+
+    isMaximized() { return true; }
+
+    isVisible() { return true; }
+
+    focus() {}
+
+    isDestroyed() {
+        return this.destroyed;
+    }
+
+    destroy() {
+        this.destroyed = true;
+        this.emit('closed');
+    }
+}
+
+describe('main window startup phases', () => {
+    const interactive = {phase: 'shell-interactive'} as const;
+    const timedOut = {phase: 'failed', reason: 'timed-out'} as const;
+    let getRegisteredMainWindow: typeof WindowRegistry.getRegisteredMainWindow;
+    let getWindowStartupPhase: typeof StartupPhases.getWindowStartupPhase;
+    let publishWindowStartupPhase: typeof StartupPhases.publishWindowStartupPhase;
+    let resetWindowStartupPhase: typeof StartupPhases.resetWindowStartupPhase;
+    let subscribeWindowStartupPhase: typeof StartupPhases.subscribeWindowStartupPhase;
+
+    async function startWindow() {
+        const {createAppWindow} = await import('@electron/window');
+        const startup = createAppWindow({waitForInitialRendererReady: true});
+        const outcome = startup.then(() => 'interactive' as const, (error: unknown) => error);
+        const window = getRegisteredMainWindow()!;
+        await vi.advanceTimersByTimeAsync(0);
+        return {window, outcome};
+    }
+
+    function endRenderer(window: NonNullable<ReturnType<typeof getRegisteredMainWindow>>) {
+        window.webContents.emit('render-process-gone', {}, {reason: 'crashed', exitCode: 1});
+    }
+
+    async function startWindowWithNativePrompts() {
+        mocks.automation.hideWindow = false;
+        mocks.automation.noFocus = false;
+        const {createAppWindow} = await import('@electron/window');
+        const startup = createAppWindow({showStartupPlaceholder: false});
+        const window = getRegisteredMainWindow()!;
+        // Bootstrap resets the window's phase on a replacement main-frame navigation.
+        window.webContents.on('did-start-navigation', () => resetWindowStartupPhase(window.id));
+        await startup;
+        return window;
+    }
+
+    beforeEach(async () => {
+        vi.resetModules();
+        ({getRegisteredMainWindow} = await import('@electron/window/registry'));
+        ({
+            getWindowStartupPhase,
+            publishWindowStartupPhase,
+            resetWindowStartupPhase,
+            subscribeWindowStartupPhase,
+        } = await import('@electron/window/rendererReady'));
+        vi.useFakeTimers();
+        mocks.automation.hideWindow = true;
+        mocks.automation.noFocus = true;
+        mocks.loadURL.mockReset();
+        mocks.setupContentSecurityPolicy.mockReset();
+        mocks.showMessageBox.mockReset();
+    });
+
+    afterEach(() => {
+        getRegisteredMainWindow()?.destroy();
+        vi.useRealTimers();
+    });
+
+    it('keeps startup pending when a main-frame load is aborted', async () => {
+        const {window, outcome} = await startWindow();
+        window.webContents.emit('did-fail-load', {}, -3, 'ERR_ABORTED', 'evb-viewer://app/electron', true);
+        expect(getWindowStartupPhase(window.id)).toBeNull();
+
+        publishWindowStartupPhase(window.id, interactive);
+        expect(await outcome).toBe('interactive');
+    });
+
+    it('does not publish a startup phase for a load failure after interactivity', async () => {
+        const {window, outcome} = await startWindow();
+        publishWindowStartupPhase(window.id, interactive);
+        expect(await outcome).toBe('interactive');
+
+        window.webContents.emit('did-start-navigation', {}, 'evb-viewer://app/electron/reload', false, true);
+        window.webContents.emit('did-fail-load', {}, -6, 'ERR_FILE_NOT_FOUND', 'evb-viewer://app/electron/reload', true);
+        expect(getWindowStartupPhase(window.id)).toEqual(interactive);
+        expect(window.isDestroyed()).toBe(false);
+    });
+
+    it('keeps the original startup deadline after an early renderer exit', async () => {
+        const {window, outcome} = await startWindow();
+        const phases: TRendererStartupPhase[] = [];
+        subscribeWindowStartupPhase(window.id, {onPhase: phase => phases.push(phase), requestReveal: () => false});
+
+        await vi.advanceTimersByTimeAsync(10_000);
+        endRenderer(window);
+        await vi.advanceTimersByTimeAsync(19_999);
+        expect(phases).toEqual([]);
+        expect(window.isDestroyed()).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(1);
+        expect(phases).toEqual([timedOut]);
+        expect(await outcome).toEqual(new Error('Renderer startup timed out after 30000ms'));
+    });
+
+    it('settles on a recovered interactive shell and cancels the startup deadline', async () => {
+        const {window, outcome} = await startWindow();
+        endRenderer(window);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(getWindowStartupPhase(window.id)).toBeNull();
+        expect(window.isDestroyed()).toBe(false);
+
+        publishWindowStartupPhase(window.id, interactive);
+        expect(await outcome).toBe('interactive');
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(getWindowStartupPhase(window.id)).toEqual(interactive);
+        expect(window.isDestroyed()).toBe(false);
+    });
+
+    it('reports renderer-gone when the window has used all three startup recoveries', async () => {
+        const {window, outcome} = await startWindow();
+        const phases: TRendererStartupPhase[] = [];
+        subscribeWindowStartupPhase(window.id, {onPhase: phase => phases.push(phase), requestReveal: () => false});
+
+        for (let recovery = 0; recovery < 3; recovery += 1) {
+            endRenderer(window);
+            await vi.advanceTimersByTimeAsync(0);
+            expect(phases).toEqual([]);
+            expect(window.isDestroyed()).toBe(false);
+        }
+
+        endRenderer(window);
+        expect(phases).toEqual([{phase: 'failed', reason: 'renderer-gone'}]);
+        expect(await outcome).toEqual(new Error('Renderer startup failed (renderer-gone)'));
+    });
+
+    it('can reload a stalled recovery and offer recovery again at the next startup deadline', async () => {
+        const stalledRecovery = Promise.withResolvers<void>();
+        const firstPrompt = Promise.withResolvers<{response: number}>();
+        const secondPrompt = Promise.withResolvers<{response: number}>();
+        mocks.showMessageBox
+            .mockReturnValueOnce(firstPrompt.promise)
+            .mockReturnValueOnce(secondPrompt.promise);
+        const window = await startWindowWithNativePrompts();
+        mocks.loadURL.mockReturnValueOnce(stalledRecovery.promise);
+        endRenderer(window);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mocks.loadURL).toHaveBeenCalledTimes(2);
+
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(getWindowStartupPhase(window.id)).toEqual(timedOut);
+        expect(mocks.showMessageBox).toHaveBeenCalledTimes(1);
+
+        firstPrompt.resolve({response: 1});
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mocks.loadURL).toHaveBeenCalledTimes(3);
+        expect(getWindowStartupPhase(window.id)).toBeNull();
+
+        await vi.advanceTimersByTimeAsync(29_999);
+        expect(mocks.showMessageBox).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(getWindowStartupPhase(window.id)).toEqual(timedOut);
+        expect(mocks.showMessageBox).toHaveBeenCalledTimes(2);
+        expect(window.isDestroyed()).toBe(false);
+    });
+
+    it.each([
+        {action: 'Close', response: 0},
+        {action: 'Reload', response: 1},
+    ])('ignores a stale $action response after the shell becomes interactive', async ({response}) => {
+        const prompt = Promise.withResolvers<{response: number}>();
+        mocks.showMessageBox.mockReturnValueOnce(prompt.promise);
+        const window = await startWindowWithNativePrompts();
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(getWindowStartupPhase(window.id)).toEqual(timedOut);
+        expect(mocks.showMessageBox).toHaveBeenCalledTimes(1);
+
+        publishWindowStartupPhase(window.id, interactive);
+        prompt.resolve({response});
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(window.isDestroyed()).toBe(false);
+        expect(mocks.loadURL).toHaveBeenCalledTimes(1);
+        expect(getWindowStartupPhase(window.id)).toEqual(interactive);
+    });
+
+    it('retries failed CSP setup before loading the renderer on Reload', async () => {
+        const prompt = Promise.withResolvers<{response: number}>();
+        mocks.showMessageBox.mockReturnValueOnce(prompt.promise);
+        mocks.setupContentSecurityPolicy.mockImplementationOnce(() => {
+            throw new Error('Could not read startup CSP hashes');
+        });
+
+        const window = await startWindowWithNativePrompts();
+        expect(getWindowStartupPhase(window.id)).toEqual({phase: 'failed', reason: 'load-failed'});
+        expect(mocks.loadURL).not.toHaveBeenCalled();
+        expect(mocks.showMessageBox).toHaveBeenCalledTimes(1);
+
+        prompt.resolve({response: 1});
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mocks.setupContentSecurityPolicy).toHaveBeenCalledTimes(2);
+        expect(mocks.loadURL).toHaveBeenCalledExactlyOnceWith('evb-viewer://app/electron');
+        expect(mocks.setupContentSecurityPolicy.mock.invocationCallOrder[1])
+            .toBeLessThan(mocks.loadURL.mock.invocationCallOrder[0]!);
+    });
+});
 
 describe('createWindowSecurity', () => {
     beforeEach(() => {
