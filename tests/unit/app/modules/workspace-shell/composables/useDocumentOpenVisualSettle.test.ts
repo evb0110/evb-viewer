@@ -44,9 +44,6 @@ function createHarness(overrides: IHarnessOverrides = {}) {
         : surfaceSession;
 
     const settle = useDocumentOpenVisualSettle({
-        pdfSrc,
-        pdfDocument,
-        totalPages,
         isLoading,
         pdfError,
         djvuError,
@@ -109,7 +106,6 @@ describe('useDocumentOpenVisualSettle', () => {
             totalPages: 1,
             isLoading: false,
         });
-        expect(harness.settle.documentOpenAccepted.value).toBe(documentPublished);
         expect(harness.settle.documentOpenSettled.value).toBe(false);
 
         commitHarnessSurfaceReady(harness);
@@ -188,21 +184,6 @@ describe('useDocumentOpenVisualSettle', () => {
         expect(harness.settle.documentOpenSettled.value).toBe(true);
     });
 
-    it('does not accept a PDF that is still loading', () => {
-        const harness = createHarness({
-            pdfSrc: { path: 'fixture.pdf' },
-            pdfDocument: {},
-            totalPages: 431,
-            isLoading: true,
-        });
-        expect(harness.settle.documentOpenAccepted.value).toBe(false);
-
-        harness.isLoading.value = false;
-
-        expect(harness.settle.documentOpenAccepted.value).toBe(true);
-        expect(harness.settle.documentOpenSettled.value).toBe(false);
-    });
-
     it('settles immediately for document-open errors', () => {
         const harness = createHarness({
             pdfError: new Error('open failed'),
@@ -210,7 +191,6 @@ describe('useDocumentOpenVisualSettle', () => {
             isLoading: true,
         });
 
-        expect(harness.settle.documentOpenAccepted.value).toBe(true);
         expect(harness.settle.documentOpenSettled.value).toBe(true);
     });
 });

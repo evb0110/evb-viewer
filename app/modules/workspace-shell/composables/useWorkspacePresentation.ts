@@ -3,7 +3,7 @@ import {resolveVisiblePageLabelsDuringMetadataRefresh} from '@app/modules/pdf-vi
 import type { TDocumentPageLabelLookup } from '@app/modules/document-viewer/public';
 import type { TDocumentContext } from '@app/modules/workspace-shell/documentContext';
 import type { TDocumentViewContext } from '@app/modules/workspace-shell/documentViewContext';
-import { useDocumentOpenedAutomationEvent } from '@app/modules/workspace-shell/automation/useDocumentOpenedAutomationEvent';
+import { emitAutomationEvent } from '@app/modules/workspace-shell/automation/automationReadinessEvents';
 import { useDocumentOpenVisualSettle } from '@app/modules/workspace-shell/composables/useDocumentOpenVisualSettle';
 import { useDocumentWorkspaceRestoreState } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceRestoreState';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
@@ -69,13 +69,9 @@ export const useWorkspacePresentation = (
     ));
 
     const {
-        documentOpenAccepted,
         documentOpenSettled,
         initialDocumentVisualReady,
     } = useDocumentOpenVisualSettle({
-        pdfSrc: file.pdfSrc,
-        pdfDocument: view.pdfDocument,
-        totalPages: view.totalPages,
         isLoading: view.isLoading,
         pdfError: file.pdfError,
         djvuError: file.djvuError,
@@ -192,14 +188,16 @@ export const useWorkspacePresentation = (
     async function waitForDocumentOpenSettled() {
         await until(documentOpenIdle).toBe(true);
     }
-    useDocumentOpenedAutomationEvent({
-        currentPage: view.currentPage,
-        originalPath: file.originalPath,
-        tabId,
-        totalPages: view.totalPages,
-        waitForDocumentOpenSettled,
-        workingCopyPath: file.workingCopyPath,
-    });
+    /** Tells automation that an open this view ran finished with its document. */
+    function reportDocumentOpened() {
+        const path = file.originalPath.value ?? file.workingCopyPath.value;
+        if (path) emitAutomationEvent('document-opened', {
+            currentPage: view.currentPage.value,
+            path,
+            tabId,
+            totalPages: view.totalPages.value,
+        });
+    }
     watch(hasOpenError, (failed) => {
         if (failed) {
             dispatchStartupOpenVisualReady('document-error', true);
@@ -210,7 +208,6 @@ export const useWorkspacePresentation = (
         toolbarHasPdf,
         canToggleSidebar,
         toolbarShowSidebarForDisplay,
-        documentOpenAccepted,
         documentOpenSettled,
         initialDocumentVisualReady,
         isOpeningDocumentForDisplay,
@@ -229,5 +226,6 @@ export const useWorkspacePresentation = (
         showDjvuConversionBanner,
         showWorkspaceViewerDocument,
         waitForDocumentOpenSettled,
+        reportDocumentOpened,
     };
 };

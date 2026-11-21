@@ -79,15 +79,14 @@ describe('PdfEmptyState recent-file order', () => {
             first,
             second,
         ]);
-        const openInProgress = ref(false);
+        const opening = Promise.withResolvers<boolean>();
         const host = document.createElement('div');
         document.body.append(host);
         const app = createApp(defineComponent({setup: () => () => h(PdfEmptyState, {
             recentFiles: recentFiles.value,
             recentFilesResolved: true,
-            openInProgress: openInProgress.value,
-            onOpenRecent: (file: IRecentFile) => {
-                openInProgress.value = true;
+            onOpenRecent: (file: IRecentFile, _pressed: boolean, follow: (open: Promise<boolean>) => void) => {
+                follow(opening.promise);
                 recentFiles.value = [
                     {
                         ...file,
@@ -111,7 +110,8 @@ describe('PdfEmptyState recent-file order', () => {
             second.originalPath,
         ]);
 
-        openInProgress.value = false;
+        opening.resolve(true);
+        await opening.promise;
         await nextTick();
         expect(getRecentOrder(host)).toEqual([
             second.originalPath,

@@ -107,9 +107,6 @@ function createFeaturePackHost(
             // The shell reads the renderer's loading live from what it exposes.
             const isLoading = computed(() => featurePack.value?.isDocumentLoading?.() ?? false);
             const settle = useDocumentOpenVisualSettle({
-                pdfSrc: ref(null),
-                pdfDocument: ref(null),
-                totalPages,
                 isLoading,
                 pdfError: ref(null),
                 djvuError: ref(null),

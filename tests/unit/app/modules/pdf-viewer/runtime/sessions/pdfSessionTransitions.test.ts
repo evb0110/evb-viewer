@@ -876,6 +876,36 @@ describe('PdfDocumentSession transitions', () => {
         }
     });
 
+    it('ends the admitted PDF superseded when its only live view leaves while a stale view remains', async () => {
+        const document = createDocumentProxy('stale-remaining');
+        pdfjsState.getDocument.mockReturnValue({promise: Promise.resolve(document), destroy: vi.fn()});
+        const source = new Blob(['pdf'], {type: 'application/pdf'});
+        const session = createPdfDocumentSession({src: computed(() => source as never)});
+        // This view's surface moved to another generation: its load is stale.
+        const {chassisAuthority, surface} = createRevisionSwapAuthority(requireDocumentRevisionToken('stale'));
+        surface.acquireSource.mockReturnValue(null as never);
+        session.attachView({chassisAuthority});
+        const live = session.attachView();
+        const liveLoading = Promise.withResolvers<void>();
+        live.subscribe(async (transition) => {
+            if (transition.phase === 'loading') await liveLoading.promise;
+        });
+        const finished = admitSource(session, 'open', source);
+        let outcome: Awaited<typeof finished> | undefined;
+        void finished.then(result => { outcome = result; });
+
+        try {
+            await new Promise<void>(resolve => setImmediate(resolve));
+            expect(live.isViewLoading.value).toBe(true);
+            await live.dispose();
+            await new Promise<void>(resolve => setImmediate(resolve));
+            expect(outcome?.status ?? 'pending', 'no view presents the job once the live one left').toBe('superseded');
+        } finally {
+            liveLoading.resolve();
+            await session.dispose();
+        }
+    });
+
     it('presents the admitted PDF to a view that joins while the first view leaves', async () => {
         const document = createDocumentProxy('late-view-open');
         pdfjsState.getDocument.mockReturnValue({promise: Promise.resolve(document), destroy: vi.fn()});

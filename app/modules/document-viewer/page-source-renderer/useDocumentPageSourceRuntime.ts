@@ -1129,6 +1129,7 @@ export const useDocumentPageSourceRuntime = (options: {
     }
     async function applyOpenTransition(transition: IDocumentPageSourceTransition) {
         const documentRef = transition.fence.src;
+        const openingTicket = chassisAuthority?.openSurface.navigationTicket.value;
         readingPoint = null;
         pagedWheelNavigation.reset();
         openJob?.abort.abort();
@@ -1204,6 +1205,7 @@ export const useDocumentPageSourceRuntime = (options: {
         });
         if (opened && transition.isCurrent()) {
             scheduleRender.schedule();
+            presentation.settleUncommittedVisual(job, openingTicket);
             await job.visual;
         } else {
             job.settleVisual(false);

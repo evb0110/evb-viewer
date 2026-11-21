@@ -15,6 +15,7 @@ import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import { requireEpochMs } from '@contracts/timestamps';
 import type { ITab } from '@app/types/tabs';
 import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
+import { didFinishOpen } from '@app/types/documentOpenOutcome';
 import {
     createWorkspaceDocumentController,
     describeTabDocument,
@@ -92,12 +93,29 @@ describe('workspace document controller views', () => {
                 isDjvu: false,
                 revisionInfo: null,
             });
-            controller.markPresented();
-            return true;
+            return {presentation: Promise.resolve({status: 'presented'})};
         });
-        await expect(opened).resolves.toBe(true);
+        await expect(didFinishOpen(opened)).resolves.toBe(true);
         expect(controller.snapshot.value.phase).toBe('presented');
         expect(controller.snapshot.value.identity.fileName).toBe('moved.pdf');
+    });
+
+    it('ends an open as failed and gives the tab back when its presentation rejects', async () => {
+        const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
+        const opened = controller.runOpen({
+            kind: 'open',
+            target: {
+                fileName: 'broken.pdf',
+                originalPath: requireDocumentRef('/docs/broken.pdf'),
+            },
+        }, async () => ({presentation: Promise.reject(new Error('The renderer receipt failed.'))}));
+
+        await expect(opened.finished).resolves.toEqual({
+            status: 'failed',
+            failure: null,
+        });
+        expect(controller.snapshot.value.activeTransaction).toBeNull();
+        expect(controller.snapshot.value.phase).toBe('empty');
     });
 
     it('refuses a superseded claim even when a newer open has the same source', async () => {
@@ -119,10 +137,9 @@ describe('workspace document controller views', () => {
                 isDjvu: false,
                 revisionInfo: null,
             });
-            controller.markPresented();
-            return true;
+            return {presentation: Promise.resolve({status: 'presented'})};
         });
-        await newer;
+        await newer.finished;
         const instance = controller.snapshot.value.identity.documentInstanceId;
         await expect(controller.runOpen({
             kind: 'open',
@@ -134,9 +151,8 @@ describe('workspace document controller views', () => {
                 isDjvu: false,
                 revisionInfo: null,
             });
-            controller.markPresented();
-            return true;
-        })).resolves.toBe(false);
+            return {presentation: Promise.resolve({status: 'presented'})};
+        }).finished).resolves.toEqual({status: 'superseded'});
         expect(controller.snapshot.value.identity.fileName).toBe('same.pdf');
         expect(controller.snapshot.value.identity.documentInstanceId).toBe(instance);
         expect(controller.snapshot.value.phase).toBe('presented');
@@ -181,7 +197,7 @@ describe('workspace document controller views', () => {
     it.each([
         '/docs/source.pdf',
         '/docs/replacement.pdf',
-    ])('rejects the old target when a fresh open adopts %s before presentation', (path) => {
+    ])('rejects the old target when a fresh open adopts %s before presentation', async (path) => {
         const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
         controller.assign({
             fileName: 'source.pdf',
@@ -195,10 +211,11 @@ describe('workspace document controller views', () => {
             originalPath: requireDocumentRef(path),
             fileName: 'opened.pdf',
         };
-        controller.claimOpen({
+        const presented = Promise.withResolvers<{status: 'presented'}>();
+        const opened = controller.runOpen({
             kind: 'open',
             target,
-        });
+        }, async () => ({presentation: presented.promise}));
         expect(controller.validateCommandTarget(oldTarget).ok).toBe(false);
         controller.commitFile({
             ...target,
@@ -209,12 +226,13 @@ describe('workspace document controller views', () => {
         expect(controller.snapshot.value.identity.documentInstanceId).not.toBe(admitted.documentInstanceId);
         expect(controller.snapshot.value.activeTransaction?.kind).toBe('open');
         expect(controller.validateCommandTarget(oldTarget).ok).toBe(false);
-        controller.markPresented();
+        presented.resolve({status: 'presented'});
+        await opened.finished;
         expect(controller.snapshot.value.phase).toBe('presented');
         expect(controller.validateCommandTarget(oldTarget).ok).toBe(false);
     });
 
-    it('resumes the retained checkpoint lifetime through working-copy restore and presentation', () => {
+    it('resumes the retained checkpoint lifetime through working-copy restore and presentation', async () => {
         const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
         const sourcePath = requireDocumentRef('/docs/source.pdf');
         const workingPath = requireDocumentRef('/working/recovered.pdf');
@@ -226,10 +244,11 @@ describe('workspace document controller views', () => {
             isDjvu: false,
         });
         const admitted = controller.snapshot.value.identity;
-        controller.claimOpen({
+        const presented = Promise.withResolvers<{status: 'presented'}>();
+        const restored = controller.runOpen({
             kind: 'restore',
             target: {originalPath: sourcePath},
-        });
+        }, async () => ({presentation: presented.promise}));
         controller.commitFile({
             originalPath: sourcePath,
             isDjvu: false,
@@ -244,7 +263,8 @@ describe('workspace document controller views', () => {
         });
         expect(controller.snapshot.value.identity.documentSessionKey).toBe(admitted.documentSessionKey);
         expect(controller.snapshot.value.identity.documentInstanceId).toBe(admitted.documentInstanceId);
-        controller.markPresented();
+        presented.resolve({status: 'presented'});
+        await restored.finished;
         expect(controller.snapshot.value.identity.documentSessionKey).toBe(admitted.documentSessionKey);
         expect(controller.snapshot.value.identity.documentInstanceId).toBe(admitted.documentInstanceId);
         expect(controller.snapshot.value.recoveryWorkingCopyPath).toBeNull();
@@ -347,10 +367,10 @@ function openThatFails(failure: FailureReceipt | null) {
             message: 'The file was moved or deleted.',
             failure,
         });
-        return false;
+        return null;
     });
     return {
-        opened,
+        opened: didFinishOpen(opened),
         tabs,
     };
 }
@@ -436,10 +456,9 @@ function createRoutingToNewTab() {
                 target: describeDocumentTarget(path),
             }, async () => {
                 session.commitFile({originalPath: path});
-                session.markPresented();
-                return true;
+                return {presentation: Promise.resolve({status: 'presented'})};
             });
-            return opened;
+            return didFinishOpen(opened);
         }}));
     }
     function describeTabs() {
@@ -499,9 +518,8 @@ describe('routing a document while the tab it picked is still mounting', () => {
             target: describeDocumentTarget(beta),
         }, async () => {
             session.commitFile({originalPath: beta});
-            session.markPresented();
-            return true;
-        });
+            return {presentation: Promise.resolve({status: 'presented'})};
+        }).finished;
         mountWorkspace('tab-opened-1');
 
         await expect(opened).resolves.toBe(false);

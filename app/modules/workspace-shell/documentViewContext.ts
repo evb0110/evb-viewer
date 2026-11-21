@@ -53,7 +53,7 @@ interface IDocumentViewContextDeps {
     isActive: Ref<boolean>;
     openSurface: IDocumentOpenSurfaceSession;
     /** Runs a user open as the document controller's open transaction in this view. */
-    runDocumentOpen: (request: IWorkspaceOpenRequest, run: () => Promise<boolean>) => Promise<boolean>;
+    runDocumentOpen: (request: IWorkspaceOpenRequest, run: () => Promise<TDocumentOpenOutcome>) => Promise<boolean>;
     emitOpenInNewTab: (result: TDocumentRef | TOpenFileResult) => void;
 }
 interface IDocumentViewBindingOptions {
