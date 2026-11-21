@@ -311,9 +311,10 @@ pub(crate) fn restore_text_box_recovery(
     editor: &TextBoxMutation,
     modified_at: &str,
 ) -> Result<()> {
-    let popup = document.new_object_id();
+    // The text box snapshot strips /Popup, so the restore writes no popup and
+    // reserves no number for one.
     let graph = original_text_box_graph(original)?;
-    restore_recovery_graph(document, &graph, root, popup, |_, _| Ok(page))?;
+    restore_recovery_graph(document, &graph, root, None, |_, _| Ok(page))?;
     let contents = document
         .dictionary(root)?
         .get(b"Contents")
@@ -467,7 +468,9 @@ pub(crate) fn decode_note_recovery(data: &str) -> Result<Document> {
 
 fn remap_recovery_object(object: &mut Object, refs: &HashMap<ObjectId, ObjectId>) {
     match object {
-        Object::Reference(id) => *id = refs[id],
+        // Only objects the revision writes are renumbered; a reference to any
+        // other object is null, as it would be in the saved file.
+        Object::Reference(id) => *object = refs.get(id).map_or(Object::Null, |id| (*id).into()),
         Object::Array(values) => {
             for value in values {
                 remap_recovery_object(value, refs);
@@ -494,37 +497,51 @@ pub(crate) fn restore_note_recovery<S: PdfObjectStore>(
     pages: &PageLookup<'_>,
 ) -> Result<Vec<(ObjectId, ObjectId)>> {
     let graph = decode_note_recovery(data)?;
-    restore_recovery_graph(document, &graph, root, popup, |document: &S, offset| {
-        let number = u32::try_from(i64::from(page_number) + offset).unwrap_or(0);
-        pages.page_id(document, number)
-    })
+    restore_recovery_graph(
+        document,
+        &graph,
+        root,
+        Some(popup),
+        |document: &S, offset| {
+            let number = u32::try_from(i64::from(page_number) + offset).unwrap_or(0);
+            pages.page_id(document, number)
+        },
+    )
 }
 
 fn restore_recovery_graph<S: PdfObjectStore>(
     document: &mut S,
     graph: &Document,
     root: ObjectId,
-    popup: ObjectId,
+    popup: Option<ObjectId>,
     mut page_of: impl FnMut(&S, i64) -> Result<ObjectId>,
 ) -> Result<Vec<(ObjectId, ObjectId)>> {
     let old_root = graph.trailer.get(b"Root")?.as_reference()?;
     let old_popup = annotation_related_ref(graph.get_dictionary(old_root)?, b"Popup");
     let mut refs = HashMap::from([(old_root, root)]);
-    refs.extend(old_popup.map(|old_popup| (old_popup, popup)));
-    for id in graph.objects.keys() {
-        refs.entry(*id).or_insert_with(|| document.new_object_id());
+    refs.extend(old_popup.zip(popup));
+    for (id, object) in &graph.objects {
+        if should_write_incremental_object(object) {
+            refs.entry(*id).or_insert_with(|| document.new_object_id());
+        }
     }
     let mut members = Vec::new();
     for (id, offset) in recovery_members(graph)? {
-        members.push((refs[&id], page_of(document, offset)?));
+        let target = refs
+            .get(&id)
+            .ok_or("Note recovery annotation is not writable")?;
+        members.push((*target, page_of(document, offset)?));
     }
     for (id, source_object) in &graph.objects {
+        let Some(&target) = refs.get(id) else {
+            continue;
+        };
         let mut object = source_object.clone();
         remap_recovery_object(&mut object, &refs);
-        if let Some((_, page)) = members.iter().find(|(member, _)| *member == refs[id]) {
+        if let Some((_, page)) = members.iter().find(|(member, _)| *member == target) {
             object.as_dict_mut()?.set("P", Object::Reference(*page));
         }
-        document.put_object(refs[id], object);
+        document.put_object(target, object);
     }
     Ok(members)
 }
