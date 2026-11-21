@@ -147,9 +147,8 @@ describe('restoreWorkspaceCheckpoint', () => {
                         mintedAt: requireEpochMs(1),
                     },
                 });
-                document.markPresented();
-                return true;
-            });
+                return {presentation: Promise.resolve({status: 'presented'})};
+            }).finished;
         }}));
         documentSessions.getSession('tab-3')!.attachWorkspace('tab-3', createWorkspaceExposeFixture());
         await restoring;
@@ -251,9 +250,8 @@ describe('restoreWorkspaceCheckpoint', () => {
                     isDjvu: false,
                     revisionInfo: null,
                 });
-                document.markPresented();
-                return true;
-            });
+                return {presentation: Promise.resolve({status: 'presented'})};
+            }).finished;
         }}));
         await restoring;
 

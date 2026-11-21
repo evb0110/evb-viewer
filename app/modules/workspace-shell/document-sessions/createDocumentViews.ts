@@ -19,6 +19,11 @@ import type {
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import {
+    admitOpenedDocument,
+    didFinishOpen,
+    type TDocumentOpenOutcome,
+} from '@app/types/documentOpenOutcome';
+import {
     finishOpeningReader,
     followOpeningReader,
 } from '@app/modules/workspace-shell/document-sessions/recentReadingView';
@@ -33,7 +38,7 @@ export interface IDocumentViewPort {
     tabId: string;
     isActive: Readonly<Ref<boolean>>;
     openSurface: IDocumentOpenSurfaceSession;
-    runDocumentOpen: (request: IWorkspaceOpenRequest, run: () => Promise<boolean>) => Promise<boolean>;
+    runDocumentOpen: (request: IWorkspaceOpenRequest, run: () => Promise<TDocumentOpenOutcome>) => Promise<boolean>;
     emitOpenInNewTab: (result: TDocumentRef | TOpenFileResult) => void;
     /** Gives this view a document of its own and runs the open in its new workspace. */
     detachAndOpen: (open: (workspace: IWorkspaceExpose) => Promise<boolean>) => Promise<void>;
@@ -86,9 +91,9 @@ export const createDocumentViews = (controller: IWorkspaceDocumentController) =>
     // An open runs in the view that starts it, whose lifecycle claims its
     // surface; without one, the document runs it alone. A normal open starts
     // where its reader left it, unless they move first.
-    async function runDocumentOpen(port: IDocumentViewPort | null, request: IWorkspaceOpenRequest, run: () => Promise<boolean>) {
+    async function runDocumentOpen(port: IDocumentViewPort | null, request: IWorkspaceOpenRequest, run: () => Promise<TDocumentOpenOutcome>) {
         if (!port) {
-            return controller.runOpen(request, run);
+            return didFinishOpen(controller.runOpen(request, async () => admitOpenedDocument(await run()) && {presentation: null}));
         }
         const workspace = controller.getView(port.tabId)?.mountedWorkspace.value;
         const opening = request.kind === 'open' && !request.carriesView && workspace

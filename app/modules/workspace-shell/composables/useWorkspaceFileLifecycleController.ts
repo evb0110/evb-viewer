@@ -41,7 +41,7 @@ interface IUseWorkspaceFileLifecycleControllerOptions extends IPdfFileOptions {
     /** The surface of the view that runs an open; read when the open runs. */
     getOpenSurface?: (() => IDocumentOpenSurfaceSession | null) | undefined;
     /** Runs an open as the document's open transaction, which ends when the viewer presents it. */
-    runDocumentOpen: (request: IWorkspaceOpenRequest, run: () => Promise<boolean>) => Promise<boolean>;
+    runDocumentOpen: (request: IWorkspaceOpenRequest, run: () => Promise<TDocumentOpenOutcome>) => Promise<boolean>;
     document: Pick<IWorkspaceDocumentController, 'assign' | 'file' | 'commitFile' | 'snapshot'>;
 }
 
@@ -291,9 +291,11 @@ export const useWorkspaceFileLifecycleController = (
             reason: 'source-active',
             djvuPath,
         });
+        // The activated page source reaches the screen in each view's renderer.
         return {
             status: 'opened',
             result: outcome.result,
+            presentation: null,
         } satisfies TDocumentOpenOutcome;
     }
 
@@ -321,10 +323,7 @@ export const useWorkspaceFileLifecycleController = (
         open: () => Promise<TDocumentOpenOutcome>,
     ): Promise<TDocumentOpenOutcome> {
         const opened: {outcome: TDocumentOpenOutcome} = {outcome: {status: 'cancelled'}};
-        const presented = await options.runDocumentOpen(request, async () => {
-            opened.outcome = await open();
-            return didOpenDocument(opened.outcome);
-        });
+        const presented = await options.runDocumentOpen(request, async () => (opened.outcome = await open()));
         return presented || !didOpenDocument(opened.outcome) ? opened.outcome : {status: 'cancelled'};
     }
 

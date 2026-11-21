@@ -14,9 +14,13 @@ import {
     h,
     inject,
     nextTick,
+    ref,
     shallowRef,
 } from 'vue';
-import type { App } from 'vue';
+import type {
+    App,
+    Ref,
+} from 'vue';
 import {
     requireDocumentRef,
     type TDocumentRef,
@@ -237,8 +241,24 @@ async function mountDocumentWorkspace(options: {
     hiddenSecondView?: boolean;
     linkedSecondView?: boolean;
     detachDocumentView?: TDocumentViewDetach;
+    /** The tab names this file, and its previous workspace failed before loading it. */
+    failedAssignedPath?: TDocumentRef;
+    /** Whether the tab is shown; it stays mounted when switched away. */
+    shown?: Ref<boolean>;
 } = {}) {
     const documentSession = createWorkspaceDocumentController({tabId: 'tab-1'});
+    if (options.failedAssignedPath) {
+        documentSession.assign({
+            fileName: 'assigned.pdf',
+            originalPath: options.failedAssignedPath,
+            isDjvu: false,
+            isDirty: false,
+        });
+        documentSession.markFailed({
+            message: 'The workspace crashed.',
+            failure: null,
+        });
+    }
     const documentView = documentSession.getView('tab-1')!;
     if (options.hiddenSecondView || options.linkedSecondView) {
         documentSession.addView('tab-2');
@@ -249,16 +269,15 @@ async function mountDocumentWorkspace(options: {
             surfaceMode: options.initialSurfaceMode,
         });
     }
-    if (options.pendingDocumentPath) {
-        // An open that has not finished loading keeps the tab opening.
-        void documentSession.runOpen({
-            kind: 'open',
-            target: {
-                fileName: 'reopened.pdf',
-                originalPath: options.pendingDocumentPath,
-            },
-        }, () => new Promise<boolean>(() => {}));
-    }
+    // An open whose views have not presented its document keeps the tab opening.
+    const pendingPresentation = Promise.withResolvers<{status: 'presented'}>();
+    const pendingOpen = options.pendingDocumentPath && documentSession.runOpen({
+        kind: 'open',
+        target: {
+            fileName: 'reopened.pdf',
+            originalPath: options.pendingDocumentPath,
+        },
+    }, async () => ({presentation: pendingPresentation.promise}));
     // Nuxt UI registers its primitives globally in the app; unit mounts resolve
     // them to an inert passthrough so the workspace tree itself stays real.
     const designSystemStub = defineComponent({
@@ -278,8 +297,8 @@ async function mountDocumentWorkspace(options: {
                 'tab-2',
             ] : ['tab-1']).map(tabId => h(cast<never>(DocumentWorkspace), {
                 tabId,
-                isActive: tabId === 'tab-1',
-                isRenderActive: true,
+                isActive: tabId === 'tab-1' && (options.shown?.value ?? true),
+                isRenderActive: options.shown?.value ?? true,
                 isTabTransitionBusy: false,
                 isFullscreen: false,
                 fullscreenSupported: false,
@@ -337,11 +356,25 @@ async function mountDocumentWorkspace(options: {
     return {
         expose,
         documentSession,
+        presentPendingOpen: async () => {
+            pendingPresentation.resolve({status: 'presented'});
+            await pendingOpen?.finished;
+        },
         documentContext: registry!.get(documentSession)!,
     };
 }
 
 describe('DocumentWorkspace navigation command', () => {
+    it('reopens its assigned document when Retry mounts a shown workspace after a failure', async () => {
+        const path = requireDocumentRef('/tmp/assigned.pdf');
+        const workspace = await mountDocumentWorkspace({failedAssignedPath: path});
+
+        expect(workspace.documentSession.snapshot.value.activeTransaction).toMatchObject({
+            kind: 'restore',
+            target: {originalPath: path},
+        });
+    });
+
     it('shows the owning cleanup step and page count in the reader status bar', async () => {
         const path = requireDocumentRef('/tmp/status-cleanup.pdf');
         const {documentContext} = await mountDocumentWorkspace({openSurfaceDocument: path});
@@ -395,7 +428,7 @@ describe('DocumentWorkspace navigation command', () => {
             size: 400,
         };
         workspace.documentContext.file.pdfSrc.value = source;
-        workspace.documentSession.markPresented();
+        await workspace.presentPendingOpen();
         for (const view of surfaceRenders.presentations.values()) view.presentDocument();
         await nextTick();
         const anchors = [...surfaceRenders.presentations.values()].map(view => view.captureReadingAnchor());
@@ -444,7 +477,7 @@ describe('DocumentWorkspace navigation command', () => {
             size: 400,
         };
         workspace.documentContext.file.pdfSrc.value = source;
-        workspace.documentSession.markPresented();
+        await workspace.presentPendingOpen();
         for (const view of surfaceRenders.presentations.values()) view.presentDocument();
         await nextTick();
         workspace.expose.handleGoToPage(4);
@@ -497,7 +530,7 @@ describe('DocumentWorkspace navigation command', () => {
         file.workingCopyPath.value = path;
         file.originalPath.value = path;
         file.isDirty.value = true;
-        workspace.documentSession.markPresented();
+        await workspace.presentPendingOpen();
         for (const view of surfaceRenders.presentations.values()) view.presentDocument();
         await nextTick();
 
@@ -737,4 +770,111 @@ describe('DocumentWorkspace navigation command', () => {
         });
     }, 120_000);
 
+    it.each([
+        'fails while hidden',
+        'is shown again and paints',
+    ])('keeps a page-source open switched away before its first visual until its view %s', async (ending) => {
+        const shown = ref(true);
+        const {
+            documentContext,
+            documentSession,
+        } = await mountDocumentWorkspace({shown});
+        const path = requireDocumentRef('/tmp/book.djvu');
+        let settled: boolean | 'pending' = 'pending';
+        void documentContext.views.runDocumentOpen(documentContext.views.soleView.value, {
+            kind: 'open',
+            target: {
+                fileName: 'book.djvu',
+                originalPath: path,
+                isDjvu: true,
+            },
+        }, async () => ({
+            status: 'opened',
+            result: {
+                kind: 'djvu',
+                originalPath: path,
+                workingPath: '',
+            },
+            presentation: null,
+        })).then((opened) => { settled = opened; });
+        await vi.waitFor(() => expect(documentSession.snapshot.value.phase).toBe('opening'));
+        shown.value = false;
+        await nextTick();
+        await new Promise<void>(resolve => setImmediate(resolve));
+        expect(settled, 'a hidden view has not shown the first page yet').toBe('pending');
+
+        if (ending === 'fails while hidden') {
+            documentContext.file.pdfError.value = 'The first page could not be shown.';
+            await vi.waitFor(() => expect(settled).toBe(false));
+            return;
+        }
+        shown.value = true;
+        await nextTick();
+        await new Promise<void>(resolve => setImmediate(resolve));
+        expect(settled).toBe('pending');
+        const surface = surfaceRenders.openSurfaces.get('tab-1')!;
+        const generation = surface.begin({
+            documentId: path,
+            documentRevision: 'revision-1',
+        });
+        surface.commitGeometry(generation, {
+            width: 612,
+            height: 792,
+            margin: 20,
+        });
+        const fence = surface.createRenderFence({
+            generation,
+            documentRevision: 'revision-1',
+            renderVersion: 1,
+            requestId: 1,
+            pageNumber: 1,
+        })!;
+        surface.commitCanvas(fence);
+        surface.commitViewport({
+            generation,
+            documentRevision: 'revision-1',
+            viewportIntentId: fence.viewportIntentId,
+            documentGeometryRevision: 1,
+            interactionEpoch: 0,
+            pageNumber: 1,
+            left: 0,
+            top: 0,
+        });
+        expect(surface.markReady(fence)).toBe(true);
+        await vi.waitFor(() => expect(settled).toBe(true));
+        expect(documentSession.snapshot.value.phase).toBe('presented');
+    }, 120_000);
+
+    it.each([
+        ['failed', false],
+        ['presented', true],
+    ] as const)('ends a generated open by its source job, without a paint: %s', async (job, opened) => {
+        const {
+            documentContext,
+            documentSession,
+        } = await mountDocumentWorkspace();
+        const path = requireDocumentRef('/tmp/combined.pdf');
+
+        await expect(documentContext.views.runDocumentOpen(documentContext.views.soleView.value, {
+            kind: 'open',
+            target: {
+                fileName: 'combined.pdf',
+                originalPath: path,
+            },
+            acceptDocumentWithoutVisual: true,
+        }, async () => ({
+            status: 'opened',
+            result: {
+                kind: 'pdf',
+                originalPath: path,
+                workingPath: path,
+                isGenerated: true,
+            },
+            presentation: Promise.resolve(job === 'failed' ? {
+                status: 'failed',
+                error: new Error('The combined PDF did not load.'),
+            } : {status: 'presented'}),
+        }))).resolves.toBe(opened);
+        expect(documentSession.snapshot.value.activeTransaction).toBeNull();
+    }, 120_000);
 });

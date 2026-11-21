@@ -249,18 +249,17 @@ const {
     recentFiles,
     recentFilesResolved = true,
     recentFilesError = null,
-    openInProgress = false,
     isRecentOpenReady = () => true,
 } = defineProps<{
     recentFiles: IRecentFile[];
     recentFilesResolved?: boolean | undefined;
     recentFilesError?: string | null | undefined;
-    openInProgress?: boolean | undefined;
     isRecentOpenReady?: ((file: IRecentFile) => boolean) | undefined;
 }>();
 const emit = defineEmits<{
     'press-recent': [file: IRecentFile];
-    'open-recent': [file: IRecentFile, pressed: boolean];
+    /** `follow` takes the open the host started, which ends the row's pending state. */
+    'open-recent': [file: IRecentFile, pressed: boolean, follow: (opening: Promise<unknown>) => void];
     'remove-recent': [file: IRecentFile];
     'reveal-recent': [file: IRecentFile];
     'clear-recent': [];
@@ -353,20 +352,20 @@ function pressRecent(file: IRecentFile, event: PointerEvent) {
 }
 
 function openRecent(file: IRecentFile, event: MouseEvent) {
-    // The host registers its open transaction asynchronously, so a rapid
-    // second click can slip through before eligibility flips; dedupe here.
+    // Until the open of this row ends, a second click on it opens nothing and
+    // the list keeps the order it had when clicked.
     if (pendingRecentOpenPath.value === file.originalPath) {
         return;
     }
     pendingRecentOpenPath.value = file.originalPath;
     recentFilesBeforeOpen.value ??= recentFiles.slice();
-    emit('open-recent', file, event.detail > 0);
-    void nextTick().then(() => {
-        if (!openInProgress) {
+    const release = () => {
+        if (pendingRecentOpenPath.value === file.originalPath) {
             recentFilesBeforeOpen.value = null;
             pendingRecentOpenPath.value = null;
         }
-    });
+    };
+    emit('open-recent', file, event.detail > 0, opening => void opening.then(release, release));
 }
 
 function openRecentFromRow(file: IRecentFile, event: MouseEvent) {
@@ -376,7 +375,6 @@ function openRecentFromRow(file: IRecentFile, event: MouseEvent) {
 }
 
 function isRecentRowDisabled(file: IRecentFile) {
-    // `openInProgress` drives the picker CTA, not Recent command eligibility.
     // The host's row-specific predicate owns transaction conflicts; owner
     // readiness is an open-path concern, never a disabled-command gate.
     return !isRecentOpenReady(file);
@@ -402,13 +400,6 @@ function confirmClearRecent() {
     emit('clear-recent');
 }
 
-
-watch(() => openInProgress, (isOpening) => {
-    if (!isOpening) {
-        recentFilesBeforeOpen.value = null;
-        pendingRecentOpenPath.value = null;
-    }
-});
 </script>
 
 <style lang="scss" scoped>

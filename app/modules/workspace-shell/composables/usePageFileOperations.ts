@@ -72,7 +72,7 @@ export interface IPageFileOperationsDeps {
     closeAllDropdowns: () => void;
     emitOpenInNewTab: (pathOrResult: TDocumentRef | TOpenFileResult) => void;
     /** Runs one open as the tab controller's transaction, which ends when the viewer presents it. */
-    runDocumentOpen: (request: IWorkspaceOpenRequest, run: () => Promise<boolean>) => Promise<boolean>;
+    runDocumentOpen: (request: IWorkspaceOpenRequest, run: () => Promise<TDocumentOpenOutcome>) => Promise<boolean>;
 }
 
 export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
@@ -129,7 +129,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         const result: {outcome: TPageFileOpenOutcome} = {outcome: {status: 'cancelled'}};
         const presented = await runDocumentOpen(request, async () => {
             result.outcome = await open();
-            return result.outcome.status === 'opened';
+            return result.outcome.status === 'opened' ? result.outcome : {status: 'cancelled'};
         });
         return presented || result.outcome.status !== 'opened'
             ? result.outcome

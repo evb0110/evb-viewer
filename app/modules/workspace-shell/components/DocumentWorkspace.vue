@@ -416,12 +416,12 @@ const documentLifecycle = useWorkspaceDocumentLifecycle({
     isDjvuMode: file.isDjvuMode,
     openBatchProgress: file.openBatchProgress,
     documentOpenSettled: presentation.documentOpenSettled,
-    documentOpenAccepted: presentation.documentOpenAccepted,
     readOpenFailure: workspaceExpose.getOpenFailure,
     toolbarSnapshot: workspaceToolbarSnapshot,
     readViewState: () => createTabViewSessionState(workspaceToolbarSnapshot.value, documentView.viewState.value),
     openPath: file.openFileDirectWithViewerLifecycle,
     closeFailedDocument: () => fileOps.handleCloseFileFromUi({persist: false}),
+    onOpened: presentation.reportDocumentOpened,
     hasWorkingCopy: () => file.workingCopyPath.value !== null,
     goToPage: navigation.handleGoToPage,
     formatBatchLabel: values => t('tabs.preparingBatch', values),
@@ -433,6 +433,7 @@ watch(() => isActive || isRenderActive, (shown, wasShown) => {
 }, {flush: 'sync'});
 onMounted(() => {
     documentSession.attachWorkspace(tabId, workspaceExpose);
+    documentLifecycle.presentWhenShown();
 });
 onBeforeUnmount(() => {
     if (surfaceMode.value === 'scan-cleanup') {

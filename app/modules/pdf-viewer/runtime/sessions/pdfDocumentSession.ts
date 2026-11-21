@@ -1025,6 +1025,22 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         pendingPageMutationRevisionSwap = null;
     }
 
+    // The job loads once a view in it began; it is stale only when every view
+    // still in it lost its generation. A view that joins meanwhile counts; one
+    // that leaves ends the wait on it, and neither holds nor fails the others.
+    async function didAnyViewBegin(presenting: IPdfDocumentPresentingLoad): Promise<boolean> {
+        const joined = [...presenting.views.values()];
+        let stop = () => {};
+        const began = joined.length === 0 || await new Promise<boolean | null>((resolve, reject) => {
+            stop = watch(views, () => resolve(null), {flush: 'sync'});
+            void Promise.all(joined.map(token => token.then(begun => begun !== null && resolve(true), (error: unknown) => {
+                if ([...presenting.views.values()].includes(token)) reject(error);
+            }))).then(() => resolve(false));
+        }).finally(() => stop());
+        const current = [...presenting.views.values()];
+        return began || ((began === null || current.length !== joined.length || current.some((token, index) => token !== joined[index])) && didAnyViewBegin(presenting));
+    }
+
     async function load(presenting: IPdfDocumentPresentingLoad, isReload: boolean) {
         const {job} = presenting;
         activePlan = computeLoadPlan(isReload);
@@ -1034,11 +1050,9 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         views.value.forEach((view) => {
             if (!presenting.views.has(view)) presenting.views.set(view, view.beginLoad(presenting));
         });
-        const began = await Promise.all(presenting.views.values());
-        if (presenting.token !== documentLoadToken) {
-            return;
-        }
-        if (began.length > 0 && began.every(token => token === null)) {
+        const began = await didAnyViewBegin(presenting);
+        if (presenting.token !== documentLoadToken) return;
+        if (!began) {
             // Every view's surface lost its generation: this source is stale.
             // Keep its PDF.js proxy out rather than open a document nobody shows.
             presentingLoad = null;
