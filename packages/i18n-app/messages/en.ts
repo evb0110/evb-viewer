@@ -928,6 +928,7 @@ export default {
             'panic': 'The native scan cleanup engine failed unexpectedly.',
             'nativeFailure': 'The native scan cleanup engine could not complete the operation.',
             'toolsUnavailable': 'The tools required for scan cleanup are unavailable on this system.',
+            'sourceMissing': 'The source PDF is no longer available. It may have been moved or deleted.',
             'insufficientScratch': 'Not enough free space on the temporary disk to analyze this document.',
             'insufficientScratchSpace': 'Free up disk space and try again: {required} is needed, {available} is free.',
             'canceled': 'Scan cleanup was canceled.',

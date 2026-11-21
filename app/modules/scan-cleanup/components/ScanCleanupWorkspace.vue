@@ -396,6 +396,7 @@ const EXPECTED_DETECTION_REFUSALS = new Set([
     'encrypted',
     'needs-password',
     'too-large',
+    'source-missing',
 ]);
 let toldDetectionError = '';
 watch([
