@@ -17,6 +17,8 @@ import {
 
 /** One more page than a renderer keeps results for in its detection state. */
 const LONG_DOCUMENT_PAGES = 1025;
+const PAGE_HEIGHT_PT = 81;
+const INK_JITTER_PT = 2.25;
 
 /**
  * A long document of small pages with rows of ink whose top edge moves from
@@ -26,20 +28,20 @@ async function longFixture() {
     const pdf = await PDFDocument.create();
     pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
     pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
-    // Small pages keep a thousand page analyses quick; detection measures
-    // the ink, not the paper size.
+    // The page box and all ink geometry are scaled to 75% to reduce the
+    // raster work per page while still crossing the renderer's result window.
     for (let pageIndex = 0; pageIndex < LONG_DOCUMENT_PAGES; pageIndex += 1) {
         const page = pdf.addPage([
-            72,
-            108,
+            54,
+            PAGE_HEIGHT_PT,
         ]);
-        const top = 93 - (pageIndex % 7) * 3;
+        const top = 69.75 - (pageIndex % 7) * INK_JITTER_PT;
         for (let row = 0; row < 9; row += 1) {
             page.drawRectangle({
-                x: 9,
-                y: top - row * 7.5,
-                width: 52 - (row % 3) * 7,
-                height: 2.5,
+                x: 6.75,
+                y: top - row * 5.625,
+                width: 39 - (row % 3) * 5.25,
+                height: 1.875,
                 color: rgb(0.1, 0.1, 0.1),
             });
         }
@@ -119,19 +121,19 @@ describe('browser Scan Cleanup workspace, long document', () => {
             await page.keyboard.press('End');
             await waitForPixels(page, LONG_DOCUMENT_PAGES, LONG_DOCUMENT_PAGES);
             await page.screenshot({path: join(evidenceRoot, 'case-long-last-page.png')});
-            // The last page's ink starts 3 pt lower on its 108 pt page than
+            // The last page's ink starts 2.25 pt lower on its 81 pt page than
             // the page before it. Calibration over every kept page snaps that
             // jitter to one ink line; placement without it keeps the offset.
             const lastInkTop = (await cleanedInkTop(page))!;
             await page.locator(`.scan-thumbnail-rail [data-thumbnail-page="${String(LONG_DOCUMENT_PAGES - 1)}"]`).click();
             await waitForPixels(page, LONG_DOCUMENT_PAGES - 1, LONG_DOCUMENT_PAGES);
             const previousInkTop = (await cleanedInkTop(page))!;
-            // The line stays inside the source's ink band, 12.5 pt to 30.5 pt
+            // The line stays inside the scaled ink band, 9.375 to 22.875 pt
             // from the top edge, where a top-aligned page would not put it.
-            expect(lastInkTop.height * 3 / 108).toBeGreaterThan(3);
+            expect(lastInkTop.height * INK_JITTER_PT / PAGE_HEIGHT_PT).toBeGreaterThan(3);
             expect(Math.abs(lastInkTop.row - previousInkTop.row)).toBeLessThanOrEqual(1);
-            expect(lastInkTop.row / lastInkTop.height).toBeGreaterThanOrEqual(12 / 108);
-            expect(lastInkTop.row / lastInkTop.height).toBeLessThanOrEqual(31 / 108);
+            expect(lastInkTop.row / lastInkTop.height).toBeGreaterThanOrEqual(9 / PAGE_HEIGHT_PT);
+            expect(lastInkTop.row / lastInkTop.height).toBeLessThanOrEqual(23.25 / PAGE_HEIGHT_PT);
             expect(problems).toEqual([]);
         } finally {
             await writeFile(join(evidenceRoot, 'case-long-console.json'), JSON.stringify(problems, null, 2));
