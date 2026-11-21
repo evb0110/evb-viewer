@@ -12,6 +12,7 @@ import type {
     IDocumentPageSourceTransition,
     IDocumentPageSourceFence,
     IDocumentPageSourceFeaturePackEmit,
+    TDocumentPageSourceOpenJob,
 } from '@app/modules/document-viewer/page-source-renderer/documentPageSourceFeaturePackState';
 import {
     getFailureReceipt,
@@ -115,7 +116,7 @@ export function createDocumentPageSourcePresentation(options: {
     readCurrentPage: () => number;
     readFence: () => IDocumentPageSourceFence;
     readIsActive: () => boolean;
-    readLoadSignal: () => AbortSignal | null;
+    readOpenJob: () => TDocumentPageSourceOpenJob | null;
     readMetric: (pageNumber: number) => IDocumentPageMetrics | undefined;
     readPageScale: (pageNumber: number) => number;
     readPixelRatio: () => number;
@@ -292,6 +293,7 @@ export function createDocumentPageSourcePresentation(options: {
             } else {
                 openSurface.fail(surfaceGeneration, message);
             }
+            options.readOpenJob()?.settleVisual(false);
         }
         return message;
     }
@@ -362,6 +364,7 @@ export function createDocumentPageSourcePresentation(options: {
         if (!placed || !openSurface.markReady(fence)) {
             return false;
         }
+        options.readOpenJob()?.settleVisual(true);
         return navigationTicket
             ? openSurface.reportNavigation(navigationTicket, {
                 kind: 'arrived',
@@ -383,7 +386,7 @@ export function createDocumentPageSourcePresentation(options: {
     async function renderPage(pageNumber: number) {
         const activeSource = options.readSource();
         const fence = options.readFence();
-        const loadSignal = options.readLoadSignal();
+        const loadSignal = options.readOpenJob()?.abort.signal;
         const currentPage = options.readCurrentPage();
         const isCurrent = () => (
             options.isFenceCurrent(fence)
@@ -486,10 +489,6 @@ export function createDocumentPageSourcePresentation(options: {
                     nextState.widthPx = widthPx;
                     pageStates.set(pageNumber, nextState);
                     beginPending(pageNumber, nextState);
-                }
-                await nextTick();
-                if (!isCurrent() || renderController.signal.aborted) {
-                    throw new DOMException('Superseded page render', 'AbortError');
                 }
                 return activeSource.renderPage({
                     pageNumber,
