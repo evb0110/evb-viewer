@@ -5,10 +5,8 @@ import type {
 } from 'vue';
 import { uniq } from 'es-toolkit/array';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import {
-    waitForVisualFrames,
-    waitUntilIdle,
-} from '@app/utils/asyncHelpers';
+import { until } from '@vueuse/core';
+import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import type { IEditorPaneState } from '@contracts/editorPanes';
 import { parseTabId } from '@contracts/windowTabs';
@@ -207,13 +205,13 @@ export const useAppShellTabLifecycle = (
         busyFeedbackToastIds.delete(tabId);
     }
 
+    // Waits on whichever document the tab holds now. It resolves after the
+    // tab was seen idle, so a caller re-checks busy in the turn it decides
+    // and waits again when the next operation has already begun.
     async function waitForTabOperationsToSettle(tabId: string) {
-        if (hasTabBusyOperation(tabId)) {
-            notifyTabBusy(tabId);
-        }
-
+        notifyTabBusy(tabId);
         try {
-            return await waitUntilIdle(() => hasTabBusyOperation(tabId));
+            await until(() => hasTabBusyOperation(tabId)).toBe(false);
         } finally {
             clearTabBusyFeedback(tabId);
         }
@@ -401,8 +399,10 @@ export const useAppShellTabLifecycle = (
     }
 
     async function resolveClosePersistence(tabId: string) {
-        await waitForTabOperationsToSettle(tabId);
-
+        while (hasTabBusyOperation(tabId)) {
+            await waitForTabOperationsToSettle(tabId);
+        }
+        // Read in the turn that saw the tab idle.
         if (getDocumentSession(tabId)?.snapshot.value.dirty !== true) {
             return false;
         }
@@ -490,12 +490,12 @@ export const useAppShellTabLifecycle = (
             return;
         }
 
-        if (hasTabBusyOperation(tabId)) {
-            notifyTabBusy(tabId);
-        }
-
         const transition = (async () => {
-            await waitForTabOperationsToSettle(tabId);
+            // The first wait stays outside the transition queue: an operation
+            // that waits for the queue must not be waited on from inside it.
+            while (hasTabBusyOperation(tabId)) {
+                await waitForTabOperationsToSettle(tabId);
+            }
             await enqueueTabTransition(
                 () => closeTabDuringTransition(paneId, tabId),
                 {

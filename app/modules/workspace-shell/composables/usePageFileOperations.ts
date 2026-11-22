@@ -9,7 +9,7 @@ import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { IRecentFile } from '@contracts/shared';
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
-import { waitUntilIdle } from '@app/utils/asyncHelpers';
+import { until } from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { useFailureToast } from '@app/composables/useFailureToast';
 import { dirtyTabCloseConfirmationKey } from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
@@ -162,19 +162,12 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         busyFeedbackToastId = null;
     }
 
-    async function waitUntilAllIdle(action?: TBusyGateAction) {
-        if (action && hasBusyOperation()) {
-            notifyBusyGate(action);
-        }
-
+    // Resolves after the workspace was seen idle; callers re-check busy in the
+    // turn they decide and wait again when the next operation has begun.
+    async function waitUntilAllIdle(action: TBusyGateAction) {
+        notifyBusyGate(action);
         try {
-            return await waitUntilIdle(() =>
-                isAnySaving.value
-                || isHistoryBusy.value
-                || isExportingDocx.value
-                || isAnyAnnotationNoteSaving.value
-                || (isDocumentOperationInProgress?.value ?? false),
-            );
+            await until(hasBusyOperation).toBe(false);
         } finally {
             clearBusyGateFeedback();
         }
@@ -318,13 +311,9 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         logPersistenceGateStart();
 
         try {
-            const settled = await waitUntilAllIdle('switch');
-            if (!settled || hasBusyOperation()) {
-                BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Switch blocked: workspace remained busy after idle wait', {busyState: getBusyState()});
-                notifySaveFailure();
-                return false;
+            while (hasBusyOperation()) {
+                await waitUntilAllIdle('switch');
             }
-
             const decision = await resolveDirtySwitchDecision();
             if (decision === 'cancel') {
                 return false;
@@ -547,9 +536,8 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
 
     async function handleCloseFileFromUi(options: NonNullable<Parameters<IWorkspaceExpose['handleCloseFileFromUi']>[0]> = {}) {
         const shouldPersist = options.persist ?? false;
-        const settled = await waitUntilAllIdle('close');
-        if (!settled || hasBusyOperation()) {
-            return false;
+        while (hasBusyOperation()) {
+            await waitUntilAllIdle('close');
         }
 
         if (shouldPersist) {
