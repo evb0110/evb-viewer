@@ -2057,7 +2057,7 @@ fn page_edits_refuse_a_damaged_page_tree() {
         for result in [
             delete_browser_pdf_pages(&input, &[1]).map(drop),
             rotate_browser_pdf_bytes(&input, &[1], 90).map(drop),
-            // What a desktop rotation reads of the file before its page-local load.
+            // What a rotation reads of the file before its indexed load.
             validate_page_tree_source(input.as_slice(), input.len() as u64),
         ] {
             let error = result.err().unwrap_or_else(|| panic!("{name}"));
@@ -2065,6 +2065,24 @@ fn page_edits_refuse_a_damaged_page_tree() {
             assert_eq!(error.code, NativeErrorCode::InvalidRequest, "{name}");
             assert!(error.message.starts_with("The page tree is damaged"), "{name}: {}", error.message);
         }
+    }
+    // An annotation save numbers pages through the tree's first and last
+    // leaves, so a stale or missing one refuses as damage rather than as a
+    // missing object.
+    let note = read_native_mutations_bytes(
+        br#"{"notes":[{"pageIndex":0,"stableKey":"tree-note","text":"note","author":null,"color":null,"createdAt":null,"markerRect":{"left":0.2,"top":0.2,"width":0.1,"height":0.1}}]}"#,
+    )
+    .unwrap();
+    for input in [
+        include_bytes!("../../tests/fixtures/page-engine/generation-collision.pdf").to_vec(),
+        page_tree_pdf(2, &["3 0 R", "9 0 R"], &[(3, PAGE)]),
+    ] {
+        let error = append_native_mutations_to_bytes(&input, &note, "D:20261122000000Z")
+            .err()
+            .unwrap();
+        let error = error.downcast_ref::<NativeError>().unwrap();
+        assert_eq!(error.code, NativeErrorCode::InvalidRequest);
+        assert!(error.message.starts_with("The page tree is damaged"), "{}", error.message);
     }
     let sound = page_tree_pdf(2, &["4 0 R", "3 0 R"], &[(3, PAGE), (4, NODE), (5, PAGE)]);
     assert_eq!(delete_browser_pdf_pages(&sound, &[1]).unwrap().page_count, 1);
@@ -2210,4 +2228,188 @@ fn encrypted_streams_with_a_named_crypt_filter_are_refused() {
         assert_eq!(error.code, NativeErrorCode::UnsupportedFilter, "{route}");
         assert!(error.message.contains("/Crypt"), "{route}: {}", error.message);
     }
+}
+
+/// A PDF of `objects`, numbered from 1, with a classic cross-reference table.
+fn numbered_objects_pdf(objects: &[Vec<u8>]) -> Vec<u8> {
+    let mut pdf = b"%PDF-1.7\n".to_vec();
+    let mut offsets = Vec::new();
+    for (index, body) in objects.iter().enumerate() {
+        offsets.push(pdf.len());
+        pdf.extend(format!("{} 0 obj\n", index + 1).as_bytes());
+        pdf.extend(body);
+        pdf.extend(b"\nendobj\n");
+    }
+    let xref = pdf.len();
+    pdf.extend(format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1).as_bytes());
+    for offset in offsets {
+        pdf.extend(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    pdf.extend(
+        format!(
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
+            objects.len() + 1
+        )
+        .as_bytes(),
+    );
+    pdf
+}
+
+fn refusal_code(error: Box<dyn std::error::Error>) -> NativeErrorCode {
+    error.downcast_ref::<NativeError>().unwrap().code
+}
+
+#[test]
+fn a_classic_xref_past_the_object_ceiling_is_too_large_not_damaged() {
+    let count = MAX_PDF_OBJECTS + 1;
+    let mut pdf = format!("%PDF-1.4\nxref\n0 {count}\n").into_bytes();
+    pdf.reserve(count * 20 + 64);
+    for _ in 0..count {
+        pdf.extend_from_slice(b"0000000000 65535 f \n");
+    }
+    pdf.extend(b"trailer\n<< /Root 1 0 R >>\nstartxref\n9\n%%EOF\n");
+    let error = SourcePdf::open(&pdf[..], pdf.len() as u64).err().unwrap();
+    assert_eq!(refusal_code(error), NativeErrorCode::TooLarge);
+}
+
+#[test]
+fn a_stream_length_taken_from_an_object_stream_earlier_still_bounds_the_stream() {
+    // The catalog names the length object last, so it is read, and taken out
+    // of its object stream, before the content stream that needs it. The
+    // content holds an `endstream`/`endobj` pair, so only its /Length ends it.
+    let content = b"%\nendstream\nendobj\n0 0 m 1 1 l S".to_vec();
+    let member = format!("{}", content.len());
+    let header = "5 0 ";
+    let mut pdf = b"%PDF-1.7\n".to_vec();
+    let mut offsets = [0usize; 8];
+    let mut object = |pdf: &mut Vec<u8>, number: usize, body: &[u8]| {
+        offsets[number] = pdf.len();
+        pdf.extend(format!("{number} 0 obj\n").as_bytes());
+        pdf.extend(body);
+        pdf.extend(b"\nendobj\n");
+    };
+    object(&mut pdf, 1, b"<< /Type /Catalog /Pages 2 0 R /Len 5 0 R >>");
+    object(&mut pdf, 2, b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
+    object(
+        &mut pdf,
+        3,
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Contents 6 0 R >>",
+    );
+    let stream = format!("{header}{member}");
+    object(
+        &mut pdf,
+        4,
+        format!(
+            "<< /Type /ObjStm /N 1 /First {} /Length {} >>\nstream\n{stream}\nendstream",
+            header.len(),
+            stream.len()
+        )
+        .as_bytes(),
+    );
+    object(
+        &mut pdf,
+        6,
+        &[
+            b"<< /Length 5 0 R >>\nstream\n".as_slice(),
+            &content,
+            b"\nendstream",
+        ]
+        .concat(),
+    );
+    let xref = pdf.len();
+    let mut rows = Vec::new();
+    for number in 0..8u32 {
+        let (kind, field, generation): (u8, u32, u16) = match number {
+            0 => (0, 0, 65535),
+            5 => (2, 4, 0),
+            7 => (1, xref as u32, 0),
+            n => (1, offsets[n as usize] as u32, 0),
+        };
+        rows.push(kind);
+        rows.extend(field.to_be_bytes());
+        rows.extend(generation.to_be_bytes());
+    }
+    pdf.extend(
+        format!(
+            "7 0 obj\n<< /Type /XRef /Size 8 /W [1 4 2] /Root 1 0 R /Length {} >>\nstream\n",
+            rows.len()
+        )
+        .as_bytes(),
+    );
+    pdf.extend(&rows);
+    pdf.extend(format!("\nendstream\nendobj\nstartxref\n{xref}\n%%EOF\n").as_bytes());
+
+    let source = SourcePdf::open(&pdf[..], pdf.len() as u64).unwrap();
+    // An integer that ends its object stream reads as itself.
+    assert_eq!(
+        source.document.get_object((5, 0)).unwrap(),
+        &Object::Integer(content.len() as i64)
+    );
+    let (_, _, len) = source.stream_range((6, 0)).unwrap();
+    assert_eq!(len, content.len() as u64);
+}
+
+#[test]
+fn objects_that_together_exceed_the_value_ceiling_are_too_large() {
+    // Each array fits the per-object ceiling; together they do not.
+    let array = format!("[{}]", "0 ".repeat(1_900_000)).into_bytes();
+    let arrays = 11;
+    let mut objects = vec![
+        format!(
+            "<< /Type /Catalog /Pages 2 0 R /Bulk [{}] >>",
+            (0..arrays).map(|index| format!("{} 0 R ", index + 5)).collect::<String>()
+        )
+        .into_bytes(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>".to_vec(),
+        b"null".to_vec(),
+    ];
+    objects.extend(std::iter::repeat_n(array, arrays));
+    let pdf = numbered_objects_pdf(&objects);
+    let error = SourcePdf::open(&pdf[..], pdf.len() as u64).err().unwrap();
+    assert_eq!(refusal_code(error), NativeErrorCode::TooLarge);
+}
+
+#[test]
+fn a_page_tree_that_lists_no_page_is_damage_a_rewrite_does_not_repair() {
+    let objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [] /Count 3 >>".to_vec(),
+    ];
+    let pdf = numbered_objects_pdf(&objects);
+    let error = SourcePdf::open(&pdf[..], pdf.len() as u64).err().unwrap();
+    assert_eq!(refusal_code(error), NativeErrorCode::InvalidRequest);
+    // A catalog the index cannot find stays the index's damage.
+    let pdf = numbered_objects_pdf(&[b"<< /Type /Pages /Kids [] /Count 0 >>".to_vec()]);
+    let error = SourcePdf::open(&pdf[..], pdf.len() as u64).err().unwrap();
+    assert_eq!(refusal_code(error), NativeErrorCode::CorruptXref);
+}
+
+#[test]
+fn an_integer_past_i64_reads_as_a_real_and_preserves_malformed_viewport_admission() {
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/public-malformed-viewport.pdf");
+    let bytes = fs::read(&fixture).unwrap();
+    let source = SourcePdf::open(&bytes[..], bytes.len() as u64).unwrap();
+    assert_eq!(source.document.get_pages().len(), 2);
+    let page2 = source.document.get_dictionary((4, 0)).unwrap();
+    let media_box = page2.get(b"MediaBox").unwrap().as_array().unwrap();
+    assert_eq!(media_box.len(), 4);
+    assert!(matches!(media_box[0], Object::Real(value) if value.is_infinite() && value.is_sign_negative()));
+}
+
+#[test]
+fn annotation_delete_effects_omits_empty_affected_page_indices() {
+    let pdf = numbered_objects_pdf(&[
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>".to_vec(),
+    ]);
+    let source = SourcePdf::open(&pdf[..], pdf.len() as u64).unwrap();
+    let base = IncrementalDocument::from_document(
+        source.document,
+        pdf.len() as u64,
+        pdf.last().copied(),
+    );
+    assert!(annotation_delete_effects(&base).unwrap().is_none());
 }

@@ -197,21 +197,7 @@ pub(crate) fn hydrate_text_box_original_appearances(
     Ok(())
 }
 
-pub(crate) fn hydrate_text_box_original_appearances_path(
-    mutations: &mut NativeMutationsFile,
-    path: &Path,
-    qpdf_path: Option<&Path>,
-) -> Result<()> {
-    let source = load_dictionary_incremental_pdf_path(path, qpdf_path)?;
-    hydrate_text_box_original_appearances_from(
-        mutations,
-        source,
-        StructuralSource::for_path(path, qpdf_path),
-    )
-}
-
 /// Hydrates from an indexed source, reading each graph's streams by range.
-#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 pub(crate) fn hydrate_text_box_original_appearances_from_source<S: ByteSource>(
     mutations: &mut NativeMutationsFile,
     mut source: SourcePdf<S>,

@@ -52,6 +52,17 @@ fn assert_ok(output: Output) {
     );
 }
 
+fn admission(pdf: &Path) -> String {
+    let output = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args(["append-admission", "--input"])
+        .arg(pdf)
+        .output()
+        .unwrap();
+    assert_ok(output.clone());
+    let verdict: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    verdict["verdict"].as_str().unwrap().to_string()
+}
+
 #[test]
 fn object_damage_is_recoverable_only_for_the_edited_document() {
     let scratch = Scratch::new();
@@ -74,6 +85,9 @@ fn object_damage_is_recoverable_only_for_the_edited_document() {
         !output.exists(),
         "a refusal must not publish partial output"
     );
+    // Saves open their base through the same index, so the open-time
+    // admission sends this file to the qpdf rewrite before anything edits it.
+    assert_eq!(admission(&damaged), "repairable");
 
     let inserted = edit(
         "insert-pages",
@@ -100,6 +114,7 @@ fn object_damage_is_recoverable_only_for_the_edited_document() {
         "{}",
         String::from_utf8_lossy(&repair.stderr)
     );
+    assert_eq!(admission(&repaired), "appendable");
     assert_ok(edit("delete-pages", &repaired, &output, &args));
     let saved = Document::load(&output).unwrap();
     assert_eq!(saved.get_pages().len(), 1);

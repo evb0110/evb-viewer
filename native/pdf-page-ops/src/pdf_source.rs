@@ -11,6 +11,15 @@ use std::io;
 
 /// The largest object, cross-reference section or object stream read whole.
 const MAX_OBJECT_BYTES: usize = MAX_DECOMPRESSED_PDF_STREAM_BYTES;
+/// The most values one object's arrays and dictionaries hold, which bounds
+/// the memory it parses into as its byte ceiling alone does not. A reader
+/// that selected the keys it uses allowed a million values; this one parses
+/// the keys it leaves unused too.
+const MAX_OBJECT_ELEMENTS: usize = 2_000_000;
+/// The most values all the objects one read parses hold together: room for
+/// a document at the object and page ceilings, well below what wasm32 memory
+/// holds once parsed.
+const MAX_SOURCE_VALUES: usize = 20_000_000;
 const FIRST_WINDOW_BYTES: usize = 4 * 1024;
 const MAX_XREF_SECTIONS: usize = 4_096;
 /// Where the terminal `startxref` is looked for, past any trailing padding.
@@ -78,17 +87,27 @@ pub(crate) struct SourcePdf<S> {
     /// The reals of each object that `f32` does not print back exactly.
     reals: HashMap<ObjectId, RealSpellings>,
     bytes: S,
-    #[cfg_attr(
-        not(any(test, all(target_family = "wasm", target_os = "unknown"))),
-        allow(dead_code)
-    )]
     len: u64,
     /// The terminal `startxref` offset, which an appended revision names as `/Prev`.
-    #[cfg_attr(
-        not(any(test, all(target_family = "wasm", target_os = "unknown"))),
-        allow(dead_code)
-    )]
     xref_start: u64,
+}
+
+impl SourcePdf<File> {
+    /// The PDF in the file at `path`, as `open` reads it, whose page tree
+    /// yields its first and last pages, as an append base's must.
+    pub(crate) fn open_path(path: &Path) -> Result<Self> {
+        let (file, len) = open_source_file(path)?;
+        let pdf = Self::open(file, len)?;
+        PageTreeResolver::with_both_ends(&pdf.document).map_err(page_tree_damaged)?;
+        Ok(pdf)
+    }
+}
+
+/// The file at `path` as a source, with its length.
+pub(crate) fn open_source_file(path: &Path) -> Result<(File, u64)> {
+    let file = File::open(path).map_err(io_domain_error)?;
+    let len = file.metadata().map_err(io_domain_error)?.len();
+    Ok((file, len))
 }
 
 impl<S: ByteSource> SourcePdf<S> {
@@ -96,20 +115,32 @@ impl<S: ByteSource> SourcePdf<S> {
     /// encrypted input is read decrypted when the empty password opens it;
     /// otherwise it needs a password this route does not take.
     pub(crate) fn open(bytes: S, len: u64) -> Result<Self> {
-        Self::open_indexed(bytes, len, true)
+        Self::open_indexed(bytes, len, true, &[])
     }
 
-    #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
     /// The base of an incremental append. Plaintext objects appended to an
     /// encrypted file would be unreadable, so encryption, which the index
     /// shows, is refused before any object is read: the unlock flow rewrites
-    /// such a file first, an empty password included.
+    /// such a file first, an empty password included. Bytes before the header
+    /// are refused too: this reader counts offsets from the header, as lopdf
+    /// does, but an appended revision records them from the start of the file.
     pub(crate) fn open_append_base(bytes: S, len: u64) -> Result<Self> {
-        Self::open_indexed(bytes, len, false)
+        Self::open_indexed(bytes, len, false, &[])
     }
 
-    fn open_indexed(bytes: S, len: u64, decrypt: bool) -> Result<Self> {
+    /// An append base that also holds the objects in `named`, with what they
+    /// reference, where the index lists them. An append can name an object
+    /// the trailer no longer reaches, such as the image of a deleted stamp
+    /// that an undo restores.
+    pub(crate) fn open_append_base_naming(bytes: S, len: u64, named: &[ObjectId]) -> Result<Self> {
+        Self::open_indexed(bytes, len, false, named)
+    }
+
+    fn open_indexed(bytes: S, len: u64, decrypt: bool, named: &[ObjectId]) -> Result<Self> {
         let reader = Reader::new(&bytes, len)?;
+        if !decrypt && reader.base != 0 {
+            return Err(corrupt("PDF has bytes before its header"));
+        }
         let index = reader.index()?;
         if index.trailer.has(b"Encrypt") {
             if !decrypt {
@@ -124,16 +155,19 @@ impl<S: ByteSource> SourcePdf<S> {
         document.max_id = index.max_number;
         document.reference_table = Xref::new(document.max_id.saturating_add(1), index.xref_type);
         document.trailer = index.trailer.clone();
-        let mut loader = Loader {
-            reader: &reader,
-            index: &index,
-            object_streams: HashMap::new(),
-            streams: HashMap::new(),
-            reals: HashMap::new(),
-        };
+        let mut loader = Loader::new(&reader, &index);
         let mut pending = Vec::new();
         collect_references(&document.trailer, &mut pending);
-        while let Some(id) = pending.pop() {
+        let mut named = named
+            .iter()
+            .filter(|id| match index.entries.get(&id.0) {
+                Some(XrefEntry::Offset { generation, .. }) => *generation == id.1,
+                Some(XrefEntry::InStream { .. }) => id.1 == 0,
+                _ => false,
+            })
+            .copied()
+            .collect::<Vec<_>>();
+        while let Some(id) = pending.pop().or_else(|| named.pop()) {
             if document.objects.contains_key(&id) {
                 continue;
             }
@@ -149,7 +183,17 @@ impl<S: ByteSource> SourcePdf<S> {
         }
         let pages = document.get_pages().len();
         if pages == 0 {
-            return Err(corrupt("PDF has no pages"));
+            // A page tree that lists no page is damaged; a catalog or tree
+            // root the index cannot find is the index's damage.
+            let tree = document
+                .catalog()
+                .and_then(|catalog| catalog.get(b"Pages"))
+                .and_then(Object::as_reference)
+                .and_then(|pages| document.get_dictionary(pages));
+            return Err(match tree {
+                Ok(_) => page_tree_damaged("it lists no pages".into()),
+                Err(_) => corrupt("PDF has no pages"),
+            });
         }
         if pages > MAX_PATH_INPUT_PDF_PAGES {
             return Err(domain_error(
@@ -210,10 +254,12 @@ impl<S: ByteSource> SourcePdf<S> {
         (*bits == value.to_bits()).then_some(&**text)
     }
 
-    #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
     /// Moves the skeleton into the base of an incremental append. This source
-    /// keeps its stream ranges, which read what the base left unread.
+    /// keeps its stream ranges, which read what the base left unread. A page
+    /// tree whose first or last page cannot be found is damaged: writers and
+    /// readers number pages through it.
     pub(crate) fn take_append_base(&mut self) -> Result<IncrementalDocument> {
+        PageTreeResolver::with_both_ends(&self.document).map_err(page_tree_damaged)?;
         let mut last = [0];
         if self.len > 0 {
             self.bytes
@@ -230,7 +276,6 @@ impl<S: ByteSource> SourcePdf<S> {
     }
 }
 
-#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 impl<S: ByteSource> RawStreamSource for SourcePdf<S> {
     fn raw_stream(&self, object_id: ObjectId, max_bytes: usize) -> Result<Vec<u8>> {
         let (offset, len) = self
@@ -405,13 +450,7 @@ pub(crate) fn validate_page_tree_source<S: ByteSource>(bytes: S, len: u64) -> Re
     }
     let mut document = Document::with_version(reader.version.clone());
     document.trailer = index.trailer.clone();
-    let mut loader = Loader {
-        reader: &reader,
-        index: &index,
-        object_streams: HashMap::new(),
-        streams: HashMap::new(),
-        reals: HashMap::new(),
-    };
+    let mut loader = Loader::new(&reader, &index);
     let mut pending = Vec::new();
     collect_object_references(document.trailer.get(b"Root")?, &mut pending);
     while let Some(id) = pending.pop() {
@@ -437,13 +476,6 @@ pub(crate) fn validate_page_tree_source<S: ByteSource>(bytes: S, len: u64) -> Re
         document.objects.insert(id, object);
     }
     PageTreeResolver::validated(&document).map(|_| ())
-}
-
-/// `validate_page_tree_source` over a file.
-pub(crate) fn validate_page_tree_path(path: &Path) -> Result<()> {
-    let file = File::open(path).map_err(io_domain_error)?;
-    let len = file.metadata().map_err(io_domain_error)?.len();
-    validate_page_tree_source(&file, len)
 }
 
 fn collect_object_references(object: &Object, pending: &mut Vec<ObjectId>) {
@@ -562,6 +594,13 @@ impl<'a, S: ByteSource> Reader<'a, S> {
                     ),
                     ))
                 }
+                Err(Crowded) => return Err(too_many_elements(format!("at offset {offset}"))),
+                Err(TooManyObjects) => {
+                    return Err(domain_error(
+                        NativeErrorCode::TooLarge,
+                        format!("PDF exceeds the {MAX_PDF_OBJECTS}-object admission ceiling"),
+                    ))
+                }
                 Err(_) => {
                     return Err(corrupt(format!(
                         "PDF object at offset {offset} is malformed"
@@ -581,18 +620,19 @@ impl<'a, S: ByteSource> Reader<'a, S> {
             .ok_or_else(|| corrupt("PDF startxref value is invalid"))?;
         let mut next = start;
         let mut entries = HashMap::new();
-        let mut trailers = Vec::new();
+        // The newest revision that names a document-level entry decides it.
+        let mut trailer = Dictionary::new();
         let mut visited = HashSet::new();
         let mut xref_type = None;
         loop {
             if !visited.insert(next) || visited.len() > MAX_XREF_SECTIONS {
                 return Err(corrupt("PDF cross-reference chain loops or is too long"));
             }
-            let (section, trailer, kind) = self.xref_section(next)?;
+            let (section, section_trailer, kind) = self.xref_section(next)?;
             xref_type.get_or_insert(kind);
             // A hybrid file's table lists its compressed objects as free;
             // its XRefStm entries take precedence over those.
-            if let Ok(stream) = trailer.get(b"XRefStm").and_then(Object::as_i64) {
+            if let Ok(stream) = section_trailer.get(b"XRefStm").and_then(Object::as_i64) {
                 let offset = u64::try_from(stream).map_err(|_| corrupt("Invalid /XRefStm"))?;
                 for (number, entry) in self.xref_section(offset)?.0 {
                     entries.entry(number).or_insert(entry);
@@ -607,20 +647,19 @@ impl<'a, S: ByteSource> Reader<'a, S> {
                     format!("PDF exceeds the {MAX_PDF_OBJECTS}-object admission ceiling"),
                 ));
             }
-            let previous = trailer.get(b"Prev").and_then(Object::as_i64).ok();
-            trailers.push(trailer);
+            let previous = section_trailer.get(b"Prev").and_then(Object::as_i64).ok();
+            for key in [b"Root".as_slice(), b"Info", b"Encrypt", b"ID"] {
+                if !trailer.has(key) {
+                    if let Ok(value) = section_trailer.get(key) {
+                        trailer.set(key.to_vec(), value.clone());
+                    }
+                }
+            }
             match previous {
                 Some(previous) => {
                     next = u64::try_from(previous).map_err(|_| corrupt("Invalid /Prev"))?
                 }
                 None => break,
-            }
-        }
-        // The newest revision that names a document-level entry decides it.
-        let mut trailer = Dictionary::new();
-        for key in [b"Root".as_slice(), b"Info", b"Encrypt", b"ID"] {
-            if let Some(value) = trailers.iter().find_map(|trailer| trailer.get(key).ok()) {
-                trailer.set(key.to_vec(), value.clone());
             }
         }
         if !trailer.has(b"Root") {
@@ -668,7 +707,7 @@ impl<'a, S: ByteSource> Reader<'a, S> {
                     };
                     entries.push((u32::try_from(number).map_err(|_| Invalid)?, entry));
                     if entries.len() > MAX_PDF_OBJECTS {
-                        return Err(Invalid);
+                        return Err(TooManyObjects);
                     }
                 }
             }
@@ -912,15 +951,55 @@ struct Loader<'r, 'a, S> {
     object_streams: HashMap<u32, BTreeMap<ObjectId, (Object, RealSpellings)>>,
     streams: HashMap<ObjectId, (u64, u64)>,
     reals: HashMap<ObjectId, RealSpellings>,
+    /// Integers taken from object streams, which a later `/Length` may name.
+    taken_integers: HashMap<ObjectId, i64>,
+    /// The values every object parsed so far holds.
+    values: usize,
 }
 
-impl<S: ByteSource> Loader<'_, '_, S> {
+impl<'r, 'a, S: ByteSource> Loader<'r, 'a, S> {
+    fn new(reader: &'r Reader<'a, S>, index: &'r XrefIndex) -> Self {
+        Self {
+            reader,
+            index,
+            object_streams: HashMap::new(),
+            streams: HashMap::new(),
+            reals: HashMap::new(),
+            taken_integers: HashMap::new(),
+            values: 0,
+        }
+    }
+
+    /// Counts `object`'s values against the read's aggregate ceiling.
+    fn charge(&mut self, object: &Object) -> Result<()> {
+        let mut pending = vec![object];
+        while let Some(object) = pending.pop() {
+            self.values += 1;
+            match object {
+                Object::Array(items) => pending.extend(items),
+                Object::Dictionary(dict) => pending.extend(dict.iter().map(|(_, value)| value)),
+                Object::Stream(stream) => {
+                    pending.extend(stream.dict.iter().map(|(_, value)| value))
+                }
+                _ => {}
+            }
+        }
+        if self.values > MAX_SOURCE_VALUES {
+            return Err(domain_error(
+                NativeErrorCode::TooLarge,
+                format!("PDF objects exceed the {MAX_SOURCE_VALUES}-value ceiling"),
+            ));
+        }
+        Ok(())
+    }
+
     /// One object as the document holds it: a missing or free one reads as
     /// null, a stream as its dictionary with an empty body.
     fn load(&mut self, id: ObjectId) -> Result<Object> {
         match self.index.entries.get(&id.0).copied() {
             Some(XrefEntry::Offset { offset, generation }) if generation == id.1 => {
                 let (_, object, data, reals) = self.reader.indirect_object(offset, Some(id))?;
+                self.charge(&object)?;
                 self.keep(id, reals);
                 let (Some(data), Object::Dictionary(mut dict)) = (data, object.clone()) else {
                     return Ok(object);
@@ -950,6 +1029,9 @@ impl<S: ByteSource> Loader<'_, '_, S> {
                 let Some((object, reals)) = self.compressed(container)?.remove(&id) else {
                     return Ok(Object::Null);
                 };
+                if let Object::Integer(value) = object {
+                    self.taken_integers.insert(id, value);
+                }
                 self.keep(id, reals);
                 Ok(object)
             }
@@ -969,10 +1051,15 @@ impl<S: ByteSource> Loader<'_, '_, S> {
             Some(XrefEntry::Offset { offset, generation }) if generation == id.1 => {
                 self.reader.indirect_object(offset, Some(id))?.1
             }
-            Some(XrefEntry::InStream { container }) if id.1 == 0 => self
-                .compressed(container)?
-                .get(&id)
-                .map_or(Object::Null, |(object, _)| object.clone()),
+            Some(XrefEntry::InStream { container }) if id.1 == 0 => {
+                match self.taken_integers.get(&id) {
+                    Some(value) => Object::Integer(*value),
+                    None => self
+                        .compressed(container)?
+                        .get(&id)
+                        .map_or(Object::Null, |(object, _)| object.clone()),
+                }
+            }
             _ => Object::Null,
         };
         Ok(length.as_i64().ok())
@@ -1027,20 +1114,39 @@ impl<S: ByteSource> Loader<'_, '_, S> {
             .split_whitespace()
             .map(|number| number.parse::<u32>().ok())
             .collect::<Vec<_>>();
-        // A token that ends the data ends where the data does.
-        content.push(b'\n');
+        // The data ends as an indirect object does (with a trailing delimiter so
+        // lookahead tokenization never hits Incomplete at EOF), so a token that
+        // ends it ends there, and a number that ends it is not the start of a
+        // reference the lookahead must wait for.
+        content.extend_from_slice(b"\nendobj\n");
         let mut objects = BTreeMap::new();
         for pair in header.chunks_exact(2) {
             let (Some(number), Some(offset)) = (pair[0], pair[1]) else {
                 continue;
             };
+            // A member the newest xref places elsewhere is never read.
+            if !matches!(
+                self.index.entries.get(&number),
+                Some(XrefEntry::InStream { container: owner }) if *owner == container
+            ) {
+                continue;
+            }
             let mut cursor = Cursor {
                 bytes: &content,
                 pos: first.saturating_add(offset as usize),
                 ..Cursor::default()
             };
-            if let Ok(object) = cursor.object(0) {
-                objects.insert((number, 0), (object, cursor.reals));
+            match cursor.object(0) {
+                Ok(object) => {
+                    self.charge(&object)?;
+                    objects.insert((number, 0), (object, cursor.reals));
+                }
+                Err(Crowded) => {
+                    return Err(too_many_elements(format!(
+                        "{number} 0 in stream {container}"
+                    )))
+                }
+                Err(_) => {}
             }
         }
         Ok(objects)
@@ -1052,8 +1158,19 @@ enum ParseFailure {
     /// The window ended inside the object.
     Incomplete,
     Invalid,
+    /// The object holds more than `MAX_OBJECT_ELEMENTS` values.
+    Crowded,
+    /// A cross-reference table lists more than `MAX_PDF_OBJECTS` objects.
+    TooManyObjects,
 }
-use ParseFailure::{Incomplete, Invalid};
+use ParseFailure::{Crowded, Incomplete, Invalid, TooManyObjects};
+
+fn too_many_elements(object: String) -> Box<dyn Error> {
+    domain_error(
+        NativeErrorCode::TooLarge,
+        format!("PDF object {object} exceeds the {MAX_OBJECT_ELEMENTS}-value ceiling"),
+    )
+}
 type ParseResult<T> = std::result::Result<T, ParseFailure>;
 
 /// The reals of one object that `f32` does not print back exactly: by their
@@ -1107,6 +1224,7 @@ struct Cursor<'a> {
     pos: usize,
     path: Vec<u8>,
     reals: RealSpellings,
+    elements: usize,
 }
 
 impl<'a> Cursor<'a> {
@@ -1189,6 +1307,12 @@ impl<'a> Cursor<'a> {
         if depth > MAX_PDF_STRUCTURAL_NESTING {
             return Err(Invalid);
         }
+        if depth > 0 {
+            self.elements += 1;
+            if self.elements > MAX_OBJECT_ELEMENTS {
+                return Err(Crowded);
+            }
+        }
         self.skip_space();
         match self.peek()? {
             b'/' => Ok(Object::Name(self.name()?)),
@@ -1258,15 +1382,16 @@ impl<'a> Cursor<'a> {
                 }
                 return Ok(Object::Integer(value));
             }
-        }
-        let (whole, fraction) = digits.split_once('.').ok_or(Invalid)?;
-        if whole.len() + fraction.len() == 0
-            || !whole
-                .bytes()
-                .chain(fraction.bytes())
-                .all(|byte| byte.is_ascii_digit())
-        {
-            return Err(Invalid);
+        } else {
+            let (whole, fraction) = digits.split_once('.').ok_or(Invalid)?;
+            if whole.len() + fraction.len() == 0
+                || !whole
+                    .bytes()
+                    .chain(fraction.bytes())
+                    .all(|byte| byte.is_ascii_digit())
+            {
+                return Err(Invalid);
+            }
         }
         let value = text.parse::<f32>().map_err(|_| Invalid)?;
         if decimal(text) != decimal(&value.to_string()) {

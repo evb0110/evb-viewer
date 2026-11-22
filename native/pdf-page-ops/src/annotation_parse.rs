@@ -385,7 +385,6 @@ pub(crate) fn write_annotation_parse_path(
     input_path: &Path,
     output_path: &Path,
     modified_at: &str,
-    qpdf_path: Option<&Path>,
     pages: Option<&[u32]>,
 ) -> Result<()> {
     if annotation_index_paths_alias(input_path, output_path)? {
@@ -401,18 +400,9 @@ pub(crate) fn write_annotation_parse_path(
             .map(|page| page.saturating_sub(1))
             .collect::<BTreeSet<_>>()
     });
-    let mut incremental = load_annotation_parse_base(input_path, qpdf_path, indexes.as_ref())
+    let (file, len) = open_source_file(input_path)?;
+    let incremental = annotation_parse_base(file, len, indexes.as_ref())
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    if incremental.get_prev_documents().is_encrypted() {
-        return Err(domain_error(
-            NativeErrorCode::Encrypted,
-            "Encrypted PDFs are not supported by the annotation parse operation",
-        ));
-    }
-    materialize_annotation_appearance_streams(
-        &mut incremental,
-        StructuralSource::for_path(input_path, qpdf_path),
-    )?;
 
     let mut output = AtomicOutput::create(output_path)?;
     #[cfg(unix)]
@@ -444,82 +434,35 @@ pub(crate) fn write_annotation_parse_path(
     Ok(())
 }
 
-/// The document a parse reads. A page scope of a PDF too large to load whole
-/// reads only its pages, as a page-local save does; otherwise the whole
-/// document loads as for a full parse and the scope locates its pages in it.
-fn load_annotation_parse_base(
-    input_path: &Path,
-    qpdf_path: Option<&Path>,
+/// The document a parse reads, through its cross-reference index, with the
+/// appearance and stamp streams the parse decodes read by range. A page scope
+/// (zero-based `indexes`) locates its pages, and only their streams are read.
+fn annotation_parse_base<S: ByteSource>(
+    source: S,
+    len: u64,
     indexes: Option<&BTreeSet<u32>>,
 ) -> Result<IncrementalDocument> {
-    if let (Some(indexes), Some(qpdf_path)) = (indexes, qpdf_path) {
-        if fs::metadata(input_path)?.len() > MAX_ENCODED_PDF_BYTES as u64 {
-            let edit = PageLocalEdit {
-                pages: indexes.clone(),
-                annotation_pages: indexes.clone(),
-                ..PageLocalEdit::default()
-            };
-            return load_qpdf_page_local_incremental_pdf(input_path, qpdf_path, &edit)?
-                .ok_or_else(|| "A page-local parse addresses no annotation by object".into());
-        }
-    }
-    let mut incremental =
-        load_readonly_metadata_pdf_path(input_path, qpdf_path, QpdfMetadataPurpose::Annotations)?;
+    let mut source = SourcePdf::open(source, len)?;
+    let mut incremental = source.take_append_base()?;
     if let Some(indexes) = indexes {
         incremental.located_pages = Some(LocatedPages::resolve(&incremental, indexes)?);
     }
+    materialize_annotation_appearance_streams(&mut incremental, StructuralSource::Ranges(&source))?;
     Ok(incremental)
 }
 
-/// A page annotation with recovery objects or stamp streams,
-/// or a page tree or /Annots the scan cannot read, which the eager parse
-/// reports as it always has.
-pub(crate) fn needs_eager_parse(document: &impl PdfObjectSource) -> bool {
-    let Ok(page_resolver) = PageTreeResolver::new(document) else {
-        return true;
-    };
-    let mut found = false;
-    let scanned = page_resolver.for_each_page_id(document, |page_id| {
-        if found {
-            return Ok(());
-        }
-        for annotation in get_page_annots(document, page_id)? {
-            let Some(dict) = document
-                .resolved(&annotation)
-                .ok()
-                .and_then(|object| object.as_dict().ok())
-            else {
-                continue;
-            };
-            let subtype = annotation_subtype_name(document, dict);
-            if matches!(
-                subtype.to_ascii_lowercase().as_str(),
-                "text" | "freetext" | "stamp"
-            ) {
-                found = true;
-                break;
-            }
-        }
-        Ok(())
-    });
-    found || scanned.is_err()
-}
-
-/// The browser's annotation parse of a document read by range, its reachable
-/// appearance and stamp streams read by range too.
+/// The browser's annotation parse of a document read by range.
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 pub(crate) fn annotation_parse_from_source<S: ByteSource>(
     source: S,
     len: u64,
     max_bytes: usize,
 ) -> Result<Vec<u8>> {
-    let mut source = SourcePdf::open(source, len)?;
-    let mut incremental = source.take_append_base()?;
-    materialize_annotation_appearance_streams(
-        &mut incremental,
-        Some(StructuralSource::Ranges(&source)),
-    )?;
-    serialize_annotation_parse(&incremental, "D:19700101000000Z", max_bytes)
+    serialize_annotation_parse(
+        &annotation_parse_base(source, len, None)?,
+        "D:19700101000000Z",
+        max_bytes,
+    )
 }
 
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]

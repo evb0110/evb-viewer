@@ -2,8 +2,9 @@
 use super::*;
 
 /// The annotations the pages list, as the parse and Undo admit them: the pages
-/// listing each, and the listed annotations that answer each one. It reads
-/// page dictionaries among the objects, never walking the page tree.
+/// listing each, and the listed annotations that answer each one. Only pages
+/// of the catalog page tree, or of `located` within it, own annotations: a
+/// /Page dictionary reachable some other way is outside the document.
 #[derive(Default)]
 pub(crate) struct AnnotationListing {
     pub(crate) pages: HashMap<ObjectId, Vec<ObjectId>>,
@@ -19,13 +20,13 @@ impl AnnotationListing {
         document: &impl PdfObjectStore,
         located: Option<&LocatedPages>,
     ) -> Self {
-        let owners = located.map(|pages| pages.ids.values().copied().collect::<HashSet<_>>());
+        let owners = match located {
+            Some(pages) => pages.ids.values().copied().collect::<HashSet<_>>(),
+            None => document.page_ids().into_values().collect(),
+        };
         let mut listing = Self::default();
         for (page, object) in document.stored_objects() {
-            if owners
-                .as_ref()
-                .is_some_and(|owners| !owners.contains(&page))
-            {
+            if !owners.contains(&page) {
                 continue;
             }
             let Ok(dict) = object.as_dict() else {
@@ -136,6 +137,7 @@ pub(crate) fn annotation_page_id(
     document.dictionary(page).is_ok().then_some(page)
 }
 
+#[cfg(test)]
 pub(crate) fn annotation_matches_stable_delete_name(
     document: &impl PdfObjectSource,
     object_id: ObjectId,

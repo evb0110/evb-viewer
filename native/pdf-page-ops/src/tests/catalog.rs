@@ -339,7 +339,6 @@ fn saves_and_reopens_10_001_bookmarks_across_path_addressed_fragments() {
                 &mutations,
                 modified_at,
                 None,
-                None,
             )
         }
         .unwrap();
@@ -461,7 +460,6 @@ fn continues_page_labels_after_a_first_page_with_its_own_start_number() {
                     &input_path,
                     &mutations,
                     modified_at,
-                    None,
                     None,
                 )
             }

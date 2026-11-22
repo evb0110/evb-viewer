@@ -642,7 +642,8 @@ fn save_mutations_cli_dispatches_text_box_and_identity_binding() {
     );
 
     let saved = Document::load(&output).unwrap();
-    let bindings: Vec<Value> = serde_json::from_slice(&read(&identity_bindings).unwrap()).unwrap();
+    let report: Value = serde_json::from_slice(&read(&identity_bindings).unwrap()).unwrap();
+    let bindings = report["identityBindings"].as_array().unwrap();
     assert_eq!(bindings.len(), 1);
     assert_eq!(bindings[0]["annotationId"], "cli-text-box");
     let pdf_ref = bindings[0]["pdfRef"].as_str().unwrap();
@@ -751,7 +752,8 @@ fn save_mutations_cli_accepts_legacy_text_box_alias() {
         String::from_utf8_lossy(&result.stderr)
     );
 
-    let bindings: Vec<Value> = serde_json::from_slice(&read(&identity_bindings).unwrap()).unwrap();
+    let report: Value = serde_json::from_slice(&read(&identity_bindings).unwrap()).unwrap();
+    let bindings = report["identityBindings"].as_array().unwrap();
     assert_eq!(bindings.len(), 1);
     assert_eq!(bindings[0]["annotationId"], "legacy-cli-text-box");
     let pdf_ref = bindings[0]["pdfRef"].as_str().unwrap();

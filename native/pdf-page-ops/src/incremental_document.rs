@@ -1,7 +1,4 @@
 use super::*;
-#[path = "page_local.rs"]
-mod page_local;
-pub(crate) use page_local::*;
 #[path = "qpdf_metadata.rs"]
 mod qpdf_metadata;
 use evb_native_support::bounded_io::{
@@ -11,7 +8,6 @@ pub(crate) use qpdf_metadata::*;
 use serde::de::{self, MapAccess, Visitor};
 use serde_json::{value::RawValue, Value};
 use std::{
-    collections::BTreeSet,
     process::{Command, Stdio},
     sync::atomic::{AtomicU64, Ordering},
     thread,
@@ -59,10 +55,6 @@ pub(crate) enum StructuralSource<'a> {
         input_path: &'a Path,
         qpdf_path: &'a Path,
     },
-    #[cfg_attr(
-        not(any(test, all(target_family = "wasm", target_os = "unknown"))),
-        allow(dead_code)
-    )]
     Ranges(&'a dyn RawStreamSource),
 }
 
@@ -141,7 +133,6 @@ impl IncrementalDocument {
     /// at position 0, as a qpdf structural load leaves it, and is unavailable
     /// until read: never mistaken for an empty stream. Offsets stay `u64`, so a
     /// base past 4 GiB keeps its `/Prev` on wasm32 too.
-    #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
     pub(crate) fn from_indexed_document(
         mut document: Document,
         previous_len: u64,
@@ -381,98 +372,6 @@ pub(crate) fn load_qpdf_structural_incremental_pdf(
     Ok((incremental, warned))
 }
 
-/// Load only what a page-local edit reads (see `page_local_dependencies`)
-/// rather than every object of a large PDF. The bundled library reads each
-/// object on demand; without it, qpdf's page-tree walk supplies the pages and
-/// each round of the walk is one JSON query. None means an annotation the edit
-/// addresses is not listed on the page its `/P` names, so only a load of the
-/// whole document can find it.
-pub(crate) fn load_qpdf_page_local_incremental_pdf(
-    path: &Path,
-    qpdf_path: &Path,
-    edit: &PageLocalEdit,
-) -> Result<Option<IncrementalDocument>> {
-    let initial_metadata = fs::metadata(path).map_err(io_domain_error)?;
-    let previous_len = initial_metadata.len();
-    if previous_len == 0 {
-        return Err(domain_error(
-            NativeErrorCode::CorruptXref,
-            "PDF input is empty",
-        ));
-    }
-
-    let (mut document, located) = match load_qpdf_page_local_objects(path, qpdf_path, edit)? {
-        Some(loaded) => loaded,
-        None => {
-            let temp = TempQpdfFiles::create()?;
-            run_qpdf_bounded(
-                path,
-                qpdf_path,
-                &["--suppress-recovery", "--show-pages"],
-                &temp,
-                MAX_QPDF_PAGE_LIST_BYTES,
-            )?;
-            let page_ids_by_number = parse_qpdf_page_ids(&read_file_bounded(
-                &temp.structure,
-                MAX_QPDF_PAGE_LIST_BYTES,
-                "qpdf page tree",
-            )?)?;
-            if page_ids_by_number.len() > crate::load_policy::MAX_PATH_INPUT_PDF_PAGES {
-                return Err(domain_error(
-                    NativeErrorCode::TooLarge,
-                    "PDF page count exceeds the native path-load limit",
-                ));
-            }
-            let located = LocatedPages::from_list(&page_ids_by_number, &edit.located())?;
-            let first = located
-                .select(&edit.pages)?
-                .into_iter()
-                .chain(edit.annotations.iter().copied());
-            let mut document = load_qpdf_selected_objects(path, qpdf_path, &temp, first)?;
-            complete_page_local_objects(
-                &mut document,
-                &located,
-                edit,
-                |document, batch, retained| {
-                    let additional =
-                        load_qpdf_selected_objects(path, qpdf_path, &temp, batch.iter().copied())?;
-                    for object in additional.objects.values() {
-                        *retained = charge_retained(*retained, object)?;
-                    }
-                    merge_qpdf_selected_objects(document, additional)
-                },
-            )?;
-            (document, located)
-        }
-    };
-    if !page_local_annotations_located(&document, edit)? {
-        return Ok(None);
-    }
-
-    let (previous_xref_start, xref_type) = read_terminal_xref(path, previous_len)?;
-    document.xref_start = usize::try_from(previous_xref_start)
-        .map_err(|_| "Previous PDF xref offset exceeds this platform's address space")?;
-    document.reference_table = lopdf::xref::Xref::new(document.max_id.saturating_add(1), xref_type);
-    let current_metadata = fs::metadata(path).map_err(io_domain_error)?;
-    if current_metadata.len() != previous_len
-        || current_metadata.modified().ok() != initial_metadata.modified().ok()
-    {
-        return Err("PDF input changed while qpdf was reading its page tree".into());
-    }
-    let previous_last_byte = read_last_byte(path, previous_len)?;
-    // Both readers stand each stream in as its dictionary without bytes.
-    let unavailable_base_streams = document
-        .objects
-        .iter()
-        .filter_map(|(id, object)| matches!(object, Object::Stream(_)).then_some(*id))
-        .collect();
-    let mut incremental =
-        IncrementalDocument::from_document(document, previous_len, previous_last_byte);
-    incremental.unavailable_base_streams = unavailable_base_streams;
-    incremental.located_pages = Some(located);
-    Ok(Some(incremental))
-}
-
 /// What a fresh reader sees after an incremental append: the objects the
 /// appended revision rewrote, over the base revision that is still in memory.
 /// An `IncrementalDocument` is this view of itself; this form pairs two
@@ -581,8 +480,6 @@ impl PdfObjectStore for IncrementalDocument {
     }
 }
 
-const MAX_QPDF_PAGE_LIST_BYTES: usize = 64 * 1024 * 1024;
-const MAX_QPDF_OBJECTS_PER_QUERY: usize = 2_048;
 const MAX_QPDF_COMMAND_POLL_INTERVAL: Duration = Duration::from_millis(5);
 
 pub(crate) fn run_qpdf_bounded(
@@ -667,113 +564,6 @@ pub(crate) fn run_qpdf_bounded(
         ));
     }
     Ok(status.code() == Some(3))
-}
-
-fn parse_qpdf_page_ids(output: &[u8]) -> Result<Vec<ObjectId>> {
-    let output = std::str::from_utf8(output)?;
-    let mut page_ids = Vec::new();
-    let mut seen = HashSet::new();
-    for line in output.lines() {
-        let Some(page) = line.strip_prefix("page ") else {
-            continue;
-        };
-        let (number, reference) = page
-            .split_once(": ")
-            .ok_or("qpdf page-tree output contains a malformed page line")?;
-        let number = number.parse::<usize>()?;
-        if number != page_ids.len() + 1 {
-            return Err("qpdf page-tree output is not in sequential page order".into());
-        }
-        let mut fields = reference.split_ascii_whitespace();
-        let object_number = fields
-            .next()
-            .ok_or("qpdf page-tree output is missing an object number")?
-            .parse::<u32>()?;
-        let generation_number = fields
-            .next()
-            .ok_or("qpdf page-tree output is missing a generation number")?
-            .parse::<u16>()?;
-        if fields.next() != Some("R") || fields.next().is_some() || object_number == 0 {
-            return Err("qpdf page-tree output contains an invalid page reference".into());
-        }
-        let page_id = (object_number, generation_number);
-        if !seen.insert(page_id) {
-            return Err("qpdf page-tree output repeats a page object".into());
-        }
-        page_ids.push(page_id);
-    }
-    if page_ids.is_empty() {
-        return Err("qpdf page-tree output contains no pages".into());
-    }
-    Ok(page_ids)
-}
-
-fn load_qpdf_selected_objects(
-    path: &Path,
-    qpdf_path: &Path,
-    temp: &TempQpdfFiles,
-    object_ids: impl IntoIterator<Item = ObjectId>,
-) -> Result<Document> {
-    let mut unique_ids = BTreeSet::new();
-    unique_ids.extend(object_ids);
-    if unique_ids.is_empty() {
-        return Err("qpdf object query has no selected objects".into());
-    }
-    let requested = unique_ids.into_iter().collect::<Vec<_>>();
-    let mut document = None;
-    for chunk in requested.chunks(MAX_QPDF_OBJECTS_PER_QUERY) {
-        let additional = load_qpdf_selected_objects_batch(path, qpdf_path, temp, chunk)?;
-        if let Some(document) = document.as_mut() {
-            merge_qpdf_selected_objects(document, additional)?;
-        } else {
-            document = Some(additional);
-        }
-    }
-    document.ok_or_else(|| "qpdf object query produced no structural data".into())
-}
-
-fn load_qpdf_selected_objects_batch(
-    path: &Path,
-    qpdf_path: &Path,
-    temp: &TempQpdfFiles,
-    object_ids: &[ObjectId],
-) -> Result<Document> {
-    let mut arguments = vec![
-        "--suppress-recovery".to_string(),
-        "--json".to_string(),
-        "--json-key=qpdf".to_string(),
-        "--json-object=trailer".to_string(),
-    ];
-    for (object_number, generation_number) in object_ids {
-        arguments.push(format!("--json-object={object_number},{generation_number}"));
-    }
-    run_qpdf_bounded(
-        path,
-        qpdf_path,
-        &arguments.iter().map(String::as_str).collect::<Vec<_>>(),
-        temp,
-        MAX_QPDF_STRUCTURE_BYTES,
-    )?;
-    parse_qpdf_structure(&temp.structure, Some(path)).map(|(document, _)| document)
-}
-
-fn merge_qpdf_selected_objects(document: &mut Document, additional: Document) -> Result<()> {
-    if document.version != additional.version
-        || document.max_id != additional.max_id
-        || document.trailer != additional.trailer
-    {
-        return Err("PDF structure changed between qpdf page-tree queries".into());
-    }
-    for (object_id, object) in additional.objects {
-        if document.objects.insert(object_id, object).is_some() {
-            return Err(format!(
-                "qpdf page-tree query returned duplicate object {} {}",
-                object_id.0, object_id.1
-            )
-            .into());
-        }
-    }
-    Ok(())
 }
 
 /// Reads one encoded PDF stream with bounded memory and a subprocess deadline.
@@ -1469,17 +1259,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_qpdf_page_walk_in_sequential_physical_order() {
-        assert_eq!(
-            parse_qpdf_page_ids(b"page 1: 12 0 R\n  content:\n    80 0 R\npage 2: 19 2 R\n")
-                .unwrap(),
-            vec![(12, 0), (19, 2)]
-        );
-        assert!(parse_qpdf_page_ids(b"page 2: 12 0 R\n").is_err());
-        assert!(parse_qpdf_page_ids(b"page 1: 12 0 R\npage 2: 12 0 R\n").is_err());
-    }
-
-    #[test]
     fn parses_qpdf_names_references_and_strings() {
         assert_eq!(
             decode_qpdf_name("/text/plain", QpdfNameMode::Canonical).unwrap(),
@@ -1689,13 +1468,8 @@ mod tests {
         result
     }
 
-    #[cfg(unix)]
     #[test]
-    fn page_local_loader_reads_selected_page_ancestry_and_indirect_rotate_values() {
-        let nonce = test_qpdf_temp_nonce().unwrap();
-        let stem = format!("evb-qpdf-rotation-{nonce}");
-        let input_path = std::env::temp_dir().join(format!("{stem}-input.pdf"));
-        let qpdf_path = std::env::temp_dir().join(format!("{stem}-command"));
+    fn indexed_base_reads_indirect_inherited_rotate_values() {
         let mut source = Document::with_version("1.7");
         let catalog_id = source.add_object(dictionary! {
             "Type" => "Catalog",
@@ -1716,40 +1490,12 @@ mod tests {
             .unwrap()
             .set("Pages", Object::Reference(pages_id));
         source.trailer.set("Root", catalog_id);
-        source.save(&input_path).unwrap();
+        let mut bytes = Vec::new();
+        source.save_to(&mut bytes).unwrap();
 
-        let qpdf_script = r##"#!/bin/sh
-case "$*" in
-  *--show-pages*) printf 'page 1: 3 0 R\n' ;;
-  *--json-object=4,0*) printf '%s' '{"qpdf":[{"jsonversion":2,"pdfversion":"1.7","maxobjectid":4},{"trailer":{"value":{"/Root":"1 0 R","/Size":5}},"obj:4 0 R":{"value":270}}]}' ;;
-  *--json-object=2,0*) printf '%s' '{"qpdf":[{"jsonversion":2,"pdfversion":"1.7","maxobjectid":4},{"trailer":{"value":{"/Root":"1 0 R","/Size":5}},"obj:2 0 R":{"value":{"/Type":"/Pages","/Kids":["3 0 R"],"/Count":1,"/Rotate":"4 0 R"}}}]}' ;;
-  *--json-object=3,0*) printf '%s' '{"qpdf":[{"jsonversion":2,"pdfversion":"1.7","maxobjectid":4},{"trailer":{"value":{"/Root":"1 0 R","/Size":5}},"obj:3 0 R":{"value":{"/Type":"/Page","/Parent":"2 0 R"}}}]}' ;;
-  *) exit 9 ;;
-esac
-"##;
-        let fake_executable = crate::write_fake_executable(&qpdf_path, qpdf_script);
-
-        let result = load_qpdf_page_local_incremental_pdf(
-            &input_path,
-            &qpdf_path,
-            &PageLocalEdit {
-                pages: BTreeSet::from([0]),
-                ..PageLocalEdit::default()
-            },
-        );
-        let _ = fs::remove_file(&input_path);
-        let _ = fs::remove_file(&qpdf_path);
-        drop(fake_executable);
-        let mut incremental = result
-            .expect("selected page ancestry should load for rotation")
-            .expect("a rotation addresses no annotation");
-        assert_eq!(
-            incremental
-                .located_pages
-                .as_ref()
-                .map(|located| &located.ids),
-            Some(&BTreeMap::from([(0, page_id)]))
-        );
+        let mut incremental = SourcePdf::open_append_base(&bytes[..], bytes.len() as u64)
+            .and_then(|mut source| source.take_append_base())
+            .unwrap();
         assert_eq!(
             resolve_page_rotation(incremental.get_prev_documents(), page_id).unwrap(),
             270

@@ -1,8 +1,5 @@
 use super::*;
 use evb_native_support::output::AtomicOutput;
-#[path = "annotation_ownership.rs"]
-mod ownership;
-pub(crate) use ownership::*;
 use serde::Serialize;
 use std::{fs, io::Write, path::Path};
 
@@ -80,7 +77,6 @@ pub(crate) fn write_annotation_name_index(
 pub(crate) fn write_annotation_name_index_path(
     input_path: &Path,
     output_path: &Path,
-    qpdf_path: Option<&Path>,
 ) -> Result<()> {
     if annotation_index_paths_alias(input_path, output_path)? {
         return Err(domain_error(
@@ -89,18 +85,15 @@ pub(crate) fn write_annotation_name_index_path(
         ));
     }
 
-    let incremental = load_readonly_metadata_pdf_path(
-        input_path,
-        qpdf_path,
-        QpdfMetadataPurpose::AnnotationIndex,
-    )
-    .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    let document = SourcePdf::open_path(input_path)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?
+        .document;
     assert_plaintext_base(
-        incremental.get_prev_documents(),
+        &document,
         "Encrypted PDFs are not supported by the annotation index operation",
     )?;
 
-    write_annotation_name_index(&incremental, output_path)
+    write_annotation_name_index(&document, output_path)
 }
 
 pub(crate) fn annotation_index_paths_alias(input_path: &Path, output_path: &Path) -> Result<bool> {
@@ -325,7 +318,7 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
     use std::{
         collections::{BTreeMap, HashMap},
-        fs::{self, File},
+        fs,
         path::PathBuf,
         time::{SystemTime, UNIX_EPOCH},
     };
@@ -537,28 +530,6 @@ mod tests {
     }
 
     #[test]
-    fn large_path_requires_qpdf_before_attempting_an_eager_read() {
-        let input = temporary_path("large-dispatch", "pdf");
-        let output = temporary_path("large-dispatch", "json");
-        let file = File::create(&input).unwrap();
-        file.set_len(512 * 1024 * 1024 + 1).unwrap();
-
-        let error = mutate_pdf(Config {
-            operation: Operation::AnnotationNameIndex,
-            input_path: input.clone(),
-            output_path: Some(output.clone()),
-            qpdf_path: None,
-        })
-        .unwrap_err();
-
-        assert!(error
-            .to_string()
-            .contains("Large incremental PDF input requires the bundled qpdf structural reader"));
-        assert!(!output.exists());
-        fs::remove_file(input).unwrap();
-    }
-
-    #[test]
     fn stream_contents_are_not_copied_into_the_index() {
         let (mut document, page_id, _) = document_with_annotations(0);
         let stream_id = document.add_object(Stream::new(
@@ -587,7 +558,7 @@ mod tests {
         let output = temporary_path("small-output", "json");
         document.save(&input).unwrap();
 
-        write_annotation_name_index_path(&input, &output, None).unwrap();
+        write_annotation_name_index_path(&input, &output).unwrap();
 
         let sidecar = read_sidecar(&output);
         assert_eq!(entries(&sidecar).len(), annotation_ids.len());
@@ -628,7 +599,7 @@ mod tests {
         let output = temporary_path("large-page-count-output", "json");
         document.save(&input).unwrap();
 
-        write_annotation_name_index_path(&input, &output, None).unwrap();
+        write_annotation_name_index_path(&input, &output).unwrap();
 
         let sidecar = read_sidecar(&output);
         assert_eq!(sidecar[0]["pageCount"], page_count);

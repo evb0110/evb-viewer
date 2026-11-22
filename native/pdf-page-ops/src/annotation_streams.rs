@@ -2,23 +2,18 @@ use super::*;
 use base64::Engine;
 use serde_json::Value;
 
-/// A structural load omits stream bytes: qpdf's above the eager-load
-/// ceiling, the indexed reader's always. Annotation parsing still needs the
-/// small appearance form and JPEG stream for managed placed images, and each
-/// note thread's recovery snapshot, so restore only those reachable streams
-/// from `streams` before parsing the annotation graph.
+/// The indexed reader leaves stream bytes in the file. Annotation parsing
+/// still needs each stamp's appearance form and image, and each note thread's
+/// recovery snapshot, so read only those reachable streams from `source`
+/// before parsing the annotation graph, under one aggregate budget.
 pub(crate) fn materialize_annotation_appearance_streams(
     incremental: &mut IncrementalDocument,
-    streams: Option<StructuralSource<'_>>,
+    source: StructuralSource<'_>,
 ) -> Result<()> {
-    let Some(source) = streams else {
-        return Ok(());
-    };
-
     let (stamp_refs, streams) = {
         let document = &*incremental;
         (
-            managed_stamp_stream_refs(document)?,
+            stamp_stream_refs(document)?,
             note_appearance_streams(document)?,
         )
     };
@@ -42,36 +37,24 @@ pub(crate) fn materialize_annotation_appearance_streams(
         }
     }
 
-    let mut start = 0;
-    while start < streams.len() && remaining > 0 {
-        let end = batch_end(&streams, start);
-        let requested: Vec<ObjectId> = streams[start..end].iter().map(|(id, _)| *id).collect();
-        // A run that fails is read one stream at a time, so only the streams
-        // qpdf cannot read alone stay unread, and only their notes stay foreign.
-        // A few scoped raw reads avoid qpdf JSON's whole-file scan. Larger
-        // sets and whole-document consumers retain the shared batch transport.
-        let mut bytes_by_object = match source {
-            StructuralSource::Qpdf {
-                input_path,
-                qpdf_path,
-            } if incremental.located_pages.is_none() || requested.len() > 8 => {
-                read_qpdf_stream_batch(input_path, qpdf_path, &requested)
-                    .unwrap_or_else(|_| read_individual_streams(source, &requested))
-            }
-            _ => read_individual_streams(source, &requested),
-        };
-        for (object_id, _) in &streams[start..end] {
-            let Some(bytes) = bytes_by_object.remove(object_id) else {
-                continue;
-            };
-            let size = bytes.len();
-            if size <= remaining.min(MAX_STAMP_APPEARANCE_STREAM_BYTES)
-                && incremental.set_base_stream_bytes(*object_id, bytes).is_ok()
-            {
-                remaining -= size;
-            }
+    // A stream that cannot be read stays unread, and only its note stays foreign.
+    for (object_id, _) in streams {
+        if remaining == 0 {
+            break;
         }
-        start = end;
+        // A stamp's graph may have read it already.
+        if !incremental.unavailable_base_streams.contains(&object_id) {
+            continue;
+        }
+        let Ok(bytes) =
+            source.read_raw(object_id, remaining.min(MAX_STAMP_APPEARANCE_STREAM_BYTES))
+        else {
+            continue;
+        };
+        let size = bytes.len();
+        if incremental.set_base_stream_bytes(object_id, bytes).is_ok() {
+            remaining -= size;
+        }
     }
     Ok(())
 }
@@ -91,10 +74,18 @@ pub(crate) fn batch_end(streams: &[(ObjectId, usize)], start: usize) -> usize {
     end
 }
 
-fn managed_stamp_stream_refs(document: &impl PdfObjectSource) -> Result<Vec<(ObjectId, usize)>> {
+/// The appearance graph of every stamp, managed or foreign: the parse reads
+/// a stamp whose graph ends in a JPEG image as a stamp, and its rotation from
+/// the form that draws it. Managed stamps come first, so foreign ones take
+/// only the budget they leave.
+fn stamp_stream_refs(document: &impl PdfObjectSource) -> Result<Vec<(ObjectId, usize)>> {
     let mut stream_refs = Vec::new();
     let mut seen_streams = HashSet::new();
-    for page_id in document.page_ids().into_values() {
+    let pages = document.page_ids();
+    for (managed, page_id) in [true, false]
+        .into_iter()
+        .flat_map(|managed| pages.values().map(move |page| (managed, *page)))
+    {
         for annotation in get_page_annots(document, page_id)? {
             let Ok(annotation) = document.resolved(&annotation) else {
                 continue;
@@ -102,7 +93,9 @@ fn managed_stamp_stream_refs(document: &impl PdfObjectSource) -> Result<Vec<(Obj
             let Ok(dictionary) = annotation.as_dict() else {
                 continue;
             };
-            if !is_managed_placed_image_stamp(dictionary) {
+            if !annotation_subtype_name(document, dictionary).eq_ignore_ascii_case("stamp")
+                || is_managed_placed_image_stamp(dictionary) != managed
+            {
                 continue;
             }
             if let Ok(mut graph) = stamp_image_graph(document, dictionary) {
@@ -310,29 +303,33 @@ fn push_object_targets(object: &Object, targets: &mut Vec<ObjectId>, depth: usiz
     }
 }
 
-/// The normal appearance streams of a note, direct or one state level down.
-/// A reference that is not a stream is left out: the materializer reads
-/// streams only, and a non-stream would otherwise fail the whole parse.
+/// The appearance streams of a note, normal, rollover and down, each direct or
+/// one state level down: recovery snapshots the whole `/AP`. A reference that
+/// is not a stream is left out: the materializer reads streams only, and a
+/// non-stream would otherwise fail the whole parse.
 fn note_appearance_stream_refs(
     document: &impl PdfObjectSource,
     dictionary: &Dictionary,
 ) -> Vec<ObjectId> {
-    let Some(normal) = dictionary
+    let Some(appearance) = dictionary
         .get(b"AP")
         .ok()
         .and_then(|object| document.resolved(object).ok())
         .and_then(|object| object.as_dict().ok())
-        .and_then(|appearance| appearance.get(b"N").ok())
     else {
         return Vec::new();
     };
-    let references: Vec<ObjectId> = match document.resolved(normal) {
-        Ok(Object::Dictionary(states)) => states
-            .iter()
-            .filter_map(|(_, state)| state.as_reference().ok())
-            .collect(),
-        _ => normal.as_reference().ok().into_iter().collect(),
-    };
+    let mut references = Vec::new();
+    for (_, entry) in appearance.iter() {
+        match document.resolved(entry) {
+            Ok(Object::Dictionary(states)) => references.extend(
+                states
+                    .iter()
+                    .filter_map(|(_, state)| state.as_reference().ok()),
+            ),
+            _ => references.extend(entry.as_reference().ok()),
+        }
+    }
     references
         .into_iter()
         .filter(|object_id| matches!(document.object(*object_id), Ok(Object::Stream(_))))
@@ -402,26 +399,6 @@ pub(crate) fn read_qpdf_stream_batch(
         ));
     }
     Ok(streams)
-}
-
-/// Both the small-set transport and failed-batch recovery share one raw
-/// byte ceiling. Each read also retains the per-appearance stream ceiling.
-fn read_individual_streams(
-    source: StructuralSource<'_>,
-    ids: &[ObjectId],
-) -> HashMap<ObjectId, Vec<u8>> {
-    let mut remaining = MAX_BATCH_RAW_BYTES;
-    let mut streams = HashMap::new();
-    for id in ids.iter().take(MAX_BATCH_OBJECTS) {
-        if remaining == 0 {
-            break;
-        }
-        if let Ok(bytes) = source.read_raw(*id, remaining.min(MAX_STAMP_APPEARANCE_STREAM_BYTES)) {
-            remaining -= bytes.len();
-            streams.insert(*id, bytes);
-        }
-    }
-    streams
 }
 
 /// A stream in qpdf's JSON. Inline data is the stream's raw bytes, which a

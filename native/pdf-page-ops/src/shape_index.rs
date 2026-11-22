@@ -291,13 +291,9 @@ pub(crate) fn write_embedded_shape_index(
     .map(|_| ())
 }
 
-/// Load a path through the stream-free structural reader when the normal
-/// in-memory admission ceiling is exceeded, then write the shape sidecar.
-pub(crate) fn write_embedded_shape_index_path(
-    input_path: &Path,
-    output_path: &Path,
-    qpdf_path: Option<&Path>,
-) -> Result<()> {
+/// Reads a path through its cross-reference index, which leaves stream bytes
+/// in the file, then writes the shape sidecar.
+pub(crate) fn write_embedded_shape_index_path(input_path: &Path, output_path: &Path) -> Result<()> {
     if shape_index_paths_alias(input_path, output_path)? {
         return Err(domain_error(
             NativeErrorCode::InvalidRequest,
@@ -305,14 +301,15 @@ pub(crate) fn write_embedded_shape_index_path(
         ));
     }
 
-    let incremental = load_annotation_index_pdf_path(input_path, qpdf_path)
-        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    let document = SourcePdf::open_path(input_path)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?
+        .document;
     assert_plaintext_base(
-        incremental.get_prev_documents(),
+        &document,
         "Encrypted PDFs are not supported by the embedded shape index operation",
     )?;
 
-    write_embedded_shape_index(&incremental, output_path)
+    write_embedded_shape_index(&document, output_path)
 }
 
 fn shape_index_paths_alias(input_path: &Path, output_path: &Path) -> Result<bool> {
@@ -1672,27 +1669,6 @@ mod tests {
         assert_eq!(entries(&sidecar)[0]["stableKey"], "evb-shape:path");
         fs::remove_file(input).unwrap();
         fs::remove_file(output).unwrap();
-    }
-
-    #[test]
-    fn large_shape_index_path_requires_the_qpdf_structural_reader() {
-        let input = temporary_path("large-input");
-        let output = temporary_path("large-output");
-        let file = std::fs::File::create(&input).unwrap();
-        file.set_len(512 * 1024 * 1024 + 1).unwrap();
-
-        let error = mutate_pdf(Config {
-            operation: Operation::EmbeddedShapeIndex,
-            input_path: input.clone(),
-            output_path: Some(output.clone()),
-            qpdf_path: None,
-        })
-        .unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("Large incremental PDF input requires the bundled qpdf structural reader"));
-        assert!(!output.exists());
-        fs::remove_file(input).unwrap();
     }
 
     #[test]

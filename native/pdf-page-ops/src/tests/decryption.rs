@@ -365,12 +365,11 @@ fn refuses_an_incremental_append_onto_an_empty_password_encrypted_base() {
     let output_path = temp_pdf_path("decrypt-append-output");
     write_fixture(&input_path, &aesv2_r4_fixture(""));
 
-    let error = append_native_mutations_with_qpdf(
+    let error = append_native_mutations_path(
         &input_path,
         &output_path,
         &NativeMutationsFile::default(),
         "D:20260809120000Z",
-        None,
         None,
     )
     .expect_err("an encrypted base must refuse incremental appends");

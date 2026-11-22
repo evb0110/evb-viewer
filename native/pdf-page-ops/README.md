@@ -12,8 +12,10 @@ through a file-backed random-access source on both platforms. Offsets and
 committed lengths stay `u64`, including an incremental update's `/Prev`.
 Unread streams are unavailable, never empty; a consumer must read their bytes
 by range before using them. The first occurrence of a duplicate dictionary
-key wins. Unchanged real numbers keep their source spelling, including in
-object streams and inherited page boxes.
+key wins. One object holds at most two million values, and one read at most
+twenty million. Unchanged real numbers
+keep their source spelling, including in object streams and inherited page
+boxes.
 
 `page_structure_edit.rs` selects and remaps the page and document graphs.
 `pdf_writer.rs` writes a fresh PDF, renumbering objects and copying stream data
@@ -26,8 +28,8 @@ these edits. Split uses the crate's separate split writer.
 Every page edit, including rotation, crop and crop removal, uses
 `PageTreeResolver::validated` to number pages. A leaf that is not a page,
 appears twice or contradicts the declared counts refuses as `invalid-request`:
-a repair must not silently renumber a damaged tree. Rotation validates only
-the tree before its page-local append; it need not load every object.
+a repair must not silently renumber a damaged tree. Rotation validates the
+tree through the index before its append reads the document.
 
 An encrypted source with a per-stream `/Crypt` filter other than Identity is
 refused. An Identity stream is retained without that filter only when the
@@ -47,24 +49,35 @@ only after verification and the host's page-count check.
 
 `incremental.rs` applies annotation, rotation, page-label and bookmark mutations
 through the shared mutation implementation. OCR text layers and print layout
-also live in this crate. Desktop incremental loads use the eager reader or
-bundled libqpdf for structural and page-local reads, with qpdf JSON as fallback.
-The indexed reader supplies the separate page-tree validation before rotation.
+also live in this crate. These saves, and the annotation parse, annotation and
+shape indexes, catalog and OCR visibility reads, open the document through the
+same indexed `pdf_source.rs` reader as page structure, by file on desktop and
+by range in the browser. Its skeleton becomes the `IncrementalDocument` base;
+its page tree must yield its first and last pages. Reused streams, such as
+stamp images and appearances, the appearances of FreeText labels being edited
+and OCR page contents, are read by range under their caps. An undo can name a
+stamp image the trailer no longer reaches; the base reads it through the same
+index. A save reports the pages it changed, with the pages of every annotation
+threaded to a changed one, and of each annotation threaded to one on a page
+it re-reads, so the viewer re-reads only those.
 
-Browser incremental changes use the same indexed `pdf_source.rs` as page
-structure. Its skeleton becomes the `IncrementalDocument` base. Reused streams,
-such as stamp images, FreeText appearances and OCR page contents, are read by
-range under their caps. The storage worker appends to the document's own file,
-reads back the written revision to verify it, and returns a receipt. The store
-commits the appended length with `extend`; releasing an uncommitted receipt
-cuts its tail. Annotation parse, catalog, conformance and OCR visibility reads
-also read files by range. An encrypted append base is refused from its index;
-open unlocks it into a plaintext rewrite first.
+Desktop appends to a staged copy, or in place to a working copy the host
+protects, and verifies the written revision before it publishes. The browser
+storage worker appends to the document's own file, reads back the written
+revision to verify it, and returns a receipt. The store commits the appended
+length with `extend`; releasing an uncommitted receipt cuts its tail. An
+encrypted append base is refused from its index; open unlocks it into a
+plaintext rewrite first. Orphan pages are outside the document the viewer
+displays: a delete changes only what the catalog page tree reaches.
 
 ## Repair and qpdf
 
-When a page edit refuses the edited revision as `corrupt-xref`, its host runs
-one qpdf rewrite, commits it as an internal revision and retries the edit once.
+Append admission at open applies the eager loader's rules and the indexed
+reader's. Damage either one refuses as `corrupt-xref`, such as an xref entry
+that points at another object, is repairable: the host rewrites the file with
+qpdf before anything edits it. When a page edit refuses the edited revision as
+`corrupt-xref`, its host runs one qpdf rewrite, commits it as an internal
+revision and retries the edit once.
 A second failure restores the revision the edit began on and reports the
 failure. Damaged page trees and damage in inserted inputs are `invalid-request`
 and do not trigger repair. Browser repair stays within qpdf WASM's input limit.
@@ -72,7 +85,9 @@ and do not trigger repair. Browser repair stays within qpdf WASM's input limit.
 The application retains qpdf for whole-file optimization, repair and
 normalization; desktop conformance checks and page counts; image-export subsets;
 DjVu conversion joins; and scan-cleanup joins, validation and MRC mask
-dictionaries. Desktop incremental reads also use it for structural objects and
-annotation streams. Crop and crop removal keep the host's strict qpdf structure
-gate; page-structure outputs use the engine's verification. Browser qpdf WASM
-serves normalization, validation and conversion paths.
+dictionaries. Image recompression and replacement, overlay text, split
+navigation, page geometry and print appearances still load eagerly, or through
+qpdf's structural view above the eager ceiling. Crop and crop removal keep the
+host's strict qpdf structure gate; page-structure outputs use the engine's
+verification. Browser qpdf WASM serves normalization, validation and
+conversion paths.
