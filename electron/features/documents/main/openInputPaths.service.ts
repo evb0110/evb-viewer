@@ -71,6 +71,8 @@ interface IOpenInputPathsOptions {
     signal?: AbortSignal;
     forceCombine?: boolean;
     password?: string;
+    /** False when a session restore reopens a held tab: Recent Files keeps its last real open. */
+    recordRecent?: boolean;
 }
 
 function getOwnerWebContentsId(owner?: TOpenPathOwner) {
@@ -139,7 +141,9 @@ export async function openInputPaths(
     if (!options.forceCombine && djvuPaths.length > 0 && normalizedPaths.length === 1 && djvuPaths.length === 1) {
         const djvuPath = djvuPaths[0]!;
         const trustedDjvuPath = requireOpenPath(djvuPath, owner);
-        persistRecentInputsAfterOpen([djvuPath], owner);
+        if (options.recordRecent !== false) {
+            persistRecentInputsAfterOpen([djvuPath], owner);
+        }
         return {
             kind: 'djvu',
             workingPath: '',
@@ -246,7 +250,7 @@ export async function openInputPaths(
                 if (isGenerated) {
                     // Opening a generated output renews its retention window.
                     await touchScanCleanupGeneratedOutput(originalPath);
-                } else {
+                } else if (options.recordRecent !== false) {
                     persistRecentInputsAfterOpen([originalPath], owner);
                 }
                 throwIfAborted(signal);

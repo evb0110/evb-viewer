@@ -483,10 +483,17 @@ describe('feature IPC codec maps', () => {
         });
         expect(DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeArgs([
             '/documents/scan.pdf',
-            'correct-password',
+            {password: 'correct-password'},
         ])).toEqual([
             '/documents/scan.pdf',
-            'correct-password',
+            {password: 'correct-password'},
+        ]);
+        expect(DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeArgs([
+            '/documents/scan.pdf',
+            {recordRecent: false},
+        ])).toEqual([
+            '/documents/scan.pdf',
+            {recordRecent: false},
         ]);
         expect(DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeArgs([
             '/documents/scan.pdf',
@@ -494,13 +501,31 @@ describe('feature IPC codec maps', () => {
         ])).toEqual(['/documents/scan.pdf']);
         expect(() => DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeArgs([
             '/documents/scan.pdf',
-            'x'.repeat(PDF_DECRYPT_PASSWORD_MAX_BYTES + 1),
+            {recordRecent: 'no'},
+        ])).toThrow();
+        expect(() => DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeArgs([
+            '/documents/scan.pdf',
+            {recordRecent: false, extra: true},
+        ])).toThrow();
+        expect(() => DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeArgs([
+            '/documents/scan.pdf',
+            'correct-password',
+        ])).toThrow();
+        for (const notARequest of [[], new Map(), null]) {
+            expect(() => DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeArgs([
+                '/documents/scan.pdf',
+                notARequest,
+            ])).toThrow();
+        }
+        expect(() => DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeArgs([
+            '/documents/scan.pdf',
+            {password: 'x'.repeat(PDF_DECRYPT_PASSWORD_MAX_BYTES + 1)},
         ])).toThrow(`password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
         const multibytePassword = '🔒'.repeat(Math.ceil((PDF_DECRYPT_PASSWORD_MAX_BYTES + 1) / 4));
         expect(multibytePassword.length).toBeLessThan(PDF_DECRYPT_PASSWORD_MAX_BYTES);
         expect(() => DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeArgs([
             '/documents/scan.pdf',
-            multibytePassword,
+            {password: multibytePassword},
         ])).toThrow(`password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
         expect(() => DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeResult({
             kind: 'pdf-needs-password',

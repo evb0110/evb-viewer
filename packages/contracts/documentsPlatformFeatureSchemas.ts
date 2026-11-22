@@ -1,6 +1,7 @@
 import {PDF_NATIVE_ANNOTATION_DELETE_EFFECTS_SCHEMA} from '@contracts/nativePdfSaveReport';
 import {
     FILE_STAT_RESULT_SCHEMA,
+    type IDocumentDirectOpenRequest,
     MANAGED_TEMP_FILE_HANDLE_SCHEMA,
     OPEN_BATCH_PROGRESS_SCHEMA,
     PDF_OPTIMIZE_PRESET_SCHEMA,
@@ -43,6 +44,7 @@ import {
 } from '@contracts/shared';
 import {parseEpochMs} from '@contracts/timestamps';
 import * as v from 'valibot';
+import {isPlainObject} from 'es-toolkit/predicate';
 
 function fail(message: string): never {
     throw new Error(message);
@@ -146,14 +148,22 @@ const optionalPathPrintOptionsSchema = v.optional(v.pipe(
 ));
 const optionsForceCombineSchema = v.object({forceCombine: v.exactOptional(v.boolean())});
 
+// A strict object alone admits an array or a Map: every key is optional.
+export const DOCUMENT_DIRECT_OPEN_REQUEST_SCHEMA = v.pipe(
+    v.custom<Record<string, unknown>>(isPlainObject, 'open request must be a plain object'),
+    v.strictObject({
+        password: v.exactOptional(pdfDecryptPasswordSchema),
+        recordRecent: v.exactOptional(v.boolean()),
+    }),
+);
 const openDocumentDirectArgs = v.pipe(
     v.strictTuple([
         documentRefSchema,
-        v.optional(pdfDecryptPasswordSchema),
+        v.optional(DOCUMENT_DIRECT_OPEN_REQUEST_SCHEMA),
     ]),
     v.transform(args => args[1] === undefined
         ? [args[0]] as [TDocumentRef]
-        : args as [TDocumentRef, string]),
+        : args as [TDocumentRef, IDocumentDirectOpenRequest]),
 );
 const openDocumentDirectBatchArgs = v.pipe(
     v.strictTuple([

@@ -10,7 +10,11 @@ import {
     type ExpectedOutcome,
 } from '@contracts/diagnostics/failureReceipt';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
-import type { TOpenFileResult } from '@contracts/electronApiDocuments';
+import type {
+    IDocumentDirectOpenRequest,
+    IDocumentsOpenCapability,
+    TOpenFileResult,
+} from '@contracts/electronApiDocuments';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { IPdfRasterDisplayProfileOpenOptions } from '@app/types/pdfRasterDisplayProfile';
 import {consumeRegisteredPdfRasterDisplayProfile} from '@app/types/pdfRasterDisplayProfile';
@@ -58,7 +62,31 @@ import {
 } from '@app/modules/workspace-shell/document-sessions/retainDocumentOpenWorkingCopyForRetry';
 
 type TOpenedFileResult = Extract<TOpenFileResult, {kind: 'pdf' | 'djvu'}>;
-export type TDocumentDirectOpenOptions = IPdfRasterDisplayProfileOpenOptions;
+export interface IDocumentDirectOpenOptions extends IPdfRasterDisplayProfileOpenOptions {
+    /** False when a session restore reopens a tab it held: Recent Files keeps the reader's last open. */
+    recordRecent?: boolean;
+}
+
+function readDirectOpenRequest(
+    options: IDocumentDirectOpenOptions,
+    password?: string,
+): IDocumentDirectOpenRequest | undefined {
+    const request: IDocumentDirectOpenRequest = {
+        ...(password === undefined ? {} : {password}),
+        ...(options.recordRecent === false ? {recordRecent: false} : {}),
+    };
+    return Object.keys(request).length > 0 ? request : undefined;
+}
+
+function openDocumentDirectWith(
+    capability: Pick<IDocumentsOpenCapability, 'openDocumentDirect'>,
+    path: TDocumentRef,
+    request: IDocumentDirectOpenRequest | undefined,
+) {
+    return request === undefined
+        ? capability.openDocumentDirect(path)
+        : capability.openDocumentDirect(path, request);
+}
 
 export interface ICreateDocumentOpenFlowDeps {
     cleanupAbandonedWorkingCopy: (path: TDocumentRef) => Promise<void>;
@@ -383,13 +411,17 @@ export function createDocumentOpenFlow(
         openRequestId: string | null,
         initialFailure: TPdfPasswordFailureResult,
         openMethod: 'picker' | 'preselected' | 'direct' | 'batch',
-        options: IPdfRasterDisplayProfileOpenOptions = {},
+        options: IDocumentDirectOpenOptions = {},
     ) {
         return runPasswordPromptFlow(openRequestId, initialFailure, openMethod, options, {
             requestPassword,
             closePasswordPrompt,
             isCurrentOpenRequest,
-            openDocumentDirect: (path, password) => getDocumentOpenCapability().openDocumentDirect(path, password),
+            openDocumentDirect: (path, password) => openDocumentDirectWith(
+                getDocumentOpenCapability(),
+                path,
+                readDirectOpenRequest(options, password),
+            ),
             cleanupAbandonedPdfWorkingCopy,
             setError: message => { state.error.value = message; },
             reportUnsupportedEncryption,
@@ -400,7 +432,7 @@ export function createDocumentOpenFlow(
         });
     }
 
-    async function openFileDirect(path: TDocumentRef, options: TDocumentDirectOpenOptions = {}) {
+    async function openFileDirect(path: TDocumentRef, options: IDocumentDirectOpenOptions = {}) {
         const openRequestId = beginOpenRequest();
         resetOpenState();
         logPdfRenderTrace('pdf-open-direct-start', {
@@ -416,7 +448,11 @@ export function createDocumentOpenFlow(
                 openRequestId,
                 path,
             });
-            const result = await getDocumentOpenCapability().openDocumentDirect(path);
+            const result = await openDocumentDirectWith(
+                getDocumentOpenCapability(),
+                path,
+                readDirectOpenRequest(options),
+            );
             logPdfRenderTrace('pdf-open-capability-end', {
                 openRequestId,
                 path,

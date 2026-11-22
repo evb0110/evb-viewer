@@ -25,6 +25,7 @@ import {
 import {
     basename,
     dirname,
+    join,
 } from 'node:path';
 import {
     createFixturePath,
@@ -43,6 +44,8 @@ import {
     waitForNoOpenNoteWindows,
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {readWorkspaceRecoveryRecords} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
+import {electronUserDataPath} from '@scripts/electron-run/electronRunSessionPaths';
+import {stopSingleSession} from '@scripts/electron-run/stopSession';
 import type {IWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
@@ -1571,6 +1574,90 @@ describe('Electron E2E - Recent Files', () => {
                 Date.now = () => realNow() + offsetMs;
             }, (2 * 24 + 1) * 60 * 60 * 1000);
             await expect.poll(readOpened, {timeout: RECENT_OPENED_AGE_TIMEOUT_MS}).toBe('2 days ago');
+        } finally {
+            await sessionFixture.restart({clean: true});
+        }
+    });
+
+    it('keeps a restored tab\'s Recent Files time and place until the reader opens it again', async () => {
+        let session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-recent-restored-time-${Date.now()}`,
+        });
+        try {
+            const stamp = Date.now();
+            const restoredPath = await createMultiPageTextFixturePdf(`recent-restored-tab-${stamp}.pdf`, 1);
+            const closedPath = await createMultiPageTextFixturePdf(`recent-closed-tab-${stamp}.pdf`, 1);
+            await waitForStartupOverlayRemoved(session);
+            await openPdfInApp(session.page, closedPath);
+            await waitForPdfLoaded(session.page);
+            await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
+            await waitForRecentFileRow(session, closedPath);
+            await openPdfInApp(session.page, restoredPath);
+            await waitForPdfLoaded(session.page);
+            await expect.poll(() => readWorkspaceRecoveryRecords<{checkpoint: IWorkspaceCheckpoint}>(session.name)
+                .flatMap(record => record.checkpoint.tabs)
+                .some(tab => tab.sourceRef === restoredPath), {timeout: RECENT_ROW_TIMEOUT_MS}).toBe(true);
+
+            const recentFilesPath = join(electronUserDataPath(session.name), 'recentFiles.json');
+            const readStored = () => JSON.parse(readFileSync(recentFilesPath, 'utf8')) as {
+                files: Array<{
+                    originalPath: string;
+                    timestamp: number;
+                }>;
+            };
+            await expect.poll(() => readStored().files.map(file => file.originalPath), {timeout: RECENT_ROW_TIMEOUT_MS})
+                .toEqual([restoredPath, closedPath]);
+
+            // The app stops as a crash does, keeping its checkpoint. While no
+            // Recent write can run, both files become last opened days ago:
+            // the closed one two days ago, the one still in its tab three.
+            await session.browser.disconnect();
+            await stopSingleSession(session.name, {
+                preserveWorkspaceCheckpoint: true,
+                crashElectronBeforeStop: true,
+            });
+            const hourMs = 60 * 60 * 1000;
+            const stored = readStored();
+            const ageHours = (path: string) => (path === restoredPath ? 3 * 24 + 1 : 2 * 24 + 1);
+            stored.files = [...stored.files]
+                .reverse()
+                .map(file => ({
+                    ...file,
+                    timestamp: Date.now() - ageHours(file.originalPath) * hourMs,
+                }));
+            writeFileSync(recentFilesPath, JSON.stringify(stored, null, 2));
+
+            const readRecentRows = () => evaluateInPage(session.page, () => Array.from(document.querySelectorAll<HTMLElement>(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .recent-row--data:not(.recent-row--skeleton)',
+            )).map(row => [
+                row.dataset.recentSource ?? '',
+                row.querySelector('.recent-col--time')?.textContent?.trim() ?? '',
+            ]));
+
+            // The relaunch restores the open tab; that is not the reader opening it.
+            session = await sessionFixture.restart({
+                clean: false,
+                hard: true,
+            });
+            await waitForPdfLoaded(session.page);
+            await waitForActiveDocumentSource(session.page, restoredPath);
+            await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
+            await waitForRecentFileRow(session, restoredPath);
+            await expect.poll(readRecentRows, {timeout: RECENT_ROW_TIMEOUT_MS}).toEqual([
+                [closedPath, '2 days ago'],
+                [restoredPath, '3 days ago'],
+            ]);
+
+            // Opening it from Recent Files is: it moves to the top, opened now.
+            await clickRecentFile(session, restoredPath);
+            await waitForRecentPdfOpen(session, restoredPath);
+            await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
+            await waitForRecentFileRow(session, restoredPath);
+            await expect.poll(readRecentRows, {timeout: RECENT_ROW_TIMEOUT_MS}).toEqual([
+                [restoredPath, 'Just now'],
+                [closedPath, '2 days ago'],
+            ]);
         } finally {
             await sessionFixture.restart({clean: true});
         }

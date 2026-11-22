@@ -34,6 +34,7 @@ import {
 } from '@electron/features/documents/public';
 import {PDF_REVISION_OPTIONS_SCHEMA} from '@contracts/documentsPersistenceSchemas';
 import type {
+    IDocumentDirectOpenRequest,
     IPdfSerializedSaveOptions,
 } from '@contracts/electronApiDocuments';
 import type { TDocumentRef } from '@contracts/documentRef';
@@ -420,9 +421,9 @@ export const documentsMainBindings = {
         ...context,
         parentWindow: BrowserWindow.fromWebContents(context.sender),
     }),
-    openDocumentDirect: (context, filePath, password?: string) => password === undefined
+    openDocumentDirect: (context, filePath, request?: IDocumentDirectOpenRequest) => request === undefined
         ? handleOpenPdfDirect(context, filePath)
-        : handleOpenPdfDirect(context, filePath, password),
+        : handleOpenPdfDirect(context, filePath, request),
     openDocumentDirectBatch: (context, filePaths, requestId?: TRequestId, batchOptions?: {forceCombine?: boolean}) =>
         handleOpenPdfDirectBatch(context, filePaths, requestId, batchOptions),
     cancelOpenDocumentDirectBatch: (context, requestId) =>

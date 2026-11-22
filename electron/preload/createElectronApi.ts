@@ -4,6 +4,7 @@ import type {
 } from 'electron';
 import type { IElectronAPI } from '@contracts/electronApi';
 import type {
+    IDocumentDirectOpenRequest,
     IDocumentsFileIoCapability,
     IDocumentsOpenCapability,
     IDocumentsPdfCapability,
@@ -300,15 +301,15 @@ export function createElectronApi(
         });
     }
 
-    const openDocumentDirect = async (path: TDocumentRef, password?: string) => {
+    const openDocumentDirect = async (path: TDocumentRef, request?: IDocumentDirectOpenRequest) => {
         const pendingAllow = pendingRendererFileOpenAllows.get(path)?.promise;
         if (pendingAllow && !await pendingAllow) {
             return null;
         }
         await options.waitForDocumentOpenDirect?.(path);
-        return password === undefined
+        return request === undefined
             ? documentOpenFeature.openDocumentDirect(path)
-            : documentOpenFeature.openDocumentDirect(path, password);
+            : documentOpenFeature.openDocumentDirect(path, request);
     };
     const openDocumentDirectBatch = async (
         paths: TDocumentRef[],

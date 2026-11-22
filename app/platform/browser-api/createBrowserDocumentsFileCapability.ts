@@ -283,8 +283,8 @@ export function createBrowserDocumentsFileCapability(
                 saveHandle: picked.handle ?? null,
             });
         },
-        async openDocumentDirect(path, password) {
-            return isBrowserDocumentRef(path) ? openDocumentPaths([path], undefined, password) : null;
+        async openDocumentDirect(path, request) {
+            return isBrowserDocumentRef(path) ? openDocumentPaths([path], undefined, request) : null;
         },
         async openDocumentDirectBatch(paths, requestId) {
             return paths.every(path => isBrowserDocumentRef(path))

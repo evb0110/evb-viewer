@@ -86,7 +86,11 @@ export interface IDocumentOperationLease {
 }
 
 /** A document the shell assigns to a tab before any workspace has loaded it. */
-export type TWorkspaceDocumentAssignment = Omit<ITabMetadataCore, 'originalBackend'> & {recoveryWorkingCopyPath?: TDocumentRef | null | undefined;};
+export type TWorkspaceDocumentAssignment = Omit<ITabMetadataCore, 'originalBackend'> & {
+    recoveryWorkingCopyPath?: TDocumentRef | null | undefined;
+    /** The reader asked to open it; its hidden tab opens it when shown. Otherwise the tab restores what it held. */
+    deferredReaderOpen?: boolean | undefined;
+};
 
 export interface IWorkspaceOpenRequest {
     kind: Exclude<TWorkspaceDocumentTransactionKind, 'close'>;
@@ -116,6 +120,8 @@ export interface IWorkspaceDocumentController {
     readonly views: Readonly<ShallowRef<ReadonlyMap<string, IWorkspaceDocumentView>>>;
     readonly operationLease: IDocumentOperationLease;
     assign(document: TWorkspaceDocumentAssignment): void;
+    /** Whether the assigned document waits to open as the reader's own open; any claimed open ends the wait. */
+    isDeferredReaderOpen(): boolean;
     claimOpen(request: IWorkspaceOpenRequest, onPresented?: () => void): string;
     /** `run` does the open's file work and returns what it admitted; the open finishes with its presentation. */
     runOpen(request: IWorkspaceOpenRequest, run: (shape: IPdfOpeningGeometry | null, transactionId: string) => Promise<IWorkspaceOpenAdmission | null>): IWorkspaceOpenOperation;
@@ -269,6 +275,7 @@ export function createWorkspaceDocumentController(options: {
     const operationLease = createDocumentOperationLease();
     const openWaiters = new Map<string, {accepted: PromiseWithResolvers<boolean>; finished: PromiseWithResolvers<TWorkspaceOpenFinish>; onPresented?: (() => void) | undefined}>();
     let activeClose: Promise<boolean> | null = null;
+    let deferredReaderOpen = false;
     const file = shallowRef<IWorkspaceDocumentFile>(EMPTY_FILE);
     const mutationFrontier = shallowRef<IDocumentMutationFrontier | null>(null);
     const liveDirty = computed(() => mutationFrontier.value?.isDirty() === true);
@@ -358,6 +365,7 @@ export function createWorkspaceDocumentController(options: {
             isDjvu: document.isDjvu,
         };
         const hasDocument = identityHasDocument(identity);
+        deferredReaderOpen = hasDocument && document.deferredReaderOpen === true;
         update({
             phase: hasDocument ? 'presented' : 'empty',
             identity: hasDocument
@@ -377,6 +385,7 @@ export function createWorkspaceDocumentController(options: {
 
     function claimOpen(request: IWorkspaceOpenRequest, onPresented?: () => void) {
         supersedeActiveTransaction();
+        deferredReaderOpen = false;
         const transaction: IWorkspaceDocumentTransaction = {
             id: `workspace-document-transaction:${crypto.randomUUID()}`,
             kind: request.kind,
@@ -729,6 +738,7 @@ export function createWorkspaceDocumentController(options: {
         views,
         operationLease,
         assign,
+        isDeferredReaderOpen: () => deferredReaderOpen,
         claimOpen,
         runOpen,
         setOpeningLabel,

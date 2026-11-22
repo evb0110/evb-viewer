@@ -32,6 +32,7 @@ import {
     beginOpenSurfaceWithPageShape,
     readPdfPageShape,
 } from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
+import type { IDocumentDirectOpenOptions } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
 
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
 
@@ -51,7 +52,7 @@ interface IUseWorkspaceDocumentLifecycleOptions {
     toolbarSnapshot: TReadableRef<IWorkspaceToolbarSnapshot>;
     readViewState: () => ITabViewSessionState;
     /** Opens a file without an open transaction of its own; the caller runs it in one. */
-    openPath: (path: TDocumentRef) => Promise<TDocumentOpenOutcome>;
+    openPath: (path: TDocumentRef, options?: IDocumentDirectOpenOptions) => Promise<TDocumentOpenOutcome>;
     closeFailedDocument: () => Promise<boolean>;
     /** An open this view ran showed its document, or accepted it where no view had to. */
     onOpened: () => void;
@@ -218,6 +219,10 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
                 }, view.readingAnchor.value ?? view.viewState.value.currentPage ?? 1, null);
             }
         } else if (path && !(current.dirty && current.recoveryWorkingCopyPath)) {
+            // Reloading a tab the session already held is not the reader
+            // opening the file: Recent Files keeps their last open. A file the
+            // reader opened into a hidden tab opens as theirs.
+            const openOptions = session.isDeferredReaderOpen() ? {} : {recordRecent: false};
             void runOpen({
                 kind: 'restore',
                 target: {
@@ -225,7 +230,7 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
                     originalPath: path,
                     isDjvu: current.identity.isDjvu,
                 },
-            }, () => options.openPath(path));
+            }, () => options.openPath(path, openOptions));
         }
     }
     // A view opens or presents its document when shown and when given one;

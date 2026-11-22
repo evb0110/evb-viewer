@@ -30,7 +30,7 @@ import type {
     IWorkspaceDocumentController,
     IWorkspaceOpenRequest,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import type { TDocumentDirectOpenOptions } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
+import type { IDocumentDirectOpenOptions } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
 import {isDjvuOpenResult} from '@app/modules/workspace-shell/composables/document-session/openPdfAfterPasswordPrompt';
 import { describeDocumentOpenFailure } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 
@@ -51,7 +51,7 @@ function createWorkspaceFileSwitch(deps: {
     workingCopyPath: Ref<TDocumentRef | null>;
     getViewerLifecycleHooks: () => IWorkspaceViewerLifecycleHooks[];
     openFile: (preSelected?: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
-    openFileDirect: (path: TDocumentRef, options?: TDocumentDirectOpenOptions) => Promise<TDocumentOpenOutcome>;
+    openFileDirect: (path: TDocumentRef, options?: IDocumentDirectOpenOptions) => Promise<TDocumentOpenOutcome>;
     openFileDirectBatch: (paths: TDocumentRef[]) => Promise<TDocumentOpenOutcome>;
     finalizeOpen: (outcome: TDocumentOpenOutcome, openTransactionId: string | undefined) => Promise<TDocumentOpenOutcome>;
     closeFile: () => void | Promise<void>;
@@ -109,7 +109,7 @@ function createWorkspaceFileSwitch(deps: {
         openFileWithViewerLifecycle: (preSelected?: TOpenFileResult) => openWithViewerLifecycle(
             () => deps.openFile(preSelected),
         ),
-        openFileDirectWithViewerLifecycle: (path: TDocumentRef, options?: TDocumentDirectOpenOptions) => openWithViewerLifecycle(
+        openFileDirectWithViewerLifecycle: (path: TDocumentRef, options?: IDocumentDirectOpenOptions) => openWithViewerLifecycle(
             () => deps.openFileDirect(path, options),
         ),
         openFileDirectBatchWithViewerLifecycle: (paths: TDocumentRef[]) => openWithViewerLifecycle(

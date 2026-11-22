@@ -1,4 +1,5 @@
 import { dialog } from 'electron';
+import * as v from 'valibot';
 import { stat } from 'fs/promises';
 import {
     basename,
@@ -22,6 +23,7 @@ import type {
 import type { TRequestId } from '@contracts/shared';
 import { parseRequestId } from '@contracts/shared';
 import { DOCUMENT_OPEN_PLATFORM_FEATURE } from '@contracts/documentsPlatformFeature';
+import { DOCUMENT_DIRECT_OPEN_REQUEST_SCHEMA } from '@contracts/documentsPlatformFeatureSchemas';
 import { getErrorMessage } from '@electron/utils/error';
 import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
@@ -38,7 +40,6 @@ import type {
     IDocumentsDialogContext,
     IDocumentsWebContentsContext,
 } from '@electron/features/documents/documentsContexts';
-import {isPdfDecryptPassword} from '@contracts/pdfDecryptSchemas';
 import {
     MAX_COMBINE_INPUT_PATHS,
     MAX_OPEN_INPUT_PATHS,
@@ -174,15 +175,20 @@ async function openDocumentsFromDialog(
 export async function handleOpenPdfDirect(
     context: IDocumentsWebContentsContext,
     filePath: unknown,
-    password?: unknown,
+    request?: unknown,
 ): Promise<TOpenFileResult | null> {
     if (typeof filePath !== 'string' || filePath.length === 0) {
         logger.warn('openDocumentDirect received empty path');
         return null;
     }
-    if (password !== undefined && !isPdfDecryptPassword(password)) {
+    const parsedRequest = request === undefined ? null : v.safeParse(DOCUMENT_DIRECT_OPEN_REQUEST_SCHEMA, request);
+    if (parsedRequest && !parsedRequest.success) {
         throw new Error(te('errors.file.invalid'));
     }
+    const {
+        password,
+        recordRecent,
+    } = parsedRequest?.output ?? {};
 
     let normalizedPath: TOpenPath;
     try {
@@ -200,7 +206,10 @@ export async function handleOpenPdfDirect(
     try {
         const result = await openInputPaths(
             [normalizedPath],
-            password === undefined ? {} : {password},
+            {
+                ...(password === undefined ? {} : {password}),
+                ...(recordRecent === false ? {recordRecent: false} : {}),
+            },
             context.sender,
         );
         logger.info(`openDocumentDirect result for ${normalizedPath}: ${result?.kind ?? 'null'}`);

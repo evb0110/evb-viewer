@@ -171,6 +171,25 @@ describe('document direct-open recent authorization', () => {
         expect(mocks.openInputPaths).toHaveBeenCalledWith([directPath], {}, context.sender);
     });
 
+    it('carries a restore open\'s Recent Files exemption and refuses a malformed request', async () => {
+        const restoredPath = '/tmp/restored-tab.pdf';
+        const context = createOpenContext(42);
+        mocks.allowedPathsByOwner.set(42, new Set([restoredPath]));
+        const { handleOpenPdfDirect } = await import('@electron/features/documents/main/documentOpenHandlers');
+
+        await handleOpenPdfDirect(context, restoredPath, {recordRecent: false});
+        await handleOpenPdfDirect(context, restoredPath, {password: 'secret', recordRecent: true});
+        expect(mocks.openInputPaths.mock.calls).toEqual([
+            [[restoredPath], {recordRecent: false}, context.sender],
+            [[restoredPath], {password: 'secret'}, context.sender],
+        ]);
+
+        for (const malformed of ['secret', [], {recordRecent: 'no'}, {recordRecent: false, extra: 1}, null]) {
+            await expect(handleOpenPdfDirect(context, restoredPath, malformed)).rejects.toThrow('errors.file.invalid');
+        }
+        expect(mocks.openInputPaths).toHaveBeenCalledTimes(2);
+    });
+
     it('rejects paths granted only to a different owner', async () => {
         const wronglyGrantedPath = '/tmp/wrong-owner.pdf';
         mocks.allowedPathsByOwner.set(0, new Set([wronglyGrantedPath]));
