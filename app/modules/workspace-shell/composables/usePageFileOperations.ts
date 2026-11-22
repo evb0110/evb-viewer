@@ -9,7 +9,10 @@ import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { IRecentFile } from '@contracts/shared';
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
-import { waitUntilIdle } from '@app/utils/asyncHelpers';
+import { until } from '@vueuse/core';
+import type {
+    IDocumentOperationOwnership, TRunWithDocumentOperationLease,
+} from '@app/types/documentOperationKind';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { useFailureToast } from '@app/composables/useFailureToast';
 import { dirtyTabCloseConfirmationKey } from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
@@ -63,7 +66,9 @@ export interface IPageFileOperationsDeps {
     pageLabelsDirty: Ref<boolean>;
     bookmarksDirty: Ref<boolean>;
     persistAllAnnotationNotes: () => Promise<boolean>;
-    handleSave: () => Promise<unknown>;
+    /** Saves inside the lease turn its holder owns. */
+    handleSave: (holder: IDocumentOperationOwnership) => Promise<unknown>;
+    runWithDocumentOperationLease: TRunWithDocumentOperationLease;
     pickFileToOpen: () => Promise<TOpenFileResult | null>;
     openFile: (preSelected?: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
     openFileDirect: (path: TDocumentRef) => Promise<TDocumentOpenOutcome>;
@@ -103,6 +108,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         closeAllDropdowns,
         emitOpenInNewTab,
         runDocumentOpen,
+        runWithDocumentOperationLease,
     } = deps;
     const toast = useToast();
     const { t } = useTypedI18n();
@@ -112,7 +118,6 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
             ? inject(dirtyTabCloseConfirmationKey, null)
             : null);
     const lastOpenOutcome = ref<TPageFileOpenOutcome | null>(null);
-    let busyFeedbackToastId: string | number | null = null;
     const pendingDirectOpenRequests = new Map<TDocumentRef, Promise<TPageFileOpenOutcome>>();
 
     function recordOpenOutcome(outcome: TPageFileOpenOutcome) {
@@ -136,48 +141,16 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
             : recordOpenOutcome({status: 'cancelled'});
     }
 
-    type TBusyGateAction = 'close' | 'switch';
-
-    function notifyBusyGate(action: TBusyGateAction) {
-        if (busyFeedbackToastId !== null) {
-            return;
-        }
-
-        const busyToast = toast.add({
-            color: 'info',
-            title: t('notifications.documentBusyTitle'),
-            description: t(action === 'close'
-                ? 'notifications.closingAfterPageProcessing'
-                : 'notifications.switchingAfterPageProcessing'),
-        });
-        busyFeedbackToastId = busyToast.id;
-    }
-
-    function clearBusyGateFeedback() {
-        if (busyFeedbackToastId === null) {
-            return;
-        }
-
-        toast.remove(busyFeedbackToastId);
-        busyFeedbackToastId = null;
-    }
-
-    async function waitUntilAllIdle(action?: TBusyGateAction) {
-        if (action && hasBusyOperation()) {
-            notifyBusyGate(action);
-        }
-
-        try {
-            return await waitUntilIdle(() =>
-                isAnySaving.value
-                || isHistoryBusy.value
-                || isExportingDocx.value
-                || isAnyAnnotationNoteSaving.value
-                || (isDocumentOperationInProgress?.value ?? false),
-            );
-        } finally {
-            clearBusyGateFeedback();
-        }
+    // Tells the user why a switch waits; the lease turn it waits for removes it.
+    function notifySwitchWaits() {
+        const busyToast = hasBusyOperation()
+            ? toast.add({
+                color: 'info',
+                title: t('notifications.documentBusyTitle'),
+                description: t('notifications.switchingAfterPageProcessing'),
+            })
+            : null;
+        return () => busyToast && toast.remove(busyToast.id);
     }
 
     function getBusyState() {
@@ -191,11 +164,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
     }
 
     function hasBusyOperation() {
-        return isAnySaving.value
-            || isHistoryBusy.value
-            || isExportingDocx.value
-            || isAnyAnnotationNoteSaving.value
-            || (isDocumentOperationInProgress?.value ?? false);
+        return Object.values(getBusyState()).some(Boolean);
     }
 
     function hasPendingPersistenceChanges() {
@@ -253,7 +222,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         return savedAllNotes;
     }
 
-    async function savePendingChangesBeforeSwitch() {
+    async function savePendingChangesBeforeSwitch(holder: IDocumentOperationOwnership) {
         if (!hasPendingPersistenceChanges()) {
             BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Switch allowed: no pending changes');
             return true;
@@ -261,7 +230,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
 
         BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Pending changes detected, triggering save before switch');
         try {
-            const saveResult = await handleSave();
+            const saveResult = await handleSave(holder);
             const canProceed = saveResult !== false && !hasPendingPersistenceChanges();
             if (!canProceed) {
                 logPendingChangesAfterSave();
@@ -316,33 +285,22 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         }
 
         logPersistenceGateStart();
-
+        const clearSwitchWait = notifySwitchWaits();
         try {
-            const settled = await waitUntilAllIdle('switch');
-            if (!settled || hasBusyOperation()) {
-                BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Switch blocked: workspace remained busy after idle wait', {busyState: getBusyState()});
-                notifySaveFailure();
-                return false;
-            }
-
-            const decision = await resolveDirtySwitchDecision();
-            if (decision === 'cancel') {
-                return false;
-            }
-            if (decision === 'discard') {
-                return true;
-            }
-            if (decision === 'save' && !await persistOpenAnnotationNotes()) {
-                return false;
-            }
-
-            return decision === 'save'
-                ? await savePendingChangesBeforeSwitch()
-                : true;
+            // The decision and its Save are one turn of the document's lease.
+            return await runWithDocumentOperationLease('close', async (ownership) => {
+                clearSwitchWait();
+                const decision = await resolveDirtySwitchDecision();
+                return decision === 'save'
+                    ? await persistOpenAnnotationNotes() && await savePendingChangesBeforeSwitch(ownership)
+                    : decision !== 'cancel';
+            });
         } catch (persistError) {
             const failure = BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Switch blocked: persistence gate threw unexpectedly', {error: getErrorMessage(persistError)}, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
             notifySaveFailure(failure);
             return false;
+        } finally {
+            clearSwitchWait();
         }
     }
 
@@ -545,16 +503,20 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         return didCompletePageFileOpen(await handleOpenFileDirectBatchWithPersistDetailed(paths));
     }
 
-    async function handleCloseFileFromUi(options: NonNullable<Parameters<IWorkspaceExpose['handleCloseFileFromUi']>[0]> = {}) {
-        const shouldPersist = options.persist ?? false;
-        const settled = await waitUntilAllIdle('close');
-        if (!settled || hasBusyOperation()) {
-            return false;
+    // Closes in the caller's lease turn, or in a turn of its own.
+    async function handleCloseFileFromUi(options: NonNullable<Parameters<IWorkspaceExpose['handleCloseFileFromUi']>[0]> = {}): Promise<boolean> {
+        const {ownership} = options;
+        if (!ownership) {
+            return runWithDocumentOperationLease('close', held => handleCloseFileFromUi({
+                ...options,
+                ownership: held,
+            }));
         }
-
-        if (shouldPersist) {
+        // A note window's save writes outside the lease.
+        await until(isAnyAnnotationNoteSaving).toBe(false);
+        if (options.persist) {
             try {
-                if (!await persistOpenAnnotationNotes() || !await savePendingChangesBeforeSwitch()) {
+                if (!await persistOpenAnnotationNotes() || !await savePendingChangesBeforeSwitch(ownership)) {
                     return false;
                 }
             } catch (persistError) {

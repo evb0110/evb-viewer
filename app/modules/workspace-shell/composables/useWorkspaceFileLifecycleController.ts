@@ -95,12 +95,12 @@ function createWorkspaceFileSwitch(deps: {
     }
 
     async function closeFileWithViewerLifecycle() {
-        const {activeTransaction, identity} = deps.readDocument();
+        const {identity} = deps.readDocument();
         for (const hooks of deps.getViewerLifecycleHooks()) {
             await hooks.beforeClose?.();
         }
-        const current = deps.readDocument();
-        if (current.activeTransaction?.id === activeTransaction?.id && current.identity.documentInstanceId === identity.documentInstanceId) {
+        // Only another document's commit replaces the instance; a claim alone does not.
+        if (deps.readDocument().identity.documentInstanceId === identity.documentInstanceId) {
             await deps.closeFile();
             // Source watchers own derived navigation, toolbar, and chassis
             // cleanup; let them observe the empty source before close commits.

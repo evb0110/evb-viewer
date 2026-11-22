@@ -557,7 +557,8 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         pageLabelsDirty: metadata.pageLabelState.pageLabelsDirty,
         bookmarksDirty: metadata.bookmarkState.bookmarksDirty,
         persistAllAnnotationNotes: annotations.persistAllAnnotationNotes,
-        handleSave: save.handleSave,
+        handleSave: holder => saveService.handleSave(undefined, holder),
+        runWithDocumentOperationLease: controller.operationLease.runExclusive,
         pickFileToOpen: file.pickFileToOpen,
         openFile: result => (sharesViews.value
             ? openInOwnDocument(workspace => (result ? workspace.handleOpenFileWithResult(result) : workspace.handleOpenFileFromUi()))

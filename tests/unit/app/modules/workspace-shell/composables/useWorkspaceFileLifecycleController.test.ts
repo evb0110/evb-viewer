@@ -352,7 +352,9 @@ describe('useWorkspaceFileLifecycleController', () => {
                 },
             };
         });
-        mocks.openDjvuFile.mockImplementation(async () => {
+        // The activation commits the reopened document under its open, which starts a new instance.
+        mocks.openDjvuFile.mockImplementation(async (_path: unknown, activation: {setOriginalPath: (documentPath: typeof path) => void}) => {
+            activation.setOriginalPath(path);
             state.isDjvuMode.value = true;
             state.djvuSourcePath.value = path;
             return true;

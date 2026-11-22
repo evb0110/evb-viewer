@@ -5,10 +5,8 @@ import type {
 } from 'vue';
 import { uniq } from 'es-toolkit/array';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import {
-    waitForVisualFrames,
-    waitUntilIdle,
-} from '@app/utils/asyncHelpers';
+import { until } from '@vueuse/core';
+import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import type { IEditorPaneState } from '@contracts/editorPanes';
 import { parseTabId } from '@contracts/windowTabs';
@@ -207,13 +205,14 @@ export const useAppShellTabLifecycle = (
         busyFeedbackToastIds.delete(tabId);
     }
 
+    // Keeps a long operation on the tab's current document from holding the
+    // transition queue for other tabs. It decides nothing: Close's own lease
+    // turn reads the document's state.
     async function waitForTabOperationsToSettle(tabId: string) {
-        if (hasTabBusyOperation(tabId)) {
-            notifyTabBusy(tabId);
-        }
-
+        if (!hasTabBusyOperation(tabId)) return;
+        notifyTabBusy(tabId);
         try {
-            return await waitUntilIdle(() => hasTabBusyOperation(tabId));
+            await until(() => hasTabBusyOperation(tabId)).toBe(false);
         } finally {
             clearTabBusyFeedback(tabId);
         }
@@ -400,27 +399,9 @@ export const useAppShellTabLifecycle = (
         activateHandoffTarget(targetPane.paneId, targetTab.id);
     }
 
-    async function resolveClosePersistence(tabId: string) {
-        await waitForTabOperationsToSettle(tabId);
-
-        if (getDocumentSession(tabId)?.snapshot.value.dirty !== true) {
-            return false;
-        }
-
-        const decision = await requestDirtyTabCloseConfirmation(tabId);
-        if (decision === 'cancel') {
-            return null;
-        }
-        return decision === 'save';
-    }
-
-    async function closeWorkspaceDocument(
-        paneId: string,
-        tabId: string,
-        shouldPersistBeforeClose: boolean,
-    ) {
+    async function closeWorkspaceDocument(paneId: string, tabId: string) {
         const controller = getDocumentSession(tabId);
-        if (!controller || !await controller.close({persist: shouldPersistBeforeClose})) {
+        if (!controller || !await controller.close({decide: () => requestDirtyTabCloseConfirmation(tabId)})) {
             return false;
         }
         const pane = getPaneByTabId(tabId) ?? getPaneById(paneId);
@@ -443,10 +424,6 @@ export const useAppShellTabLifecycle = (
         // A view of a document that another tab still shows closes alone: the
         // document, its unsaved work and its question stay with the other view.
         const closesDocument = (getDocumentSession(tabId)?.views.value.size ?? 0) < 2;
-        const shouldPersistBeforeClose = closesDocument ? await resolveClosePersistence(tabId) : false;
-        if (shouldPersistBeforeClose === null) {
-            return;
-        }
         // A document close remembers once at its commit; a lone view leaves
         // its document open and remembers only the view being removed.
         if (!closesDocument) {
@@ -460,7 +437,7 @@ export const useAppShellTabLifecycle = (
         }
 
         if (closesDocument && tabOccupied(tabId)) {
-            if (!await closeWorkspaceDocument(paneId, tabId, shouldPersistBeforeClose)) {
+            if (!await closeWorkspaceDocument(paneId, tabId)) {
                 return;
             }
         } else {
@@ -488,10 +465,6 @@ export const useAppShellTabLifecycle = (
 
         if (isSingletonPlaceholderCloseBlocked(paneId, tabId)) {
             return;
-        }
-
-        if (hasTabBusyOperation(tabId)) {
-            notifyTabBusy(tabId);
         }
 
         const transition = (async () => {
