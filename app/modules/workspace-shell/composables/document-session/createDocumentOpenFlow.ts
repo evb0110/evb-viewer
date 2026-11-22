@@ -68,7 +68,7 @@ export interface ICreateDocumentOpenFlowDeps {
         path: TDocumentRef,
         options?: IPdfConformanceDeferralOptions,
     ) => void;
-    incrementSessionVersion: () => void;
+    resetCommandSink: () => void;
     /** The controller's open transaction this file open runs under: a newer claim or a close ends it. */
     readOpenTransactionId: () => string | null;
     /** Empties the views of the document a new one replaces, before its source is published. */
@@ -656,19 +656,19 @@ export function createDocumentOpenFlow(
             return null;
         }
 
-        if (!options?.preserveHistory) deps.incrementSessionVersion();
+        if (!options?.preserveHistory) deps.resetCommandSink();
 
         const commitRevisionSwap = await options?.beforeSourceCommit?.(state.documentRevisionToken.value);
         if (options?.isCurrent?.() === false) return null;
         if (commitRevisionSwap) commitRevisionSwap();
 
-        // A replacement can paint while history and old-copy cleanup still wait.
-        // Publish its identity with its source, before either can yield.
+        // A replacement can paint while history and old-copy cleanup still wait. Publish its identity with its
+        // source, before either can yield; only the open's own commit, current as just checked, starts a new document.
         state.commitFile({
             ...(options?.originalPath ? {originalPath: options.originalPath} : {}),
             workingCopyPath: path,
             isDjvu: false,
-        });
+        }, options?.preserveHistory ? null : deps.readOpenTransactionId());
         if (!options?.preserveHistory) {
             state.openedWorkingCopyPath.value = path;
         }

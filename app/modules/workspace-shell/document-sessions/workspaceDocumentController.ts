@@ -114,7 +114,7 @@ export interface IWorkspaceDocumentController {
     /** `run` does the open's file work and returns what it admitted; the open finishes with its presentation. */
     runOpen(request: IWorkspaceOpenRequest, run: (shape: IPdfOpeningGeometry | null, transactionId: string) => Promise<IWorkspaceOpenAdmission | null>): IWorkspaceOpenOperation;
     setOpeningLabel(label: string | null): void;
-    commitFile(patch: Partial<IWorkspaceDocumentFile>): void;
+    commitFile(patch: Partial<IWorkspaceDocumentFile>, openTransactionId?: string | null): void;
     markFailed(failure: IWorkspaceOpenFailure | null): void;
     /** Tells why the document failed outside an open, without changing its phase. */
     reportFailure(failure: IWorkspaceOpenFailure): void;
@@ -437,12 +437,14 @@ export function createWorkspaceDocumentController(options: {
 
     // The file session writes the record here; the identity the shell reads
     // follows in the same call, so no copy of it can lag behind.
-    function commitFile(patch: Partial<IWorkspaceDocumentFile>) {
+    function commitFile(patch: Partial<IWorkspaceDocumentFile>, openTransactionId?: string | null) {
         const committed = {
             ...file.value,
             ...patch,
         };
-        if (isEqual(committed, file.value)) {
+        // Only the open in progress, passing its own id, commits another document, even at the same record.
+        const opensDocument = snapshot.value.activeTransaction?.kind === 'open' && snapshot.value.activeTransaction.id === openTransactionId;
+        if (!opensDocument && isEqual(committed, file.value)) {
             return;
         }
         file.value = committed;
@@ -466,7 +468,7 @@ export function createWorkspaceDocumentController(options: {
             }
             return;
         }
-        const sameLogicalDocument = identityHasDocument(current) && snapshot.value.activeTransaction?.kind !== 'open';
+        const sameLogicalDocument = identityHasDocument(current) && !opensDocument;
         const resumesCheckpointWorkingCopy = snapshot.value.recoveryWorkingCopyPath !== null
             && snapshot.value.recoveryWorkingCopyPath === next.workingCopyPath;
         const identity = {

@@ -79,7 +79,6 @@ vi.mock('@app/modules/workspace-shell/composables/usePdfFile', () => ({usePdfFil
     canUndo: ref(false),
     canRedo: ref(false),
     fileHistoryMutationVersion: ref(0),
-    fileHistorySessionVersion: ref(0),
     setWorkspaceCommandSink: vi.fn(),
     undo: vi.fn(),
     redo: vi.fn(),

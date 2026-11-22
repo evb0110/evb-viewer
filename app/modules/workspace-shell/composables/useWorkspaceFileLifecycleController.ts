@@ -53,7 +53,7 @@ function createWorkspaceFileSwitch(deps: {
     openFile: (preSelected?: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
     openFileDirect: (path: TDocumentRef, options?: TDocumentDirectOpenOptions) => Promise<TDocumentOpenOutcome>;
     openFileDirectBatch: (paths: TDocumentRef[]) => Promise<TDocumentOpenOutcome>;
-    finalizeOpen: (outcome: TDocumentOpenOutcome) => Promise<TDocumentOpenOutcome>;
+    finalizeOpen: (outcome: TDocumentOpenOutcome, openTransactionId: string | undefined) => Promise<TDocumentOpenOutcome>;
     closeFile: () => void | Promise<void>;
 }) {
     function markOutcomeStale(outcome: TDocumentOpenOutcome): TDocumentOpenOutcome {
@@ -81,7 +81,7 @@ function createWorkspaceFileSwitch(deps: {
         if (!isCurrent()) {
             return markOutcomeStale(preparedOutcome);
         }
-        const outcome = await deps.finalizeOpen(preparedOutcome);
+        const outcome = await deps.finalizeOpen(preparedOutcome, claim);
         if (!isCurrent()) {
             return markOutcomeStale(outcome);
         }
@@ -206,7 +206,7 @@ export const useWorkspaceFileLifecycleController = (
         workingCopyPath,
     };
 
-    async function commitPendingDjvuOpen(outcome: TDocumentOpenOutcome) {
+    async function commitPendingDjvuOpen(outcome: TDocumentOpenOutcome, openTransactionId: string | undefined) {
         BrowserLogger.info('djvu-open-transaction', 'Finalize requested', {
             status: outcome.status,
             resultKind: 'result' in outcome ? outcome.result.kind : null,
@@ -250,7 +250,7 @@ export const useWorkspaceFileLifecycleController = (
                     options.document.commitFile({
                         originalPath: path,
                         isDjvu: true,
-                    });
+                    }, openTransactionId);
                 },
             });
             BrowserLogger.info('djvu-open-transaction', 'Activation returned', {
