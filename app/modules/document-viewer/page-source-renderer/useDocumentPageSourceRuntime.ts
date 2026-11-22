@@ -22,10 +22,8 @@ import {
     type ILazyIndexedCollection,
 } from '@app/modules/document-viewer/virtualization/pageVirtualization';
 import {
-    captureDocumentZoomAnchor,
     resolveDocumentPageLeft,
     resolveDocumentZoomAnchorScroll,
-    type IDocumentZoomAnchor,
     type IDocumentZoomPageLayout,
 } from '@app/modules/document-viewer/zoomAnchor';
 import { createDocumentViewportWritePort } from '@app/modules/document-viewer/runtime/documentViewportWritePort';
@@ -324,7 +322,6 @@ export const useDocumentPageSourceRuntime = (options: {
     const containerHeight = ref(0);
     const physicalScroll = createLayoutPhysicalScrollSession();
     const viewportScrollTop = ref(0);
-    const viewportScrollLeft = ref(0);
     const viewportScrollDirection = ref<-1 | 0 | 1>(0);
     const pagedWheelNavigation = createPageSourcePagedWheelNavigation(DOCUMENT_PAGE_GUTTER_PX);
     const chassisAuthority = injectDocumentViewerRuntime();
@@ -351,10 +348,6 @@ export const useDocumentPageSourceRuntime = (options: {
     let openJob: TDocumentPageSourceOpenJob | null = null;
     let releaseViewportFeature: (() => void) | null = null;
     let inactiveLeaseReleaseTimer: ReturnType<typeof setTimeout> | null = null;
-    // The reader's point when the view was last hidden: a page and the offset within it.
-    let readingPoint: IDocumentZoomAnchor | null = null;
-    // The outer box around the measured client box, scrollbars included.
-    let viewportOffsetBox = {offsetWidth: 0, offsetHeight: 0};
     let lastProjectedNavigationSignal: AbortSignal | null = null;
     function measureViewport() {
         const container = viewerContainer.value;
@@ -363,8 +356,6 @@ export const useDocumentPageSourceRuntime = (options: {
         // fit mode cannot collapse the document and clamp its scroll offset.
         containerWidth.value = container.clientWidth;
         containerHeight.value = container.clientHeight;
-        viewportOffsetBox = {offsetWidth: container.offsetWidth, offsetHeight: container.offsetHeight};
-        viewportScrollLeft.value = container.scrollLeft;
         viewportScrollTop.value = physicalScroll.origin.value + container.scrollTop;
     }
     useResizeObserver(viewerContainer, measureViewport);
@@ -426,7 +417,6 @@ export const useDocumentPageSourceRuntime = (options: {
             isCurrent: () => transitions.isCurrent(fence) && viewerContainer.value === container,
             onApplied: () => {
                 measureViewport();
-                layoutLifecycle.refreshLayoutTransactionAnchor();
                 scheduleRender.schedule();
                 onApplied?.();
             },
@@ -724,9 +714,10 @@ export const useDocumentPageSourceRuntime = (options: {
         capturePageIndex: () => {
             const preferredPageIndex = modeTransitionPreferredPageIndex;
             modeTransitionPreferredPageIndex = null;
+            // A single-page view shows one page: a navigation's target before its ready edge names it.
             return preferredPageIndex ?? (props.value.continuousScroll
                 ? null
-                : Math.max(0, currentPage.value - 1));
+                : Math.max(0, (navigationTargetPage.value ?? currentPage.value) - 1));
         },
         isResizing: computed(() => props.value.isResizing),
         captureRestoreEpoch: captureLayoutRestoreEpoch,
@@ -741,7 +732,7 @@ export const useDocumentPageSourceRuntime = (options: {
                     chassisAuthority.openSurface.viewportSession.value,
                 )
             )),
-        applyRestoredScroll: (restored) => {
+        applyRestoredScroll: (restored, onApplied) => {
             const container = viewerContainer.value;
             return container !== null && applyLogicalScroll(container, {
                 intent: viewportWritePort.beginIntent(
@@ -752,27 +743,10 @@ export const useDocumentPageSourceRuntime = (options: {
                 left: props.value.continuousScroll && props.value.zoomMode === 'fit-width'
                     ? container.scrollLeft
                     : restored.left,
-            });
+            }, onApplied);
         },
         onResizeSettled: () => scheduleRender.schedule(),
     });
-    function captureReadingPoint() {
-        if (containerWidth.value <= 0 || containerHeight.value <= 0) {
-            return null;
-        }
-        return captureDocumentZoomAnchor(
-            {
-                ...viewportOffsetBox,
-                clientHeight: containerHeight.value,
-                clientWidth: containerWidth.value,
-                scrollLeft: viewportScrollLeft.value,
-                scrollTop: viewportScrollTop.value,
-            },
-            zoomAnchorPageLayouts.value,
-            undefined,
-            props.value.continuousScroll ? null : Math.max(0, currentPage.value - 1),
-        );
-    }
     function handleScroll(event?: Event) {
         if (!viewerContainer.value || viewerContainer.value.clientWidth <= 0
             || viewerContainer.value.clientHeight <= 0
@@ -794,12 +768,11 @@ export const useDocumentPageSourceRuntime = (options: {
         if (Math.abs(scrollDelta) > 1) {
             viewportScrollDirection.value = scrollDelta > 0 ? 1 : -1;
         }
-        viewportScrollLeft.value = viewerContainer.value.scrollLeft;
         viewportScrollTop.value = nextScrollTop;
         scheduleRender.schedule();
         const consumedAuthorityScroll = viewportWritePort.consumeAuthorityScroll(viewerContainer.value);
         if (consumedAuthorityScroll) {
-            layoutLifecycle.refreshLayoutTransactionAnchor();
+            // The echo of an authored write: its placement already committed the point.
             const viewportSession = chassisAuthority?.openSurface.viewportSession.value;
             if (
                 viewportSession
@@ -829,13 +802,12 @@ export const useDocumentPageSourceRuntime = (options: {
         if (viewportWritePort.isCommandResidueLive()) {
             // The compositor can apply one more inertial delta before scroll
             // suppression reaches it. That offset belongs to the superseded
-            // gesture, so it must not invalidate the command's pending write.
-            layoutLifecycle.refreshLayoutTransactionAnchor();
+            // gesture, so it must not invalidate the command's pending write
+            // or move the reading point the write port is about to repair.
             return;
         }
         layoutLifecycle.cancelPendingRestore();
         viewportWritePort.observeUserScroll(viewerContainer.value);
-        layoutLifecycle.refreshLayoutTransactionAnchor();
         const navigationTicket = chassisAuthority?.navigationTicket.value;
         if (navigationTicket) {
             chassisAuthority.openSurface.reportNavigation(navigationTicket, {
@@ -843,6 +815,7 @@ export const useDocumentPageSourceRuntime = (options: {
                 by: 'user-input',
             });
         }
+        layoutLifecycle.commitReadingPoint();
         if (resolveLayoutPhysicalScrollOrigin(scrollLayout.value.layout, nextScrollTop,
             viewerContainer.value.clientHeight, physicalScroll.origin.value) !== physicalScroll.origin.value) {
             applyLogicalScroll(viewerContainer.value, {
@@ -1030,6 +1003,7 @@ export const useDocumentPageSourceRuntime = (options: {
                     viewportXRatio: anchor.viewportXFraction,
                     viewportYRatio: anchor.viewportYFraction,
                 }) : null;
+                // Navigation wins over a queued restore: it commits the point the restore places.
                 applyLogicalScroll(viewerContainer.value, {
                     intent,
                     reason: 'source-neutral-page-navigation',
@@ -1043,8 +1017,7 @@ export const useDocumentPageSourceRuntime = (options: {
                         : options.alignPageBottom
                             ? Math.max(0, (pageHeights.value[targetPage - 1] ?? 0) + DOCUMENT_PAGE_GUTTER_PX * 2 - viewerContainer.value.clientHeight)
                             : 0),
-                });
-                layoutLifecycle.refreshLayoutTransactionAnchor();
+                }, layoutLifecycle.commitReadingPoint);
             }
             // Place the physical viewport before publishing an already-painted
             // target. Otherwise the ready callback can report arrival first,
@@ -1130,7 +1103,7 @@ export const useDocumentPageSourceRuntime = (options: {
     async function applyOpenTransition(transition: IDocumentPageSourceTransition) {
         const documentRef = transition.fence.src;
         const openingTicket = chassisAuthority?.openSurface.navigationTicket.value;
-        readingPoint = null;
+        layoutLifecycle.resetReadingPoint();
         pagedWheelNavigation.reset();
         openJob?.abort.abort();
         const job = createDocumentPageSourceOpenJob();
@@ -1212,7 +1185,7 @@ export const useDocumentPageSourceRuntime = (options: {
         }
     }
     function applySuspendTransition() {
-        readingPoint = captureReadingPoint();
+        layoutLifecycle.suspend();
         scheduleRender.cancel();
         presentation.renderControllers.forEach(controller => controller.abort());
         presentation.renderControllers.clear();
@@ -1231,7 +1204,7 @@ export const useDocumentPageSourceRuntime = (options: {
         void presentation.restore(transition, {
             measureViewport,
             renderMountedPages,
-            restoreViewport: () => layoutLifecycle.placeAnchor(readingPoint),
+            restoreViewport: layoutLifecycle.resume,
         });
     }
     // Opening geometry the host commits before this source is acquired seeds the cold page metrics.
@@ -1324,7 +1297,7 @@ export const useDocumentPageSourceRuntime = (options: {
             isDocumentLoading: () => isLoading.value,
             scrollToPage,
             captureReadingAnchor: (): IPdfSemanticAnchor | null => {
-                const anchor = captureReadingPoint();
+                const anchor = layoutLifecycle.readReadingPoint();
                 return anchor ? {
                     page: anchor.pageIndex + 1,
                     pageXFraction: clamp(anchor.xRatio, 0, 1),

@@ -213,8 +213,8 @@ export async function openDocumentPageSource(
             signal: AbortSignal, isCurrent: () => boolean,
         ) => Promise<IDocumentPageMetrics>;
         layoutLifecycle: {
-            beginLayoutTransaction: () => number;
-            endLayoutTransaction: (transaction: number, restore: boolean) => Promise<void>;
+            beginLayoutTransaction: (transition: IDocumentPageSourceTransition) => void;
+            endLayoutTransaction: (transition: IDocumentPageSourceTransition, restore: boolean) => Promise<void>;
             preserveLayoutMutation: (mutate: () => void) => void;
         };
         loadController: AbortController;
@@ -374,7 +374,7 @@ export async function openDocumentPageSource(
             return false;
         }
         void (async () => {
-            const layoutTransaction = context.layoutLifecycle.beginLayoutTransaction();
+            context.layoutLifecycle.beginLayoutTransaction(transition);
             try {
                 const metrics = await hydrateRemainingDocumentPageMetrics({
                     source: nextSource,
@@ -410,7 +410,7 @@ export async function openDocumentPageSource(
                 }
             } finally {
                 await context.layoutLifecycle.endLayoutTransaction(
-                    layoutTransaction,
+                    transition,
                     transition.isCurrent() && !context.loadController.signal.aborted,
                 );
             }

@@ -209,6 +209,7 @@ describe('document page-source presentation lifecycle', () => {
         const restore = harness.presentation.restore(transition, {
             measureViewport: vi.fn(),
             renderMountedPages: harness.renderMountedPages,
+            restoreViewport: vi.fn(),
         });
         await vi.waitFor(() => expect(harness.source.renderPage).toHaveBeenCalledOnce());
         expect(harness.oldRelease).not.toHaveBeenCalled();

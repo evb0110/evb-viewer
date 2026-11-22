@@ -713,7 +713,7 @@ export function createDocumentPageSourcePresentation(options: {
         restoreOptions: {
             measureViewport: () => void;
             renderMountedPages: () => Promise<void>;
-            restoreViewport?: () => void;
+            restoreViewport: () => void;
         },
     ) {
         // The view is shown again: measure it, let the layout patch, then
@@ -724,7 +724,7 @@ export function createDocumentPageSourcePresentation(options: {
         if (!isCurrent()) {
             return;
         }
-        restoreOptions.restoreViewport?.();
+        restoreOptions.restoreViewport();
         const currentPage = options.readCurrentPage();
         for (const pageNumber of new Set([
             currentPage,

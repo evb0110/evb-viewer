@@ -62,16 +62,18 @@ describe('useDocumentViewportLayoutLifecycle', () => {
             capturePageIndex: () => 2,
             captureRestoreEpoch: () => 1,
             canRestore: epoch => epoch === 1,
-            applyRestoredScroll: restored => {
+            applyRestoredScroll: (restored, onApplied) => {
                 viewport.scrollLeft = restored.left;
                 viewport.scrollTop = restored.top;
                 writes.push(restored.top);
+                onApplied?.();
                 return true;
             },
         }));
         if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
 
-        lifecycle.beginLayoutTransaction();
+        const transaction = {};
+        lifecycle.beginLayoutTransaction(transaction);
         lifecycle.preserveLayoutMutation(() => {
             pageLayouts.value = [
                 {
@@ -112,7 +114,7 @@ describe('useDocumentViewportLayoutLifecycle', () => {
                 },
             ];
         });
-        await lifecycle.endLayoutTransaction();
+        await lifecycle.endLayoutTransaction(transaction);
         await nextTick();
 
         expect(viewport.scrollTop).toBe(240);
@@ -151,9 +153,10 @@ describe('useDocumentViewportLayoutLifecycle', () => {
             pageLayouts,
             captureRestoreEpoch: () => 1,
             canRestore: () => true,
-            applyRestoredScroll: restored => {
+            applyRestoredScroll: (restored, onApplied) => {
                 viewport.scrollLeft = restored.left;
                 viewport.scrollTop = restored.top;
+                onApplied?.();
                 return true;
             },
         }));
@@ -208,9 +211,10 @@ describe('useDocumentViewportLayoutLifecycle', () => {
             pageLayouts,
             captureRestoreEpoch: () => 1,
             canRestore: () => true,
-            applyRestoredScroll: restored => {
+            applyRestoredScroll: (restored, onApplied) => {
                 viewport.scrollLeft = restored.left;
                 viewport.scrollTop = restored.top;
+                onApplied?.();
                 return true;
             },
         }));
@@ -262,17 +266,19 @@ describe('useDocumentViewportLayoutLifecycle', () => {
             pageLayouts,
             captureRestoreEpoch: () => 1,
             canRestore: () => true,
-            applyRestoredScroll: restored => {
+            applyRestoredScroll: (restored, onApplied) => {
                 viewport.scrollLeft = restored.left;
                 viewport.scrollTop = restored.top;
+                onApplied?.();
                 return true;
             },
         }));
         if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
 
-        lifecycle.beginLayoutTransaction();
+        const transaction = {};
+        lifecycle.beginLayoutTransaction(transaction);
         viewport.scrollTop = 240;
-        lifecycle.refreshLayoutTransactionAnchor();
+        lifecycle.commitReadingPoint();
         lifecycle.preserveLayoutMutation(() => {
             pageLayouts.value = [
                 {
@@ -292,7 +298,7 @@ describe('useDocumentViewportLayoutLifecycle', () => {
                 },
             ];
         });
-        await lifecycle.endLayoutTransaction();
+        await lifecycle.endLayoutTransaction(transaction);
 
         expect(viewport.scrollTop).toBe(640);
         scope.stop();
@@ -325,17 +331,20 @@ describe('useDocumentViewportLayoutLifecycle', () => {
             pageLayouts,
             captureRestoreEpoch: () => 2,
             canRestore: epoch => epoch === 2,
-            applyRestoredScroll: restored => {
+            applyRestoredScroll: (restored, onApplied) => {
                 viewport.scrollTop = restored.top;
                 writes.push(restored.top);
+                onApplied?.();
                 return true;
             },
         }));
         if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
 
-        const predecessor = lifecycle.beginLayoutTransaction();
+        const predecessor = {};
+        lifecycle.beginLayoutTransaction(predecessor);
         viewport.scrollTop = 0;
-        const successor = lifecycle.beginLayoutTransaction();
+        const successor = {};
+        lifecycle.beginLayoutTransaction(successor);
         await lifecycle.endLayoutTransaction(predecessor, false);
         expect(writes).toEqual([]);
 
@@ -372,8 +381,9 @@ describe('useDocumentViewportLayoutLifecycle', () => {
             pageLayouts,
             captureRestoreEpoch: () => 1,
             canRestore: () => true,
-            applyRestoredScroll: restored => {
+            applyRestoredScroll: (restored, onApplied) => {
                 viewport.scrollTop = restored.top;
+                onApplied?.();
                 return true;
             },
         }));
@@ -436,15 +446,17 @@ describe('useDocumentViewportLayoutLifecycle', () => {
             pageLayouts,
             captureRestoreEpoch: () => 1,
             canRestore: () => true,
-            applyRestoredScroll: restored => {
+            applyRestoredScroll: (restored, onApplied) => {
                 viewport.scrollLeft = restored.left;
                 viewport.scrollTop = restored.top;
+                onApplied?.();
                 return true;
             },
         }));
         if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
 
-        const transaction = lifecycle.beginLayoutTransaction();
+        const transaction = {};
+        lifecycle.beginLayoutTransaction(transaction);
         lifecycle.capturePointerAnchor({
             clientX: 150,
             clientY: 200,
@@ -476,7 +488,7 @@ describe('useDocumentViewportLayoutLifecycle', () => {
     });
 
     it.each([
-        'refresh',
+        'commit',
         'complete',
     ] as const)('centres a resize after a pointer zoom settles via %s', async (retention) => {
         vi.useFakeTimers();
@@ -514,15 +526,17 @@ describe('useDocumentViewportLayoutLifecycle', () => {
             pageLayouts,
             captureRestoreEpoch: () => 1,
             canRestore: () => true,
-            applyRestoredScroll: restored => {
+            applyRestoredScroll: (restored, onApplied) => {
                 viewport.scrollLeft = restored.left;
                 viewport.scrollTop = restored.top;
+                onApplied?.();
                 return true;
             },
         }));
         if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
         try {
-            const transaction = retention === 'complete' ? lifecycle.beginLayoutTransaction() : null;
+            const transaction = retention === 'complete' ? {} : null;
+            if (transaction) lifecycle.beginLayoutTransaction(transaction);
             lifecycle.capturePointerAnchor({
                 clientX: 100,
                 clientY: 100,
@@ -538,7 +552,7 @@ describe('useDocumentViewportLayoutLifecycle', () => {
             // The zoom still keeps the original page point under the pointer.
             expect(viewport.scrollLeft).toBe(192);
             expect(viewport.scrollTop).toBe(492);
-            if (transaction === null) lifecycle.refreshLayoutTransactionAnchor();
+            if (transaction === null) lifecycle.commitReadingPoint();
             else await lifecycle.endLayoutTransaction(transaction);
             await vi.advanceTimersByTimeAsync(200);
             const centreX = viewport.scrollLeft + viewport.clientWidth / 2;
@@ -592,15 +606,17 @@ describe('useDocumentViewportLayoutLifecycle', () => {
             pageLayouts,
             captureRestoreEpoch: () => 1,
             canRestore: () => true,
-            applyRestoredScroll: restored => {
+            applyRestoredScroll: (restored, onApplied) => {
                 viewport.scrollLeft = restored.left;
                 viewport.scrollTop = restored.top;
+                onApplied?.();
                 return true;
             },
         }));
         if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
 
-        const transaction = lifecycle.beginLayoutTransaction();
+        const transaction = {};
+        lifecycle.beginLayoutTransaction(transaction);
         lifecycle.capturePointerAnchor({
             clientX: 150,
             clientY: 200,
@@ -615,7 +631,7 @@ describe('useDocumentViewportLayoutLifecycle', () => {
         });
         expect(viewport.scrollLeft).toBe(1_100);
         expect(viewport.scrollTop).toBe(1_284);
-        lifecycle.refreshLayoutTransactionAnchor();
+        lifecycle.commitReadingPoint();
 
         vi.advanceTimersByTime(100);
         lifecycle.capturePointerAnchor({
@@ -676,14 +692,16 @@ describe('useDocumentViewportLayoutLifecycle', () => {
             ]),
             captureRestoreEpoch: () => 1,
             canRestore: () => true,
-            applyRestoredScroll: restored => {
+            applyRestoredScroll: (restored, onApplied) => {
                 viewport.scrollTop = restored.top;
+                onApplied?.();
                 return true;
             },
         }));
         if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
 
-        const transaction = lifecycle.beginLayoutTransaction();
+        const transaction = {};
+        lifecycle.beginLayoutTransaction(transaction);
         const ending = lifecycle.endLayoutTransaction(transaction);
         await vi.waitFor(() => expect(frames).toHaveLength(1));
         lifecycle.cancelPendingRestore();
@@ -725,15 +743,17 @@ describe('useDocumentViewportLayoutLifecycle', () => {
             pageLayouts,
             captureRestoreEpoch: () => 1,
             canRestore: () => true,
-            applyRestoredScroll: restored => {
+            applyRestoredScroll: (restored, onApplied) => {
                 appliedScrolls.push(restored.top);
                 viewport.scrollTop = restored.top;
+                onApplied?.();
                 return true;
             },
         }));
         if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
 
-        const transaction = lifecycle.beginLayoutTransaction();
+        const transaction = {};
+        lifecycle.beginLayoutTransaction(transaction);
         lifecycle.capturePointerAnchor({
             clientX: 50,
             clientY: 50,
@@ -790,9 +810,10 @@ describe('useDocumentViewportLayoutLifecycle', () => {
             pageLayouts,
             captureRestoreEpoch: () => 1,
             canRestore: () => true,
-            applyRestoredScroll: restored => {
+            applyRestoredScroll: (restored, onApplied) => {
                 viewport.scrollLeft = restored.left;
                 viewport.scrollTop = restored.top;
+                onApplied?.();
                 return true;
             },
         }));
@@ -858,9 +879,10 @@ describe('useDocumentViewportLayoutLifecycle', () => {
             pageLayouts,
             captureRestoreEpoch: () => 1,
             canRestore: () => true,
-            applyRestoredScroll: restored => {
+            applyRestoredScroll: (restored, onApplied) => {
                 viewport.scrollLeft = restored.left;
                 viewport.scrollTop = restored.top;
+                onApplied?.();
                 return true;
             },
         }));
@@ -921,8 +943,9 @@ describe('useDocumentViewportLayoutLifecycle', () => {
             isResizing,
             captureRestoreEpoch: () => 1,
             canRestore: () => true,
-            applyRestoredScroll: restored => {
+            applyRestoredScroll: (restored, onApplied) => {
                 viewport.scrollTop = restored.top;
+                onApplied?.();
                 return true;
             },
         }));
@@ -946,5 +969,381 @@ describe('useDocumentViewportLayoutLifecycle', () => {
 
         expect(viewport.scrollTop).toBe(95);
         scope.stop();
+    });
+});
+
+describe('useDocumentViewportLayoutLifecycle reading point', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    const pageLayoutsAt = (scale: number) => Array.from({length: 6}, (_, index) => ({
+        left: 0,
+        top: index * (100 * scale + 20),
+        width: 100 * scale,
+        height: 100 * scale,
+    }));
+
+    /**
+     * A page-source view as its runtime drives the lifecycle: writes land and
+     * then run their `onApplied`, a navigation and a user scroll commit the
+     * point, echoes and residue commit nothing, and hiding zeroes the box.
+     */
+    function createReader(options: {clientHeight?: number} = {}) {
+        const frames: FrameRequestCallback[] = [];
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+            frames.push(callback);
+            return frames.length;
+        });
+        const scope = effectScope();
+        const viewport = createViewport(0);
+        const setClientHeight = (value: number) => Object.defineProperty(viewport, 'clientHeight', {
+            configurable: true,
+            value,
+        });
+        setClientHeight(options.clientHeight ?? 100);
+        viewport.getBoundingClientRect = () => ({
+            left: 0,
+            top: 0,
+        } as DOMRect);
+        const pageLayouts = ref(pageLayoutsAt(1));
+        const state = {
+            // The physical segment's origin: logical offset = origin + scrollTop.
+            origin: 0,
+            // The scroll range the DOM allows before Vue patches the new height.
+            maxScrollTop: Number.POSITIVE_INFINITY,
+        };
+        const writes: number[] = [];
+        const readLogicalTop = () => state.origin + viewport.scrollTop;
+        const lifecycle = scope.run(() => useDocumentViewportLayoutLifecycle({
+            viewerContainer: ref<HTMLElement | null>(viewport),
+            pageLayouts,
+            readViewport: container => ({
+                clientHeight: container.clientHeight,
+                clientWidth: container.clientWidth,
+                scrollHeight: container.scrollHeight,
+                scrollLeft: container.scrollLeft,
+                scrollTop: state.origin + container.scrollTop,
+                scrollWidth: container.scrollWidth,
+            }),
+            captureRestoreEpoch: () => 1,
+            canRestore: () => viewport.clientHeight > 0,
+            applyRestoredScroll: (restored, onApplied) => {
+                viewport.scrollLeft = restored.left;
+                viewport.scrollTop = Math.min(restored.top, state.maxScrollTop) - state.origin;
+                writes.push(readLogicalTop());
+                onApplied?.();
+                return true;
+            },
+        }));
+        if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
+        return {
+            lifecycle,
+            pageLayouts,
+            setClientHeight,
+            state,
+            viewport,
+            writes,
+            readLogicalTop,
+            async flush() {
+                await nextTick();
+                await nextTick();
+                while (frames.length > 0) {
+                    frames.splice(0).forEach(callback => callback(0));
+                    await nextTick();
+                }
+            },
+            navigate(top: number) {
+                viewport.scrollTop = top - state.origin;
+                lifecycle.commitReadingPoint();
+            },
+            userScroll(top: number) {
+                lifecycle.cancelPendingRestore();
+                viewport.scrollTop = top - state.origin;
+                lifecycle.commitReadingPoint();
+            },
+            /** A tab switch resets the wheel session first; a tab move does not. */
+            hide({tabSwitch = true} = {}) {
+                if (tabSwitch) lifecycle.cancelPendingRestore();
+                lifecycle.suspend();
+                setClientHeight(0);
+                viewport.scrollTop = 0;
+            },
+            /** Showing lays the box out a flush before the restore places the point. */
+            reveal() {
+                setClientHeight(100);
+            },
+            show() {
+                setClientHeight(100);
+                lifecycle.resume();
+            },
+            stop: () => scope.stop(),
+        };
+    }
+
+    it('places a navigation that lands before a queued restore frame', async () => {
+        const reader = createReader();
+        reader.navigate(0);
+        // Metric publication queues a restore of page one's point.
+        reader.lifecycle.preserveLayoutMutation(() => {
+            reader.pageLayouts.value = pageLayoutsAt(2);
+        });
+        await nextTick();
+        // Page one's point, before paint: the mutation and the watcher project it.
+        expect(new Set(reader.writes)).toEqual(new Set([50]));
+        // scrollToPage(2) lands before the restore's frame.
+        reader.navigate(220);
+        await reader.flush();
+
+        expect(reader.readLogicalTop()).toBe(220);
+        expect(reader.writes.at(-1)).toBe(220);
+        expect(reader.lifecycle.readReadingPoint()?.pageIndex).toBe(1);
+        reader.stop();
+    });
+
+    it('keeps the point when the restore write before paint is clamped', async () => {
+        const reader = createReader();
+        reader.navigate(240);
+        const point = reader.lifecycle.readReadingPoint();
+        reader.state.maxScrollTop = 300;
+        reader.lifecycle.preserveLayoutMutation(() => {
+            reader.pageLayouts.value = pageLayoutsAt(3);
+        });
+        // The DOM still has the old height: the write and its echo read 300.
+        expect(reader.writes).toEqual([300]);
+        expect(reader.lifecycle.readReadingPoint()).toEqual(point);
+        reader.state.maxScrollTop = Number.POSITIVE_INFINITY;
+        await reader.flush();
+
+        expect(reader.readLogicalTop()).toBe(740);
+        expect(reader.lifecycle.readReadingPoint()?.pageIndex).toBe(2);
+        expect(reader.lifecycle.readReadingPoint()?.yRatio).toBeCloseTo(0.5, 5);
+        reader.stop();
+    });
+
+    it('keeps the point through command residue the write port repairs', async () => {
+        const reader = createReader();
+        reader.navigate(240);
+        const point = reader.lifecycle.readReadingPoint();
+        // A superseded gesture's last inertial delta: the runtime commits nothing.
+        reader.viewport.scrollTop = 263;
+        expect(reader.lifecycle.readReadingPoint()).toEqual(point);
+        reader.hide();
+        reader.show();
+        await reader.flush();
+
+        expect(reader.readLogicalTop()).toBe(240);
+        reader.stop();
+    });
+
+    it('keeps the document offset across a segment rebase after a user scroll', async () => {
+        const reader = createReader();
+        reader.userScroll(360);
+        const point = reader.lifecycle.readReadingPoint();
+        // The rebase keeps the logical offset in a new physical segment.
+        reader.state.origin = 300;
+        reader.viewport.scrollTop = 60;
+        reader.lifecycle.commitReadingPoint();
+        expect(reader.lifecycle.readReadingPoint()).toEqual(point);
+        reader.hide();
+        reader.show();
+        await reader.flush();
+
+        expect(reader.readLogicalTop()).toBe(360);
+        expect(reader.viewport.scrollTop).toBe(60);
+        reader.stop();
+    });
+
+    it('places nothing on show when the view was hidden before its first measurement', async () => {
+        const reader = createReader({clientHeight: 0});
+        reader.lifecycle.beginLayoutTransaction({});
+        reader.lifecycle.preserveLayoutMutation(() => {
+            reader.pageLayouts.value = pageLayoutsAt(1);
+        });
+        await nextTick();
+        reader.lifecycle.commitReadingPoint();
+        reader.hide();
+        reader.show();
+        await reader.flush();
+
+        expect(reader.lifecycle.readReadingPoint()).toBeNull();
+        expect(reader.writes).toEqual([]);
+        // The opening's or a navigation's placement governs.
+        reader.navigate(360);
+        expect(reader.lifecycle.readReadingPoint()?.pageIndex).toBe(3);
+        reader.stop();
+    });
+
+    it('keeps the point when a metric-hydration transaction ends while hidden', async () => {
+        const reader = createReader();
+        reader.navigate(240);
+        const transition = {};
+        reader.lifecycle.beginLayoutTransaction(transition);
+        const point = reader.lifecycle.readReadingPoint();
+        reader.hide({tabSwitch: false});
+        const ending = reader.lifecycle.endLayoutTransaction(transition, true);
+        await reader.flush();
+        await ending;
+        expect(reader.writes).toEqual([]);
+        expect(reader.lifecycle.readReadingPoint()).toEqual(point);
+        reader.show();
+        await reader.flush();
+
+        expect(reader.readLogicalTop()).toBe(240);
+        reader.stop();
+    });
+
+    it('does not take the reset offset of a shown view before its point is placed', async () => {
+        const reader = createReader();
+        reader.navigate(360);
+        const point = reader.lifecycle.readReadingPoint();
+        reader.hide();
+        reader.reveal();
+        // Metric hydration and publication run in the flush before the restore.
+        const transition = {};
+        reader.lifecycle.beginLayoutTransaction(transition);
+        reader.lifecycle.endLayoutTransaction(transition, false);
+        reader.lifecycle.preserveLayoutMutation(() => {
+            reader.pageLayouts.value = pageLayoutsAt(1);
+        });
+        await nextTick();
+        expect(reader.lifecycle.readReadingPoint()).toEqual(point);
+        reader.lifecycle.resume();
+        await reader.flush();
+
+        expect(reader.readLogicalTop()).toBe(360);
+        reader.stop();
+    });
+
+    it('keeps the point when fit geometry changes as a view is being shown', async () => {
+        const reader = createReader();
+        reader.navigate(360);
+        reader.hide();
+        reader.reveal();
+        // The window was resized while hidden: the show measures new fit geometry.
+        reader.pageLayouts.value = pageLayoutsAt(1.5);
+        await nextTick();
+        expect(reader.lifecycle.readReadingPoint()?.pageIndex).toBe(3);
+        reader.lifecycle.resume();
+        await reader.flush();
+
+        expect(reader.readLogicalTop()).toBe(3 * 170 + 75 - 50);
+        reader.stop();
+    });
+
+    it('lets a navigation that lands while a view is being shown win over its restore', async () => {
+        const reader = createReader();
+        reader.navigate(360);
+        reader.hide();
+        reader.reveal();
+        reader.navigate(120);
+        reader.lifecycle.resume();
+        await reader.flush();
+
+        expect(reader.readLogicalTop()).toBe(120);
+        expect(reader.lifecycle.readReadingPoint()?.pageIndex).toBe(1);
+        reader.stop();
+    });
+
+    it('follows the reader after a show whose restore went stale', async () => {
+        const reader = createReader();
+        reader.navigate(360);
+        reader.hide();
+        reader.reveal();
+        // The restore transition was superseded: resume never runs.
+        reader.userScroll(480);
+        reader.pageLayouts.value = pageLayoutsAt(2);
+        await reader.flush();
+
+        expect(reader.lifecycle.readReadingPoint()?.pageIndex).toBe(4);
+        expect(reader.readLogicalTop()).toBe(4 * 220 + 50);
+        reader.stop();
+    });
+
+    it('returns to the zoomed point on every tab return and forgets it for another document', async () => {
+        const reader = createReader();
+        reader.navigate(240);
+        reader.userScroll(275);
+        for (const scale of [
+            1.5,
+            2.25,
+        ]) {
+            reader.pageLayouts.value = pageLayoutsAt(scale);
+            await reader.flush();
+            const zoomed = {
+                left: reader.viewport.scrollLeft,
+                top: reader.readLogicalTop(),
+            };
+            reader.hide();
+            reader.show();
+            await reader.flush();
+            expect(reader.viewport.scrollLeft).toBeCloseTo(zoomed.left, 5);
+            expect(reader.readLogicalTop()).toBeCloseTo(zoomed.top, 5);
+        }
+        // A pointer zoom commits the centre its restore placed.
+        reader.lifecycle.capturePointerAnchor({
+            clientX: 20,
+            clientY: 80,
+        });
+        reader.pageLayouts.value = pageLayoutsAt(3);
+        await reader.flush();
+        const pointerZoomed = reader.readLogicalTop();
+        reader.hide();
+        reader.show();
+        await reader.flush();
+        expect(reader.readLogicalTop()).toBeCloseTo(pointerZoomed, 5);
+
+        reader.lifecycle.resetReadingPoint();
+        const writes = reader.writes.length;
+        reader.hide();
+        reader.show();
+        await reader.flush();
+        expect(reader.writes).toHaveLength(writes);
+        reader.stop();
+    });
+
+    it('keeps the viewport centre as the reading point after a pointer zoom over another page during metric hydration', async () => {
+        const reader = createReader();
+        reader.viewport.getBoundingClientRect = () => ({
+            bottom: 100,
+            height: 100,
+            left: 0,
+            right: 100,
+            top: 0,
+            width: 100,
+            x: 0,
+            y: 0,
+            toJSON: () => ({}),
+        });
+        // Page 0 ends at 100, page 1 starts at 120: scrollTop 80 puts viewport centre (130) on page 1
+        // while the top of the viewport (clientY 10 -> logical 90) still shows page 0.
+        reader.userScroll(80);
+        expect(reader.lifecycle.readReadingPoint()?.pageIndex).toBe(1);
+
+        const hydration = {};
+        reader.lifecycle.beginLayoutTransaction(hydration);
+        reader.lifecycle.capturePointerAnchor({
+            clientX: 50,
+            clientY: 10,
+        });
+        // Even before the restore frame lands, the cursor's page does not replace the reading point.
+        expect(reader.lifecycle.readReadingPoint()?.pageIndex).toBe(1);
+
+        reader.lifecycle.preserveLayoutMutation(() => {
+            reader.pageLayouts.value = pageLayoutsAt(1.5);
+        });
+        await reader.flush();
+        // After the pointer zoom lands during hydration, the reading point is the new viewport centre on page 1.
+        const zoomedTop = reader.readLogicalTop();
+        expect(reader.lifecycle.readReadingPoint()?.pageIndex).toBe(1);
+        expect(reader.lifecycle.readReadingPoint()?.viewportY).toBeUndefined();
+
+        // Switching tabs cancels hydration; returning preserves the post-zoom centre on page 1.
+        reader.hide();
+        reader.show();
+        await reader.flush();
+        expect(reader.lifecycle.readReadingPoint()?.pageIndex).toBe(1);
+        expect(reader.readLogicalTop()).toBeCloseTo(zoomedTop, 5);
+        reader.stop();
     });
 });
