@@ -11,7 +11,7 @@ import {
     vi,
 } from 'vitest';
 import {
-    ref, shallowRef, watch, effectScope,
+    computed, ref, shallowRef, watch, effectScope,
 } from 'vue';
 import {createDocumentOpenFlow} from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
 import {
@@ -47,11 +47,17 @@ import { createPdfSourceJob } from '@app/modules/pdf-viewer/runtime/sessions/pdf
 
 const revisionToken = (name: string) => requireDocumentRevisionToken(name);
 
+/** An open's own file work commits the next document, here at `path`, which may be the same file again. */
+function openNextDocument(document: ReturnType<typeof createWorkspaceDocumentController>, state: ReturnType<typeof createDocumentSessionState>, path: TDocumentRef) {
+    state.commitFile({workingCopyPath: path}, document.claimOpen({kind: 'open', target: null}));
+}
+
 /** A working copy whose revisions undo restores; `mutate` is a page operation that makes the next one. */
 function createHistoryHarness(isDesktopRuntime = false) {
+    const document = createWorkspaceDocumentController({tabId: 'tab-1'});
     const state = createDocumentSessionState({
             isDesktopRuntime: ref(isDesktopRuntime),
-            document: createWorkspaceDocumentController({tabId: 'tab-1'}),
+            document,
             admitPdfSource: intent => createPdfSourceJob(intent, {}),
         });
     const work = requireDocumentRef('/tmp/work.pdf');
@@ -84,6 +90,7 @@ function createHistoryHarness(isDesktopRuntime = false) {
         documentFiles: () => documentFiles,
         documentWorkingCopy: () => documentWorkingCopy,
         readOpenTransactionId: () => null,
+        readDocumentSessionKey: () => document.snapshot.value.identity.documentSessionKey,
         readPdfStateFromPath: vi.fn(async (): Promise<IPdfLoadedState> => ({
             pdfData: null,
             pdfSrc: {
@@ -107,6 +114,7 @@ function createHistoryHarness(isDesktopRuntime = false) {
     };
     const retained = () => [...documentWorkingCopy.retainDocumentRevisions.mock.lastCall?.[1] ?? []].sort();
     return {
+        openNextDocument: (path: TDocumentRef) => openNextDocument(document, state, path),
         applyLoadedPdfState,
         documentFiles,
         documentWorkingCopy,
@@ -136,9 +144,10 @@ function createContentHistoryHarness(pathHistory: boolean, beforeRevisionPrepare
         update: vi.fn(),
         remove: vi.fn(),
     }));
+    const document = createWorkspaceDocumentController({tabId: 'tab-1'});
     const state = createDocumentSessionState({
             isDesktopRuntime: ref(pathHistory),
-            document: createWorkspaceDocumentController({tabId: 'tab-1'}),
+            document,
             admitPdfSource: intent => createPdfSourceJob(intent, {}),
         });
     const work = requireDocumentRef('/tmp/content-work.pdf');
@@ -263,7 +272,7 @@ function createContentHistoryHarness(pathHistory: boolean, beforeRevisionPrepare
         cleanupPreviousWorkingCopy: async () => undefined,
         clearPdfConformanceProfile: () => undefined,
         deferPdfConformanceProfile: () => undefined,
-        incrementSessionVersion: () => history.incrementSessionVersion(),
+        resetCommandSink: () => history.resetCommandSink(),
         readOpenTransactionId: () => null,
         resetDocumentPresentation: vi.fn(),
         resetHistory: options => history.resetHistory(options),
@@ -280,6 +289,7 @@ function createContentHistoryHarness(pathHistory: boolean, beforeRevisionPrepare
         documentFiles: () => files,
         documentWorkingCopy: () => workingCopies,
         readOpenTransactionId: () => null,
+        readDocumentSessionKey: () => document.snapshot.value.identity.documentSessionKey,
         readPdfStateFromPath: readState,
     });
     const ledger = useWorkspaceCommandLedger();
@@ -344,6 +354,11 @@ function createContentHistoryHarness(pathHistory: boolean, beforeRevisionPrepare
         },
     });
     return {
+        documentSessionKey: computed(() => document.snapshot.value.identity.documentSessionKey),
+        openNextDocument: () => {
+            history.resetCommandSink();
+            openNextDocument(document, state, work);
+        },
         state,
         ledger,
         history: {
@@ -419,7 +434,7 @@ describe('createDocumentHistory', () => {
         await entered.promise;
         // A new document/session takes ownership while the old surface is
         // preparing. Refusing that restore must also refuse its view mapping.
-        h.history.incrementSessionVersion();
+        h.openNextDocument();
         release.resolve(undefined);
         await expect(undo).resolves.toBe(false);
         // The working copy took the undo, which the next session reads; the replaced one keeps its views in place.
@@ -586,7 +601,7 @@ describe('createDocumentHistory', () => {
         await expect(registrations[0]?.undo()).resolves.toBe(true);
         await expect(registrations[0]?.cmd()).resolves.toBe(true);
 
-        history.incrementSessionVersion();
+        history.resetCommandSink();
         expect(reset).toHaveBeenLastCalledWith(undefined);
     });
 
@@ -660,14 +675,13 @@ describe('createDocumentHistory', () => {
     });
 
     it('refuses first-mutation staging when the document switches meanwhile', async () => {
-        const {documentFiles, history, state} = createHistoryHarness(true);
+        const {documentFiles, history, openNextDocument} = createHistoryHarness(true);
         const revision = Promise.withResolvers<Awaited<ReturnType<typeof documentFiles.getDocumentRevision>>>();
         const info = await documentFiles.getDocumentRevision();
         documentFiles.getDocumentRevision.mockReturnValueOnce(revision.promise);
 
         const baseline = history.ensureHistoryBaselineForMutation();
-        state.workingCopyPath.value = requireDocumentRef('/tmp/next.pdf');
-        history.incrementSessionVersion();
+        openNextDocument(requireDocumentRef('/tmp/next.pdf'));
         revision.resolve(info);
 
         await expect(baseline).resolves.toBe(false);
@@ -738,7 +752,7 @@ describe.each([
             workingCopyPath: h.state.workingCopyPath,
             source: h.state.pdfSrc,
             documentRevisionToken: h.state.documentRevisionToken,
-            documentSession: h.history.fileHistorySessionVersion,
+            documentSession: h.documentSessionKey,
         }))!;
         owner.history.setWorkspaceCommandSink({
             register: h.ledger.registerCommand,
@@ -836,7 +850,7 @@ describe.each([
         await expect(h.ledger.redoTimeline()).resolves.toBe(true);
         expect(h.state.isDirty.value).toBe(true);
         const stale = h.history.captureHistoryCleanState();
-        h.history.incrementSessionVersion();
+        h.openNextDocument();
         await h.history.resetHistory();
         h.state.recoveryDirtyBaseline.value = true;
         await stale();
@@ -884,7 +898,7 @@ describe.each([
         const h = setup();
         h.store.createNote(h.note);
         h.owner.setTextBoxDraft('draft', 'pending');
-        h.history.incrementSessionVersion();
+        h.openNextDocument();
         expect(h.store.list()).toEqual([]);
         expect(h.owner.textBoxDrafts.size).toBe(0);
         expect(h.ledger.canUndoTimeline.value).toBe(false);

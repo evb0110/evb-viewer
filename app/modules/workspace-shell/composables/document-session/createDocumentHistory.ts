@@ -62,8 +62,9 @@ interface ICreateDocumentHistoryDeps extends IHistoryRevisionSwapOptions {
     clearOcrCache: (path: TDocumentRef) => void;
     documentFiles: () => Pick<IDocumentsFileIoCapability, 'getDocumentRevision'>;
     documentWorkingCopy: () => TDocumentHistoryWorkingCopyDeps;
-    /** The controller's open transaction: a replay that an open overtakes does not apply. */
+    /** The controller's open and logical document: work applies only in the document it began in; a replay, only outside an open it did not start. */
     readOpenTransactionId: () => string | null;
+    readDocumentSessionKey: () => string | null;
     readPdfStateFromPath: (path: TDocumentRef) => Promise<IPdfLoadedState>;
 }
 
@@ -82,7 +83,6 @@ export function createDocumentHistory(
     let currentCheckpoint: TDocumentRevisionToken | null = null;
     let stagedBaseline: TDocumentRevisionToken | null = null;
     const fileHistoryMutationVersion = ref(0);
-    const fileHistorySessionVersion = ref(0);
     let workspaceCommandSink: IWorkspaceCommandSink | null = null;
     let mutationHistoryBaselineStaging: Promise<boolean> | null = null;
 
@@ -146,9 +146,9 @@ export function createDocumentHistory(
 
     function captureHistoryCleanState() {
         const frontier = currentFileState.value;
-        const session = fileHistorySessionVersion.value;
+        const session = deps.readDocumentSessionKey();
         return () => {
-            if (session === fileHistorySessionVersion.value) {
+            if (session === deps.readDocumentSessionKey()) {
                 savedFileState = frontier;
                 state.recoveryDirtyBaseline.value = false;
                 if (currentFileState.value === frontier) {
@@ -165,9 +165,9 @@ export function createDocumentHistory(
     async function stageHistoryBaselineForMutation() {
         const path = state.workingCopyPath.value;
         if (!path) return false;
-        const sessionVersion = fileHistorySessionVersion.value;
+        const session = deps.readDocumentSessionKey();
         const {token} = await deps.documentFiles().getDocumentRevision(path);
-        if (!state.isActiveWorkingCopy(path) || sessionVersion !== fileHistorySessionVersion.value
+        if (!state.isActiveWorkingCopy(path) || session !== deps.readDocumentSessionKey()
             || (state.documentRevisionToken.value !== null && state.documentRevisionToken.value !== token)) return false;
         stagedBaseline = token;
         retainRevisions();
@@ -280,10 +280,9 @@ export function createDocumentHistory(
 
     /** Makes `revision` current in the working copy and shows it: undo or redo, without a copy. */
     async function restoreRevision(revision: TDocumentRevisionToken, delta?: IPageIdentityDelta, applyAnnotations?: () => void) {
-        const restoreSessionVersion = fileHistorySessionVersion.value;
-        const restoreOpenTransactionId = deps.readOpenTransactionId();
-        const canApplyRestore = () => restoreSessionVersion === fileHistorySessionVersion.value
-            && deps.readOpenTransactionId() === restoreOpenTransactionId;
+        const session = deps.readDocumentSessionKey();
+        const openTransactionId = deps.readOpenTransactionId();
+        const canApplyRestore = () => session === deps.readDocumentSessionKey() && deps.readOpenTransactionId() === openTransactionId;
         const path = state.workingCopyPath.value;
         if (!path || !canApplyRestore()) return false;
         const expected = state.documentRevisionToken.value;
@@ -309,8 +308,7 @@ export function createDocumentHistory(
             ?? Math.max(1, Math.min(page, getPageIdentityDeltaNextPageCount(delta) ?? page)) : page;
     }
 
-    function incrementSessionVersion() {
-        fileHistorySessionVersion.value += 1;
+    function resetCommandSink() {
         workspaceCommandSink?.reset();
     }
 
@@ -327,10 +325,9 @@ export function createDocumentHistory(
         clearHistory,
         ensureHistoryBaselineForMutation,
         fileHistoryMutationVersion,
-        fileHistorySessionVersion,
         getHistoryDebugState,
         mapHistoryPage,
-        incrementSessionVersion,
+        resetCommandSink,
         pushHistoryEntry,
         reloadWorkingCopyIntoHistory,
         reloadWorkingCopyRevision,
