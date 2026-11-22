@@ -35,17 +35,16 @@ interface IUseDocumentViewportLayoutLifecycleOptions {
 export const useDocumentViewportLayoutLifecycle = (
     options: IUseDocumentViewportLayoutLifecycleOptions,
 ) => {
-    let retainedAnchor: IDocumentZoomAnchor | null = null;
-    let dragAnchor: IDocumentZoomAnchor | null = null;
-    let layoutTransactionAnchor: IDocumentZoomAnchor | null = null;
+    // The reader's point. Authored writes move it, and a queued restore places
+    // the point current when it fires: a navigation that lands first wins.
+    let readingPoint: IDocumentZoomAnchor | null = null;
     let activePointerAnchor: IDocumentZoomAnchor | null = null;
     let activeLayoutTransaction: number | null = null;
     let nextLayoutTransaction = 0;
     let pendingRestore: {
-        anchor: IDocumentZoomAnchor | null;
         epoch: unknown;
         generation: number;
-        pointerAuthored: boolean;
+        pointerAnchor: IDocumentZoomAnchor | null;
     } | null = null;
     let restoreGeneration = 0;
     let restoreScheduled = false;
@@ -103,21 +102,27 @@ export const useDocumentViewportLayoutLifecycle = (
         pointerAnchorReleaseTimer = null;
     };
 
+    const readQueuedRestore = (epoch: unknown) => (
+        activePointerAnchor === null
+        && pendingRestore?.generation === restoreGeneration
+        && pendingRestore.epoch === epoch
+            ? pendingRestore
+            : null
+    );
+
+    const readRestoreAnchor = () => activePointerAnchor ?? pendingRestore?.pointerAnchor ?? readingPoint;
+
+    /** A queued restore keeps the reading point it was queued for until an authored write moves it. */
     const scheduleAnchorRestore = (
         anchor: IDocumentZoomAnchor | null,
         epoch: unknown,
     ) => {
-        const retainedRestore = activePointerAnchor === null
-            && pendingRestore
-            && pendingRestore.generation === restoreGeneration
-            && pendingRestore.epoch === epoch
-            ? pendingRestore
-            : null;
+        const queued = readQueuedRestore(epoch);
+        if (!queued && activePointerAnchor === null) readingPoint = anchor ?? readingPoint;
         pendingRestore = {
-            anchor: retainedRestore?.anchor ?? anchor,
             epoch,
             generation: restoreGeneration,
-            pointerAuthored: activePointerAnchor !== null || retainedRestore?.pointerAuthored === true,
+            pointerAnchor: activePointerAnchor ?? queued?.pointerAnchor ?? null,
         };
         if (restoreScheduled) {
             return;
@@ -132,7 +137,7 @@ export const useDocumentViewportLayoutLifecycle = (
                     return;
                 }
                 if (pending?.generation === restoreGeneration) {
-                    applyAnchor(activePointerAnchor ?? layoutTransactionAnchor ?? pending.anchor, pending.epoch);
+                    applyAnchor(activePointerAnchor ?? pending.pointerAnchor ?? readingPoint, pending.epoch);
                 }
                 if (isResizeTransitionActive.value && !options.isResizing?.value) {
                     isResizeTransitionActive.value = false;
@@ -145,21 +150,19 @@ export const useDocumentViewportLayoutLifecycle = (
     const cancelPendingRestore = () => {
         releasePointerAnchor();
         activeLayoutTransaction = null;
-        layoutTransactionAnchor = null;
         if (isResizeTransitionActive.value) {
             // A pane deactivation or pointerdown during a workspace layout
             // transition does not move the viewport. The resize anchor must
             // survive it: a split moves the pane in the DOM, which resets
             // scrollTop to 0, and recapturing from that origin restores page 1.
-            if (pendingRestore?.pointerAuthored === true) {
+            if (pendingRestore?.pointerAnchor) {
                 pendingRestore = null;
             }
             return;
         }
         restoreGeneration += 1;
         pendingRestore = null;
-        dragAnchor = null;
-        retainedAnchor = null;
+        readingPoint = null;
     };
 
     const capturePointerAnchor = (point: {
@@ -182,7 +185,7 @@ export const useDocumentViewportLayoutLifecycle = (
                 y: point.clientY - rect.top,
             });
             if (activeLayoutTransaction !== null) {
-                layoutTransactionAnchor = activePointerAnchor;
+                readingPoint = activePointerAnchor;
             }
         }
         lastPointerAnchorPacketAt = packetAt;
@@ -199,33 +202,35 @@ export const useDocumentViewportLayoutLifecycle = (
     const preserveLayoutMutation = (mutate: () => void) => {
         const container = options.viewerContainer.value;
         const epoch = options.captureRestoreEpoch();
-        const anchor = activePointerAnchor ?? layoutTransactionAnchor ?? (
-            container ? captureAnchor(container, options.pageLayouts.value) : null
-        );
+        const queued = readQueuedRestore(epoch);
+        const anchor = activePointerAnchor ?? queued?.pointerAnchor ?? (
+            queued || activeLayoutTransaction !== null ? readingPoint : null
+        ) ?? (container ? captureAnchor(container, options.pageLayouts.value) : null);
         mutate();
-        applyAnchor(anchor, epoch);
         scheduleAnchorRestore(anchor, epoch);
+        applyAnchor(readRestoreAnchor(), epoch);
     };
 
     /** Place a recorded reading point now and after paint, in place of any queued one. */
     const placeAnchor = (anchor: IDocumentZoomAnchor | null) => {
         const epoch = options.captureRestoreEpoch();
         pendingRestore = null;
+        readingPoint = anchor ?? readingPoint;
         applyAnchor(anchor, epoch);
         scheduleAnchorRestore(anchor, epoch);
     };
 
     const beginLayoutTransaction = () => {
         activeLayoutTransaction = ++nextLayoutTransaction;
-        layoutTransactionAnchor = captureCurrentAnchor();
+        readingPoint = captureCurrentAnchor();
         return activeLayoutTransaction;
     };
 
     const refreshLayoutTransactionAnchor = () => {
-        retainedAnchor = captureCurrentAnchor();
-        if (activeLayoutTransaction !== null) {
-            layoutTransactionAnchor = activePointerAnchor ?? retainedAnchor;
-        }
+        // A restore that may write owns the point, so its clamped write's echo
+        // cannot move it. A navigation closes that gate, and its write does.
+        if (pendingRestore?.generation === restoreGeneration && options.canRestore(pendingRestore.epoch)) return;
+        readingPoint = captureCurrentAnchor();
     };
 
     const endLayoutTransaction = async (
@@ -236,20 +241,17 @@ export const useDocumentViewportLayoutLifecycle = (
             return;
         }
         activeLayoutTransaction = null;
-        const anchor = activePointerAnchor ?? layoutTransactionAnchor;
-        layoutTransactionAnchor = null;
         if (!restore) {
             return;
         }
         const epoch = options.captureRestoreEpoch();
         const generation = restoreGeneration;
         await nextTick();
-        applyAnchor(anchor, epoch, options.pageLayouts.value, generation);
+        applyAnchor(readRestoreAnchor(), epoch, options.pageLayouts.value, generation);
         await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-        if (!applyAnchor(anchor, epoch, options.pageLayouts.value, generation)) {
-            return;
+        if (applyAnchor(readRestoreAnchor(), epoch, options.pageLayouts.value, generation)) {
+            readingPoint = captureCurrentAnchor();
         }
-        retainedAnchor = captureCurrentAnchor();
     };
 
     if (options.isResizing) {
@@ -257,11 +259,11 @@ export const useDocumentViewportLayoutLifecycle = (
             const container = options.viewerContainer.value;
             if (resizing) {
                 isResizeTransitionActive.value = true;
-                dragAnchor = container
+                readingPoint = container
                     ? resolveRetainedDocumentZoomAnchor(
                         options.readViewport?.(container) ?? container,
                         options.pageLayouts.value,
-                        retainedAnchor,
+                        readingPoint,
                         1,
                         options.capturePageIndex?.(),
                     )
@@ -271,11 +273,9 @@ export const useDocumentViewportLayoutLifecycle = (
             if (!wasResizing) {
                 return;
             }
-            retainedAnchor = dragAnchor;
             // Settle even when the final size did not change pageLayouts.
             // The restore frame releases the render guard before repainting.
-            scheduleAnchorRestore(dragAnchor, options.captureRestoreEpoch());
-            dragAnchor = null;
+            scheduleAnchorRestore(readingPoint, options.captureRestoreEpoch());
         }, {flush: 'sync'});
     }
 
@@ -290,34 +290,27 @@ export const useDocumentViewportLayoutLifecycle = (
         ) {
             return;
         }
-        const retainedRestore = activePointerAnchor === null
-            && pendingRestore
-            && pendingRestore.generation === restoreGeneration
-            && pendingRestore.epoch === epoch
-            ? pendingRestore
-            : null;
+        const queued = readQueuedRestore(epoch);
         // The reader's point was last placed in a viewport of another size: a
         // window or pane resize since keeps that point at the new centre. The
         // live offset cannot say where it was, because widening clamps it first.
-        const resizedSinceRetained = retainedAnchor?.viewportBox !== undefined
+        const resizedSinceRead = readingPoint?.viewportBox !== undefined
             && (
-                retainedAnchor.viewportBox.offsetWidth !== container.offsetWidth
-                || retainedAnchor.viewportBox.offsetHeight !== container.offsetHeight
+                readingPoint.viewportBox.offsetWidth !== container.offsetWidth
+                || readingPoint.viewportBox.offsetHeight !== container.offsetHeight
             );
-        const anchor = activePointerAnchor
-            ?? retainedRestore?.anchor
-            ?? layoutTransactionAnchor
-            ?? dragAnchor
-            ?? (isResizeTransitionActive.value || resizedSinceRetained ? retainedAnchor : null)
-            ?? captureAnchor(container, previousLayouts);
+        scheduleAnchorRestore(activePointerAnchor ?? queued?.pointerAnchor ?? (
+            queued || activeLayoutTransaction !== null || isResizeTransitionActive.value || resizedSinceRead
+                ? readingPoint
+                : null
+        ) ?? captureAnchor(container, previousLayouts), epoch);
         // Project the semantic point before the DOM adopts the new geometry.
         // A large scale decrease can otherwise let the browser clamp the old
         // raw offset and emit a trusted scroll before the queued restore runs.
         // The queued pass remains necessary for the post-patch layout.
-        if (activePointerAnchor === null && retainedRestore?.pointerAuthored !== true) {
-            applyAnchor(anchor, epoch, layouts);
+        if (activePointerAnchor === null && !queued?.pointerAnchor) {
+            applyAnchor(readingPoint, epoch, layouts);
         }
-        scheduleAnchorRestore(anchor, epoch);
     }, {flush: 'pre'});
 
     onScopeDispose(() => {
@@ -331,7 +324,7 @@ export const useDocumentViewportLayoutLifecycle = (
         cancelPendingRestore,
         capturePointerAnchor,
         endLayoutTransaction,
-        hasPendingPointerRestore: () => pendingRestore?.pointerAuthored === true,
+        hasPendingPointerRestore: () => Boolean(pendingRestore?.pointerAnchor),
         isResizeTransitionActive,
         placeAnchor,
         preserveLayoutMutation,
