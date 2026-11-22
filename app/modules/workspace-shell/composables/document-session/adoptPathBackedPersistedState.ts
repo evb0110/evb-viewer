@@ -50,9 +50,9 @@ export async function adoptStablePathBackedPersistedState(input: {
     };
     input.state.documentRevisionInfo.value = revisionInfo;
     input.state.pdfData.value = null;
-    input.state.publishPdfSource(source, 'adopt');
+    const adoption = input.state.publishPdfSource(source, 'adopt');
     await input.markCurrentHistoryEntryClean();
-    return true;
+    return adoption;
 }
 
 export async function resolveStableLazyHistoryBaseline(path: TDocumentRef) {

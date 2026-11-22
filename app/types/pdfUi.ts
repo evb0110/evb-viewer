@@ -133,6 +133,8 @@ export interface IPdfPersistResult {
     didSaveAs: boolean;
     /** The revision returned by this write, never a later observation. */
     documentRevision?: IDocumentRevisionInfo;
+    /** How the source this write published for its revision ended, which a Save's lease waits for. */
+    adoption?: Promise<TPdfSourceJobOutcome>;
     /** Native incremental saves may bind newly authored app identities to PDF refs. */
     materializedIdentityBindings?: readonly IPdfNativeAnnotationIdentityBinding[];
     annotationDeleteEffects?: TNativeAnnotationDeleteEffects;

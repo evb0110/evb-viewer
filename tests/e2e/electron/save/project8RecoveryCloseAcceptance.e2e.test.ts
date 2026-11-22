@@ -61,6 +61,7 @@ import {
     getWorkspaceToolbarSnapshot,
     readWorkspaceStateValues,
     requireWorkspaceCommand,
+    waitForSaveFrontierReady,
     waitForWorkspaceToolbarIdle,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
@@ -529,6 +530,16 @@ async function holdNextPdfRead(page: Page) {
     onTestFinished(() => releaseHeldPdfRead(page).catch(() => undefined));
 }
 
+async function clickSaveAs(page: Page) {
+    await clickAsUser(page, 'button[aria-label="Save options"]');
+    await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('.save-split-item'))
+        .find(button => button.textContent?.trim().startsWith('Save As')), null, {description: 'Save As'});
+}
+
+function waitForHeldPdfRead(page: Page) {
+    return page.waitForFunction((key: string) => (Reflect.get(window, key) as IHeldPdfRead | undefined)?.isHeld() === true, {timeout: 30_000}, HELD_PDF_READ_KEY);
+}
+
 async function releaseHeldPdfRead(page: Page) {
     await page.evaluate((key: string) => (Reflect.get(window, key) as IHeldPdfRead | undefined)?.release(), HELD_PDF_READ_KEY);
 }
@@ -848,17 +859,18 @@ describe('Project 8 recovered close decisions', () => {
         )[0]?.rotation, {timeout: 30_000}).toBe(270);
     }, E2E_TIMEOUT_MS);
 
-    // #1598 C1 (finding 15): Close waits for the page operation that began
-    // before it, so its question covers that operation's edit.
+    // #1598 A (C1 finding 15 kept): Close ends a page operation's read-back that has not returned and asks
+    // at once. Cancel and Save keep the document and publish its revision again; Save writes the rotation.
     it.each([
         'Cancel',
         'Discard',
-    ] as const)('asks about a rotation still being read back when Close was pressed, then answers %s', async (decision) => {
+        'Save',
+    ] as const)('asks at once about a rotation whose read-back has not returned, then answers %s', async (decision) => {
         const stamp = Date.now();
         const slug = decision.toLowerCase();
-        const pdfPath = await createMultiPageTextFixturePdf(`c1-held-read-${slug}-${stamp}.pdf`, 2);
+        const pdfPath = await createMultiPageTextFixturePdf(`a-held-read-${slug}-${stamp}.pdf`, 2);
         const originalDigest = await getFileSha256(pdfPath);
-        session = await startElectronE2ESession(`e2e-c1-held-read-${slug}-${stamp}`, {
+        session = await startElectronE2ESession(`e2e-a-held-read-${slug}-${stamp}`, {
             clean: true,
             initialOpenPaths: [pdfPath],
         });
@@ -866,19 +878,16 @@ describe('Project 8 recovered close decisions', () => {
         await waitForPdfLoaded(page, 60_000);
         await waitForViewerInteractive(page, 60_000);
         expect(await readFirstPageShape(page)).toBe('portrait');
+        const readFailureNotices = await recordFailureNotices(page);
 
         await holdNextPdfRead(page);
         await rotateFirstPageCounterclockwise(session);
-        await page.waitForFunction((key: string) => (Reflect.get(window, key) as IHeldPdfRead | undefined)?.isHeld() === true, {timeout: 30_000}, HELD_PDF_READ_KEY);
+        await waitForHeldPdfRead(page);
         await clickActiveTabClose(session);
-        await expect.poll(() => page.evaluate(() => document.body.innerText), {timeout: 10_000})
-            .toContain('Closing after page processing finishes.');
-        expect(await page.$$('[role="dialog"]')).toHaveLength(0);
-
-        await releaseHeldPdfRead(page);
+        // The read-back stays held: the question does not wait for it.
         await page.waitForSelector('[role="dialog"]', {
             visible: true,
-            timeout: 60_000,
+            timeout: 20_000,
         });
         expect(await page.$$('[role="dialog"]')).toHaveLength(1);
         await clickDirtyTabDecision(session, decision);
@@ -889,7 +898,102 @@ describe('Project 8 recovered close decisions', () => {
         } else {
             await expect.poll(async () => (await getWorkspaceToolbarSnapshot(page))?.hasPdf, {timeout: 30_000}).toBe(false);
         }
-        expect(await getFileSha256(pdfPath)).toBe(originalDigest);
+        if (decision === 'Save') {
+            expect((await readPdfPageSnapshots(pdfPath))[0]?.rotation).toBe(270);
+        } else {
+            expect(await getFileSha256(pdfPath)).toBe(originalDigest);
+        }
+        expect(await readFailureNotices(), 'no failure is reported').toEqual([]);
+    }, E2E_TIMEOUT_MS);
+
+    // #1598 A (finding 2): Close ends the read-back of a saved revision, so the saved document closes at once.
+    it('closes at once after a Save As whose saved revision is still being read back', async () => {
+        const stamp = Date.now();
+        const text = `A held adoption ${stamp}`;
+        const pdfPath = await createMultiPageTextFixturePdf(`a-held-adoption-${stamp}.pdf`, 2);
+        const destination = join(dirname(pdfPath), `a-held-adoption-${stamp}-saved.pdf`);
+        session = await startElectronE2ESession(`e2e-a-held-adoption-${stamp}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+            extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: destination},
+        });
+        const page = session.page;
+        await waitForPdfLoaded(page, 60_000);
+        await waitForViewerInteractive(page, 60_000);
+        await createCanonicalTextBoxWithPointer(page, text, {
+            x: 0.4,
+            y: 0.3,
+        });
+        await waitForSaveFrontierReady(page);
+        const readFailureNotices = await recordFailureNotices(page);
+
+        await holdNextPdfRead(page);
+        await clickSaveAs(page);
+        await waitForHeldPdfRead(page);
+        await clickActiveTabClose(session);
+        await expect.poll(async () => (await getWorkspaceToolbarSnapshot(page))?.hasPdf, {timeout: 20_000}).toBe(false);
+        expect(await page.$$('[role="dialog"]')).toHaveLength(0);
+        expect((await readPdfTextAnnotationRecords(destination)).map(record => record.contents)).toContain(text);
+        expect(await readFailureNotices(), 'no failure is reported').toEqual([]);
+    }, E2E_TIMEOUT_MS);
+
+    // #1598 A (window route): the window's question does not wait for a page operation's read-back either.
+    it('asks to close the window during a rotation whose read-back has not returned, then saves it', async () => {
+        const stamp = Date.now();
+        const pdfPath = await createMultiPageTextFixturePdf(`a-window-held-read-${stamp}.pdf`, 2);
+        session = await startElectronE2ESession(`e2e-a-window-held-read-${stamp}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+        });
+        const page = session.page;
+        await waitForPdfLoaded(page, 60_000);
+        await waitForViewerInteractive(page, 60_000);
+
+        await holdNextPdfRead(page);
+        await rotateFirstPageCounterclockwise(session);
+        await waitForHeldPdfRead(page);
+        await clickWindowDecision(session, 'Save changes', {waitForClose: true});
+        expect((await readPdfPageSnapshots(pdfPath))[0]?.rotation).toBe(270);
+    }, E2E_TIMEOUT_MS);
+
+    // #1598 A (CR-4): a Save after a Save As whose revision was held plans from that revision once it has
+    // loaded, and writes the newer edit.
+    it('saves the next edit once a held Save As revision has loaded', async () => {
+        const stamp = Date.now();
+        const first = `A first save ${stamp}`;
+        const second = `A second save ${stamp}`;
+        const pdfPath = await createMultiPageTextFixturePdf(`a-second-save-${stamp}.pdf`, 2);
+        const destination = join(dirname(pdfPath), `a-second-save-${stamp}-saved.pdf`);
+        session = await startElectronE2ESession(`e2e-a-second-save-${stamp}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+            extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: destination},
+        });
+        const page = session.page;
+        await waitForPdfLoaded(page, 60_000);
+        await waitForViewerInteractive(page, 60_000);
+        await createCanonicalTextBoxWithPointer(page, first, {
+            x: 0.4,
+            y: 0.3,
+        });
+        await waitForSaveFrontierReady(page);
+        const readFailureNotices = await recordFailureNotices(page);
+
+        await holdNextPdfRead(page);
+        await clickSaveAs(page);
+        await waitForHeldPdfRead(page);
+        await releaseHeldPdfRead(page);
+        await waitForViewerInteractive(page, 60_000);
+        await createCanonicalTextBoxWithPointer(page, second, {
+            x: 0.4,
+            y: 0.6,
+        });
+        await waitForSaveFrontierReady(page);
+        await clickVisibleToolbarButton(page, 'Save');
+        await waitForWorkspaceToolbarIdle(page, {timeoutMs: 60_000});
+        await expect.poll(async () => (await readPdfTextAnnotationRecords(destination)).map(record => record.contents), {timeout: 30_000})
+            .toEqual(expect.arrayContaining([first, second]));
+        expect(await readFailureNotices(), 'no failure is reported').toEqual([]);
     }, E2E_TIMEOUT_MS);
 
     // #1598 C1 (required row 1): an Undo asked for while the Close question is

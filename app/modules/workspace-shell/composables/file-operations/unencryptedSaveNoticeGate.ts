@@ -52,7 +52,6 @@ export async function unencryptedSaveNoticeGate(
         return notSavedBeforeWrite(
             'capability-unavailable',
             plan.target.expectedRevisionToken,
-            null,
         );
     }
     const choice = await notice.request();
@@ -60,7 +59,6 @@ export async function unencryptedSaveNoticeGate(
         return notSavedBeforeWrite(
             'cancelled',
             plan.target.expectedRevisionToken,
-            null,
         );
     }
 

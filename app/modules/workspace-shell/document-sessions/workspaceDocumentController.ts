@@ -73,6 +73,8 @@ export interface IDocumentMutationFrontier {
     close: TFrontierStep;
     /** What an accepted close resets, against the identity the document has before it retires. */
     retire?: () => void;
+    /** Ends the document's running reload or Save adoption until the returned end; `end(true)` publishes it again. */
+    release?: () => (republish: boolean) => void;
 }
 
 export interface IDocumentOperationLease {
@@ -125,6 +127,7 @@ export interface IWorkspaceDocumentController {
     dismissFailure(): void;
     bindMutationFrontier(frontier: IDocumentMutationFrontier): void;
     readMutationFrontier(): string | null;
+    releaseJobs(): (republish: boolean) => void;
     prepareTransfer: TFrontierStep;
     getView(tabId: string): IWorkspaceDocumentView | null;
     addView(tabId: string, seed?: IWorkspaceDocumentViewSeed): IWorkspaceDocumentView;
@@ -735,6 +738,7 @@ export function createWorkspaceDocumentController(options: {
         dismissFailure,
         bindMutationFrontier: (frontier) => { mutationFrontier.value = frontier; },
         readMutationFrontier: () => mutationFrontier.value?.read() ?? null,
+        releaseJobs: () => mutationFrontier.value?.release?.() ?? (() => undefined),
         prepareTransfer: async (assertCurrent) => {
             assertCurrent();
             await mutationFrontier.value?.prepare(assertCurrent);

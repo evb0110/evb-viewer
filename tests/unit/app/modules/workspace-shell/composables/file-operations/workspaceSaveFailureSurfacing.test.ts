@@ -806,11 +806,10 @@ describe('workspace save failure surfacing', () => {
     });
 
     it.each([
-        ['keeps', '/tmp/work.pdf', 'rev-1', ['drafts', 'drafts', 'saved', 'view reloaded']],
-        ['replaces', '/tmp/work.pdf', 'rev-repaired', ['drafts', 'view reloaded', 'drafts', 'saved']],
-        ['keeps in the browser', 'browser://documents/work.pdf', 'rev-adopted', ['drafts', 'drafts', 'saved', 'view reloaded']],
-    ])('reports a clean Save As that %s the loaded source saved once the view shows it', async (_outcome, workingPath, savedRevision, expectedEvents) => {
-        const events: string[] = [];
+        ['keeps', '/tmp/work.pdf', 'rev-1', false],
+        ['replaces', '/tmp/work.pdf', 'rev-repaired', true],
+        ['keeps in the browser', 'browser://documents/work.pdf', 'rev-adopted', false],
+    ])('returns a clean Save As that %s the loaded source at its durable result, saving until the view shows it', async (_outcome, workingPath, savedRevision, publishes) => {
         const reload = createDeferred<void>();
         const {deps} = createDeps({
             originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
@@ -821,13 +820,7 @@ describe('workspace save failure surfacing', () => {
                     verifiedUnchangedWorkingCopy: true,
                 })),
             } : {}),
-            commitDrafts: async () => {
-                events.push('drafts');
-            },
-            preparePostSaveReload: () => ({
-                promise: reload.promise,
-                cancel: () => reload.resolve(),
-            }),
+            acceptAdoption: adoption => adoption,
             // Adoption moves the document to the revision Save As committed, as a repaired output does.
             saveWorkingCopyAs: vi.fn(async () => {
                 deps.documentRevisionToken.value = requireDocumentRevisionToken(savedRevision);
@@ -836,21 +829,19 @@ describe('workspace save failure surfacing', () => {
                     outPath: requireDocumentRef('/tmp/new.pdf'),
                     saveMode: 'save_as_rewrite' as const,
                     didSaveAs: true,
+                    ...(publishes ? {adoption: reload.promise.then(() => ({status: 'presented' as const}))} : {}),
                 };
             }),
         });
         const service = useWorkspaceSaveServiceForTest(deps);
 
-        const saving = service.handleSaveAs().then((saved) => {
-            events.push('saved');
-            return saved;
-        });
-        await vi.waitFor(() => expect(deps.saveWorkingCopyAs).toHaveBeenCalled());
-        events.push('view reloaded');
-        reload.resolve();
-
-        await expect(saving).resolves.toBe(true);
-        expect(events).toEqual(expectedEvents);
+        await expect(service.handleSaveAs()).resolves.toBe(true);
+        if (publishes) {
+            await Promise.resolve();
+            expect(deps.isSavingAs.value).toBe(true);
+            reload.resolve();
+        }
+        await vi.waitFor(() => expect(deps.isSavingAs.value).toBe(false));
     });
 
     it('tells the user about a superseded save without marking the new document', async () => {

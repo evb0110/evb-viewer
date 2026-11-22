@@ -39,7 +39,6 @@ import {
     type INativePdfSaveTransactionOptions,
 } from '@app/modules/workspace-shell/composables/consumeNativePdfMutationProjection';
 import type {
-    IPostSaveReloadWaiter,
     ISaveCompletionPolicy,
     TWorkspaceSaveExecutionResult,
 } from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionResult';
@@ -331,7 +330,8 @@ export interface IWorkspaceSaveDependencies {
     };
     lifecycle: {
         loadRecentFiles: () => void;
-        preparePostSaveReload?: () => IPostSaveReloadWaiter;
+        /** What a Save's lease waits for after its durable result: the new revision's job, ended. */
+        acceptAdoption?: (adoption: NonNullable<IPdfPersistResult['adoption']>) => Promise<unknown> | undefined;
         /** The document's draft writer: Save waits for it before it writes and after it publishes. */
         commitDrafts: () => Promise<void>;
     };
@@ -395,18 +395,6 @@ export function isTargetCurrent(
     return deps.document.sessionKey.value === plan.target.expectedDocumentSessionKey
         && deps.document.originalPath.value === plan.target.expectedOriginalPath
         && deps.document.workingCopyPath.value === plan.target.expectedWorkingPath;
-}
-
-export async function withReloadWaiter<T>(
-    reloadWaiter: IPostSaveReloadWaiter | null,
-    operation: () => Promise<T>,
-) {
-    try {
-        return await operation();
-    } catch (error) {
-        reloadWaiter?.cancel();
-        throw error;
-    }
 }
 
 export interface IWorkspaceSaveCompletionDependencies {

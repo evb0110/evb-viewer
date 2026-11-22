@@ -72,6 +72,16 @@ export function createPdfDocumentSessionSlot(options: ICreatePdfDocumentSessionO
             if (intent === 'clear') settlePdfSourceJob(job, {status: 'released'});
             return job;
         },
+        /** The reload or Save adoption still running for the published source, else null. */
+        running() {
+            const job = session.value?.currentJob ?? waitingJob;
+            return job?.source && job.intent !== 'open' && !job.abort.signal.aborted ? job : null;
+        },
+        /** Ends a running job as released; a waiting one is no longer handed to the first viewer. */
+        release(job: IPdfSourceJob) {
+            if (job === waitingJob) waitingJob = null;
+            settlePdfSourceJob(job, {status: 'released'});
+        },
         resolve(create: (sessionOptions: ICreatePdfDocumentSessionOptions) => TPdfDocumentSession) {
             if (!session.value) {
                 session.value = scope.run(() => create(options)) ?? null;
