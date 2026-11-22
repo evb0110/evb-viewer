@@ -57,7 +57,7 @@ function getRecoveryTarget(tab: IWorkspaceCheckpointTab): TOpenFileResult | null
 // only be replayed onto the exact bytes it was captured from. A working copy
 // that moved, was rewritten, or belongs to a different document instance makes
 // the payload unattributable rather than merely stale.
-function applyAnnotationRecovery(
+async function applyAnnotationRecovery(
     checkpointTab: IWorkspaceCheckpointTab,
     workspace: IWorkspaceExpose,
     session: IWorkspaceDocumentController,
@@ -75,7 +75,7 @@ function applyAnnotationRecovery(
         return false;
     }
     if (recovery.payload !== undefined) {
-        workspace.restoreCanonicalAnnotationRecovery?.(recovery.payload);
+        await workspace.restoreCanonicalAnnotationRecovery?.(recovery.payload);
     }
     return true;
 }
@@ -112,7 +112,7 @@ async function restoreTab(
         if (session.snapshot.value.phase !== 'presented') {
             return false;
         }
-        recoveryApplied = applyAnnotationRecovery(checkpointTab, workspace, session);
+        recoveryApplied = await applyAnnotationRecovery(checkpointTab, workspace, session);
         workspace.restoreViewState(checkpointTab);
         // The tab itself opened and keeps its view. Only an unattributable
         // recovery is withheld; reporting it keeps the checkpoint as evidence.

@@ -16,7 +16,10 @@ import {
     type INoteEntity,
     type ITextMarkupEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import {requirePageIndex} from '@contracts/pageNumbers';
+import {
+    requirePageIndex,
+    requirePageNumber,
+} from '@contracts/pageNumbers';
 import {requireEpochMs} from '@contracts/timestamps';
 
 const rect = {
@@ -612,6 +615,33 @@ describe('AnnotationStore external identity history', () => {
         expect(store.resolveExternal({pdfRef: '12R'})).toBeNull();
     });
 
+    it.each([false, true])('keeps an unsaved deletion when a page move renames its object in the re-read (saved baseline kept: %s)', (preserveSavedBaseline) => {
+        const store = new AnnotationStore();
+        store.replaceFromDocument([note('first-read-id', '15 0 R', {pageIndex: requirePageIndex(1)})], []);
+        store.delete(asAnnotationId('first-read-id'));
+        store.remapPages({previousPageCount: 2, pages: [{fromPageNumber: 2}, {fromPageNumber: 1}]});
+        // The re-read bytes still hold the object; the parser names an annotation without /NM by its new page.
+        store.replaceFromDocument([note('moved-read-id', '15 0 R')], [], undefined, [], [], preserveSavedBaseline);
+
+        expect(store.list()).toEqual([]);
+        expect(store.dirtyEntities()).toEqual([expect.objectContaining({
+            identity: identity('first-read-id', '15 0 R'),
+            pageIndex: 0,
+            deleted: true,
+        })]);
+    });
+
+    it('gives a deletion the working bytes hold no object that reuses its number', () => {
+        const store = new AnnotationStore();
+        store.replaceFromDocument([note('deleted-note', '15 0 R')], []);
+        store.delete(asAnnotationId('deleted-note'));
+        store.replaceFromDocument([], [], undefined, [], [], true);
+        store.replaceFromDocument([note('new-object', '15 0 R')], [], undefined, [], [], true);
+
+        expect(store.list().map(entity => entity.identity.id)).toEqual(['new-object']);
+        expect(store.get(asAnnotationId('deleted-note'))).toMatchObject({deleted: true});
+    });
+
     it('keeps parsed identity metadata on a tombstone without publishing a live binding', () => {
         const store = new AnnotationStore();
         const entity = note('deleted-note', '13R');
@@ -732,5 +762,41 @@ describe('AnnotationStore external identity history', () => {
         store.forget(new Set([competing.identity.id]));
         expect(store.redo()).toBe(true);
         expect(store.resolveExternal({pdfRef: '18R'})).toBe(original.identity.id);
+    });
+
+    it('updates a live annotation in place when rotation changes its geometry after remapPages', () => {
+        const store = new AnnotationStore();
+        const original = note('pdf-page-0-5-0-R', '5 0 R', {
+            persistedRevision: 0,
+            contents: 'Rotated note',
+            position: rect,
+        });
+        store.replaceFromDocument([original], []);
+        store.remapPages({
+            previousPageCount: 1,
+            nextPageCount: 1,
+            pages: [{fromPageNumber: requirePageNumber(1)}],
+        });
+
+        const rotatedRect = {
+            left: 0.72,
+            top: 0.14,
+            width: 0.04,
+            height: 0.3,
+        };
+        store.replaceFromDocument([
+            note('pdf-page-0-5-0-R', '5 0 R', {
+                persistedRevision: 0,
+                contents: 'Rotated note',
+                position: rotatedRect,
+            }),
+        ], [], undefined, [], [], true);
+
+        expect(store.list()).toHaveLength(1);
+        expect(store.get(original.identity.id)).toMatchObject({
+            position: rotatedRect,
+            deleted: false,
+        });
+        expect(store.hasChangesSinceWorkingBaseline()).toBe(false);
     });
 });

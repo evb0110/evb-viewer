@@ -26,7 +26,10 @@ import { buildWorkspaceCheckpoint } from '@app/modules/workspace-shell/checkpoin
 import {createWorkspaceDocumentRecovery} from '@app/modules/workspace-shell/checkpoint/createWorkspaceDocumentRecovery';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
-import {captureCanonicalAnnotationRecovery} from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
+import {
+    captureCanonicalAnnotationRecovery, restoreCanonicalAnnotationRecovery,
+} from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
+import type {IPdfViewerExpose} from '@app/modules/pdf-viewer/public';
 import {
     asAnnotationId,
     type INoteEntity,
@@ -331,15 +334,19 @@ const highlight: ITextMarkupEntity = {
     opacity: 0.5,
 };
 
-function createRecovery(options: {phase?: string; noteText?: () => string | null; bookmarks?: boolean} = {}) {
+interface IRecoveryControllerSnapshot {phase: string; identity: Record<string, unknown>}
+
+function createRecovery(options: {
+    phase?: string;
+    noteText?: () => string | null;
+    bookmarks?: boolean;
+    joinRead?: ((store: AnnotationStore, snapshot: {value: IRecoveryControllerSnapshot}) => Promise<boolean> | null) | undefined;
+    commentsStatus?: {value: string};
+} = {}) {
     const store = new AnnotationStore();
     store.replaceFromDocument([highlight], []);
-    const recovery = createWorkspaceDocumentRecovery({
-        controller: cast({snapshot: ref({
-            phase: options.phase ?? 'presented',
-            identity: {documentInstanceId: 'instance-1', workingCopyPath: '/managed/drafts.pdf', revisionInfo: {token: '1'}},
-        })}),
-        pdfViewer: () => cast({captureCanonicalAnnotationRecovery: () => {
+    const viewer = cast<IPdfViewerExpose>({
+        captureCanonicalAnnotationRecovery: () => {
             const text = options.noteText?.() ?? null;
             return captureCanonicalAnnotationRecovery(store, text === null ? [] : [{
                 annotationId: highlight.identity.id,
@@ -348,9 +355,27 @@ function createRecovery(options: {phase?: string; noteText?: () => string | null
                 text,
                 generation: 1,
             }]);
-        }}),
-        pdfDocumentAnnotations: cast({application: shallowRef({store}), textBoxDrafts: new Map()}),
-        annotations: cast({captureAnnotationNoteDrafts: () => [], getAnnotationNoteDraftsChangeSignature: () => []}),
+        },
+        restoreCanonicalAnnotationRecovery: (value: unknown) => restoreCanonicalAnnotationRecovery(store, value),
+    });
+    const snapshot = ref<IRecoveryControllerSnapshot>({
+        phase: options.phase ?? 'presented',
+        identity: {documentInstanceId: 'instance-1', workingCopyPath: '/managed/drafts.pdf', revisionInfo: {token: '1'}},
+    });
+    const recovery = createWorkspaceDocumentRecovery({
+        controller: cast({snapshot}),
+        pdfViewer: () => viewer,
+        pdfDocumentAnnotations: cast({
+            application: shallowRef({store}),
+            textBoxDrafts: new Map(),
+            joinRead: () => options.joinRead?.(store, snapshot) ?? null,
+            commentsStatus: options.commentsStatus ?? ref('ready'),
+        }),
+        annotations: cast({
+            captureAnnotationNoteDrafts: () => [],
+            getAnnotationNoteDraftsChangeSignature: () => [],
+            restoreAnnotationNoteDraft: vi.fn(),
+        }),
         metadata: cast({
             bookmarkState: {bookmarkItems: ref([])},
             pageLabelState: {pageLabelRanges: ref([])},
@@ -358,10 +383,53 @@ function createRecovery(options: {phase?: string; noteText?: () => string | null
         }),
         reportFailure: vi.fn(),
     });
-    return {store, recovery};
+    return {store, recovery, viewer};
 }
 
 describe('createWorkspaceDocumentRecovery', () => {
+    it('replays drafts captured during another read once the recovered bytes are read, and keeps them stored when that read fails', async () => {
+        const captured = new AnnotationStore();
+        captured.replaceFromDocument([highlight], [], undefined, [], [], false, requireDocumentRevisionToken('0'));
+        captured.createNote(cast<INoteEntity>({
+            kind: 'note', identity: {id: asAnnotationId('recovered-note')}, pageIndex: requirePageIndex(0), revision: 0, persistedRevision: -1,
+            deleted: false, createdAt: null, modifiedAt: null, author: null, contents: 'Recovered', position: {left: 0.1, top: 0.1, width: 0.02, height: 0.02},
+            color: '#ffff00', open: false,
+        }));
+        const duringOlderRead = captureCanonicalAnnotationRecovery(captured);
+        // The recovered bytes are revision 1; their read commits when joined.
+        const readOf = (landed: boolean) => (store: AnnotationStore) => {
+            if (landed) store.replaceFromDocument([highlight], [], undefined, [], [], false, requireDocumentRevisionToken('1'));
+            return Promise.resolve(landed);
+        };
+        const restore = async (joinRead: NonNullable<Parameters<typeof createRecovery>[0]>['joinRead'], payload: unknown = duringOlderRead) => {
+            const {store, recovery, viewer} = createRecovery({joinRead});
+            const restored = await recovery.restoreCanonicalAnnotationRecovery(viewer, payload).then(() => true, () => false);
+            return {restored, note: store.get(asAnnotationId('recovered-note'))};
+        };
+
+        expect(duringOlderRead.annotationReadRevision).toBe('0');
+        // Replay waits for the read it joins.
+        const pendingRead = Promise.withResolvers<boolean>();
+        const waiting = createRecovery({joinRead: () => pendingRead.promise});
+        const replayed = waiting.recovery.restoreCanonicalAnnotationRecovery(waiting.viewer, duringOlderRead);
+        await Promise.resolve();
+        expect(waiting.store.get(asAnnotationId('recovered-note'))).toBeNull();
+        pendingRead.resolve(true);
+        await replayed;
+        expect(waiting.store.get(asAnnotationId('recovered-note'))).toMatchObject({contents: 'Recovered'});
+        await expect(restore(readOf(true))).resolves.toMatchObject({restored: true, note: {contents: 'Recovered'}});
+        await expect(restore(readOf(false))).resolves.toEqual({restored: false, note: null});
+        // A tab whose document has not loaded waits for its first read; drafts taken after the current read need none.
+        await expect(restore(() => null)).resolves.toEqual({restored: true, note: null});
+        await expect(restore(readOf(false), {...duringOlderRead, annotationReadRevision: '1'}))
+            .resolves.toMatchObject({restored: true, note: {contents: 'Recovered'}});
+        // Bytes that changed while their read was joined are not the ones the drafts were admitted for.
+        await expect(restore((store, snapshot) => {
+            snapshot.value = {...snapshot.value, identity: {...snapshot.value.identity, revisionInfo: {token: '2'}}};
+            return readOf(true)(store);
+        })).resolves.toEqual({restored: false, note: null});
+    });
+
     it('keeps the stored drafts while the document is not presented', () => {
         expect(createRecovery({phase: 'opening'}).recovery.capture()).toBeNull();
     });
@@ -380,6 +448,39 @@ describe('createWorkspaceDocumentRecovery', () => {
 
     it('keeps a bookmark edit, which an empty annotation store does not represent', () => {
         expect(createRecovery({bookmarks: true}).recovery.capture()?.metadata?.bookmarks).toMatchObject({dirty: true, items: []});
+    });
+
+    it('replays drafts captured during another read once a background document is first read, holding them until then', async () => {
+        const setDocumentDrafts = vi.spyOn(getWindowTabsCapability(), 'setDocumentDrafts').mockResolvedValue(true);
+        const captured = new AnnotationStore();
+        captured.replaceFromDocument([highlight], [], undefined, [], [], false, requireDocumentRevisionToken('0'));
+        captured.updateTextMarkup(highlight.identity.id, {contents: 'Recovered comment'});
+        const payload = JSON.parse(JSON.stringify(captureCanonicalAnnotationRecovery(captured)));
+        const commentsStatus = ref('loading');
+        let viewHasDocument = false;
+        const rotated = {...highlight, quadPoints: [{left: 0.6, top: 0.1, width: 0.05, height: 0.2}]};
+        const {store, recovery, viewer} = createRecovery({
+            commentsStatus,
+            joinRead: (target) => {
+                if (!viewHasDocument) return null;
+                target.replaceFromDocument([rotated], [], undefined, [], [], true, requireDocumentRevisionToken('1'));
+                return Promise.resolve(true);
+            },
+        });
+        const settle = recovery.holdDrafts();
+
+        await expect(recovery.restoreCanonicalAnnotationRecovery(viewer, payload)).resolves.toBeNull();
+        settle(true);
+        expect(store.get(highlight.identity.id)).toMatchObject({contents: highlight.contents});
+        await expect(recovery.commitDrafts()).rejects.toThrow('stay stored');
+        expect(setDocumentDrafts).not.toHaveBeenCalled();
+
+        viewHasDocument = true;
+        commentsStatus.value = 'ready';
+        await vi.waitFor(() => expect(store.get(highlight.identity.id)).toMatchObject({contents: 'Recovered comment', quadPoints: rotated.quadPoints}));
+        await recovery.commitDrafts();
+        expect(setDocumentDrafts).toHaveBeenCalledTimes(1);
+        setDocumentDrafts.mockRestore();
     });
 
     it('stores a burst of edits with one write, and holds stored drafts until recovered ones are applied', async () => {
@@ -408,7 +509,8 @@ describe('createWorkspaceDocumentRecovery', () => {
 
         recovery.holdDrafts()(false);
         note('after-failed-replay');
-        await recovery.commitDrafts();
+        // The stored drafts are the only copy of the recovered work, so nothing that commits them first may proceed.
+        await expect(recovery.commitDrafts()).rejects.toThrow('Recovered annotation drafts that were not applied stay stored');
         expect(setDocumentDrafts).toHaveBeenCalledTimes(2);
         setDocumentDrafts.mockRestore();
     });

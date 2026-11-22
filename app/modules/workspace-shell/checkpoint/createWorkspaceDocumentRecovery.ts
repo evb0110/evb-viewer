@@ -2,15 +2,21 @@ import type {IPdfViewerExpose, TPdfDocumentAnnotations} from '@app/modules/pdf-v
 import type {useMetadataSession} from '@app/modules/workspace-shell/composables/useMetadataSession';
 import type {useWorkspaceAnnotationSession} from '@app/modules/workspace-shell/composables/useWorkspaceAnnotationSession';
 import type {IWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {isRecord} from '@contracts/runtimeGuards';
 import {readWorkspaceRecoveryMetadata} from '@contracts/workspaceCheckpoint';
 import type {IWorkspaceDocumentRecovery} from '@app/types/workspaceDocumentRecovery';
 import {getErrorMessage} from '@app/utils/error';
 import {getWindowTabsCapability} from '@app/utils/platformWindowTabs';
 
+interface IDraftHold {
+    released: PromiseWithResolvers<void>;
+    failedInstance?: string | null;
+}
+
 interface IWorkspaceDocumentRecoveryOptions {
     controller: Pick<IWorkspaceDocumentController, 'snapshot'>;
     pdfViewer: () => IPdfViewerExpose | null;
-    pdfDocumentAnnotations: Pick<TPdfDocumentAnnotations, 'application' | 'textBoxDrafts'>;
+    pdfDocumentAnnotations: Pick<TPdfDocumentAnnotations, 'application' | 'textBoxDrafts' | 'joinRead' | 'commentsStatus'>;
     annotations: Pick<ReturnType<typeof useWorkspaceAnnotationSession>, 'captureAnnotationNoteDrafts' | 'getAnnotationNoteDraftsChangeSignature' | 'restoreAnnotationNoteDraft'>;
     metadata: Pick<ReturnType<typeof useMetadataSession>, 'bookmarkState' | 'pageLabelState' | 'captureRecovery' | 'restoreRecovery'>;
     reportFailure: (cause: unknown) => void;
@@ -70,9 +76,12 @@ export function createWorkspaceDocumentRecovery(options: IWorkspaceDocumentRecov
     let stale = false;
     let running: Promise<void> | null = null;
     let failure: unknown = null;
-    // From the claim of recovered drafts until they are applied the writer does not run. After a failed replay the
-    // stored drafts stay untouched while this document instance is open.
-    let hold: {released: PromiseWithResolvers<void>; failedInstance?: string | null} | null = null;
+    // From the claim of recovered drafts until they are applied the writer does not run. After a failed replay, and
+    // while a replay waits for a read no view can join yet, the stored drafts are the only copy: they stay untouched
+    // while this document instance is open, and nothing that commits the drafts first may replace them.
+    let hold: IDraftHold | null = null;
+    // A replay waiting for the first read of a document no view has loaded, such as a tab restored in the background.
+    let deferred: {hold: IDraftHold; value: unknown; revision: string | undefined} | null = null;
     const held = () => hold !== null && (hold.failedInstance === undefined || hold.failedInstance === controller.snapshot.value.identity.documentInstanceId);
 
     async function run() {
@@ -102,6 +111,7 @@ export function createWorkspaceDocumentRecovery(options: IWorkspaceDocumentRecov
     /** Resolves once the drafts hold the unsaved state as it is now; rejects when it could not be stored. */
     async function commitDrafts() {
         if (hold?.failedInstance === undefined) await hold?.released.promise;
+        if (held()) throw new Error('Recovered annotation drafts that were not applied stay stored');
         if (stale) running ??= run();
         while (running) await running;
         if (stale && !held() && failure !== null) throw failure;
@@ -118,13 +128,38 @@ export function createWorkspaceDocumentRecovery(options: IWorkspaceDocumentRecov
         metadata.pageLabelState.pageLabelRanges.value,
         controller.snapshot.value.identity.revisionInfo?.token,
     ], markStale, {flush: 'sync'});
+    watch(() => pdfDocumentAnnotations.commentsStatus.value, (status) => {
+        const waiting = deferred;
+        const joined = status === 'ready' && waiting ? pdfDocumentAnnotations.joinRead() : null;
+        if (!waiting || !joined) return;
+        deferred = null;
+        void joined.then((read) => {
+            const {documentInstanceId, revisionInfo} = controller.snapshot.value.identity;
+            if (!read || hold !== waiting.hold || documentInstanceId !== waiting.hold.failedInstance || revisionInfo?.token !== waiting.revision) {
+                return;
+            }
+            replay(pdfViewer(), waiting.value);
+            hold = null;
+            markStale();
+        }).catch(options.reportFailure);
+    });
+
+    function replay(viewer: IPdfViewerExpose | null, value: unknown) {
+        const recoveredMetadata = readWorkspaceRecoveryMetadata(value);
+        const recovery = viewer?.restoreCanonicalAnnotationRecovery?.(value);
+        if (!recovery) throw new Error('Canonical annotation recovery is unavailable');
+        recovery.drafts.forEach(draft => annotations.restoreAnnotationNoteDraft(draft));
+        if (recoveredMetadata) metadata.restoreRecovery(recoveredMetadata);
+        return recovery;
+    }
 
     return {
         capture,
         commitDrafts,
         /** Holds the writer while recovered drafts are replayed; the returned settle says whether they were applied. */
         holdDrafts() {
-            const current: NonNullable<typeof hold> = {released: Promise.withResolvers<void>()};
+            const current: IDraftHold = {released: Promise.withResolvers<void>()};
+            hold?.released.resolve();
             hold = current;
             return (applied: boolean) => {
                 if (hold !== current) return;
@@ -137,14 +172,33 @@ export function createWorkspaceDocumentRecovery(options: IWorkspaceDocumentRecov
                 markStale();
             };
         },
-        /** Puts recovered drafts back through `viewer`, the view the restored tab shows. */
-        restoreCanonicalAnnotationRecovery: (viewer: IPdfViewerExpose | null, value: unknown) => {
-            const recoveredMetadata = readWorkspaceRecoveryMetadata(value);
-            const recovery = viewer?.restoreCanonicalAnnotationRecovery?.(value);
-            if (!recovery) throw new Error('Canonical annotation recovery is unavailable');
-            recovery.drafts.forEach(draft => annotations.restoreAnnotationNoteDraft(draft));
-            if (recoveredMetadata) metadata.restoreRecovery(recoveredMetadata);
-            return recovery;
+        /**
+         * Puts recovered drafts back through `viewer`, the view the restored tab shows. Drafts captured from another
+         * read than that of the recovered bytes take that read's geometry, so they wait for it; when it fails they stay
+         * stored. While no view has the document loaded, the replay waits for its first read and the drafts stay held.
+         */
+        restoreCanonicalAnnotationRecovery: async (viewer: IPdfViewerExpose | null, value: unknown) => {
+            const readRevision = isRecord(value) ? value.annotationReadRevision : undefined;
+            const {documentInstanceId, revisionInfo} = controller.snapshot.value.identity;
+            if (readRevision !== undefined && readRevision !== revisionInfo?.token) {
+                const joined = pdfDocumentAnnotations.joinRead();
+                if (joined === null) {
+                    // The settle of the hold this replaces no longer releases the writer; resolve any caller awaiting it.
+                    const waiting: IDraftHold = {released: Promise.withResolvers<void>(), failedInstance: documentInstanceId};
+                    waiting.released.resolve();
+                    hold?.released.resolve();
+                    hold = waiting;
+                    deferred = {hold: waiting, value, revision: revisionInfo?.token};
+                    return null;
+                }
+                if (!await joined) throw new Error('The recovered document\'s annotations could not be read');
+                // The drafts belong to the bytes they were admitted for; a document that changed meanwhile keeps them stored.
+                const current = controller.snapshot.value.identity;
+                if (current.documentInstanceId !== documentInstanceId || current.revisionInfo?.token !== revisionInfo?.token) {
+                    throw new Error('The recovered document changed while its annotations were read');
+                }
+            }
+            return replay(viewer, value);
         },
     };
 }

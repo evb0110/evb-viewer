@@ -402,6 +402,11 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
         adoptCurrentRevision,
         feedStoreFromWriterParse,
         getWriterParseResult: () => writerParseTask?.result ?? null,
+        /** Joins the read of the revision a view presents, starting it if none runs; null while no view has its document. */
+        joinRead() {
+            const view = [...views].find(candidate => candidate.document.pdfDocument.value);
+            return view ? feedStoreFromWriterParse(view.document, view.originalPath) : null;
+        },
         /** The rectangle of a draft in the viewer whose editor holds it open. */
         getTextBoxDraftRect(annotationId: string) {
             return [...views].map(view => view.getTextBoxDraftRect(annotationId)).find(rect => rect !== null)

@@ -78,6 +78,7 @@ import {
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import { waitForActiveWorkspaceHost } from '@tests/e2e/electron/helpers/viewerDom';
+import { readWorkspaceRecoveryRecords } from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 import { countWarmHighlightPixels } from '@tests/e2e/electron/helpers/searchHighlightPaint';
 import {
     clickAsUser,
@@ -1214,6 +1215,46 @@ async function rotateImportedAnnotationPage(page: Page, pageNumber: number) {
         .find(element => element.textContent?.trim() === 'Rotate Clockwise'), null, {description: 'Rotate Clockwise'});
 }
 
+/** Moves pages two and three before page one in one keyboard move of their thumbnails: order 2, 3, 1. */
+async function movePagesTwoAndThreeFirst(page: Page) {
+    await openDocumentSidebarTab(page, 'Pages');
+    await clickAsUser(page, '.editor-pane.is-active [data-thumbnail-page="2"]');
+    // Scroll thumbnail 3 into view before holding Shift, because Shift+wheel scrolls horizontally on Linux.
+    await revealForPointer(page, '.editor-pane.is-active [data-thumbnail-page="3"]');
+    await page.keyboard.down('Shift');
+    await clickAsUser(page, '.editor-pane.is-active [data-thumbnail-page="3"]');
+    await page.keyboard.up('Shift');
+    await page.keyboard.down('Alt');
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.up('Alt');
+}
+
+/** The sidebar row of the note whose text includes `text`. */
+async function noteRowWithText(page: Page, text: string) {
+    const id = await page.$$eval('.editor-pane.is-active .note-item[data-annotation-kind="note"]', (rows, expected) => rows
+        .find(row => row.textContent?.includes(expected))?.getAttribute('data-annotation-id'), text);
+    if (!id) throw new Error(`No note row shows ${text}`);
+    return `.editor-pane.is-active .note-item[data-annotation-id="${id}"]`;
+}
+
+const THIRD_PAGE_NOTE = 'Third page note';
+
+/** Page three holds a second note without /NM, at the imported note's rectangle with its own text. */
+function addThirdPageNote(document: PDFDocument) {
+    const third = document.addPage([612, 792]);
+    const note = document.context.register(document.context.obj({
+        Type: PDFName.of('Annot'),
+        Subtype: PDFName.of('Text'),
+        P: third.ref,
+        F: 4,
+        Rect: [286, 616, 306, 636],
+        Contents: PDFHexString.fromText(THIRD_PAGE_NOTE),
+        C: [1, 0.8, 0],
+        Name: PDFName.of('Comment'),
+    }));
+    third.node.set(PDFName.of('Annots'), document.context.obj([note]));
+}
+
 async function readImportedNoteCenter(page: Page) {
     // Compare page-relative anchors, independent of scroll and raster layout.
     return page.$eval(IMPORTED_NOTE_MARKER, marker => ({
@@ -1470,7 +1511,9 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         sessionName: () => `e2e-annotation-lifecycle-${Date.now()}`,
     });
 
-    async function openImportedAnnotationFixture(mode: 'mixed' | 'comments' | 'sibling') {
+    // 'reorder' adds pages two and three, the third with a second note, and leaves both notes without /NM,
+    // so the parser names them by page and object, which a page move renumbers.
+    async function openImportedAnnotationFixture(mode: 'mixed' | 'comments' | 'sibling' | 'reorder') {
         const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'evb-note-rotation-save-')));
         let restoreSession: (() => Promise<unknown>) | undefined;
         onTestFinished(async () => {
@@ -1496,6 +1539,14 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             const document = await PDFDocument.load(readFileSync(fixtureSource), {updateMetadata: false});
             if (mode === 'sibling') {
                 addSiblingPageSquare(document);
+            } else if (mode === 'reorder') {
+                addSiblingPageSquare(document);
+                addThirdPageNote(document);
+                const annotations = document.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
+                for (let index = 0; index < annotations.size(); index++) {
+                    const annotation = annotations.lookup(index, PDFDict);
+                    if (annotation.get(PDFName.of('Subtype'))?.toString() === '/Text') annotation.delete(PDFName.of('NM'));
+                }
             } else {
                 const annotations = document.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
                 for (let index = annotations.size() - 1; index >= 0; index--) {
@@ -1564,6 +1615,11 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             async rotateAndHoldReadback() {
                 writeFileSync(armed, 'hold next real annotation readback');
                 await rotateImportedAnnotationPage(page, rotatedPage);
+                await expect.poll(() => existsSync(held), {timeout: 20_000}).toBe(true);
+            },
+            async reorderAndHoldReadback() {
+                writeFileSync(armed, 'hold next real annotation readback');
+                await movePagesTwoAndThreeFirst(page);
                 await expect.poll(() => existsSync(held), {timeout: 20_000}).toBe(true);
             },
             async waitForRotatedAnnotations() {
@@ -1681,6 +1737,114 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await assertImportedAnnotationSave(view, 'e', [180], {
             note: IMPORTED_COMMENTS.note.edited,
         });
+    });
+
+    /**
+     * #1686: the app stops without saving while a page operation's annotation read is held. After the
+     * recovery writer stored `marker`, the app is killed with its checkpoint kept, the held read is let go,
+     * and the relaunched app restores the document, shows the draft in the note window and saves it.
+     */
+    /** The annotation recovery payloads of the latest stored checkpoint. */
+    function readLatestRecoveryPayloads() {
+        interface IRecoveryRecord {checkpoint?: {capturedAt?: number; tabs: Array<{annotationRecovery?: {payload?: {
+            entities?: Array<{kind: string; deleted: boolean; persistedRevision: number}>;
+        }}}>}}
+        return (readWorkspaceRecoveryRecords<IRecoveryRecord>(sessionFixture.getSession().name)[0]?.checkpoint?.tabs ?? [])
+            .flatMap(tab => tab.annotationRecovery?.payload ?? []);
+    }
+
+    async function crashRecoverAndSave(view: Awaited<ReturnType<typeof openImportedAnnotationFixture>>, marker: string) {
+        await expect.poll(() => readLatestRecoveryPayloads().some(payload => JSON.stringify(payload).includes(marker)), {timeout: 20_000}).toBe(true);
+        expect(readFileSync(view.fixture)).toEqual(view.originalBytes);
+        const {page} = await sessionFixture.restart({hard: true, clean: false, extraEnv: {}});
+        view.release();
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await openAnnotationsTab(page);
+        const textarea = `${IMPORTED_NOTE_WINDOW} textarea`;
+        // A draft past the note window's debounce is the note's text; reopen that note.
+        if (!await page.$(textarea)) await clickVisibleAnnotationControl(page, `${await noteRowWithText(page, marker)} .note-item-content`, 2);
+        await page.waitForSelector(textarea, {visible: true});
+        expect(await page.$eval(textarea, element => (element as HTMLTextAreaElement).value), 'recovered note draft').toBe(marker);
+        await saveViaVisibleToolbar(page, 30_000, view.fixture);
+        return readImportedAnnotationBytes(readFileSync(view.fixture));
+    }
+
+    async function typeIntoOpenNote(page: Page, marker: string) {
+        await clickAsUser(page, `${IMPORTED_NOTE_WINDOW} textarea`);
+        await selectAllFocusedAnnotationText(page);
+        await page.keyboard.type(marker);
+    }
+
+    function savedNote(saved: Awaited<ReturnType<typeof readImportedAnnotationBytes>>, pageIndex: number) {
+        const notes = (saved.annotations[pageIndex] ?? []).filter(annotation => annotation.subtype === '/Text');
+        expect(notes, `sticky notes on page ${pageIndex + 1}`).toHaveLength(1);
+        return {contents: notes[0]!.contents, rect: pdfCoordinates(notes[0]!.rect)};
+    }
+
+    const IMPORTED_NOTE_RECT = [286, 616, 306, 636].map(value => expect.closeTo(value, 3));
+
+    it('#1686 saves a recovered note draft typed during rotation readback in the rotated page frame', async () => {
+        const view = await openImportedAnnotationFixture('mixed');
+        const marker = 'Note draft recovered after rotation readback';
+        await openImportedComment(view.page, 'note');
+        await view.rotateAndHoldReadback();
+        await typeIntoOpenNote(view.page, marker);
+
+        const saved = await crashRecoverAndSave(view, marker);
+        expect(saved.rotations, 'page /Rotate').toEqual([90]);
+        expect(savedNote(saved, 0)).toEqual({contents: marker, rect: IMPORTED_NOTE_RECT});
+    });
+
+    it('#1686 saves a recovered draft of a note without /NM typed during a page reorder readback', async () => {
+        const view = await openImportedAnnotationFixture('reorder');
+        const marker = 'Note draft recovered after page reorder readback';
+        await view.reorderAndHoldReadback();
+        // The note's page moved to the end; its sidebar row opens its window where the page now shows.
+        await openAnnotationsTab(view.page);
+        await clickVisibleAnnotationControl(view.page, `${await noteRowWithText(view.page, IMPORTED_COMMENTS.note.original)} .note-item-content`, 2);
+        await view.page.waitForSelector(`${IMPORTED_NOTE_WINDOW} textarea`, {visible: true});
+        await typeIntoOpenNote(view.page, marker);
+
+        const saved = await crashRecoverAndSave(view, marker);
+        expect(saved.rotations, 'page /Rotate').toEqual([0, 0, 0]);
+        expect(saved.annotations[0]?.filter(annotation => annotation.subtype === '/Text'), 'notes on the first page').toEqual([]);
+        expect(savedNote(saved, 1), 'the other note, now on page two').toEqual({contents: THIRD_PAGE_NOTE, rect: IMPORTED_NOTE_RECT});
+        expect(savedNote(saved, 2), 'the typed note, now on page three').toEqual({contents: marker, rect: IMPORTED_NOTE_RECT});
+    });
+
+    it('#1686 keeps a note without /NM deleted during a page reorder readback deleted', async () => {
+        const view = await openImportedAnnotationFixture('reorder');
+        const {page} = view;
+        const noteRows = '.editor-pane.is-active .note-item[data-annotation-kind="note"]';
+        // The stored drafts hold the deletion against the saved baseline until the re-read lands; a re-read
+        // keeps the saved baseline, so the recovery writer replaces that record right after the store publishes it.
+        const deletionBeforeReread = () => readLatestRecoveryPayloads().some(payload => payload.entities
+            ?.some(entity => entity.kind === 'note' && entity.deleted && entity.persistedRevision === 0));
+        await view.reorderAndHoldReadback();
+        await openAnnotationsTab(page);
+        const deletedRow = await noteRowWithText(page, IMPORTED_COMMENTS.note.original);
+        await revealForPointer(page, `${deletedRow} .note-item-content`);
+        await clickAsUser(page, `${deletedRow} .note-item-delete`);
+        await page.waitForSelector(deletedRow, {hidden: true});
+        await expect.poll(deletionBeforeReread, {timeout: 20_000}).toBe(true);
+        view.release();
+        await expect.poll(deletionBeforeReread, {timeout: 20_000}).toBe(false);
+        expect(readLatestRecoveryPayloads().some(payload => payload.entities?.some(entity => entity.kind === 'note' && entity.deleted)),
+            'stored drafts keep the deletion after the re-read').toBe(true);
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        await openAnnotationsTab(page);
+        await waitForSidebarAnnotationText(page, IMPORTED_COMMENTS.highlight.original);
+        const rowTexts = () => page.$$eval(noteRows, rows => rows.map(row => row.querySelector('.note-item-text')?.textContent?.trim()));
+        expect(await rowTexts(), 'note rows after the reorder re-read').toEqual([THIRD_PAGE_NOTE]);
+
+        const {outcome, saved} = await observeImportedAnnotationSave(view, '1686 deleted note');
+        expect(outcome, 'toolbar Save').toBe('saved');
+        expect(saved.annotations.map(pageAnnotations => pageAnnotations.filter(annotation => annotation.subtype === '/Text').map(annotation => annotation.contents)),
+            'saved sticky notes by page').toEqual([[], [THIRD_PAGE_NOTE], []]);
+        expect(saved.annotations[0]?.map(annotation => annotation.subtype), 'annotations on the moved-up page').toEqual(['/Square']);
+        await openAnnotationsTab(page);
+        expect(await rowTexts(), 'note rows after Save').toEqual([THIRD_PAGE_NOTE]);
     });
 
     it('preserves imported annotation geometry when Save is pressed during rotation readback', async () => {
