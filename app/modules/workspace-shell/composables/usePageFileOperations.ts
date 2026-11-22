@@ -2,6 +2,7 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
+import { until } from '@vueuse/core';
 import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWindow';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
@@ -9,7 +10,6 @@ import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { IRecentFile } from '@contracts/shared';
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
-import { waitUntilIdle } from '@app/utils/asyncHelpers';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { useFailureToast } from '@app/composables/useFailureToast';
 import { dirtyTabCloseConfirmationKey } from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
@@ -167,14 +167,9 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
             notifyBusyGate(action);
         }
 
+        // Waits on the busy state itself, not a timer.
         try {
-            return await waitUntilIdle(() =>
-                isAnySaving.value
-                || isHistoryBusy.value
-                || isExportingDocx.value
-                || isAnyAnnotationNoteSaving.value
-                || (isDocumentOperationInProgress?.value ?? false),
-            );
+            await until(hasBusyOperation).toBe(false);
         } finally {
             clearBusyGateFeedback();
         }
@@ -318,12 +313,10 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         logPersistenceGateStart();
 
         try {
-            const settled = await waitUntilAllIdle('switch');
-            if (!settled || hasBusyOperation()) {
-                BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Switch blocked: workspace remained busy after idle wait', {busyState: getBusyState()});
-                notifySaveFailure();
-                return false;
-            }
+            // A save that joins as another ends keeps it waiting.
+            do {
+                await waitUntilAllIdle('switch');
+            } while (hasBusyOperation());
 
             const decision = await resolveDirtySwitchDecision();
             if (decision === 'cancel') {
@@ -547,10 +540,9 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
 
     async function handleCloseFileFromUi(options: NonNullable<Parameters<IWorkspaceExpose['handleCloseFileFromUi']>[0]> = {}) {
         const shouldPersist = options.persist ?? false;
-        const settled = await waitUntilAllIdle('close');
-        if (!settled || hasBusyOperation()) {
-            return false;
-        }
+        do {
+            await waitUntilAllIdle('close');
+        } while (hasBusyOperation());
 
         if (shouldPersist) {
             try {

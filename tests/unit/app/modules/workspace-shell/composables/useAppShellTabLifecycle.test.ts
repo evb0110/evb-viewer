@@ -8,6 +8,7 @@ import {
     ref,
     shallowRef,
     watch,
+    type ShallowRef,
     type Ref,
 } from 'vue';
 import {
@@ -20,6 +21,12 @@ import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type * as TRecentReadingViewModule from '@app/modules/workspace-shell/document-sessions/recentReadingView';
 import { useAppShellTabLifecycle } from '@app/modules/workspace-shell/composables/useAppShellTabLifecycle';
+import {
+    usePageFileOperations,
+    type IPageFileOperationsDeps,
+} from '@app/modules/workspace-shell/composables/usePageFileOperations';
+import { cast } from '@tests/helpers/cast';
+import { until } from '@vueuse/core';
 import {
     createWorkspaceDocumentController,
     type IWorkspaceDocumentController,
@@ -41,15 +48,7 @@ vi.mock('@app/modules/workspace-shell/document-sessions/recentReadingView', asyn
     rememberReadingView: readingView.remember,
 }));
 
-const asyncHelpersMock = vi.hoisted(() => ({
-    waitForVisualFrames: vi.fn(async () => {}),
-    waitUntilIdle: vi.fn(async (isBusy: () => boolean) => {
-        while (isBusy()) {
-            await new Promise<void>(resolve => setTimeout(resolve, 0));
-        }
-        return true;
-    }),
-}));
+const asyncHelpersMock = vi.hoisted(() => ({waitForVisualFrames: vi.fn(async () => {})}));
 vi.mock('@app/utils/asyncHelpers', () => asyncHelpersMock);
 
 const toastAdd = vi.hoisted(() => vi.fn(() => ({id: 'busy-toast'})));
@@ -114,6 +113,7 @@ function createLifecycle(options: {
     panes: Ref<IEditorPaneState[]>;
     tabs: Ref<ITab[]>;
     sessions: Record<string, IWorkspaceDocumentController>;
+    documentSessions?: ShallowRef<Record<string, IWorkspaceDocumentController>>;
     activePaneId?: Ref<string | null>;
     activeTabId?: Ref<string | null>;
     decision?: TDirtyCloseDecision;
@@ -131,7 +131,7 @@ function createLifecycle(options: {
         tabs: options.tabs,
         activePaneId: options.activePaneId ?? ref(options.panes.value[0]?.paneId ?? null),
         activeTabId: options.activeTabId ?? ref(options.tabs.value[0]?.id ?? null),
-        documentSessionsByTabId: shallowRef(options.sessions),
+        documentSessionsByTabId: options.documentSessions ?? shallowRef(options.sessions),
         workspaceRestoreTracker: {
             start: vi.fn(),
             finish: vi.fn(),
@@ -156,6 +156,77 @@ function createLifecycle(options: {
 }
 
 describe('useAppShellTabLifecycle', () => {
+    // A linked view that detaches holds another document from then on; its
+    // close waits on that one, not on the Save its former document still runs.
+    it('waits on the document the tab holds now when a detached view replaces it', async () => {
+        const shared = createDocumentSession('tab-a');
+        shared.addView('tab-b');
+        const save = Promise.withResolvers<undefined>();
+        void shared.operationLease.runExclusive('save', () => save.promise);
+        const own = createDocumentSession('tab-a');
+        const documentSessions = shallowRef<Record<string, IWorkspaceDocumentController>>({
+            'tab-a': shared,
+            'tab-b': shared,
+        });
+        const tabs = ref<ITab[]>([
+            {id: 'tab-a'},
+            {id: 'tab-b'},
+        ]);
+        const {lifecycle} = createLifecycle({
+            panes: ref([createPane('pane-1', 'tab-b', [
+                'tab-a',
+                'tab-b',
+            ])]),
+            tabs,
+            sessions: documentSessions.value,
+            documentSessions,
+            closeTab: (_paneId, tabId) => {
+                tabs.value = tabs.value.filter(tab => tab.id !== tabId);
+            },
+        });
+
+        const closing = lifecycle.handleCloseTab('pane-1', 'tab-a');
+        await Promise.resolve();
+        shared.removeView('tab-a');
+        documentSessions.value = {
+            'tab-a': own,
+            'tab-b': shared,
+        };
+
+        await closing;
+        expect(tabs.value.map(tab => tab.id)).toEqual(['tab-b']);
+        save.resolve(undefined);
+    });
+
+    // A note save that joins as another ends keeps the workspace close waiting; it then closes.
+    it('closes the file once a note save that joins as another ends has ended too', async () => {
+        const noteSaving = ref(true);
+        const closeFile = vi.fn(async () => {});
+        const operations = usePageFileOperations(cast<IPageFileOperationsDeps>({
+            pdfSrc: ref(null),
+            hasDocument: ref(true),
+            isAnySaving: ref(false),
+            isHistoryBusy: ref(false),
+            isExportingDocx: ref(false),
+            isAnyAnnotationNoteSaving: noteSaving,
+            isDocumentOperationInProgress: ref(false),
+            whenDocumentIdle: () => until(noteSaving).toBe(false),
+            closeFile,
+            closeAllDropdowns: vi.fn(),
+        }));
+
+        const closing = operations.handleCloseFileFromUi();
+        await Promise.resolve();
+        noteSaving.value = false;
+        noteSaving.value = true;
+        for (let step = 0; step < 10; step += 1) await Promise.resolve();
+        expect(closeFile).not.toHaveBeenCalled();
+        noteSaving.value = false;
+
+        await expect(closing).resolves.toBe(true);
+        expect(closeFile).toHaveBeenCalledOnce();
+    });
+
     it('waits for page work before asking, deduplicates close clicks, and discards only after settlement', async () => {
         toastAdd.mockClear();
         toastRemove.mockClear();

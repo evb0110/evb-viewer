@@ -1,34 +1,7 @@
-interface IWaitUntilIdleOptions {
-    delayMs?: number;
-    maxAttempts?: number;
-}
-
 interface IWaitForVisualFramesOptions {
     frames?: number;
     timeoutMs?: number;
     hiddenFallbackMs?: number;
-}
-
-export async function waitUntilIdle(
-    isBusy: () => boolean,
-    options: IWaitUntilIdleOptions = {},
-) {
-    const {
-        delayMs = 25,
-        maxAttempts = Number.POSITIVE_INFINITY,
-    } = options;
-    const normalizedDelayMs = Math.max(0, delayMs);
-    const normalizedMaxAttempts = Math.max(0, Math.floor(maxAttempts));
-    let attempts = 0;
-
-    while (isBusy() && attempts < normalizedMaxAttempts) {
-        await new Promise<void>((resolve) => {
-            setTimeout(resolve, normalizedDelayMs);
-        });
-        attempts += 1;
-    }
-
-    return !isBusy();
 }
 
 export async function waitForVisualFrames(

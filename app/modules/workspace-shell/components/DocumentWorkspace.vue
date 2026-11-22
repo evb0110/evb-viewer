@@ -436,9 +436,6 @@ onMounted(() => {
     documentLifecycle.presentWhenShown();
 });
 onBeforeUnmount(() => {
-    if (surfaceMode.value === 'scan-cleanup') {
-        scanCleanup.discardScanCleanupState();
-    }
     // A cold tab can unmount in the same render that hides it; capture
     // while the workspace is still live.
     documentLifecycle.captureViewState();

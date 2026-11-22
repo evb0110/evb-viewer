@@ -41,9 +41,13 @@ import {
 import type { IDocumentSourceCapabilities } from '@app/modules/document-viewer/public';
 import { EMPTY_SOURCE_CAPABILITIES } from '@app/modules/workspace-shell/document-sessions/useDocumentSourceSession';
 import {
+    discardScanCleanupDocumentState,
     flushScanCleanupDocumentPreferencesStore,
     flushScanCleanupPreferencesStore,
 } from '@app/modules/scan-cleanup/public/runtime';
+import { useScanCleanupSourceSha256 } from '@app/modules/scan-cleanup/public/workspace';
+import { captureFailureForPresentation } from '@app/utils/failureReporter';
+import { useFailureToast } from '@app/composables/useFailureToast';
 import { createDocumentViews } from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
 import { createReadingViewLifecycleHooks } from '@app/modules/workspace-shell/document-sessions/recentReadingView';
 
@@ -87,6 +91,14 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         admitPdfSource: intent => pdfDocumentSessionSlot.admit(intent),
         resetDocumentPresentation: () => resetDocumentPresentation(),
     });
+    // Scan Cleanup's source hash, acquired while a view shows it and kept until the revision changes.
+    const scanCleanupSource = useScanCleanupSourceSha256({
+        enabled: computed(() => [...views.viewPorts.value.values()].some(port => port.isActive.value
+            && controller.getView(port.tabId)?.viewState.value.surfaceMode === 'scan-cleanup')),
+        sourcePath: file.workingCopyPath,
+        documentRevision: file.documentRevisionToken,
+    });
+    const { presentFailureToast } = useFailureToast();
     const {
         settings: appSettings,
         save: saveSettings,
@@ -193,7 +205,19 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
             assertCurrent();
             await file.closeFile();
         },
+        // An accepted close discards Scan Cleanup's settings for the source it
+        // leaves, keyed as they are now; hiding or evicting a view does not.
+        retire: () => {
+            void discardScanCleanupDocumentState(file.documentKey.value, scanCleanupSource.sha256.value).catch((error: unknown) => {
+                BrowserLogger.warn('scan-cleanup', 'Failed to discard saved cleanup settings', error);
+                presentFailureToast({
+                    ...captureFailureForPresentation({code: 'RENDERER_WORKSPACE_OPERATION_FAILED', local: {source: 'scan-cleanup', message: 'Failed to discard saved cleanup settings', cause: error}}),
+                    title: t('errors.settings.save'),
+                });
+            });
+        },
     });
+
 
     const unencryptedSaveNotice = useUnencryptedSaveNotice();
     const getSourcePdfData = createPdfSourceDataReader({
@@ -569,6 +593,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         splitPayload,
         ocr,
         views,
+        scanCleanupSource,
     };
 };
 export type TDocumentContext = ReturnType<typeof createDocumentContext>;

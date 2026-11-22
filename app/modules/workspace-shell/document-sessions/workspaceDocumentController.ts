@@ -69,6 +69,8 @@ export interface IDocumentMutationFrontier {
     isDirty: () => boolean;
     prepare: TFrontierStep;
     close: TFrontierStep;
+    /** What a closing document resets, against the identity it has before it retires. */
+    retire?: () => void;
 }
 
 export interface IDocumentOperationLease {
@@ -592,11 +594,13 @@ export function createWorkspaceDocumentController(options: {
     }
 
     function runClose(request: IWorkspaceDocumentCloseRequest) {
-        const onCloseCommit = async () => {
-            // A document closes with its last view; that view's place is kept.
+        // A document closes with its last view; that view's place is kept. An
+        // accepted close resets what the document leaves behind; a move does not.
+        const onCloseCommit = async (retires = true) => {
             for (const tabId of views.value.keys()) {
                 await rememberReadingView(controller, tabId);
             }
+            if (retires) mutationFrontier.value?.retire?.();
             supersedeActiveTransaction();
             resetToEmpty();
         };
@@ -606,7 +610,7 @@ export function createWorkspaceDocumentController(options: {
             // lifecycle, rather than waiting for this same lease to become idle.
             request.ownership.assertCurrent();
             return frontier.close(request.assertCurrent ?? (() => undefined)).then(async () => {
-                await onCloseCommit();
+                await onCloseCommit(false);
                 return true;
             });
         }

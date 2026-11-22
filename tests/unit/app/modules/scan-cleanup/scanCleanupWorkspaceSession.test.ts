@@ -1549,6 +1549,23 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
+    // #1621: a tab that returns from eviction restores its preview page; the
+    // viewer has not counted the pages yet when the session starts.
+    it('keeps a retained preview page until the viewer has counted the pages', async () => {
+        capability.value = capabilityHarness().value;
+        const pages = ref(0);
+        const mounted = mountSession(`retained-preview-page-${Date.now()}`, {
+            initialPreviewPage: () => 3,
+            totalPages: () => pages.value,
+        });
+
+        expect(mounted.session.selection.leader.value).toBe(3);
+        pages.value = 4;
+        await nextTick();
+        expect(mounted.session.selection.leader.value).toBe(3);
+        mounted.unmount();
+    });
+
     it('auto-switches only for intentional multi-selection and its collapse', () => {
         capability.value = capabilityHarness().value;
         const mounted = mountSession(`scope-selection-${Date.now()}`);

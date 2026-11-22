@@ -5,10 +5,8 @@ import type {
 } from 'vue';
 import { uniq } from 'es-toolkit/array';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import {
-    waitForVisualFrames,
-    waitUntilIdle,
-} from '@app/utils/asyncHelpers';
+import { until } from '@vueuse/core';
+import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import type { IEditorPaneState } from '@contracts/editorPanes';
 import { parseTabId } from '@contracts/windowTabs';
@@ -212,8 +210,9 @@ export const useAppShellTabLifecycle = (
             notifyTabBusy(tabId);
         }
 
+        // Waits on the busy state of whichever document the tab holds now, not a timer.
         try {
-            return await waitUntilIdle(() => hasTabBusyOperation(tabId));
+            await until(() => hasTabBusyOperation(tabId)).toBe(false);
         } finally {
             clearTabBusyFeedback(tabId);
         }
