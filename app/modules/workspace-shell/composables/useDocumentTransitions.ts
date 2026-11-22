@@ -4,11 +4,13 @@ import type {
     IAnnotationEditorState,
 } from '@app/types/annotations';
 import type { TPdfSource } from '@app/types/pdfUi';
+import type { TDocumentRef } from '@contracts/documentRef';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { annotationIdForSummary } from '@app/modules/pdf-viewer/public';
 
 export interface IDocumentTransitionDeps {
     pdfSrc: Ref<TPdfSource | null>;
+    workingCopyPath: Ref<TDocumentRef | null>;
     pdfError: Ref<unknown>;
     /** Empties every view of the document: its pages, panels and tool. */
     clearViews: () => void;
@@ -32,6 +34,7 @@ export interface IDocumentTransitionDeps {
 export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
     const {
         pdfSrc,
+        workingCopyPath,
         clearViews,
         annotationComments,
         annotationActiveCommentStableKey,
@@ -91,6 +94,17 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
             bookmarkEditMode.value = false;
             closeContextMenus();
         }
+    });
+
+    // A same-document working-copy switch (a browser Save As, Optimize as a
+    // copy) has no open or close to reset in; its note windows close unsaved.
+    watch(workingCopyPath, (nextPath, previousPath) => {
+        if (nextPath === previousPath) {
+            return;
+        }
+        annotationActiveCommentStableKey.value = null;
+        closeContextMenus();
+        void closeAllAnnotationNotes({ saveIfDirty: false });
     });
 
     watch(annotationComments, comments => {
