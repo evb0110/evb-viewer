@@ -8,7 +8,7 @@ import {
 import {join} from 'node:path';
 import {PDFDocument} from 'pdf-lib';
 import {
-    chromium, type Page,
+    chromium, type BrowserContext, type Page,
 } from 'playwright';
 import {
     describe, expect, it,
@@ -29,17 +29,22 @@ async function launch(profile: string) {
         viewport: {width: 1280, height: 900},
         acceptDownloads: true,
     });
-    // The person's file lives at the origin private file system's root, behind a File that acts as its
-    // handle; the handle itself survives the restart in the browser's storage.
-    await context.addInitScript(installPickerHandleFixture);
-    await context.addInitScript((fileName) => {
-        Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
-        Reflect.set(window, 'showOpenFilePicker', async () => [new File([], fileName)]);
-    }, FILE_NAME);
-    const page = context.pages()[0] ?? await context.newPage();
-    await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
-    await waitForOpenFileReady(page);
-    return {context, page};
+    try {
+        // The person's file lives at the origin private file system's root, behind a File that acts as its
+        // handle; the handle itself survives the restart in the browser's storage.
+        await context.addInitScript(installPickerHandleFixture);
+        await context.addInitScript((fileName) => {
+            Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+            Reflect.set(window, 'showOpenFilePicker', async () => [new File([], fileName)]);
+        }, FILE_NAME);
+        const page = context.pages()[0] ?? await context.newPage();
+        await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+        await waitForOpenFileReady(page);
+        return {context, page};
+    } catch (error) {
+        await context.close().catch(() => undefined);
+        throw error;
+    }
 }
 
 /** SIGKILL for every process of the browser that uses `profile`, as a crash or a forced quit ends it. */
@@ -100,6 +105,72 @@ function writeUserFile(page: Page, bytes: Uint8Array, position = 0) {
 }
 
 describe('browser document lifecycle UI', () => {
+    it.each([
+        'Menu',
+        'Start-page',
+    ] as const)('#1612 %s Recent activates the recovered PDF and keeps its unsaved note', async (route) => {
+        const book = await createReadingBook('Crash recovery', FILE_NAME);
+        mkdirSync(join(process.cwd(), '.devkit'), {recursive: true});
+        const profile = mkdtempSync(join(process.cwd(), '.devkit', 'recent-recovery-profile-'));
+        let context: BrowserContext | undefined;
+        try {
+            let page: Page;
+            ({context, page} = await launch(profile));
+            const sourceTabs = () => page.locator('[data-tab-list] [role="tab"]').filter({hasText: FILE_NAME});
+            const recentRow = () => page.locator(
+                '[data-workspace-active="true"] [data-recent-open-actionable="true"] .recent-open',
+            ).filter({hasText: FILE_NAME, visible: true});
+            const expectNote = async () => {
+                await page.getByRole('button', {name: 'Open Note', exact: true}).click();
+                const note = page.getByRole('textbox', {name: 'Write annotation note', exact: true});
+                expect(await note.inputValue()).toBe(NOTE);
+                await page.getByRole('button', {name: 'Minimize note', exact: true}).click();
+            };
+            await writeUserFile(page, book.buffer);
+            await page.getByRole('button', {name: 'Open File', exact: true}).first().click();
+            await expect.poll(async () => (await readReadingView(page)).visibleText, {timeout: 30_000}).toBe('Crash recovery page 1');
+            await settleActiveOpen(page);
+            await page.getByRole('button', {name: 'Close Tab', exact: true}).click();
+            await recentRow().waitFor({state: 'visible'});
+            // Persist Recent through a graceful exit before editing and ending the app process.
+            await context.close();
+            ({context, page} = await launch(profile));
+            await recentRow().click();
+            await settleActiveOpen(page);
+            await addNote(page, NOTE, {x: 90, y: 100});
+            await expect.poll(async () => (await readRecoveries(page)).some(record => record.notes.has(NOTE)), {timeout: 15_000}).toBe(true);
+
+            killBrowser(profile);
+            await context.close().catch(() => undefined);
+            ({context, page} = await launch(profile));
+            await expect.poll(async () => (await readReadingView(page)).visibleText, {timeout: 30_000}).toBe('Crash recovery page 1');
+            await settleActiveOpen(page);
+            expect(await sourceTabs().count()).toBe(1);
+            const recoveredTabId = await sourceTabs().getAttribute('data-tab-id');
+            expect(recoveredTabId).toBeTruthy();
+            await expectNote();
+
+            await page.getByRole('button', {name: 'New Tab', exact: true}).click();
+            await recentRow().waitFor({state: 'visible'});
+            if (route === 'Menu') {
+                await page.getByRole('button', {name: 'Menu', exact: true}).click();
+                await page.getByRole('menuitem', {name: 'Open Recent', exact: true}).click();
+                await page.getByRole('menuitem', {name: FILE_NAME, exact: true}).click();
+            } else {
+                await recentRow().click();
+            }
+            const activeTab = page.locator('[data-tab-list] [role="tab"][aria-selected="true"]');
+            await expect.poll(() => activeTab.textContent(), {timeout: 15_000}).toContain(FILE_NAME);
+            await settleActiveOpen(page);
+            expect(await sourceTabs().count(), 'Recent must reuse the recovered source tab').toBe(1);
+            expect(await activeTab.getAttribute('data-tab-id')).toBe(recoveredTabId);
+            await expectNote();
+        } finally {
+            await context?.close().catch(() => undefined);
+            rmSync(profile, {recursive: true, force: true});
+        }
+    }, 180_000);
+
     // T2 and T3: a killed browser leaves the unsaved note recoverable, restored bound to its own file; that
     // file changed elsewhere refuses Save and offers Save As.
     it.each([

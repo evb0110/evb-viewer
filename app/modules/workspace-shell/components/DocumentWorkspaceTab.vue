@@ -85,6 +85,7 @@ import type {
     IWorkspaceOpenRequest,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
+import { openRecentFileKey } from '@app/modules/workspace-shell/composables/useTabsShellBindings';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
 import * as platformDocuments from '@app/utils/platformDocuments';
 import { getErrorMessage } from '@app/utils/error';
@@ -128,6 +129,7 @@ const {
     removeRecentFile,
     clearRecentFiles,
 } = useRecentFiles();
+const openRecent = inject(openRecentFileKey, (_path: TDocumentRef, open: () => Promise<boolean>) => open());
 const crashDescription = ref<string | null>(null);
 const renderKey = ref(0);
 
@@ -173,15 +175,16 @@ function pressRecentFile(file: IRecentFile) {
 }
 
 function openRecentFile(file: IRecentFile, pressed: boolean, follow: (opening: Promise<boolean>) => void) {
-    const pageShape = pressed && pressedRecentShape?.path === file.originalPath
-        ? pressedRecentShape
-        : readPdfPageShape(file.originalPath);
+    const pressedShape = pressed && pressedRecentShape?.path === file.originalPath ? pressedRecentShape : null;
     pressedRecentShape = null;
-    follow(openInWorkspace({
-        kind: 'open',
-        target: describeDocumentTarget(file.originalPath),
-        pageShape,
-    }, workspace => workspace.handleOpenFileDirectWithPersist(file.originalPath, pageShape)));
+    follow(openRecent(file.originalPath, () => {
+        const pageShape = pressedShape ?? readPdfPageShape(file.originalPath);
+        return openInWorkspace({
+            kind: 'open',
+            target: describeDocumentTarget(file.originalPath),
+            pageShape,
+        }, workspace => workspace.handleOpenFileDirectWithPersist(file.originalPath, pageShape));
+    }));
 }
 
 // The picker is requested in the click's own call: a browser shows a file

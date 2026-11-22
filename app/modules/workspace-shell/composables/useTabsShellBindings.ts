@@ -1,4 +1,7 @@
-import type { Ref } from 'vue';
+import type {
+    InjectionKey,
+    Ref,
+} from 'vue';
 import type { TPaneDirection } from '@contracts/editorPanes';
 import { isMacClientPlatform } from '@app/utils/clientPlatform';
 import { useEventListener } from '@vueuse/core';
@@ -18,11 +21,16 @@ import { shouldPreferDesktopPlatform } from '@app/utils/platform';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { useFatalRuntimeError } from '@app/composables/useFatalRuntimeError';
 import { useFailureToast } from '@app/composables/useFailureToast';
+import { useRecentFiles } from '@app/composables/useRecentFiles';
 import { getOrCaptureRendererBootstrapFailure } from '@app/utils/getOrCaptureRendererBootstrapFailure';
 import { traceRendererStartup } from '@app/utils/traceRendererStartup';
 import { registerTabsMenuBindings } from '@app/modules/workspace-shell/menu/registerTabsMenuBindings';
 import type { ITabsMenuBindingDeps } from '@app/modules/workspace-shell/menu/registerTabsMenuBindings';
-import { getDocumentMenuCapability } from '@app/utils/platformDocuments';
+import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {
+    getDocumentFilesCapability,
+    getDocumentMenuCapability,
+} from '@app/utils/platformDocuments';
 import { getSettingsCapability } from '@app/utils/getSettingsCapability';
 import { getUpdatesCapability } from '@app/utils/platformUpdates';
 import { getDjvuCapability } from '@app/utils/getDjvuCapability';
@@ -66,11 +74,57 @@ const RENDERER_DOCUMENT_SHORTCUT_COMMANDS: Record<TRendererDocumentCommandShortc
     redo: 'handleRedo',
 };
 
-interface IUseTabsShellBindingsOptions extends ITabsMenuBindingDeps {
+/** Opens a Recent file: shows the tab that already shows it, otherwise runs `open`. */
+export const openRecentFileKey: InjectionKey<(path: TDocumentRef, open: () => Promise<boolean>) => Promise<boolean>> = Symbol('open-recent-file');
+
+interface IRecentFileRoute {
+    sessionsByTabId: () => Readonly<Record<string, IWorkspaceDocumentController>>;
+    activateTab: (tabId: string) => void;
+    forgetRecentFileIfMissing: (path: TDocumentRef) => Promise<boolean>;
+    statSource: (path: TDocumentRef) => Promise<unknown>;
+}
+
+// Recent names a file, so a tab whose own open loaded that file and shows
+// it is where Recent goes. A tab only assigned the path (restored or
+// recovered, not opened yet), a failed one, or one still opening is not.
+function findLoadedFileTabId(path: TDocumentRef, sessionsByTabId: Readonly<Record<string, IWorkspaceDocumentController>>) {
+    return Object.entries(sessionsByTabId).find(([
+        , session,
+    ]) => session.file.value.originalPath === path
+        && session.snapshot.value.phase === 'presented'
+        && session.snapshot.value.activeTransaction === null)?.[0];
+}
+
+/**
+ * A Recent selection. Its tab is shown only once its file is known to exist;
+ * a gone file is told and leaves Recent first, as an open checks it before
+ * claiming a tab, and any other file opens as Recent does. Nothing removed
+ * does not mean the file exists: an earlier selection may have removed it.
+ * Without such a tab the open runs in the selection's own call.
+ */
+export function routeRecentFile(path: TDocumentRef, open: () => Promise<boolean>, route: IRecentFileRoute) {
+    if (!findLoadedFileTabId(path, route.sessionsByTabId())) return open();
+    return Promise.all([
+        route.forgetRecentFileIfMissing(path),
+        route.statSource(path).then(() => true, () => false),
+    ]).then(([
+        gone,
+        exists,
+    ]) => {
+        if (gone) return false;
+        const tabId = exists ? findLoadedFileTabId(path, route.sessionsByTabId()) : undefined;
+        if (!tabId) return open();
+        route.activateTab(tabId);
+        return true;
+    });
+}
+
+interface IUseTabsShellBindingsOptions extends Omit<ITabsMenuBindingDeps, 'openRecentInAppropriateTab'> {
     tabs: Ref<ITab[]>;
     workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
     isStartupOpenClaimPending: Ref<boolean>;
     activateTab: (tabId: string) => void;
+    openPathInAppropriateTab: (path: TDocumentRef) => Promise<boolean>;
     beginOpenPathsInAppropriateTab: (paths: TDocumentRef[]) => Promise<TDocumentRef[]>;
     restoreWorkspaceCheckpointGraph: Parameters<typeof restoreWorkspaceCheckpoint>[1]['restoreGraph'];
     documentSessions: TWorkspaceDocumentSessions;
@@ -109,6 +163,16 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         handleWindowTabsAction,
         toggleAssistant,
     } = options;
+
+    const {forgetRecentFileIfMissing} = useRecentFiles();
+    const recentRoute: IRecentFileRoute = {
+        sessionsByTabId: () => documentSessions.documentSessionsByTabId.value,
+        activateTab,
+        forgetRecentFileIfMissing,
+        statSource: path => getDocumentFilesCapability().statFile(path),
+    };
+    const openRecentFile = (path: TDocumentRef, open: () => Promise<boolean>) => routeRecentFile(path, open, recentRoute);
+    provide(openRecentFileKey, openRecentFile);
 
     const menuCleanups: Array<() => void> = [];
     const debugHandleSave = () => activeWorkspace.value?.handleSave() ?? Promise.resolve();
@@ -577,7 +641,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
                 createTab,
                 handleCloseTab,
                 handleFallbackToolbarOpenFile,
-                openPathInAppropriateTab,
+                openRecentInAppropriateTab: path => openRecentFile(path, () => openPathInAppropriateTab(path)),
                 openPathsInAppropriateTab,
                 clearRecentFiles,
                 loadRecentFiles,
