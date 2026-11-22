@@ -8,7 +8,8 @@ import {
 
 export interface IDocumentViewportIntentFence {
     readonly intentId: string;
-    readonly documentRevision: number;
+    /** The source the intent was begun for; it cannot land on another. */
+    readonly source: object | null;
     readonly interactionEpoch: number;
     readonly sequence: number;
 }
@@ -23,7 +24,6 @@ export interface IDocumentViewportWrite {
 export interface IDocumentViewportWritePort {
     beginIntent(intentId: string): IDocumentViewportIntentFence;
     apply(container: HTMLElement, write: IDocumentViewportWrite): boolean;
-    advanceDocumentRevision(): number;
     consumeAuthorityScroll(container: HTMLElement): boolean;
     getInteractionEpoch(): number;
     observeUserInteraction(container?: HTMLElement): void;
@@ -43,6 +43,16 @@ export interface IDocumentViewportWritePort {
     observeWheelScrollSequence(boundary: 'begin' | 'end'): void;
     /** True while residue must not scroll the viewport. */
     readonly userScrollSuppressed: Readonly<Ref<boolean>>;
+    /**
+     * The view is gone. Stops every pending frame and timer, settles, and
+     * refuses later writes without throwing, so late callers stay harmless.
+     */
+    retire(): void;
+}
+
+export interface IDocumentViewportWritePortOptions {
+    /** The source this port writes for. Omitted for ports with one fixed content. */
+    readSource?: () => object | null;
 }
 
 /**
@@ -109,8 +119,11 @@ const SCROLL_RESTORE_SETTLE_FLOOR_MS = 120;
 /** How long an open host sequence may go without any wheel activity before it is presumed lost. */
 const HOST_SEQUENCE_STALL_MS = 2000;
 
-export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
-    let documentRevision = 0;
+export function createDocumentViewportWritePort(
+    options: IDocumentViewportWritePortOptions = {},
+): IDocumentViewportWritePort {
+    const readSource = options.readSource ?? (() => null);
+    let retired = false;
     let interactionEpoch = 0;
     let sequence = 0;
     let activeIntent: IDocumentViewportIntentFence | null = null;
@@ -151,6 +164,8 @@ export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
     // before then is as dead as one that began while suppressed.
     let scrollRestoreSettling = false;
     let scrollRestoreToken = 0;
+    // The current stage of the restore settle chain, so it can be cancelled.
+    let cancelRestoreSettleStage: (() => void) | null = null;
     let residueReleaseTimer: ReturnType<typeof setTimeout> | null = null;
     // The host reports scroll sequence boundaries for the whole window, and the
     // packets define identity, so a boundary only ever annotates a sequence
@@ -214,12 +229,33 @@ export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
         userScrollSuppressed.value = true;
     }
 
+    function cancelRestoreSettle() {
+        cancelRestoreSettleStage?.();
+        cancelRestoreSettleStage = null;
+    }
+
+    function settleAfterFrame(run: () => void) {
+        const frame = requestAnimationFrame(run);
+        cancelRestoreSettleStage = () => cancelAnimationFrame(frame);
+    }
+
+    function settleAfterDelay(run: () => void, delayMs: number) {
+        const timer = setTimeout(run, delayMs);
+        cancelRestoreSettleStage = () => clearTimeout(timer);
+    }
+
     function restoreUserScroll() {
         if (!userScrollSuppressed.value) {
             return;
         }
         userScrollSuppressed.value = false;
+        if (retired) {
+            return;
+        }
         scrollRestoreSettling = true;
+        // An earlier chain is already stale by its token. Cancel it so the
+        // one handle always names the live chain.
+        cancelRestoreSettle();
         const token = ++scrollRestoreToken;
         const restoredAtMs = performance.now();
         const settle = () => {
@@ -230,16 +266,16 @@ export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
         const settleAfterFloor = () => {
             const remainingMs = SCROLL_RESTORE_SETTLE_FLOOR_MS - (performance.now() - restoredAtMs);
             if (remainingMs > 0) {
-                setTimeout(settle, remainingMs);
+                settleAfterDelay(settle, remainingMs);
                 return;
             }
             settle();
         };
         if (typeof requestAnimationFrame === 'function') {
-            requestAnimationFrame(() => requestAnimationFrame(settleAfterFloor));
+            settleAfterFrame(() => settleAfterFrame(settleAfterFloor));
             return;
         }
-        setTimeout(settle, SCROLL_RESTORE_SETTLE_FLOOR_MS);
+        settleAfterDelay(settle, SCROLL_RESTORE_SETTLE_FLOOR_MS);
     }
 
     function clearResidueReleaseTimer() {
@@ -275,6 +311,9 @@ export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
      */
     function restoreUserScrollOnceGestureIdle() {
         clearResidueReleaseTimer();
+        if (retired) {
+            return;
+        }
         residueReleaseTimer = setTimeout(() => {
             residueReleaseTimer = null;
             if (
@@ -300,6 +339,9 @@ export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
     }
 
     const observeUserInteraction = (container?: HTMLElement) => {
+        if (retired) {
+            return;
+        }
         interactionEpoch += 1;
         activeIntent = null;
         if (container) {
@@ -312,18 +354,23 @@ export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
             if (!intentId) {
                 throw new Error('Viewport intents require an intentId');
             }
-            activeIntent = Object.freeze({
+            const intent = Object.freeze({
                 intentId,
-                documentRevision,
+                source: readSource(),
                 interactionEpoch,
                 sequence: ++sequence,
             });
-            return activeIntent;
+            // A retired port hands out fences that can never become active.
+            if (!retired) {
+                activeIntent = intent;
+            }
+            return intent;
         },
         apply(container, write) {
             if (
-                write.intent !== activeIntent
-                || write.intent.documentRevision !== documentRevision
+                retired
+                || write.intent !== activeIntent
+                || write.intent.source !== readSource()
                 || write.intent.interactionEpoch !== interactionEpoch
             ) {
                 return false;
@@ -367,14 +414,9 @@ export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
             });
             return true;
         },
-        advanceDocumentRevision() {
-            documentRevision += 1;
-            activeIntent = null;
-            return documentRevision;
-        },
         consumeAuthorityScroll(container) {
             const authored = authorityWrites.get(container);
-            if (!authored) {
+            if (retired || !authored) {
                 return false;
             }
             if (authored.left !== container.scrollLeft || authored.top !== container.scrollTop) {
@@ -399,6 +441,9 @@ export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
         getInteractionEpoch: () => interactionEpoch,
         observeUserInteraction,
         observeZoomPacket(packet, container) {
+            if (retired) {
+                return;
+            }
             const previousGestureId = wheelGestures.getGestureId();
             if (wheelGestures.observe(packet).gestureId !== previousGestureId) {
                 observeUserInteraction(container);
@@ -408,6 +453,9 @@ export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
             observeUserInteraction(container);
         },
         fenceCommandAgainstLiveGesture(nowMs = performance.now()) {
+            if (retired) {
+                return;
+            }
             commandAtMs = nowMs;
             if (!wheelGestures.hasPackets()) {
                 return;
@@ -431,6 +479,10 @@ export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
             restoreUserScrollOnceGestureIdle();
         },
         observeWheelPacket(packet) {
+            if (retired) {
+                // Nothing left to protect, and nothing to scroll by hand.
+                return 'user-input';
+            }
             const nativeScrollUnavailable = userScrollSuppressed.value || scrollRestoreSettling;
             const previousGestureId = wheelGestures.getGestureId();
             const {
@@ -482,6 +534,9 @@ export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
                 : 'user-input';
         },
         observeWheelScrollSequence(boundary) {
+            if (retired) {
+                return;
+            }
             hostReportsSequences = true;
             lastWheelActivityAtMs = performance.now();
             if (boundary === 'begin') {
@@ -511,6 +566,14 @@ export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
         },
         isCommandResidueLive,
         userScrollSuppressed: readonly(userScrollSuppressed),
+        retire() {
+            retired = true;
+            activeIntent = null;
+            clearResidueReleaseTimer();
+            cancelRestoreSettle();
+            scrollRestoreSettling = false;
+            userScrollSuppressed.value = false;
+        },
     };
 }
 

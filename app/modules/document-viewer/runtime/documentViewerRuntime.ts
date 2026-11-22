@@ -101,7 +101,8 @@ export function createDocumentViewerRuntime(
     const openingPageVisual = ref<TDocumentOpeningPageVisual>('none');
     const source = shallowRef<IDocumentPageSource | null>(null);
     const viewportElement = shallowRef<HTMLElement | null>(null);
-    const viewportWritePort = createDocumentViewportWritePort();
+    // An intent begun for one source must not land on its successor.
+    const viewportWritePort = createDocumentViewportWritePort({readSource: () => source.value});
     const viewportFeature = shallowRef<IDocumentViewportFeatureBinding | null>(null);
     const viewportClass = computed(() => viewportFeature.value?.getClass() ?? '');
     const viewportStyle = computed(() => viewportFeature.value?.getStyle() ?? {});
@@ -224,9 +225,6 @@ export function createDocumentViewerRuntime(
             }
             if (nextSource && nextSource.kind !== sourceKind.value) {
                 throw new TypeError(`Cannot bind ${nextSource.kind} source to ${sourceKind.value} chassis`);
-            }
-            if (source.value !== nextSource) {
-                this.viewportWritePort.advanceDocumentRevision();
             }
             source.value = nextSource;
             pageCount.value = nextSource?.pageCount ?? 0;

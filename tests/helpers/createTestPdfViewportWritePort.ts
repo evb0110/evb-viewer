@@ -7,7 +7,6 @@ import type {
 export function createTestPdfViewportWritePort() {
     const writes: IPdfViewportWrite[] = [];
     let interactionEpoch = 0;
-    let revision = 0;
     let sequence = 0;
     const commandFences: number[] = [];
     const userScrollSuppressed = ref(false);
@@ -16,7 +15,7 @@ export function createTestPdfViewportWritePort() {
         beginIntent(intentId) {
             return {
                 intentId,
-                documentRevision: revision,
+                source: null,
                 interactionEpoch,
                 sequence: ++sequence,
             };
@@ -27,7 +26,6 @@ export function createTestPdfViewportWritePort() {
             if (write.top !== undefined) container.scrollTop = write.top;
             return true;
         },
-        advanceDocumentRevision: () => ++revision,
         consumeAuthorityScroll: () => false,
         getInteractionEpoch: () => interactionEpoch,
         observeUserInteraction: () => {
@@ -42,6 +40,7 @@ export function createTestPdfViewportWritePort() {
         isCommandResidueLive: () => commandResidueLive,
         observeWheelScrollSequence: () => {},
         userScrollSuppressed,
+        retire: () => {},
     };
     return {
         port,
