@@ -62,8 +62,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         pdfSrc,
         totalPages,
         workingCopyPath,
-        isDjvuMode,
-        djvuSourcePath,
         pdfError,
         clearViews,
         annotationComments,
@@ -75,7 +73,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         closeSearch,
         closeContextMenus,
         closeAllAnnotationNotes,
-        loadRecentFiles,
         clearOcrCache,
         ensureHistoryBaselineForMutation,
         reloadWorkingCopyIntoHistory,
@@ -158,8 +155,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
     const {resetDocumentPresentation} = useDocumentTransitions({
         pdfSrc,
         workingCopyPath,
-        isDjvuMode,
-        djvuSourcePath,
         pdfError,
         clearViews,
         annotationComments,
@@ -176,7 +171,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         closeSearch,
         closeContextMenus,
         closeAllAnnotationNotes,
-        loadRecentFiles,
         consumePreservedSourceReloadMetadata,
     });
 

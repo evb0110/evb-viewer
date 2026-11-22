@@ -24,7 +24,6 @@ export const useDocumentBookmarkSession = (options: IUseDocumentBookmarkSessionO
     const displayMode = ref<TDocumentBookmarkDisplayMode>('current-expanded');
     const expandedIds = ref<Set<string>>(new Set());
     let controller: AbortController | null = null;
-    let sourceGeneration = 0;
 
     const status = computed<TDocumentBookmarkStatus>(() => {
         if (isLoading.value) {
@@ -54,13 +53,13 @@ export const useDocumentBookmarkSession = (options: IUseDocumentBookmarkSessionO
 
         cancel();
         const runController = new AbortController();
-        const generation = sourceGeneration;
         controller = runController;
         isLoading.value = true;
         error.value = null;
         try {
             const outline = await provider.getOutline(runController.signal);
-            if (options.source.value === source && generation === sourceGeneration) {
+            // The outline belongs to the source it was read from, whichever loaded last.
+            if (options.source.value === source && !runController.signal.aborted) {
                 items.value = createDocumentBookmarkTree(outline);
             }
         } catch (reason) {
@@ -97,13 +96,13 @@ export const useDocumentBookmarkSession = (options: IUseDocumentBookmarkSessionO
         return findDocumentBookmark(items.value, id)?.pageNumber ?? null;
     }
 
+    // A retiring source takes its outline with it; the accepted one loads its own.
     watch(options.source, () => {
-        sourceGeneration += 1;
         cancel();
         items.value = [];
         error.value = null;
         expandedIds.value = new Set();
-        if (options.isActive.value) void nextTick(load);
+        void load();
     }, {flush: 'post'});
     watch(options.isActive, (active) => {
         if (active) void load();

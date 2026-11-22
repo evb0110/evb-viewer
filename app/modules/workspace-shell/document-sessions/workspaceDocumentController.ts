@@ -71,6 +71,8 @@ export interface IDocumentMutationFrontier {
     isDirty: () => boolean;
     prepare: TFrontierStep;
     close: TFrontierStep;
+    /** What an accepted close resets, against the identity the document has before it retires. */
+    retire?: () => void;
 }
 
 export interface IDocumentOperationLease {
@@ -146,6 +148,7 @@ const EMPTY_FILE: IWorkspaceDocumentFile = {
     revisionInfo: null,
     revisionToken: null,
     isDjvu: false,
+    sourceSha256: null,
 };
 
 function createEmptyIdentity(): IWorkspaceDocumentIdentity {
@@ -447,6 +450,10 @@ export function createWorkspaceDocumentController(options: {
             ...file.value,
             ...patch,
         };
+        // The source hash belongs to the bytes it was read from.
+        if (!('sourceSha256' in patch) && (committed.workingCopyPath !== file.value.workingCopyPath || committed.revisionToken !== file.value.revisionToken)) {
+            committed.sourceSha256 = null;
+        }
         // Only the open in progress, passing its own id, commits another document, even at the same record.
         const opensDocument = snapshot.value.activeTransaction?.kind === 'open' && snapshot.value.activeTransaction.id === openTransactionId;
         if (!opensDocument && isEqual(committed, file.value)) {
@@ -599,13 +606,15 @@ export function createWorkspaceDocumentController(options: {
     }
 
     function runClose(request: IWorkspaceDocumentCloseRequest, ownership: IDocumentOperationOwnership, persist: boolean) {
-        const onCloseCommit = async () => {
-            // A document closes with its last view; that view's place is kept.
+        // A document closes with its last view; that view's place is kept. An
+        // accepted close resets what the document leaves behind; a move does not.
+        const onCloseCommit = async (retires = true) => {
             for (const tabId of views.value.keys()) {
                 await rememberReadingView(controller, tabId);
             }
             supersedeActiveTransaction();
             resetToEmpty();
+            if (retires) mutationFrontier.value?.retire?.();
         };
         const frontier = mutationFrontier.value;
         if (request.ownership && frontier) {
@@ -613,7 +622,7 @@ export function createWorkspaceDocumentController(options: {
             // lifecycle, rather than waiting for this same lease to become idle.
             request.ownership.assertCurrent();
             return frontier.close(request.assertCurrent ?? (() => undefined)).then(async () => {
-                await onCloseCommit();
+                await onCloseCommit(false);
                 return true;
             });
         }

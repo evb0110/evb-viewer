@@ -1549,6 +1549,68 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
+    // #1621: a tab that returns from eviction restores its preview page; the
+    // viewer has not counted the pages yet when the session starts.
+    it('keeps a retained preview page until the viewer has counted the pages', async () => {
+        capability.value = capabilityHarness().value;
+        const pages = ref(0);
+        const mounted = mountSession(`retained-preview-page-${Date.now()}`, {
+            initialPreviewPage: () => 3,
+            totalPages: () => pages.value,
+        });
+
+        expect(mounted.session.selection.leader.value).toBe(3);
+        pages.value = 4;
+        await nextTick();
+        expect(mounted.session.selection.leader.value).toBe(3);
+        mounted.unmount();
+    });
+
+    it('keeps a retained preview page when the session shows before the viewer has counted the pages', async () => {
+        capability.value = capabilityHarness().value;
+        const active = ref(false);
+        const pages = ref(0);
+        const mounted = mountSession(`retained-preview-activation-${Date.now()}`, {
+            active: () => active.value,
+            currentPage: () => 1,
+            initialPreviewPage: () => 3,
+            totalPages: () => pages.value,
+        });
+
+        active.value = true;
+        await nextTick();
+        expect(mounted.session.selection.leader.value).toBe(3);
+        pages.value = 4;
+        await nextTick();
+        expect(mounted.session.selection.leader.value).toBe(3);
+        mounted.unmount();
+    });
+
+    // A same-document reload empties the PDF document until it loads again;
+    // its count is not known then, which is not a count of zero pages.
+    it('keeps the preview page and settings scope while a reload has not counted the pages', async () => {
+        capability.value = capabilityHarness().value;
+        const pages = ref(4);
+        const mounted = mountSession(`reload-keeps-page-${Date.now()}`, {
+            currentPage: () => 1,
+            totalPages: () => pages.value,
+        });
+        mounted.session.selection.selectPage(3, 'single', [1, 2, 3, 4]);
+        mounted.session.selection.setSettingsScope('page');
+        await nextTick();
+
+        pages.value = 0;
+        await nextTick();
+        const whileLoading = {leader: mounted.session.selection.leader.value, scope: mounted.session.selection.settingsScope.value};
+        pages.value = 4;
+        await nextTick();
+        expect({whileLoading, loaded: {leader: mounted.session.selection.leader.value, scope: mounted.session.selection.settingsScope.value}}).toEqual({
+            whileLoading: {leader: 3, scope: 'page'},
+            loaded: {leader: 3, scope: 'page'},
+        });
+        mounted.unmount();
+    });
+
     it('auto-switches only for intentional multi-selection and its collapse', () => {
         capability.value = capabilityHarness().value;
         const mounted = mountSession(`scope-selection-${Date.now()}`);

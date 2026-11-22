@@ -1,4 +1,3 @@
-import {runBrowserLock} from '@app/platform/browser/runBrowserLock';
 // @vitest-environment happy-dom
 import {
     beforeEach,
@@ -8,6 +7,7 @@ import {
     vi,
 } from 'vitest';
 import {useDocumentWorkspaceScanCleanupSurface} from '@app/modules/workspace-shell/composables/useDocumentWorkspaceScanCleanupSurface';
+import {discardScanCleanupDocumentState} from '@app/modules/scan-cleanup/public/runtime';
 import type {
     IWorkspaceDocumentController,
     IWorkspaceDocumentView,
@@ -134,17 +134,10 @@ describe('useDocumentWorkspaceScanCleanupSurface', () => {
             documentSession,
             documentView: viewOf(documentSession),
             closeAllDropdowns: vi.fn(),
-            readDocumentKey: () => '/docs/current.pdf',
         });
 
         expect(surface.scanCleanupSessionState.value?.previewPage).toBe(3);
         surface.openScanCleanup();
-        expect(applyViewState).toHaveBeenLastCalledWith({
-            ...viewState(),
-            surfaceMode: 'scan-cleanup',
-        });
-
-        surface.discardScanCleanupState();
         expect(applyViewState).toHaveBeenLastCalledWith({
             ...viewState(),
             surfaceMode: 'scan-cleanup',
@@ -168,7 +161,6 @@ describe('useDocumentWorkspaceScanCleanupSurface', () => {
             documentSession,
             documentView: viewOf(documentSession),
             closeAllDropdowns: vi.fn(),
-            readDocumentKey: () => '/docs/current.pdf',
         });
 
         expect(surface.surfaceMode.value).toBe('scan-cleanup');
@@ -193,7 +185,6 @@ describe('useDocumentWorkspaceScanCleanupSurface', () => {
             documentSession,
             documentView: viewOf(documentSession),
             closeAllDropdowns: vi.fn(),
-            readDocumentKey: () => '/docs/current.pdf',
         });
         expect(surface.surfaceMode.value).toBe('scan-cleanup');
 
@@ -217,8 +208,6 @@ describe('useDocumentWorkspaceScanCleanupSurface', () => {
             documentSession,
             documentView: viewOf(documentSession),
             closeAllDropdowns: vi.fn(),
-            readDocumentKey: () => documentKey,
-            readSourceSha256: () => sourceSha256,
         });
         scanCleanupDetectionSessionCache.set(provisionalKey, detectionCacheEntry());
         scanCleanupDetectionSessionCache.set(authoritativeKey, detectionCacheEntry());
@@ -229,7 +218,8 @@ describe('useDocumentWorkspaceScanCleanupSurface', () => {
         expect(scanCleanupDetectionSessionCache.has(authoritativeKey)).toBe(true);
         expect(scanCleanupAutoDetectionCanceledDocuments.has(authoritativeKey)).toBe(true);
 
-        surface.discardScanCleanupState();
+        // The document's close discards with the key and hash it captured.
+        void discardScanCleanupDocumentState(documentKey, sourceSha256);
         expect(scanCleanupDetectionSessionCache.size).toBe(0);
         expect(scanCleanupAutoDetectionCanceledDocuments.size).toBe(0);
     });
@@ -244,7 +234,6 @@ describe('useDocumentWorkspaceScanCleanupSurface', () => {
             documentSession,
             documentView: viewOf(documentSession),
             closeAllDropdowns: vi.fn(),
-            readDocumentKey: () => null,
         });
 
         snapshot.value = {
@@ -257,27 +246,6 @@ describe('useDocumentWorkspaceScanCleanupSurface', () => {
 
         expect(surface.surfaceMode.value).toBe('scan-cleanup');
     });
-});
-
-it('#1608 reports failure to discard durable scan-cleanup settings', async () => {
-    const messages: string[] = [];
-    vi.stubGlobal('useToast', () => ({add: (notice: {title: string; description?: string}) => {
-        messages.push([notice.title, notice.description].filter(Boolean).join(' '));
-    }}));
-    const {documentSession} = createSession(identity(), viewState());
-    const surface = useDocumentWorkspaceScanCleanupSurface({
-        documentSession, documentView: viewOf(documentSession), closeAllDropdowns: () => {},
-        readDocumentKey: () => '/docs/current.pdf',
-    });
-    const write = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
-        throw new DOMException('Preference disk full', 'QuotaExceededError');
-    });
-    try {
-        surface.discardScanCleanupState();
-        // Wait behind the real preference write in the existing storage lock.
-        await runBrowserLock('__evb_scan_cleanup_preferences_storage_lock__', async () => undefined);
-        expect(messages.join(' ')).toMatch(/cleanup|settings|preferences/i);
-    } finally {write.mockRestore(); vi.unstubAllGlobals();}
 });
 
 beforeEach(() => {

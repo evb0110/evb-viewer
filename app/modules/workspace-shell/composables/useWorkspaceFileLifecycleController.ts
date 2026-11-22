@@ -102,9 +102,6 @@ function createWorkspaceFileSwitch(deps: {
         // Only another document's commit replaces the instance; a claim alone does not.
         if (deps.readDocument().identity.documentInstanceId === identity.documentInstanceId) {
             await deps.closeFile();
-            // Source watchers own derived navigation, toolbar, and chassis
-            // cleanup; let them observe the empty source before close commits.
-            await nextTick();
         }
     }
 

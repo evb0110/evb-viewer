@@ -11,7 +11,7 @@ import { usePageAnnotationActions } from '@app/modules/workspace-shell/composabl
 import { useAnnotationContextMenu } from '@app/modules/workspace-shell/composables/useAnnotationContextMenu';
 import { useViewAnnotationTool } from '@app/modules/workspace-shell/composables/useViewAnnotationTool';
 import { useDocumentWorkspaceScanCleanupSurface } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceScanCleanupSurface';
-import { useScanCleanupSourceSha256 } from '@app/modules/scan-cleanup/public/workspace';
+import { scanCleanupSourceIdentityKey } from '@app/modules/scan-cleanup/public/workspace';
 import { useDjvuProjectionActions } from '@app/modules/workspace-shell/composables/useDjvuProjectionActions';
 import { useWorkspaceViewerShellState } from '@app/modules/workspace-shell/composables/useWorkspaceViewerShellState';
 import { useWorkspaceSearchSidebar } from '@app/modules/workspace-shell/composables/useWorkspaceSearchSidebar';
@@ -192,14 +192,9 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         documentSession: document.controller,
         documentView,
         closeAllDropdowns: view.closeAllDropdowns,
-        readDocumentKey: () => file.documentKey.value,
-        readSourceSha256: () => scanCleanupSourceSha256.value,
     });
-    const scanCleanupSourceSha256 = useScanCleanupSourceSha256({
-        enabled: computed(() => isActive.value && scanCleanup.surfaceMode.value === 'scan-cleanup'),
-        sourcePath: workingCopyPath,
-        documentRevision: documentRevisionToken,
-    });
+    // The document holds its source hash, which outlives this view.
+    provide(scanCleanupSourceIdentityKey, document.scanCleanupSource.identity);
     const pageContextMenu = usePageContextMenu();
     // The document's page operations as this view starts them: on its
     // selection and page context menu, extracting next to its tab.
@@ -600,7 +595,7 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         annotationTool,
         annotationToolState,
         scanCleanup,
-        scanCleanupSourceSha256,
+        scanCleanupSourceSha256: document.scanCleanupSource.sha256,
         annotationActions,
         // The annotations this view's viewer has selected.
         selectedAnnotations: computed(() => pdfViewerRef.value?.selectedAnnotations ?? []),

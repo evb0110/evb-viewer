@@ -421,7 +421,10 @@ const documentLifecycle = useWorkspaceDocumentLifecycle({
     readViewState: () => createTabViewSessionState(workspaceToolbarSnapshot.value, documentView.viewState.value),
     openPath: file.openFileDirectWithViewerLifecycle,
     closeFailedDocument: () => fileOps.handleCloseFileFromUi({persist: false}),
-    onOpened: presentation.reportDocumentOpened,
+    onOpened: () => {
+        presentation.reportDocumentOpened();
+        void file.loadRecentFiles();
+    },
     hasWorkingCopy: () => file.workingCopyPath.value !== null,
     goToPage: navigation.handleGoToPage,
     formatBatchLabel: values => t('tabs.preparingBatch', values),
@@ -436,9 +439,6 @@ onMounted(() => {
     documentLifecycle.presentWhenShown();
 });
 onBeforeUnmount(() => {
-    if (surfaceMode.value === 'scan-cleanup') {
-        scanCleanup.discardScanCleanupState();
-    }
     // A cold tab can unmount in the same render that hides it; capture
     // while the workspace is still live.
     documentLifecycle.captureViewState();

@@ -15,6 +15,7 @@ import {
     h,
     inject,
     nextTick,
+    provide,
     ref,
 } from 'vue';
 import {requireDocumentRef} from '@contracts/documentRef';
@@ -59,12 +60,13 @@ describe('scan cleanup source SHA-256 bridge', () => {
                 enabled,
                 sourcePath,
                 documentRevision,
+                sha256: ref(null),
             });
             return () => h('div');
         }}));
         app.mount(host);
 
-        await vi.waitFor(() => expect(sourceSha256?.value).toBe('a'.repeat(64)));
+        await vi.waitFor(() => expect(sourceSha256?.sha256.value).toBe('a'.repeat(64)));
         expect(files.createManagedTempFileHandle).toHaveBeenCalledWith('/working/book.pdf');
         expect(files.releaseManagedTempFileHandle).toHaveBeenCalledWith('scan-cleanup-hash-lease');
 
@@ -83,13 +85,14 @@ describe('scan cleanup source SHA-256 bridge', () => {
                 enabled,
                 sourcePath,
                 documentRevision,
+                sha256: ref(null),
             });
             return () => h('div');
         }}));
         app.mount(host);
         const readSourceSha256 = () => (
             sourceSha256 as ReturnType<typeof useScanCleanupSourceSha256> | null
-        )?.value;
+        )?.sha256.value;
 
         await vi.waitFor(() => expect(readSourceSha256()).toBe('a'.repeat(64)));
         enabled.value = false;
@@ -121,11 +124,14 @@ describe('scan cleanup source SHA-256 bridge', () => {
         }});
         const host = document.createElement('div');
         const app = createApp(defineComponent({setup() {
-            useScanCleanupSourceSha256({
+            const source = useScanCleanupSourceSha256({
                 enabled: ref(true),
                 sourcePath: ref(requireDocumentRef('/working/book.pdf')),
                 documentRevision: ref('revision-1'),
+                sha256: ref(null),
             });
+            // The document holds the acquisition; its view provides the state.
+            provide(scanCleanupSourceIdentityKey, source.identity);
             return () => h(Surface);
         }}));
         app.mount(host);
