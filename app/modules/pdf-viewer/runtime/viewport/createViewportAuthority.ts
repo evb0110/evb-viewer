@@ -54,11 +54,10 @@ export interface IPdfViewportPositionCommit {
 
 /**
  * Work that moves the viewport without a placement intent of its own: a
- * reload or a search reveal. It shares the authority's single in-flight slot,
- * so a navigation supersedes it and it is never current while a navigation
- * owns the viewport.
+ * reload. It shares the authority's single in-flight slot, so a navigation
+ * supersedes it and it is never current while a navigation owns the viewport.
  */
-export type TPdfViewportWorkKind = 'reload' | 'search';
+export type TPdfViewportWorkKind = 'reload';
 
 /** `cancelRasters` cancels the in-flight rasters of the superseded layout. */
 export interface IPdfViewportWorkCancellation {cancelRasters: boolean;}

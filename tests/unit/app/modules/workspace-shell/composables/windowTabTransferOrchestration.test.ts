@@ -667,7 +667,6 @@ describe('window tab transfer orchestration helpers', () => {
             const zoom = ref(0.8);
             const aPresented = Promise.withResolvers<undefined>();
             const page = ref(1);
-            const viewer = ref({scrollToPage: (value: number) => {page.value = value;}});
             const surface = shallowRef(cast({
                 generation: 0,
                 identity: null,
@@ -678,13 +677,17 @@ describe('window tab transfer orchestration helpers', () => {
             let reload: Promise<void> | null = null;
             const prepareViewReload = (_view: IDocumentViewPort, pageToRestore: number) => {
                 const waiter = createPdfReloadWaiter({
-                    pdfViewerRef: viewer,
                     openSurface: cast({
                         snapshot: surface,
                         viewportSession: viewport,
+                        navigationTicket: shallowRef(null),
                     }),
                     resetSearchCache: () => undefined,
-                    pageToRestore,
+                    admission: null,
+                    place: () => {
+                        page.value = pageToRestore;
+                        return undefined;
+                    },
                 });
                 reload = waiter.promise;
                 return waiter;

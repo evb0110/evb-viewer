@@ -26,6 +26,7 @@ import type {
 import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
 import type { TAnnotationCreationFailureReason } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type { IPdfReloadWaiterViewer } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/pdfReloadWaiterViewer';
 import type { AnnotationEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {
     ICanonicalAnnotationRecovery,
@@ -228,6 +229,7 @@ export interface IPdfViewerExpose extends
     IPdfViewerShapeExpose,
     IPdfViewerImagePlacementExpose {
     ensurePageMetricsInRange?: (startPage: number, endPage: number) => Promise<boolean>;
+    admitReload?: IPdfReloadWaiterViewer['admitReload'];
     pageMetrics?: readonly IPdfPageMetric[];
     pageMetricsVersion?: number;
 }

@@ -1,165 +1,146 @@
-import type { Ref } from 'vue';
 import { until } from '@vueuse/core';
 import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
-import type { IPdfReloadWaiterViewer } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/pdfReloadWaiterViewer';
+import type {
+    IPdfReloadAdmission,
+    TPdfReloadOutcome,
+} from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/pdfReloadWaiterViewer';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
 const PDF_DOCUMENT_RELOAD_TIMEOUT_MS = 8000;
 const PDF_OPEN_SURFACE_SETTLE_TIMEOUT_MS = 30000;
 
 interface ICreatePdfReloadWaiterOptions {
-    pdfViewerRef: Ref<IPdfReloadWaiterViewer | null>;
     /** The view's open surface: the reload is its next generation or revision, settled. */
-    openSurface: Pick<IDocumentOpenSurfaceSession, 'snapshot' | 'viewportSession'>;
+    openSurface: Pick<IDocumentOpenSurfaceSession, 'snapshot' | 'viewportSession' | 'navigationTicket'>;
     resetSearchCache: () => void;
-    pageToRestore: number;
+    /**
+     * The view's placement of the reload, admitted before the operation runs.
+     * A view without one (no viewer is mounted yet) only waits for the reload.
+     */
+    admission: IPdfReloadAdmission | null;
+    /**
+     * Places a view without an admission once it settles on the new
+     * document: a view that opens a document at a page navigates there. A
+     * reader's command on the new document is newer and wins (R2).
+     */
+    place?: () => PromiseLike<unknown> | null | undefined;
 }
 
-function logReloadWaiterRecovery(step: string, error: unknown) {
-    BrowserLogger.warn('loader', `Recovered from PDF reload waiter ${step} failure`, { error });
-}
-
-function restoreReloadScroll(
-    viewer: IPdfReloadWaiterViewer | null,
-    pageToRestore: number,
-) {
-    try {
-        viewer?.scrollToPage(pageToRestore);
-    } catch (error) {
-        logReloadWaiterRecovery('page restore', error);
-    }
-}
-
-function readUserViewportInteractionEpoch(viewer: IPdfReloadWaiterViewer | null) {
-    try {
-        const epoch = viewer?.getUserViewportInteractionEpoch?.();
-        return typeof epoch === 'number' && Number.isFinite(epoch)
-            ? epoch
-            : null;
-    } catch (error) {
-        logReloadWaiterRecovery('viewport interaction epoch read', error);
-        return null;
-    }
-}
-
+/**
+ * Waits for the reload of the document in one view: the view shows the new
+ * bytes, and the viewer has placed the reading point it admitted or been
+ * superseded first. Cancelling withdraws the admission and ends the wait; an
+ * admission that ends otherwise, or a reload that fails, ends it too.
+ */
 export function createPdfReloadWaiter(options: ICreatePdfReloadWaiterOptions) {
-    const isCancelled = ref(false);
-    const initialViewportInteractionEpoch = readUserViewportInteractionEpoch(options.pdfViewerRef.value);
-    const initialOpenSurfaceState = options.openSurface.snapshot.value;
+    const {
+        openSurface, admission,
+    } = options;
+    const initial = openSurface.snapshot.value;
+    const outcome = shallowRef<TPdfReloadOutcome | null>(null);
+    void admission?.finished.then((value) => {
+        outcome.value = value;
+    });
+    let readerCommanded = false;
+    const stopCommandWatch = options.place
+        ? watch(() => openSurface.navigationTicket.value, (ticket) => {
+            readerCommanded ||= ticket !== null && ticket.generation !== initial.generation && ticket.request.source !== 'restore';
+        }, {flush: 'sync'})
+        : null;
 
-    async function waitForOpenSurfaceVisualSettle(isCurrentReload: () => boolean) {
-        const openSurface = options.openSurface;
+    async function settle(): Promise<void> {
+        const reload = await until(() => {
+            const surface = openSurface.snapshot.value;
+            return {
+                surface,
+                reloaded: Boolean(surface.identity && !surface.identity.provisional && (
+                    surface.generation !== initial.generation
+                    || surface.identity.documentId !== initial.identity?.documentId
+                    || surface.identity.documentRevision !== initial.identity?.documentRevision
+                )),
+                ended: outcome.value !== null,
+            };
+        }).toMatch(({
+            reloaded, ended,
+        }) => reloaded || ended, {timeout: PDF_DOCUMENT_RELOAD_TIMEOUT_MS});
+        if (!reload.reloaded) {
+            // The operation never reloaded this view, or the view went away first.
+            admission?.withdraw();
+            return;
+        }
+        // The owner that admitted the reload also fences its placement.
+        // A later document, generation or revision cannot inherit it.
+        // An admitted reload ends on surface failure; a moved-tab open (`admission === null`)
+        // waits through a first-page raster error so a superseding open still cancels the transfer.
+        const isCurrentReload = () => {
+            const current = openSurface.snapshot.value;
+            return current.generation === reload.surface.generation
+                && current.identity?.documentId === reload.surface.identity?.documentId
+                && current.identity?.documentRevision === reload.surface.identity?.documentRevision
+                && current.phase !== 'idle'
+                && (admission === null || current.phase !== 'failed');
+        };
+        const settled = await until(() => {
+            const snapshot = openSurface.snapshot.value;
+            return {
+                current: isCurrentReload(),
+                ready: snapshot.phase === 'ready'
+                    && snapshot.presentation === 'committed'
+                    && openSurface.viewportSession.value.lifecycle === 'ready'
+                    && (admission === null || outcome.value !== null),
+                // Superseded: the reader or a navigation took the view, which shows the new bytes.
+                ended: outcome.value === 'withdrawn' || outcome.value === 'superseded',
+            };
+        }).toMatch(({
+            current, ready, ended,
+        }) => !current || ready || ended, {timeout: PDF_OPEN_SURFACE_SETTLE_TIMEOUT_MS});
+        if (!settled.ready && !settled.ended && settled.current) {
+            BrowserLogger.warn('loader', 'Timed out waiting for the PDF reload to settle', {
+                timeoutMs: PDF_OPEN_SURFACE_SETTLE_TIMEOUT_MS,
+                outcome: outcome.value,
+            });
+        }
+        if (outcome.value === 'withdrawn' || !isCurrentReload() || (!settled.ready && !settled.ended)) {
+            admission?.withdraw();
+            return;
+        }
         try {
-            const settled = await until(() => {
-                const snapshot = openSurface.snapshot.value;
-                const viewport = openSurface.viewportSession.value;
-                return {
-                    cancelled: isCancelled.value,
-                    current: isCurrentReload(),
-                    ready: snapshot.phase === 'ready'
-                        && snapshot.presentation === 'committed'
-                        && viewport.lifecycle === 'ready',
-                };
-            }).toMatch(
-                ({
-                    cancelled,
-                    current,
-                    ready,
-                }) => cancelled || !current || ready,
-                {timeout: PDF_OPEN_SURFACE_SETTLE_TIMEOUT_MS},
-            );
-            return !settled.cancelled && settled.current && settled.ready;
+            options.resetSearchCache();
         } catch (error) {
-            if (!isCancelled.value) {
-                BrowserLogger.warn('loader', 'Timed out waiting for the PDF open surface to settle after reload; skipping page restore', {
-                    timeoutMs: PDF_OPEN_SURFACE_SETTLE_TIMEOUT_MS,
-                    error,
-                });
-            }
-            return false;
+            BrowserLogger.warn('loader', 'Recovered from PDF reload waiter search cache reset failure', { error });
+        }
+        if (!admission && options.place && !readerCommanded) {
+            await whileCurrent(options.place(), isCurrentReload);
         }
     }
 
-    const promise = until(() => {
-        const surface = options.openSurface.snapshot.value;
-        return {
-            surface,
-            cancelled: isCancelled.value,
-            reloaded: Boolean(surface.identity && !surface.identity.provisional && (
-                surface.generation !== initialOpenSurfaceState.generation
-                || surface.identity.documentId !== initialOpenSurfaceState.identity?.documentId
-                || surface.identity.documentRevision !== initialOpenSurfaceState.identity?.documentRevision
-            )),
-        };
-    })
-        .toMatch(({
-            cancelled,
-            reloaded,
-        }) => cancelled || reloaded, { timeout: PDF_DOCUMENT_RELOAD_TIMEOUT_MS })
-        .then(async ({
-            surface,
-            cancelled,
-            reloaded,
-        }) => {
-            if (cancelled || !reloaded) {
-                return;
-            }
-
-            // The owner that admitted the reload also fences its placement.
-            // A later document, generation or revision cannot inherit it.
-            const isCurrentReload = () => {
-                const current = options.openSurface.snapshot.value;
-                return current.generation === surface.generation
-                    && current.identity?.documentId === surface.identity?.documentId
-                    && current.identity?.documentRevision === surface.identity?.documentRevision;
+    /** Ends with `work`, or once the view leaves the reload, is cancelled, or the bound passes. */
+    function whileCurrent(work: PromiseLike<unknown> | null | undefined, isCurrentReload: () => boolean) {
+        let stop = () => {};
+        const left = new Promise<void>((resolve) => {
+            const timer = setTimeout(resolve, PDF_OPEN_SURFACE_SETTLE_TIMEOUT_MS);
+            const unwatch = watch(() => outcome.value === 'withdrawn' || !isCurrentReload(), (gone) => {
+                if (gone) resolve();
+            }, {immediate: true});
+            stop = () => {
+                clearTimeout(timer);
+                unwatch();
             };
-            if (!await waitForOpenSurfaceVisualSettle(isCurrentReload)) {
-                return;
-            }
-            if (isCancelled.value || !isCurrentReload()) {
-                return;
-            }
-            try {
-                options.resetSearchCache();
-            } catch (error) {
-                logReloadWaiterRecovery('search cache reset', error);
-            }
-            try {
-                await nextTick();
-            } catch (error) {
-                logReloadWaiterRecovery('post-reload tick', error);
-            }
-            if (Boolean(isCancelled.value) || !isCurrentReload()) {
-                return;
-            }
-            if (
-                options.openSurface.viewportSession.value.lifecycle === 'ready'
-                && options.openSurface.snapshot.value.committedViewport?.pageNumber === options.pageToRestore
-            ) {
-                BrowserLogger.diagnostic('loader', 'Skipped redundant PDF reload page restore', {pageToRestore: options.pageToRestore});
-                return;
-            }
-            const viewer = options.pdfViewerRef.value;
-            const currentViewportInteractionEpoch = readUserViewportInteractionEpoch(viewer);
-            if (
-                initialViewportInteractionEpoch !== null
-                && currentViewportInteractionEpoch !== null
-                && currentViewportInteractionEpoch !== initialViewportInteractionEpoch
-            ) {
-                BrowserLogger.diagnostic('loader', 'Skipped PDF reload scroll restore after user viewport interaction', {
-                    initialViewportInteractionEpoch,
-                    currentViewportInteractionEpoch,
-                    pageToRestore: options.pageToRestore,
-                });
-                return;
-            }
-            restoreReloadScroll(viewer, options.pageToRestore);
         });
+        return Promise.race([
+            Promise.resolve(work),
+            left,
+        ]).finally(() => stop());
+    }
 
     return {
-        promise,
+        promise: settle().finally(() => stopCommandWatch?.()),
         cancel: () => {
-            isCancelled.value = true;
+            if (admission) {
+                admission.withdraw();
+            } else {
+                outcome.value = 'withdrawn';
+            }
         },
     };
 }

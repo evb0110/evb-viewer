@@ -441,6 +441,36 @@ describe('PdfDocumentSession transitions', () => {
         await session.dispose();
     });
 
+    it('moves the reading page of a linked view that could not stage the page mutation', async () => {
+        const previousRevision = requireDocumentRevisionToken('drt1:before-delete');
+        const nextRevision = requireDocumentRevisionToken('drt1:after-delete');
+        const {chassisAuthority} = createRevisionSwapAuthority(previousRevision);
+        const session = createPdfDocumentSession({
+            src: computed(() => new Blob(['pdf'], {type: 'application/pdf'}) as never),
+            documentRevisionToken: computed(() => previousRevision),
+        });
+        const staged = session.attachView({chassisAuthority});
+        const unstaged = session.attachView();
+        pdfjsState.getDocument.mockImplementation(() => ({
+            promise: Promise.resolve(createDocumentProxy(crypto.randomUUID(), 200)),
+            destroy: vi.fn(),
+        }));
+        await session.loadPublishedSource()?.finished;
+        // Page 1 is deleted; the staging view reads page 9, the other page 5.
+        const pageIdentityDelta = {
+            previousPageCount: 200,
+            pages: Array.from({length: 199}, (_, index) => ({fromPageNumber: index + 2})),
+        };
+        expect(staged.preparePageMutationRevisionSwap(String(nextRevision), [1], 8, undefined, pageIdentityDelta)).toBe(true);
+        expect(unstaged.preparePageMutationRevisionSwap(String(nextRevision), [1], 4, undefined, pageIdentityDelta)).toBe(false);
+
+        expect(staged.carryAnchorThroughPageMutation({page: 9})).toEqual({page: 8});
+        expect(unstaged.carryAnchorThroughPageMutation({page: 5})).toEqual({page: 4});
+        // The deleted page itself reads the nearest page that remains.
+        expect(unstaged.carryAnchorThroughPageMutation({page: 1})).toEqual({page: 1});
+        await session.dispose();
+    });
+
     it('seeds the opening geometry when an open begins and keeps measured geometry through a rewrite', async () => {
         const revision = requireDocumentRevisionToken('drt1:opening-seed');
         const {surface, chassisAuthority} = createRevisionSwapAuthority(revision);

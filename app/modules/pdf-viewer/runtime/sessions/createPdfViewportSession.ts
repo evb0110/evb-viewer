@@ -31,6 +31,7 @@ import {
     resolveLayoutPhysicalScrollOrigin,
     createLayoutPhysicalScrollSession,
     type IPdfSemanticAnchor,
+    type IDocumentNavigationTicket,
 } from '@app/modules/document-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
@@ -64,6 +65,10 @@ import type {
     IPdfDocumentTransition,
     TPdfDocumentView,
 } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import type {
+    IPdfReloadAdmission,
+    TPdfReloadOutcome,
+} from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/pdfReloadWaiterViewer';
 export interface IPdfViewportDemand {
     readonly revision: number;
     readonly visibleRange: IPageRange;
@@ -80,6 +85,10 @@ export interface IPdfViewportMandatoryRaster {
     readonly id: number;
     readonly range: IPageRange;
     readonly options: IRenderVisiblePagesOptions;
+}
+interface IPdfReloadAdmissionRecord {
+    mapPage: (page: number) => number;
+    settle: (outcome: TPdfReloadOutcome) => void;
 }
 interface IPdfViewportPageSignal {
     revision: number;
@@ -232,9 +241,20 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         setupPagePlaceholders();
         await nextTick();
     }
-    // The reading point a same-document rewrite restores once it reloads.
+    // A reload keeps the reading point the view shows when its document is
+    // invalidated, moved through the page map the shell admitted the reload
+    // with or else through the staged page mutation. Reader input after that
+    // capture withdraws the placement, not the reload (R2).
     let nextReloadAnchor: IPdfSemanticAnchor | null = null;
+    let reloadInteractionEpoch = 0;
     let activeReloadAnchor: IPdfSemanticAnchor | null = null;
+    let activeReloadOwnedWork = false;
+    // The shell's admission of the next reload, and the one the reload in flight settles.
+    let admittedReload: IPdfReloadAdmissionRecord | null = null;
+    let activeReloadAdmission: IPdfReloadAdmissionRecord | null = null;
+    // A reload that opens a new surface generation is placed by its opening
+    // ticket, retargeted to the reading point; the ticket's outcome is the receipt.
+    let activeReloadNavigation: IDocumentNavigationTicket | null = null;
     let resolvedPageToRestore = requirePageNumber(1);
     let displayZoomToRestore: number | null = null;
     let activeReloadTransactionId: number | null = null;
@@ -644,15 +664,65 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         visibleRange.value = range;
         return true;
     }
-    /** Places the reading point a reload carried, or else the page's top. */
-    function placeReloadAnchor(anchor?: IPdfSemanticAnchor | null) {
-        const committed = singlePageScroll.place(anchor ?? getRequestAnchor(undefined, resolvedPageToRestore), 'document-restore');
+    // Document operations run one at a time, so a newer admission supersedes an older one.
+    function admitReload(mapPage: (page: number) => number): IPdfReloadAdmission {
+        admittedReload?.settle('superseded');
+        const {
+            promise, resolve,
+        } = Promise.withResolvers<TPdfReloadOutcome>();
+        const record = admittedReload = {
+            mapPage,
+            settle: resolve,
+        };
+        return {
+            finished: promise,
+            withdraw: () => {
+                admittedReload = admittedReload === record ? null : admittedReload;
+                resolve('withdrawn');
+            },
+        };
+    }
+    function captureReloadAnchor() {
+        const anchor = singlePageScroll.captureCurrentSemanticAnchor();
+        // The shell's map moves the page through the operation that reloads;
+        // a page edit without one moves it through the staged mutation.
+        const admission = admittedReload;
+        nextReloadAnchor = admission && anchor
+            ? {
+                ...anchor,
+                page: admission.mapPage(anchor.page),
+            }
+            : documentSession.carryAnchorThroughPageMutation(anchor);
+        reloadInteractionEpoch = viewportWritePort.getInteractionEpoch();
+    }
+    /**
+     * Whether the reload still owns its placement: the reader has not moved
+     * the view since its point was captured, and no navigation took the view
+     * from the reload's work.
+     */
+    function ownsReloadPlacement() {
+        return viewportWritePort.getInteractionEpoch() === reloadInteractionEpoch
+            && !(activeReloadOwnedWork && activeReloadTransactionId !== null
+                && !viewportAuthority.isWorkCurrent(activeReloadTransactionId));
+    }
+    /**
+     * Places the reading point a reload carried, or an open's first page top,
+     * and settles the reload's admission: placed, or taken by the reader or
+     * a navigation first. A retargeted opening ticket places it instead.
+     */
+    function placeReloadAnchor(isReload: boolean) {
+        if (isReload && activeReloadNavigation) {
+            return;
+        }
+        const committed = (!isReload || (activeReloadAnchor !== null && ownsReloadPlacement()))
+            && singlePageScroll.place(activeReloadAnchor ?? getRequestAnchor(undefined, resolvedPageToRestore), 'document-restore');
         logPdfRenderTrace('pdf-reload-viewport-reanchor', {
             pageNumber: resolvedPageToRestore,
             afterScrollTop: options.viewerContainer.value?.scrollTop ?? null,
             committed,
         });
-        return committed;
+        activeReloadAdmission?.settle(committed === false ? 'superseded' : 'placed');
+        activeReloadAdmission = null;
     }
     function settleVisualReloadTransition(reason: string) {
         if (visualReloadTransitionToken === null) {
@@ -663,8 +733,28 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     }
     function beginReloadPlacement(transition: IPdfDocumentTransition) {
         const plan = transition.plan;
-        activeReloadAnchor = plan.preserveVisibleContent ? nextReloadAnchor : null;
+        activeReloadAnchor = plan.isReload ? nextReloadAnchor : null;
         nextReloadAnchor = null;
+        activeReloadAdmission?.settle('superseded');
+        activeReloadAdmission = admittedReload;
+        admittedReload = null;
+        if (!plan.isReload) {
+            activeReloadAdmission?.settle('superseded');
+            activeReloadAdmission = null;
+        }
+        activeReloadNavigation = null;
+        const surface = chassisAuthority?.openSurface;
+        const openingTicket = surface?.navigationTicket.value;
+        if (
+            surface && activeReloadAnchor && !plan.preserveVisibleContent
+            && openingTicket?.request.source === 'restore'
+            && openingTicket.generation === surface.snapshot.value.generation
+            && ownsReloadPlacement()
+        ) {
+            // The reloaded generation opened with a page-top ticket; the
+            // reload's point replaces it (latest wins) and resolves on arrival.
+            activeReloadNavigation = surface.navigate(createPageNavigationRequest(activeReloadAnchor.page, 'restore', activeReloadAnchor));
+        }
         const pageToRestore = plan.isReload
             ? activeReloadAnchor?.page ?? currentPage.value
             : 1;
@@ -673,6 +763,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             ? scale.effectiveScale.value
             : null;
         activeReloadTransactionId = viewportAuthority.beginWork('reload', resolvedPageToRestore);
+        activeReloadOwnedWork = viewportAuthority.isWorkCurrent(activeReloadTransactionId);
         visualReloadTransitionToken = plan.isReload && resolvedPageToRestore > 1
             ? reloadTransition.beginVisualReloadTransition('reload-recovery')
             : null;
@@ -1011,7 +1102,26 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
                 y: previous.height / 2,
             }, previous));
     });
+    /**
+     * A reload that ends before its placement was superseded. A retargeted
+     * opening ticket settles on its outcome: the reader's input meanwhile
+     * supersedes it, although the hidden overflow of an opening generation
+     * kept that input from moving the view, so arrival is no jump back.
+     */
     async function applyReadyDocumentTransition(transition: IPdfDocumentTransition) {
+        const admission = activeReloadAdmission;
+        const navigation = activeReloadNavigation;
+        try {
+            await placeReadyDocument(transition);
+        } finally {
+            if (navigation) {
+                void navigation.finished.then(outcome => admission?.settle(outcome.kind === 'arrived' && ownsReloadPlacement() ? 'placed' : 'superseded'));
+            } else {
+                admission?.settle('superseded');
+            }
+        }
+    }
+    async function placeReadyDocument(transition: IPdfDocumentTransition) {
         if (!transition.isCurrent()) {
             return;
         }
@@ -1041,11 +1151,9 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             if (!transition.isCurrent()) {
                 return;
             }
+            placeReloadAnchor(plan.isReload);
             if (isPreservedSelectiveReload) {
-                placeReloadAnchor(activeReloadAnchor);
                 await nextTick();
-            } else if (!plan.isReload) {
-                placeReloadAnchor();
             }
             if (!transition.isCurrent()) {
                 return;
@@ -1070,7 +1178,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             return;
         }
         if (plan.preserveVisibleContent && !isPreservedSelectiveReload) {
-            placeReloadAnchor(activeReloadAnchor);
+            placeReloadAnchor(plan.isReload);
         }
         await requestMandatoryRaster(getVisibleRange());
         if (!transition.isCurrent()) {
@@ -1082,10 +1190,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         if (transactionId !== null) {
             viewportAuthority.settleWork(transactionId);
         }
-    }
-    function preserveNextSourceReloadVisibleContent() {
-        nextReloadAnchor = documentSession.carryAnchorThroughPageMutation(singlePageScroll.captureCurrentSemanticAnchor());
-        documentSession.preserveNextReloadVisibleContent(true);
     }
     const unsubscribeDocumentTransitions = documentSession.subscribe(async (transition) => {
         if (!transition.isCurrent()) {
@@ -1103,9 +1207,10 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             // Tearing the presentation down here is what leaves the empty
             // shell on screen until the replacement paints, so hold the last
             // picture instead and let the reload plan consume it.
-            const holdsVisibleContent = transition.isSameDocumentRewrite;
-            if (holdsVisibleContent) {
-                preserveNextSourceReloadVisibleContent();
+            activeReloadAdmission?.settle('superseded');
+            captureReloadAnchor();
+            if (transition.isSameDocumentRewrite) {
+                documentSession.preserveNextReloadVisibleContent(true);
             }
             settleVisualReloadTransition(transition.reason);
             const transactionId = activeReloadTransactionId;
@@ -1130,6 +1235,8 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         mountedVisibilityProjectionDisposed = true;
         cancelMountedVisibilityProjection();
         unsubscribeDocumentTransitions();
+        admittedReload?.settle('superseded');
+        activeReloadAdmission?.settle('superseded');
         cancelMandatoryRaster();
         pageSlots.dispose();
     });
@@ -1157,6 +1264,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         getProtectedVisibleRange,
         setupPagePlaceholders,
         markUserViewportInteraction,
+        admitReload,
         handleLinkDestination,
         handleTrustedScroll,
         handleViewerContainerRef: (element: HTMLElement | null) => {
