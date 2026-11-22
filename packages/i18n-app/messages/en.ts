@@ -1883,6 +1883,7 @@ export default {
             'noPdfData': 'No PDF data or path in response',
             'createSearchablePdf': 'Failed to create searchable PDF',
             'changedReload': 'OCR results were not applied because the document changed. Reload the file and run OCR again.',
+            'appliedNotShown': 'OCR text was saved to the PDF, but the updated pages could not be shown. Reopen the file to see them.',
             'noText': 'No OCR text found. Run OCR first.',
             'exportDocx': 'Failed to export DOCX',
             'cancel': 'Failed to cancel OCR',

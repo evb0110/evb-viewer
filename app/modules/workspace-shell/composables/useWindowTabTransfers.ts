@@ -261,10 +261,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             return;
         }
         if (closeRestoredWorkspace && tabHoldsDocument(target.tab.tabId)) {
-            await getDocumentSession(target.tab.tabId)?.close({
-                persist: false,
-                ...(ownership ? {ownership} : {}),
-            });
+            await getDocumentSession(target.tab.tabId)?.close(ownership ? {ownership} : {}).closed;
         }
 
         if (target.tab.created) {
@@ -476,10 +473,9 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             if (session && tabHoldsDocument(tabId) && session.views.value.size <= 1) {
                 try {
                     if (!await session.close({
-                        persist: false,
                         ownership,
                         assertCurrent: () => { if (!ownsSource()) throw new Error(t('tabs.transferErrors.sourceChanged')); },
-                    })) return 'failed';
+                    }).closed) return 'failed';
                 } catch (error) {
                     BrowserLogger.error('tabs', 'Failed to close source workspace after transfer', {
                         tabId,

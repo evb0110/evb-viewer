@@ -9,9 +9,11 @@ import type {
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
 import { isEqual } from 'es-toolkit/predicate';
 import type { ITabMetadataCore } from '@contracts/windowTabs';
+import type { TDirtyCloseDecision } from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
 import type {
     IWorkspaceExpose,
     IWorkspaceOpenFailure,
+    TDocumentCommitReceipt,
 } from '@app/types/workspaceExpose';
 import {
     didPresent,
@@ -56,9 +58,24 @@ export type {
 };
 
 interface IWorkspaceDocumentCloseRequest {
-    persist: boolean;
+    /** Asked once nothing runs in the document, only about unsaved work; a close without it discards. */
+    decide?: (() => Promise<TDirtyCloseDecision>) | undefined;
+    /** What `quiesce` began before the caller queued the close. */
+    retiring?: IWorkspaceDocumentRetirement | undefined;
     ownership?: IDocumentOperationOwnership;
     assertCurrent?: () => void;
+}
+
+/** A document drained for closing: still the same one under the same close, or kept and shown again. */
+export interface IWorkspaceDocumentRetirement {
+    isCurrent: () => boolean;
+    keep: () => void;
+}
+
+/** `closed`: the document retired (false: it stays, edits intact); `released`: its files and readers are gone. */
+export interface IWorkspaceDocumentClose {
+    closed: Promise<boolean>;
+    released: Promise<void>;
 }
 
 type TFrontierStep = (assertCurrent: () => void) => Promise<void>;
@@ -69,6 +86,16 @@ export interface IDocumentMutationFrontier {
     isDirty: () => boolean;
     prepare: TFrontierStep;
     close: TFrontierStep;
+    /** Releases each source job running or admitted until nothing runs in the document; true when it released one. */
+    drain: () => Promise<boolean>;
+    /** Shows the current revision again after a release that did not retire the document. */
+    republish: () => void;
+    /** Resolves with the Save's durable result: written and its drafts settled. */
+    save: (onCommitted?: TDocumentCommitReceipt) => Promise<boolean>;
+    /** Resets what showed the retiring document, against the identity it has now. */
+    retire: () => void;
+    /** Removes the retired document: its readers, viewing grant and working copy. */
+    teardown: () => Promise<void>;
 }
 
 export interface IDocumentOperationLease {
@@ -77,6 +104,8 @@ export interface IDocumentOperationLease {
     /** Busy with an operation other than a background recovery copy, which only reads the document. */
     isForegroundBusy: ComputedRef<boolean>;
     runExclusive: <T>(kind: TDocumentOperationKind, operation: (ownership: IDocumentOperationOwnership) => Promise<T>) => Promise<T>;
+    /** Resolves once every operation admitted or queued has ended. */
+    whenIdle: () => Promise<void>;
 }
 
 /** A document the shell assigns to a tab before any workspace has loaded it. */
@@ -114,7 +143,8 @@ export interface IWorkspaceDocumentController {
     /** `run` does the open's file work and returns what it admitted; the open finishes with its presentation. */
     runOpen(request: IWorkspaceOpenRequest, run: (shape: IPdfOpeningGeometry | null, transactionId: string) => Promise<IWorkspaceOpenAdmission | null>): IWorkspaceOpenOperation;
     setOpeningLabel(label: string | null): void;
-    commitFile(patch: Partial<IWorkspaceDocumentFile>): void;
+    /** An open's own file work passes its transaction id: only that starts another logical document. */
+    commitFile(patch: Partial<IWorkspaceDocumentFile>, transactionId?: string | null): void;
     markFailed(failure: IWorkspaceOpenFailure | null): void;
     /** Tells why the document failed outside an open, without changing its phase. */
     reportFailure(failure: IWorkspaceOpenFailure): void;
@@ -128,7 +158,11 @@ export interface IWorkspaceDocumentController {
     removeView(tabId: string): number;
     attachWorkspace(tabId: string, workspace: IWorkspaceExpose): void;
     detachWorkspace(tabId: string, workspace: IWorkspaceExpose): void;
-    close(request: IWorkspaceDocumentCloseRequest): Promise<boolean>;
+    close(request: IWorkspaceDocumentCloseRequest): IWorkspaceDocumentClose;
+    /** Begins closing: pins this document, releases its source jobs and waits until nothing runs in it. */
+    quiesce(): Promise<IWorkspaceDocumentRetirement>;
+    /** Saves to the durable result; false when it failed or newer work keeps the document dirty. */
+    saveDurably(onCommitted?: TDocumentCommitReceipt): Promise<boolean>;
     dispose(): void;
     createCommandTarget(tabId: string, mode?: 'current' | 'active-transaction'): TWorkspaceCommandTarget;
     validateCommandTarget(target: TWorkspaceCommandTarget): {ok: true} | {
@@ -227,11 +261,21 @@ function createDocumentOperationLease(): IDocumentOperationLease {
         return operationPromise;
     }
 
+    // The queue's tail settles after every operation before it; one queued
+    // meanwhile moves the tail, which is awaited in turn.
+    async function whenIdle() {
+        for (let tail = queueTail; ; tail = queueTail) {
+            await tail;
+            if (tail === queueTail) return;
+        }
+    }
+
     return {
         activeKind: computed(() => active.value?.kind ?? null),
         isBusy: computed(() => pendingCount.value > 0),
         isForegroundBusy: computed(() => pendingCount.value > pendingRecoveryCount.value),
         runExclusive,
+        whenIdle,
     };
 }
 
@@ -257,14 +301,15 @@ export function createWorkspaceDocumentController(options: {
     const views = shallowRef(new Map<string, IWorkspaceDocumentViewRecord>());
     const operationLease = createDocumentOperationLease();
     const openWaiters = new Map<string, {accepted: PromiseWithResolvers<boolean>; finished: PromiseWithResolvers<TWorkspaceOpenFinish>; onPresented?: (() => void) | undefined}>();
-    let activeClose: Promise<boolean> | null = null;
+    let activeClose: IWorkspaceDocumentClose | null = null;
     const file = shallowRef<IWorkspaceDocumentFile>(EMPTY_FILE);
     const mutationFrontier = shallowRef<IDocumentMutationFrontier | null>(null);
     const liveDirty = computed(() => mutationFrontier.value?.isDirty() === true);
     // A loaded document is as dirty as its host's frontier; until it loads,
-    // a restored or moved tab keeps the dirty state the shell assigned it.
+    // a restored or moved tab keeps the dirty state the shell assigned it, and
+    // a closed one, while its file is still being removed, is clean.
     const snapshot = computed(() => {
-        const loaded = file.value.workingCopyPath !== null || file.value.isDjvu;
+        const loaded = identityHasDocument(state.value.identity) && (file.value.workingCopyPath !== null || file.value.isDjvu);
         const dirty = loaded ? liveDirty.value : state.value.dirty;
         return dirty === state.value.dirty ? state.value : {
             ...state.value,
@@ -437,7 +482,7 @@ export function createWorkspaceDocumentController(options: {
 
     // The file session writes the record here; the identity the shell reads
     // follows in the same call, so no copy of it can lag behind.
-    function commitFile(patch: Partial<IWorkspaceDocumentFile>) {
+    function commitFile(patch: Partial<IWorkspaceDocumentFile>, transactionId?: string | null) {
         const committed = {
             ...file.value,
             ...patch,
@@ -466,7 +511,10 @@ export function createWorkspaceDocumentController(options: {
             }
             return;
         }
-        const sameLogicalDocument = identityHasDocument(current) && snapshot.value.activeTransaction?.kind !== 'open';
+        // A different document takes the tab only when the open in progress
+        // commits its own file; the current document's Save or Save As does not.
+        const opening = snapshot.value.activeTransaction;
+        const sameLogicalDocument = identityHasDocument(current) && !(opening?.kind === 'open' && opening.id === transactionId);
         const resumesCheckpointWorkingCopy = snapshot.value.recoveryWorkingCopyPath !== null
             && snapshot.value.recoveryWorkingCopyPath === next.workingCopyPath;
         const identity = {
@@ -591,37 +639,85 @@ export function createWorkspaceDocumentController(options: {
         }, true);
     }
 
-    function runClose(request: IWorkspaceDocumentCloseRequest) {
-        const onCloseCommit = async () => {
-            // A document closes with its last view; that view's place is kept.
-            for (const tabId of views.value.keys()) {
-                await rememberReadingView(controller, tabId);
-            }
-            supersedeActiveTransaction();
-            resetToEmpty();
-        };
-        const frontier = mutationFrontier.value;
-        if (!request.persist && request.ownership && frontier) {
-            // The transfer already owns admission. Close through the document's
-            // lifecycle, rather than waiting for this same lease to become idle.
-            request.ownership.assertCurrent();
-            return frontier.close(request.assertCurrent ?? (() => undefined)).then(async () => {
-                await onCloseCommit();
-                return true;
-            });
+    // A document closes with its last view, whose place is kept; the empty
+    // document is published once. The close takes the tab, as an open would
+    // (a pending open ends); another open taking it ends the close.
+    async function commitClose(retire: () => void) {
+        const {documentInstanceId} = snapshot.value.identity;
+        const closing = {id: `workspace-document-transaction:${crypto.randomUUID()}`, kind: 'close' as const, target: null};
+        supersedeActiveTransaction();
+        update({activeTransaction: closing});
+        for (const viewTabId of views.value.keys()) {
+            await rememberReadingView(controller, viewTabId);
+            if (snapshot.value.activeTransaction?.id !== closing.id || snapshot.value.identity.documentInstanceId !== documentInstanceId) return false;
         }
-        return getDocumentWorkspace({views})?.handleCloseFileFromUi({
-            ...request,
-            onCloseCommit,
-        })
-            ?? onCloseCommit().then(() => true);
+        retire();
+        resetToEmpty();
+        return true;
     }
 
+    // Pins the document as it is now, then releases each source job running or
+    // admitted while its operations drain, so nothing waits on a reader only a
+    // close could end. Nothing else changes until the close commits.
+    async function quiesce(): Promise<IWorkspaceDocumentRetirement> {
+        const frontier = mutationFrontier.value;
+        const {activeTransaction, identity} = snapshot.value;
+        const released = await (frontier?.drain() ?? operationLease.whenIdle().then(() => false));
+        const isCurrent = () => snapshot.value.activeTransaction?.id === activeTransaction?.id
+            && snapshot.value.identity.documentInstanceId === identity.documentInstanceId;
+        return {isCurrent, keep: () => {
+            if (released && isCurrent()) frontier?.republish();
+        }};
+    }
+
+    async function saveDurably(onCommitted?: TDocumentCommitReceipt) {
+        return await mutationFrontier.value?.save(onCommitted).catch(() => false) !== false && !snapshot.value.dirty;
+    }
+
+    function runClose(request: IWorkspaceDocumentCloseRequest): IWorkspaceDocumentClose {
+        const frontier = mutationFrontier.value;
+        const run = (async (): Promise<{released: Promise<void>} | null> => {
+            if (request.ownership) {
+                // The transfer already owns admission. Close through the document's
+                // lifecycle, rather than waiting for this same lease to become idle.
+                request.ownership.assertCurrent();
+                await frontier?.close(request.assertCurrent ?? (() => undefined));
+                await commitClose(() => undefined);
+                return {released: Promise.resolve()};
+            }
+            // A retirement begun for an earlier document never carries over to its successor.
+            if (request.retiring && !request.retiring.isCurrent()) return null;
+            const drained = await quiesce();
+            const isCurrent = request.retiring?.isCurrent ?? drained.isCurrent;
+            const decision = snapshot.value.dirty && request.decide ? await request.decide() : 'discard';
+            if (!isCurrent()) return null;
+            if (decision === 'cancel' || (decision === 'save' && !await saveDurably())) {
+                // Not retired: its edits stay, and a released revision shows again.
+                request.retiring?.keep();
+                drained.keep();
+                return null;
+            }
+            if (!isCurrent() || !await commitClose(() => frontier?.retire())) return null;
+            // The document has closed; a teardown that fails is told, not undone.
+            return {released: frontier?.teardown().catch((error: unknown) => {
+                BrowserLogger.error('workspace', 'A closed document was not fully removed', error, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
+            }) ?? Promise.resolve()};
+        })();
+        return {
+            closed: run.then(retired => retired !== null),
+            released: run.then(retired => retired?.released, () => undefined),
+        };
+    }
+
+    // A user's repeated close shares the one under way; a transfer's own close never waits on it.
     function close(request: IWorkspaceDocumentCloseRequest) {
-        activeClose ??= runClose(request).finally(() => {
-            activeClose = null;
-        });
-        return activeClose;
+        if (request.ownership) return runClose(request);
+        const current = activeClose ??= runClose(request);
+        const settle = () => {
+            if (activeClose === current) activeClose = null;
+        };
+        void current.closed.then(settle, settle);
+        return current;
     }
 
     function dispose() {
@@ -722,6 +818,8 @@ export function createWorkspaceDocumentController(options: {
         attachWorkspace,
         detachWorkspace,
         close,
+        quiesce,
+        saveDurably,
         dispose,
         createCommandTarget,
         validateCommandTarget,

@@ -26,13 +26,10 @@ import {
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type { TDirtyCloseDecision } from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
 import {
+    bindTestDocumentFrontier,
     createWorkspaceExposeFixture,
     setTestDocumentDirty,
 } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
-import {
-    createDefaultWorkspaceToolbarSnapshot,
-    createDefaultWorkspaceViewerCapabilities,
-} from '@app/types/workspaceExpose';
 
 vi.mock('@app/composables/useRuntimeErrorReports', () => ({useRuntimeErrorReports: () => ({reportRuntimeError: vi.fn()})}));
 const readingView = vi.hoisted(() => ({remember: vi.fn(async () => undefined)}));
@@ -41,15 +38,7 @@ vi.mock('@app/modules/workspace-shell/document-sessions/recentReadingView', asyn
     rememberReadingView: readingView.remember,
 }));
 
-const asyncHelpersMock = vi.hoisted(() => ({
-    waitForVisualFrames: vi.fn(async () => {}),
-    waitUntilIdle: vi.fn(async (isBusy: () => boolean) => {
-        while (isBusy()) {
-            await new Promise<void>(resolve => setTimeout(resolve, 0));
-        }
-        return true;
-    }),
-}));
+const asyncHelpersMock = vi.hoisted(() => ({waitForVisualFrames: vi.fn(async () => {})}));
 vi.mock('@app/utils/asyncHelpers', () => asyncHelpersMock);
 
 const toastAdd = vi.hoisted(() => vi.fn(() => ({id: 'busy-toast'})));
@@ -80,34 +69,19 @@ function createDocumentSession(tabId: string, options: {dirty?: boolean} = {}) {
     });
 }
 
-// A mounted workspace that holds a closeable document until it is closed.
-function attachDocumentWorkspace(session: IWorkspaceDocumentController, expectedPersist: boolean) {
-    const [tabId] = session.views.value.keys();
-    session.getView(tabId!)?.publishToolbarSnapshot({
-        ...createDefaultWorkspaceToolbarSnapshot(),
-        hasPdf: true,
-        viewerCapabilities: {
-            ...createDefaultWorkspaceViewerCapabilities(),
-            closeableDocument: true,
-        },
-    });
-    const workspace = createWorkspaceExposeFixture({
-        hasPdf: true,
-        handleCloseFileFromUi: vi.fn(async (options?: Parameters<IWorkspaceExpose['handleCloseFileFromUi']>[0]) => {
-            expect(options?.persist).toBe(expectedPersist);
-            // The file session releases the document before the close commits.
-            session.commitFile({
-                originalPath: null,
-                workingCopyPath: null,
-                revisionInfo: null,
-                revisionToken: null,
-            });
-            await options?.onCloseCommit?.();
+// A loaded document whose host closes it: its Save settles the edits, its teardown removes the file.
+function bindClosingDocument(session: IWorkspaceDocumentController) {
+    const document = {
+        release: vi.fn(() => false),
+        save: vi.fn(async () => {
+            setTestDocumentDirty(session, false);
             return true;
         }),
-    });
-    session.attachWorkspace(tabId!, workspace);
-    return workspace;
+        teardown: vi.fn(async () => {}),
+    };
+    bindTestDocumentFrontier(session, document);
+    setTestDocumentDirty(session, session.snapshot.value.dirty);
+    return document;
 }
 
 function createLifecycle(options: {
@@ -160,7 +134,7 @@ describe('useAppShellTabLifecycle', () => {
         toastAdd.mockClear();
         toastRemove.mockClear();
         const session = createDocumentSession('tab-1');
-        const workspace = attachDocumentWorkspace(session, false);
+        const document = bindClosingDocument(session);
         const releaseMutation = Promise.withResolvers<undefined>();
         const mutationStarted = Promise.withResolvers<undefined>();
         const mutation = session.operationLease.runExclusive('page-operation', async () => {
@@ -183,7 +157,7 @@ describe('useAppShellTabLifecycle', () => {
         await Promise.resolve();
 
         expect(requestDirtyTabCloseConfirmation).not.toHaveBeenCalled();
-        expect(workspace.handleCloseFileFromUi).not.toHaveBeenCalled();
+        expect(document.teardown).not.toHaveBeenCalled();
         expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({
             color: 'info',
             description: 'notifications.closingAfterPageProcessing',
@@ -198,7 +172,7 @@ describe('useAppShellTabLifecycle', () => {
 
         expect(requestDirtyTabCloseConfirmation).toHaveBeenCalledOnce();
         expect(toastRemove).toHaveBeenCalledOnce();
-        expect(workspace.handleCloseFileFromUi).toHaveBeenCalledOnce();
+        expect(document.teardown).toHaveBeenCalledOnce();
         expect(session.snapshot.value).toMatchObject({
             phase: 'empty',
             dirty: false,
@@ -208,7 +182,7 @@ describe('useAppShellTabLifecycle', () => {
 
     it('closes a clean idle document immediately without asking or persisting', async () => {
         const session = createDocumentSession('tab-1');
-        const workspace = attachDocumentWorkspace(session, false);
+        const document = bindClosingDocument(session);
         const {
             lifecycle,
             requestDirtyTabCloseConfirmation,
@@ -222,12 +196,12 @@ describe('useAppShellTabLifecycle', () => {
         await lifecycle.handleCloseTab('pane-1', 'tab-1');
 
         expect(requestDirtyTabCloseConfirmation).not.toHaveBeenCalled();
-        expect(workspace.handleCloseFileFromUi).toHaveBeenCalledOnce();
+        expect(document.teardown).toHaveBeenCalledOnce();
     });
 
     it('saves a dirty document before closing when the user chooses Save', async () => {
         const session = createDocumentSession('tab-1', {dirty: true});
-        const workspace = attachDocumentWorkspace(session, true);
+        const document = bindClosingDocument(session);
         const {
             lifecycle,
             requestDirtyTabCloseConfirmation,
@@ -241,12 +215,13 @@ describe('useAppShellTabLifecycle', () => {
         await lifecycle.handleCloseTab('pane-1', 'tab-1');
 
         expect(requestDirtyTabCloseConfirmation).toHaveBeenCalledWith('tab-1');
-        expect(workspace.handleCloseFileFromUi).toHaveBeenCalledOnce();
+        expect(document.save).toHaveBeenCalledOnce();
+        expect(document.teardown).toHaveBeenCalledOnce();
     });
 
     it('keeps a dirty document open when the user cancels', async () => {
         const session = createDocumentSession('tab-1', {dirty: true});
-        const workspace = attachDocumentWorkspace(session, false);
+        const document = bindClosingDocument(session);
         const {lifecycle} = createLifecycle({
             panes: ref([createPane('pane-1', 'tab-1', ['tab-1'])]),
             tabs: ref([{id: 'tab-1'}]),
@@ -256,7 +231,7 @@ describe('useAppShellTabLifecycle', () => {
 
         await lifecycle.handleCloseTab('pane-1', 'tab-1');
 
-        expect(workspace.handleCloseFileFromUi).not.toHaveBeenCalled();
+        expect(document.teardown).not.toHaveBeenCalled();
         expect(session.snapshot.value).toMatchObject({
             phase: 'presented',
             dirty: true,
@@ -375,10 +350,88 @@ describe('useAppShellTabLifecycle', () => {
         expect(tabs.value.map(tab => tab.id)).toEqual(['tab-2']);
     });
 
+    // STOP 3: a transfer's rollback closes the document under its own lease
+    // while the user's Close of that tab waits for the lease to drain.
+    it('drains a closing tab before its transition, so a transfer closing it under its lease is not held', async () => {
+        const session = createDocumentSession('tab-1');
+        const document = bindClosingDocument(session);
+        const tabs = ref<ITab[]>([
+            {id: 'tab-1'},
+            {id: 'tab-2'},
+        ]);
+        const panes = ref<IEditorPaneState[]>([createPane('pane-1', 'tab-1', [
+            'tab-1',
+            'tab-2',
+        ])]);
+        const {lifecycle} = createLifecycle({
+            panes,
+            tabs,
+            sessions: {
+                'tab-1': session,
+                'tab-2': createDocumentSession('tab-2'),
+            },
+            closeTab: (_paneId, tabId) => {
+                tabs.value = tabs.value.filter(tab => tab.id !== tabId);
+            },
+        });
+        const rollback = Promise.withResolvers<undefined>();
+        const transfer = session.operationLease.runExclusive('tab-transfer', async (ownership) => {
+            await rollback.promise;
+            return session.close({ownership}).closed;
+        });
+
+        const userClose = lifecycle.handleCloseTab('pane-1', 'tab-1');
+        await Promise.resolve();
+        rollback.resolve(undefined);
+
+        await expect(transfer).resolves.toBe(true);
+        await userClose;
+        expect(document.teardown).not.toHaveBeenCalled();
+        expect(session.snapshot.value.phase).toBe('empty');
+        expect(tabs.value.map(tab => tab.id)).toEqual(['tab-2']);
+    });
+
+    it('closes one of several linked views alone, asking nothing and releasing nothing', async () => {
+        const session = createDocumentSession('tab-a', {dirty: true});
+        session.addView('tab-b');
+        const document = bindClosingDocument(session);
+        const tabs = ref<ITab[]>([
+            {id: 'tab-a'},
+            {id: 'tab-b'},
+        ]);
+        const panes = ref<IEditorPaneState[]>([createPane('pane-1', 'tab-b', [
+            'tab-a',
+            'tab-b',
+        ])]);
+        const {
+            lifecycle,
+            requestDirtyTabCloseConfirmation,
+        } = createLifecycle({
+            panes,
+            tabs,
+            sessions: {
+                'tab-a': session,
+                'tab-b': session,
+            },
+            closeTab: (_paneId, tabId) => {
+                session.removeView(tabId);
+                tabs.value = tabs.value.filter(tab => tab.id !== tabId);
+            },
+        });
+
+        await lifecycle.handleCloseTab('pane-1', 'tab-a');
+
+        expect(requestDirtyTabCloseConfirmation).not.toHaveBeenCalled();
+        expect(document.release).not.toHaveBeenCalled();
+        expect(document.teardown).not.toHaveBeenCalled();
+        expect(tabs.value.map(tab => tab.id)).toEqual(['tab-b']);
+        expect(session.snapshot.value).toMatchObject({phase: 'presented', dirty: true});
+    });
+
     it('asks about unsaved work when the other view lets go of the document while this view closes', async () => {
         const session = createDocumentSession('tab-a', {dirty: true});
         session.addView('tab-b');
-        const workspace = attachDocumentWorkspace(session, false);
+        const document = bindClosingDocument(session);
         const panes = ref<IEditorPaneState[]>([createPane('pane-1', 'tab-b', [
             'tab-a',
             'tab-b',
@@ -409,12 +462,12 @@ describe('useAppShellTabLifecycle', () => {
         await closing;
 
         expect(requestDirtyTabCloseConfirmation).toHaveBeenCalledWith('tab-a');
-        expect(workspace.handleCloseFileFromUi).toHaveBeenCalled();
+        expect(document.teardown).toHaveBeenCalled();
     });
 
     it('keeps the last tab as the empty tab after its document closes', async () => {
         const session = createDocumentSession('tab-1');
-        attachDocumentWorkspace(session, false);
+        bindClosingDocument(session);
         const {
             closeTab,
             lifecycle,
@@ -433,11 +486,7 @@ describe('useAppShellTabLifecycle', () => {
 
     it('closes a tab whose document is still opening and ends the open', async () => {
         const session = createWorkspaceDocumentController({tabId: 'tab-1'});
-        const workspace = createWorkspaceExposeFixture({handleCloseFileFromUi: vi.fn(async (options?: Parameters<IWorkspaceExpose['handleCloseFileFromUi']>[0]) => {
-            await options?.onCloseCommit?.();
-            return true;
-        })});
-        session.attachWorkspace('tab-1', workspace as IWorkspaceExpose);
+        session.attachWorkspace('tab-1', createWorkspaceExposeFixture() as IWorkspaceExpose);
         const shape = Promise.withResolvers<null>();
         const open = session.runOpen({
             pageShape: {

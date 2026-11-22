@@ -806,12 +806,14 @@ describe('workspace save failure surfacing', () => {
     });
 
     it.each([
-        ['keeps', '/tmp/work.pdf', 'rev-1', ['drafts', 'drafts', 'saved', 'view reloaded']],
-        ['replaces', '/tmp/work.pdf', 'rev-repaired', ['drafts', 'view reloaded', 'drafts', 'saved']],
-        ['keeps in the browser', 'browser://documents/work.pdf', 'rev-adopted', ['drafts', 'drafts', 'saved', 'view reloaded']],
-    ])('reports a clean Save As that %s the loaded source saved once the view shows it', async (_outcome, workingPath, savedRevision, expectedEvents) => {
+        ['keeps', '/tmp/work.pdf', 'rev-1'],
+        ['replaces', '/tmp/work.pdf', 'rev-repaired'],
+        ['keeps in the browser', 'browser://documents/work.pdf', 'rev-adopted'],
+    ])('reports a clean Save As that %s the loaded source saved at its durable result, and holds the document until its reload accepts it', async (_outcome, workingPath, savedRevision) => {
         const events: string[] = [];
-        const reload = createDeferred<void>();
+        const accepted = createDeferred<{status: string}>();
+        // A Save As whose output replaced the loaded revision published a source its load has yet to accept.
+        let published = false;
         const {deps} = createDeps({
             originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
             workingCopyPath: ref(requireDocumentRef(workingPath)),
@@ -824,18 +826,17 @@ describe('workspace save failure surfacing', () => {
             commitDrafts: async () => {
                 events.push('drafts');
             },
-            preparePostSaveReload: () => ({
-                promise: reload.promise,
-                cancel: () => reload.resolve(),
-            }),
+
             // Adoption moves the document to the revision Save As committed, as a repaired output does.
             saveWorkingCopyAs: vi.fn(async () => {
                 deps.documentRevisionToken.value = requireDocumentRevisionToken(savedRevision);
+                published = savedRevision === 'rev-repaired';
                 return {
                     success: true,
                     outPath: requireDocumentRef('/tmp/new.pdf'),
                     saveMode: 'save_as_rewrite' as const,
                     didSaveAs: true,
+                    ...(published ? {adoption: {accepted: accepted.promise}} : {}),
                 };
             }),
         });
@@ -845,12 +846,60 @@ describe('workspace save failure surfacing', () => {
             events.push('saved');
             return saved;
         });
-        await vi.waitFor(() => expect(deps.saveWorkingCopyAs).toHaveBeenCalled());
-        events.push('view reloaded');
-        reload.resolve();
+        await expect(saving).resolves.toBe(true);
+        expect(events).toEqual(['drafts', 'drafts', 'saved']);
+        expect(service.isAnySaving.value).toBe(published);
+        accepted.resolve({status: 'accepted'});
+        await vi.waitFor(() => expect(service.isAnySaving.value).toBe(false));
+    });
+
+    // STOP 5: when the earlier job ended (a close released it) the Save plans
+    // and writes as main does; it waits only for a job still running.
+    it('plans and writes when the current source job already ended', async () => {
+        const saveWorkingCopy = vi.fn(async () => ({
+            success: true,
+            outPath: requireDocumentRef('/tmp/work.pdf'),
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const released = new AbortController();
+        released.abort({status: 'released'});
+        const { deps } = createDeps({
+            hasPendingUnsavedChanges: computed(() => true),
+            saveWorkingCopy,
+            readSourceJob: () => ({accepted: Promise.resolve({status: 'released'}), abort: released}),
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(service.handleSave()).resolves.toBe(true);
+        expect(saveWorkingCopy).toHaveBeenCalledOnce();
+    });
+
+    // STOP 5: right after Close-Cancel republishes, the Save waits for that
+    // exact job's load to accept its document, then plans and writes.
+    it('waits in its lease for the loading source job to accept its document, then saves', async () => {
+        const accepted = createDeferred<{status: string}>();
+        const readSourceJob = vi.fn(() => ({accepted: accepted.promise, abort: new AbortController()}));
+        const saveWorkingCopy = vi.fn(async () => ({
+            success: true,
+            outPath: requireDocumentRef('/tmp/work.pdf'),
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const { deps } = createDeps({
+            hasPendingUnsavedChanges: computed(() => true),
+            saveWorkingCopy,
+            readSourceJob,
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+
+        const saving = service.handleSave();
+        await vi.waitFor(() => expect(readSourceJob).toHaveBeenCalled());
+        expect(saveWorkingCopy).not.toHaveBeenCalled();
+        accepted.resolve({status: 'accepted'});
 
         await expect(saving).resolves.toBe(true);
-        expect(events).toEqual(expectedEvents);
+        expect(saveWorkingCopy).toHaveBeenCalledOnce();
     });
 
     it('tells the user about a superseded save without marking the new document', async () => {

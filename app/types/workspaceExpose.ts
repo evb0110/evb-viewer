@@ -266,10 +266,7 @@ export interface IWorkspaceExpose extends IWorkspaceDocumentRecoveryPort {
     handleOpenFileDirectWithPersist: (path: TDocumentRef, pageShape?: IPdfPageShapeRead | null) => Promise<boolean>;
     handleOpenFileDirectBatchWithPersist: (paths: TDocumentRef[]) => Promise<boolean>;
     handleOpenFileWithResult: (result: TOpenFileResult) => Promise<boolean>;
-    handleCloseFileFromUi: (options?: {
-        persist?: boolean;
-        onCloseCommit?: () => Promise<void> | void;
-    }) => Promise<boolean>;
+    handleCloseFileFromUi: () => Promise<boolean>;
     handleExportDocx: () => Promise<void>;
     handleExportImages: () => Promise<void>;
     handleExportMultiPageTiff: () => Promise<void>;

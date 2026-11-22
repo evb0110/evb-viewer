@@ -5,7 +5,11 @@ import {
     it,
     vi,
 } from 'vitest';
-import { ref } from 'vue';
+import {
+    reactive,
+    ref,
+    shallowRef,
+} from 'vue';
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import {
     requireDocumentRef,
@@ -24,8 +28,24 @@ import {
 import { useWorkspaceDocumentSessions } from '@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions';
 import { describeDocumentTarget } from '@app/modules/workspace-shell/document-sessions/describeDocumentTarget';
 import { useAppShellWorkspaceRouting } from '@app/modules/workspace-shell/composables/useAppShellWorkspaceRouting';
-import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
+import { useNativeWindowCloseHandshake } from '@app/modules/workspace-shell/composables/useNativeWindowCloseHandshake';
+import type {
+    IWindowCloseRequest,
+    TWindowCloseRequestHandler,
+} from '@contracts/systemPlatformFeature';
+import {
+    bindTestDocumentFrontier,
+    createWorkspaceExposeFixture,
+    setTestDocumentDirty,
+} from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 import { readToastDescription } from '@tests/helpers/toastDescription';
+import { cast } from '@tests/helpers/cast';
+import {
+    createPdfDocumentSessionSlot,
+    type IPdfSourceJob,
+} from '@app/modules/pdf-viewer/public';
+import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import type { TPdfSource } from '@app/types/pdfUi';
 
 describe('workspace document operation lease', () => {
     it('reports a background recovery copy as busy but not foreground busy', async () => {
@@ -60,16 +80,253 @@ describe('workspace document controller views', () => {
             isDirty: false,
             isDjvu: false,
         });
-        const cleanup = Promise.withResolvers<boolean>();
-        controller.attachWorkspace('tab-1', createWorkspaceExposeFixture({handleCloseFileFromUi: async (options) => {
-            await options?.onCloseCommit?.();
-            return cleanup.promise;
-        }}));
-        const closing = controller.close({persist: false});
-        await vi.waitFor(() => expect(controller.snapshot.value.phase).toBe('empty'));
+        const cleanup = Promise.withResolvers<void>();
+        bindTestDocumentFrontier(controller, {teardown: () => cleanup.promise});
+        const closing = controller.close({});
+        await expect(closing.closed).resolves.toBe(true);
+        expect(controller.snapshot.value.phase).toBe('empty');
         expect(snapshotOccupiesTab(controller.snapshot.value)).toBe(false);
-        cleanup.resolve(true);
-        await expect(closing).resolves.toBe(true);
+        let released = false;
+        void closing.released.then(() => {
+            released = true;
+        });
+        await Promise.resolve();
+        expect(released).toBe(false);
+        cleanup.resolve();
+        await closing.released;
+        expect(released).toBe(true);
+    });
+
+    // A close ends the jobs its document runs before it waits for that
+    // document's operations, so an operation held by a reader cannot hold it.
+    function closingDocument() {
+        const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
+        controller.assign({
+            fileName: 'edited.pdf',
+            originalPath: requireDocumentRef('/docs/edited.pdf'),
+            isDirty: false,
+            isDjvu: false,
+        });
+        const events: string[] = [];
+        const held = Promise.withResolvers<void>();
+        const document = {
+            drain: vi.fn(async () => {
+                events.push('release');
+                held.resolve();
+                await controller.operationLease.whenIdle();
+                return true;
+            }),
+            republish: vi.fn(() => events.push('republish')),
+            save: vi.fn(async () => {
+                events.push('save');
+                return false;
+            }),
+            retire: vi.fn(() => events.push(`retire:${controller.snapshot.value.phase}`)),
+            teardown: vi.fn(async () => {
+                events.push(`teardown:${controller.snapshot.value.phase}`);
+            }),
+        };
+        bindTestDocumentFrontier(controller, document);
+        setTestDocumentDirty(controller, true);
+        // A Save waiting in the lease for its reload to accept the new revision.
+        void controller.operationLease.runExclusive('save', async () => {
+            await held.promise;
+            events.push('save lease ended');
+        });
+        const decide = (decision: 'save' | 'discard' | 'cancel') => vi.fn(async () => {
+            events.push(`decide:${decision}`);
+            return decision;
+        });
+        return {controller, document, events, decide};
+    }
+
+    // A PDF session whose loads never accept their document, as a held reader does.
+    function heldSourceSlot() {
+        const source = shallowRef<TPdfSource | null>({kind: 'path', path: requireDocumentRef('/working/a.pdf'), size: 1});
+        const slot = createPdfDocumentSessionSlot({src: source, reloadSrc: source});
+        const session = reactive({currentJob: null as IPdfSourceJob | null, admit(job: IPdfSourceJob) {
+            session.currentJob = job;
+            return job;
+        }});
+        slot.resolve(() => cast<TPdfDocumentSession>(session));
+        return slot;
+    }
+
+    // STOP 1: Save and Save As of A while an open of B is claimed stay A's;
+    // only the open's own file work starts another logical document.
+    it('keeps the document session through its own Save and Save As while another open is claimed', () => {
+        const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
+        const revisionOf = (path: string, token: string) => ({
+            version: 1 as const,
+            token: requireDocumentRevisionToken(token),
+            documentRef: requireDocumentRef(path),
+            authority: 'electron-working-copy' as const,
+            contentRevision: 1,
+            mintedAt: requireEpochMs(1_790_000_000_000),
+        });
+        controller.commitFile({
+            originalPath: requireDocumentRef('/docs/a.pdf'),
+            workingCopyPath: requireDocumentRef('/working/a.pdf'),
+            revisionInfo: revisionOf('/working/a.pdf', 'a-1'),
+        });
+        const a = controller.snapshot.value.identity;
+        const opening = controller.claimOpen({
+            kind: 'open',
+            target: describeDocumentTarget(requireDocumentRef('/docs/b.pdf')),
+        });
+
+        controller.commitFile({revisionInfo: revisionOf('/working/a.pdf', 'a-2')});
+        controller.commitFile({
+            originalPath: requireDocumentRef('/docs/a-copy.pdf'),
+            workingCopyPath: requireDocumentRef('/working/a-copy.pdf'),
+            revisionInfo: revisionOf('/working/a-copy.pdf', 'a-copy-1'),
+        });
+        expect(controller.snapshot.value.identity).toMatchObject({
+            documentSessionKey: a.documentSessionKey,
+            documentInstanceId: a.documentInstanceId,
+            originalPath: '/docs/a-copy.pdf',
+        });
+
+        controller.commitFile({originalPath: requireDocumentRef('/docs/b.pdf'), workingCopyPath: requireDocumentRef('/working/b.pdf')}, opening);
+        expect(controller.snapshot.value.identity.documentSessionKey).not.toBe(a.documentSessionKey);
+    });
+
+    // STOP 2: with B's open pending, a Save still writing when Close is clicked
+    // publishes its reload during the drain, which releases it.
+    it('finishes a close while another open is pending and a late Save reload is held', async () => {
+        const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
+        controller.assign({fileName: 'a.pdf', originalPath: requireDocumentRef('/docs/a.pdf'), isDirty: false, isDjvu: false});
+        const slot = heldSourceSlot();
+        bindTestDocumentFrontier(controller, {drain: () => slot.drain(() => controller.operationLease.whenIdle())});
+        controller.claimOpen({kind: 'open', target: describeDocumentTarget(requireDocumentRef('/docs/b.pdf'))});
+        const write = Promise.withResolvers<void>();
+        void controller.operationLease.runExclusive('save', async () => {
+            await write.promise;
+            await slot.admit('adopt').accepted;
+        });
+
+        const closing = controller.close({});
+        write.resolve();
+
+        await expect(closing.closed).resolves.toBe(true);
+        expect(controller.snapshot.value.phase).toBe('empty');
+    });
+
+    // STOP 5: the earlier job settled before Close; the reload a Save admits
+    // during the drain is released, so Cancel shows the revision again.
+    it('republishes after Cancel when the drain released a job admitted after it began', async () => {
+        const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
+        controller.assign({fileName: 'a.pdf', originalPath: requireDocumentRef('/docs/a.pdf'), isDirty: false, isDjvu: false});
+        const slot = heldSourceSlot();
+        const republish = vi.fn();
+        bindTestDocumentFrontier(controller, {drain: () => slot.drain(() => controller.operationLease.whenIdle()), republish});
+        setTestDocumentDirty(controller, true);
+        const earlier = slot.admit('open');
+        earlier.abort.abort({status: 'presented'});
+        const write = Promise.withResolvers<void>();
+        void controller.operationLease.runExclusive('save', async () => {
+            await write.promise;
+            await slot.admit('adopt').accepted;
+        });
+
+        const closing = controller.close({decide: async () => 'cancel'});
+        write.resolve();
+
+        await expect(closing.closed).resolves.toBe(false);
+        expect(republish).toHaveBeenCalledOnce();
+    });
+
+    // Close→Cancel: an operation that began before the close (a file Undo)
+    // still applies afterwards; the close took nothing from the document.
+    it('leaves the document as it was through Close and Cancel, so earlier work still applies', async () => {
+        const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
+        controller.assign({fileName: 'a.pdf', originalPath: requireDocumentRef('/docs/a.pdf'), isDirty: false, isDjvu: false});
+        bindTestDocumentFrontier(controller);
+        setTestDocumentDirty(controller, true);
+        const undo = Promise.withResolvers<void>();
+        const before = controller.snapshot.value;
+        const undone = controller.operationLease.runExclusive('history', async () => {
+            await undo.promise;
+            return controller.snapshot.value.activeTransaction?.id === before.activeTransaction?.id
+                && controller.snapshot.value.sessionRevision === before.sessionRevision;
+        });
+
+        const closing = controller.close({decide: async () => 'cancel'});
+        await Promise.resolve();
+        undo.resolve();
+
+        await expect(undone).resolves.toBe(true);
+        await expect(closing.closed).resolves.toBe(false);
+        expect(controller.snapshot.value.activeTransaction).toBeNull();
+    });
+
+    // STOP 4: the window's own Save publishes a reload that no view accepts;
+    // the window drains again before its final check, and leaves nothing armed.
+    it('closes the window after its Save whose reload is held, and a veto leaves the document saveable', async () => {
+        const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
+        controller.assign({fileName: 'a.pdf', originalPath: requireDocumentRef('/docs/a.pdf'), isDirty: false, isDjvu: false});
+        const slot = heldSourceSlot();
+        bindTestDocumentFrontier(controller, {
+            drain: () => slot.drain(() => controller.operationLease.whenIdle()),
+            save: async () => {
+                void controller.operationLease.runExclusive('save', async () => {
+                    await slot.admit('adopt').accepted;
+                });
+                setTestDocumentDirty(controller, false);
+                return true;
+            },
+        });
+        setTestDocumentDirty(controller, true);
+        let requestClose: TWindowCloseRequestHandler | null = null;
+        useNativeWindowCloseHandshake({
+            documentSessionsByTabId: shallowRef({'tab-1': controller}),
+            requestDirtyCloseConfirmation: async () => 'save',
+            systemCapability: {onWindowCloseRequest: (handler) => {
+                requestClose = handler;
+                return () => {};
+            }},
+        });
+
+        await expect(requestClose!(cast<IWindowCloseRequest>({}))).resolves.toBe('save');
+        // Main vetoes the close: the next reload is the document's own again.
+        expect(controller.snapshot.value.activeTransaction).toBeNull();
+        expect(slot.admit('reload').abort.signal.aborted).toBe(false);
+    });
+
+    it('releases the held job before asking, and shows the revision again when Cancel keeps the edits', async () => {
+        const {controller, document, events, decide} = closingDocument();
+
+        await expect(controller.close({decide: decide('cancel')}).closed).resolves.toBe(false);
+
+        expect(events).toEqual(['release', 'save lease ended', 'decide:cancel', 'republish']);
+        expect(document.teardown).not.toHaveBeenCalled();
+        expect(controller.snapshot.value).toMatchObject({phase: 'presented', dirty: true});
+    });
+
+    it('keeps the document and its edits when the Save before close fails', async () => {
+        const {controller, document, events, decide} = closingDocument();
+
+        await expect(controller.close({decide: decide('save')}).closed).resolves.toBe(false);
+
+        expect(events).toEqual(['release', 'save lease ended', 'decide:save', 'save', 'republish']);
+        expect(document.retire).not.toHaveBeenCalled();
+        expect(controller.snapshot.value).toMatchObject({phase: 'presented', dirty: true});
+    });
+
+    it('retires a saved document before publishing it empty, then tears it down', async () => {
+        const {controller, document, events, decide} = closingDocument();
+        document.save.mockImplementation(async () => {
+            events.push('save');
+            setTestDocumentDirty(controller, false);
+            return true;
+        });
+
+        const closing = controller.close({decide: decide('save')});
+        await expect(closing.closed).resolves.toBe(true);
+        await closing.released;
+
+        expect(events).toEqual(['release', 'save lease ended', 'decide:save', 'save', 'retire:presented', 'teardown:empty']);
+        expect(document.republish).not.toHaveBeenCalled();
     });
 
     it('occupies an empty tab before mounting and presents the claimed open', async () => {
@@ -221,7 +478,7 @@ describe('workspace document controller views', () => {
             ...target,
             isDjvu: false,
             revisionInfo: null,
-        });
+        }, controller.snapshot.value.activeTransaction?.id);
         expect(controller.snapshot.value.identity.documentSessionKey).not.toBe(admitted.documentSessionKey);
         expect(controller.snapshot.value.identity.documentInstanceId).not.toBe(admitted.documentInstanceId);
         expect(controller.snapshot.value.activeTransaction?.kind).toBe('open');

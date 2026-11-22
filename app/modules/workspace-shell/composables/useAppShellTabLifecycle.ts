@@ -5,10 +5,7 @@ import type {
 } from 'vue';
 import { uniq } from 'es-toolkit/array';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import {
-    waitForVisualFrames,
-    waitUntilIdle,
-} from '@app/utils/asyncHelpers';
+import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import type { IEditorPaneState } from '@contracts/editorPanes';
 import { parseTabId } from '@contracts/windowTabs';
@@ -18,6 +15,7 @@ import type { IWorkspaceRestoreTrackerLike } from '@app/modules/workspace-shell/
 import {
     snapshotOccupiesTab,
     type IWorkspaceDocumentController,
+    type IWorkspaceDocumentRetirement,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { rememberReadingView } from '@app/modules/workspace-shell/document-sessions/recentReadingView';
 
@@ -172,16 +170,9 @@ export const useAppShellTabLifecycle = (
         return session !== null && snapshotOccupiesTab(session.snapshot.value);
     }
 
+    // Saves, history, export and page operations all run in the document's lease.
     function hasTabBusyOperation(tabId: string) {
-        const session = getDocumentSession(tabId);
-        const view = session?.getView(tabId);
-        const toolbarSnapshot = view?.mountedWorkspace.value ? view.toolbarSnapshot.value : null;
-        return session?.operationLease.isBusy.value === true || Boolean(toolbarSnapshot && (
-            toolbarSnapshot.isAnySaving
-            || toolbarSnapshot.isHistoryBusy
-            || toolbarSnapshot.isExportingDocx
-            || toolbarSnapshot.isPageOperationInProgress === true
-        ));
+        return getDocumentSession(tabId)?.operationLease.isBusy.value === true;
     }
 
     function notifyTabBusy(tabId: string) {
@@ -205,18 +196,6 @@ export const useAppShellTabLifecycle = (
 
         toast.remove(toastId);
         busyFeedbackToastIds.delete(tabId);
-    }
-
-    async function waitForTabOperationsToSettle(tabId: string) {
-        if (hasTabBusyOperation(tabId)) {
-            notifyTabBusy(tabId);
-        }
-
-        try {
-            return await waitUntilIdle(() => hasTabBusyOperation(tabId));
-        } finally {
-            clearTabBusyFeedback(tabId);
-        }
     }
 
     function tabHasCloseableDocument(tabId: string | null | undefined) {
@@ -400,27 +379,18 @@ export const useAppShellTabLifecycle = (
         activateHandoffTarget(targetPane.paneId, targetTab.id);
     }
 
-    async function resolveClosePersistence(tabId: string) {
-        await waitForTabOperationsToSettle(tabId);
-
-        if (getDocumentSession(tabId)?.snapshot.value.dirty !== true) {
-            return false;
-        }
-
-        const decision = await requestDirtyTabCloseConfirmation(tabId);
-        if (decision === 'cancel') {
-            return null;
-        }
-        return decision === 'save';
-    }
-
-    async function closeWorkspaceDocument(
-        paneId: string,
-        tabId: string,
-        shouldPersistBeforeClose: boolean,
-    ) {
+    // The document's close releases what it runs, waits until nothing does,
+    // then asks about its unsaved work; Cancel or a failed Save keeps it.
+    async function closeWorkspaceDocument(paneId: string, tabId: string, retiring: IWorkspaceDocumentRetirement | null) {
         const controller = getDocumentSession(tabId);
-        if (!controller || !await controller.close({persist: shouldPersistBeforeClose})) {
+        if (!controller || !await controller.close({
+            retiring: retiring ?? undefined,
+            decide: () => {
+                clearTabBusyFeedback(tabId);
+                return requestDirtyTabCloseConfirmation(tabId);
+            },
+        }).closed || tabOccupied(tabId)) {
+            // Cancelled, or another document took the tab meanwhile: the tab stays.
             return false;
         }
         const pane = getPaneByTabId(tabId) ?? getPaneById(paneId);
@@ -432,9 +402,10 @@ export const useAppShellTabLifecycle = (
         return true;
     }
 
-    async function closeTabDuringTransition(paneId: string, tabId: string) {
+    async function closeTabDuringTransition(paneId: string, tabId: string, retiring: IWorkspaceDocumentRetirement | null = null) {
         const tab = getTabById(tabId);
         if (!tab) {
+            retiring?.keep();
             return;
         }
 
@@ -443,13 +414,10 @@ export const useAppShellTabLifecycle = (
         // A view of a document that another tab still shows closes alone: the
         // document, its unsaved work and its question stay with the other view.
         const closesDocument = (getDocumentSession(tabId)?.views.value.size ?? 0) < 2;
-        const shouldPersistBeforeClose = closesDocument ? await resolveClosePersistence(tabId) : false;
-        if (shouldPersistBeforeClose === null) {
-            return;
-        }
         // A document close remembers once at its commit; a lone view leaves
         // its document open and remembers only the view being removed.
         if (!closesDocument) {
+            retiring?.keep();
             await rememberReadingView(getDocumentSession(tabId), tabId);
             // The other view may have let go of the document meanwhile; this
             // one is then its last and closes it, asking about unsaved work.
@@ -460,7 +428,7 @@ export const useAppShellTabLifecycle = (
         }
 
         if (closesDocument && tabOccupied(tabId)) {
-            if (!await closeWorkspaceDocument(paneId, tabId, shouldPersistBeforeClose)) {
+            if (!await closeWorkspaceDocument(paneId, tabId, retiring)) {
                 return;
             }
         } else {
@@ -494,17 +462,20 @@ export const useAppShellTabLifecycle = (
             notifyTabBusy(tabId);
         }
 
+        // The document drains before its close joins the tab transitions, so
+        // a transition that holds its lease is never queued behind it.
         const transition = (async () => {
-            await waitForTabOperationsToSettle(tabId);
+            const session = getDocumentSession(tabId);
+            const retiring = session && session.views.value.size < 2 && tabOccupied(tabId) ? await session.quiesce() : null;
             await enqueueTabTransition(
-                () => closeTabDuringTransition(paneId, tabId),
+                () => closeTabDuringTransition(paneId, tabId, retiring),
                 {
                     action: 'close-tab',
                     paneId,
                     tabId,
                 },
             );
-        })();
+        })().finally(() => clearTabBusyFeedback(tabId));
         pendingCloseTransitions.set(tabId, transition);
         try {
             await transition;

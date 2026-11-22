@@ -11,6 +11,7 @@ import {
     type usePageContextMenu,
 } from '@app/modules/pdf-viewer/public';
 import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
+import { beginOpenSurfaceWithPageShape } from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
 import type { useWorkspaceViewerShellState } from '@app/modules/workspace-shell/composables/useWorkspaceViewerShellState';
 import type { useWorkspaceSearchSidebar } from '@app/modules/workspace-shell/composables/useWorkspaceSearchSidebar';
 import type {
@@ -136,12 +137,24 @@ export const createDocumentViews = (controller: IWorkspaceDocumentController) =>
      * Waits for a reload of the document in every view; each keeps its own
      * page, moved through `mapPage` when the reload changes the pages (T4).
      */
-    function prepareReload(mapPage: (page: number) => number = page => page, restoreScroll = true) {
-        const waiters = ports().map(port => prepareViewReload(port, mapPage(port.view.currentPage.value), restoreScroll));
+    function prepareReload(mapPage: (page: number) => number = page => page) {
+        const waiters = ports().map(port => prepareViewReload(port, mapPage(port.view.currentPage.value)));
         return {
             promise: Promise.all(waiters.map(waiter => waiter.promise)).then(() => undefined),
             cancel: () => waiters.forEach(waiter => waiter.cancel()),
         };
+    }
+
+    /** Before a saved revision is admitted, each view opens its next generation at the place it reads. */
+    function holdPlaceForAdoption(documentRevision: string | null) {
+        for (const port of ports()) {
+            const identity = port.openSurface.snapshot.value.identity;
+            if (identity) beginOpenSurfaceWithPageShape(port.openSurface, {
+                documentId: identity.documentId,
+                documentRevision: documentRevision ?? identity.documentRevision,
+                provisional: true,
+            }, controller.getView(port.tabId)?.captureReadingAnchor() ?? port.view.currentPage.value, null);
+        }
     }
 
     // Remap the current reading position, never a position captured at edit time.
@@ -182,6 +195,7 @@ export const createDocumentViews = (controller: IWorkspaceDocumentController) =>
         reportedPageCount,
         prepareViewReload,
         prepareReload,
+        holdPlaceForAdoption,
         mapPageIdentity,
         forEachView: (apply: (port: IDocumentViewPort) => void) => ports().forEach(apply),
     };

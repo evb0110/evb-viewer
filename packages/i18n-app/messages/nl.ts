@@ -1883,6 +1883,7 @@ export default {
             'noPdfData': 'Geen PDF-gegevens of -pad in antwoord',
             'createSearchablePdf': 'Kan doorzoekbare PDF niet maken',
             'changedReload': 'OCR-resultaten zijn niet toegepast omdat het document is gewijzigd. Laad het bestand opnieuw en voer OCR opnieuw uit.',
+            'appliedNotShown': 'De OCR-tekst is in de PDF opgeslagen, maar de bijgewerkte pagina’s konden niet worden weergegeven. Open het bestand opnieuw om ze te zien.',
             'noText': 'Geen OCR-tekst gevonden. Voer eerst OCR uit.',
             'exportDocx': 'Kan DOCX niet exporteren',
             'cancel': 'OCR annuleren is mislukt',

@@ -118,6 +118,7 @@ function createFacade() {
         document,
         admitPdfSource: intent => createPdfSourceJob(intent, {}),
         resetDocumentPresentation: vi.fn(),
+        dismissWorkingPathState: vi.fn(),
     }), {document}) as IPdfFileFacade & {
         document: typeof document;
         optimizeWorkingCopy?: unknown;

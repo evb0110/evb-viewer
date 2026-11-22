@@ -25,6 +25,7 @@ export {
     pdfDocumentAnnotationsKey,
     type TPdfDocumentAnnotations,
 } from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
+export { pdfjsDocumentTeardownCoordinator } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfjsDocumentTeardownCoordinator';
 export {
     createPdfDocumentSessionSlot,
     pdfDocumentSessionSlotKey,

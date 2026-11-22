@@ -176,9 +176,12 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
             }
         }
         const presented = didPresent(finish);
-        // A tab whose open did not present shows what it held before.
-        if (presented) options.onOpened();
-        else presentWhenShown();
+        // A tab whose open did not present shows what it held before; Recent
+        // lists the file an open presented.
+        if (presented) {
+            void recent.loadRecentFiles();
+            options.onOpened();
+        } else presentWhenShown();
         // An open that fails on an empty tab gives the tab back to Start,
         // which then says why the file did not open. A generated result
         // belongs to the page that made it, which reports its own failure and
@@ -237,14 +240,6 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
         ],
         presentWhenShown,
     );
-
-    // Closing ends the document's visual generation; Start re-arms from the
-    // empty surface instead of inheriting the closed document's frame.
-    watch(snapshot, (current) => {
-        if (current.phase === 'empty' && current.activeTransaction === null && options.openSurface.snapshot.value.phase !== 'idle') {
-            options.openSurface.reset();
-        }
-    }, {flush: 'sync'});
 
     // While an open has not claimed a surface yet, a page command waits for it.
     function goToPage(page: number, scrollOptions?: IScrollToPageOptions) {

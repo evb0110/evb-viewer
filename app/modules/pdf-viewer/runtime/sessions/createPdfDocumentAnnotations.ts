@@ -93,7 +93,7 @@ export interface ICreatePdfDocumentAnnotationsOptions {
     workingCopyPath: Readonly<Ref<string | null>>;
     source: Readonly<Ref<TPdfSource | null>>;
     documentRevisionToken: Readonly<Ref<TDocumentRevisionToken | null>>;
-    documentSession?: Readonly<Ref<number>>;
+    documentSession?: Readonly<Ref<unknown>>;
     /** A finished save reads the revision it wrote into a store it left partial. */
     isSaving?: Readonly<Ref<boolean>>;
 }
@@ -329,9 +329,7 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
 
     // The document session admits revisions before a view can report them.
     // A genuine Open resets the owner even when it reuses the same path.
-    if (options.documentSession) {
-        watch(options.documentSession, () => { history.clear(); reset(documentIdentity.value); }, {flush: 'sync'});
-    }
+    if (options.documentSession) watch(options.documentSession, () => { history.clear(); reset(documentIdentity.value); }, {flush: 'sync'});
     watch(options.documentRevisionToken, revision => {
         if (options.documentSession || options.isSaving?.value) storeRevision = revision;
     }, {flush: 'sync'});

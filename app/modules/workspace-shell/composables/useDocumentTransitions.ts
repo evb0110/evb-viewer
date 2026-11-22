@@ -3,17 +3,10 @@ import type {
     IAnnotationCommentSummary,
     IAnnotationEditorState,
 } from '@app/types/annotations';
-import type { TPdfSource } from '@app/types/pdfUi';
-import type { TDocumentRef } from '@contracts/documentRef';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { annotationIdForSummary } from '@app/modules/pdf-viewer/public';
 
 export interface IDocumentTransitionDeps {
-    pdfSrc: Ref<TPdfSource | null>;
-    workingCopyPath: Ref<TDocumentRef | null>;
-    isDjvuMode: Ref<boolean>;
-    djvuSourcePath: Ref<TDocumentRef | null>;
-    pdfError: Ref<unknown>;
     /** Empties every view of the document: its pages, panels and tool. */
     clearViews: () => void;
     annotationComments: Readonly<Ref<readonly IAnnotationCommentSummary[]>>;
@@ -30,18 +23,11 @@ export interface IDocumentTransitionDeps {
     closeSearch: () => void;
     closeContextMenus: () => void;
     closeAllAnnotationNotes: (opts?: { saveIfDirty?: boolean }) => Promise<boolean>;
-    loadRecentFiles: () => void;
     consumePreservedSourceReloadMetadata?: (() => boolean) | undefined;
 }
 
-type TDjvuSourceSnapshot = readonly [boolean, TDocumentRef | null];
-
 export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
     const {
-        pdfSrc,
-        workingCopyPath,
-        isDjvuMode,
-        djvuSourcePath,
         clearViews,
         annotationComments,
         annotationActiveCommentStableKey,
@@ -57,7 +43,6 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
         closeSearch,
         closeContextMenus,
         closeAllAnnotationNotes,
-        loadRecentFiles,
         consumePreservedSourceReloadMetadata,
     } = deps;
 
@@ -87,61 +72,25 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
         };
     }
 
-    watch(pdfSrc, (newSrc, oldSrc) => {
-        if (newSrc && newSrc !== oldSrc) {
-            const isReload = Boolean(oldSrc);
-            logPdfRenderTrace('workspace-document-transition-source-changed', {isReload});
-            resetAnnotationTracking();
-            const didPreserveMetadata = isReload && consumePreservedSourceReloadMetadata?.() === true;
-            if (!didPreserveMetadata) {
-                bookmarkItems.value = [];
-                bookmarksDirty.value = false;
-            }
-            bookmarkEditMode.value = false;
-            closeContextMenus();
+    // Each published source of the same document resets what tracked the
+    // previous one; a page operation's reload keeps its metadata.
+    function resetForPublishedSource(isReload: boolean) {
+        logPdfRenderTrace('workspace-document-transition-source-changed', {isReload});
+        resetAnnotationTracking();
+        if (!isReload || consumePreservedSourceReloadMetadata?.() !== true) {
+            bookmarkItems.value = [];
+            bookmarksDirty.value = false;
         }
-        if (!newSrc) {
-            resetDocumentPresentation();
-        }
-    });
+        bookmarkEditMode.value = false;
+        closeContextMenus();
+    }
 
-    watch(workingCopyPath, (nextPath, previousPath) => {
-        if (nextPath === previousPath) {
-            return;
-        }
-
-        if (nextPath) {
-            loadRecentFiles();
-        }
-
+    // A Save As or an optimized copy moves the document to another working copy.
+    function dismissWorkingPathState() {
         annotationActiveCommentStableKey.value = null;
         closeContextMenus();
         void closeAllAnnotationNotes({ saveIfDirty: false });
-    });
-
-    watch(
-        () => [
-            isDjvuMode.value,
-            djvuSourcePath.value,
-        ] as const,
-        (nextSnapshot: TDjvuSourceSnapshot, previousSnapshot: TDjvuSourceSnapshot) => {
-            const nextIsDjvuMode = nextSnapshot[0];
-            const nextDjvuSourcePath = nextSnapshot[1];
-            const previousIsDjvuMode = previousSnapshot[0];
-            const previousDjvuSourcePath = previousSnapshot[1];
-
-            if (
-                nextIsDjvuMode
-                && nextDjvuSourcePath
-                && (
-                    nextDjvuSourcePath !== previousDjvuSourcePath
-                    || nextIsDjvuMode !== previousIsDjvuMode
-                )
-            ) {
-                loadRecentFiles();
-            }
-        },
-    );
+    }
 
     watch(annotationComments, comments => {
         if (
@@ -152,5 +101,9 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
         }
     });
 
-    return {resetDocumentPresentation};
+    return {
+        resetDocumentPresentation,
+        resetForPublishedSource,
+        dismissWorkingPathState,
+    };
 };

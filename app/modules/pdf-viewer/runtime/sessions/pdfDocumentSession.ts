@@ -286,7 +286,8 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     let activeRasterScheduler: IPdfPageRasterScheduler | null = null;
 
     let documentLoadToken = 0;
-    let currentJob: IPdfSourceJob | null = null;
+    // Reactive, so a close can release each job admitted while it drains.
+    const currentJob = shallowRef<IPdfSourceJob | null>(null);
     let activePlan: IPdfDocumentLoadPlan = IDLE_PLAN;
     let presentingLoad: IPdfDocumentPresentingLoad | null = null;
     let pendingPreserveVisibleContent = false;
@@ -607,7 +608,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             : pageCache.leasePage(pageNumber, signal);
     }
 
-    async function readPdfjsPageGeometry(document: IPdfDocument, version: number) {
+    async function readPdfjsPageGeometry(document: IPdfDocument, version: number, signal?: AbortSignal) {
         // Keep the established sparse path for exceptionally large browser
         // sources; native path-backed documents use the bulk reader above.
         // The old dimensions of rewritten pages are measured again on demand.
@@ -624,7 +625,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         let nextPage = 1;
         let failedPageCount = 0;
         let firstFailure: unknown;
-        const isCurrent = () => version === getRenderVersion() && document === pdfDocument.value;
+        const isCurrent = () => version === getRenderVersion() && document === pdfDocument.value && !signal?.aborted;
         await Promise.all(Array.from({length: Math.min(4, document.numPages)}, async () => {
             while (nextPage <= document.numPages && isCurrent()) {
                 const pageNumber = nextPage++;
@@ -802,7 +803,8 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         const path = isPathPdfSource(src) ? src.path : options.workingCopyPath?.value;
         const revision = (isPathPdfSource(src) ? src.revision : undefined) ?? options.documentRevisionToken?.value;
         const sourceRef = options.reloadSrc?.value === src ? options.reloadSrc : options.src?.value === src ? options.src : null;
-        const isCurrent = () => version === getRenderVersion() && loadToken === documentLoadToken
+        // A job that ended (a close released it) publishes nothing its reader returns later.
+        const isCurrent = () => version === getRenderVersion() && loadToken === documentLoadToken && !loadOptions?.signal?.aborted
             && (!sourceRef || pdfSourcesMatch(sourceRef.value, src));
         const isNativeGeometryCurrent = () => isCurrent()
             && (isPathPdfSource(src) || path === options.workingCopyPath?.value && revision === options.documentRevisionToken?.value);
@@ -916,7 +918,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                     if (loadOptions?.preservePageStructure) publishPageGeometry(nativeGeometry, src);
                     await verifyNativePageGeometry(document);
                 } else {
-                    await readPdfjsPageGeometry(document, version);
+                    await readPdfjsPageGeometry(document, version, loadOptions?.signal);
                 }
             }
             if (isCurrent()) geometrySource.value = src;
@@ -942,7 +944,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 document,
             };
         } catch (error) {
-            if (loadToken !== documentLoadToken) return null;
+            if (loadToken !== documentLoadToken || loadOptions?.signal?.aborted) return null;
             cleanupFailedLoadAttempt(version);
             return handleLoadError(error, version);
         } finally {
@@ -1078,6 +1080,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         if (presenting.token !== documentLoadToken) {
             return;
         }
+        if (loaded) job.accept({status: 'accepted', ...loaded});
         const error = thrownLoadError ?? loadError.value;
         // A view that joins while the others present is part of the same job.
         const settled = new Set<IPdfDocumentViewPresenter>();
@@ -1123,8 +1126,8 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     }
 
     function replaceCurrentJob(job: IPdfSourceJob) {
-        if (currentJob !== job && currentJob) settlePdfSourceJob(currentJob, {status: job.source ? 'superseded' : 'released'});
-        return currentJob = job;
+        if (currentJob.value !== job && currentJob.value) settlePdfSourceJob(currentJob.value, {status: job.source ? 'superseded' : 'released'});
+        return currentJob.value = job;
     }
 
     /** Loads the published source no job presents: its waiting job, or a new open once that ended. */
@@ -1133,8 +1136,8 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             return presentingLoad?.job ?? null;
         }
         sourceLoader.cancelPendingOpen();
-        return runJob(currentJob?.source && !currentJob.abort.signal.aborted
-            ? currentJob
+        return runJob(currentJob.value?.source && !currentJob.value.abort.signal.aborted
+            ? currentJob.value
             : replaceCurrentJob(createPdfSourceJob('open', options)), false);
     }
 
@@ -1143,7 +1146,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
      * lifecycle queue: a load still reading its proxy ends instead of holding
      * the next job. A clear ends even when a view's invalidation fails.
      */
-    function invalidateAndCleanup(reason: string, job: IPdfSourceJob, isOutgoing = () => currentJob === job) {
+    function invalidateAndCleanup(reason: string, job: IPdfSourceJob, isOutgoing = () => currentJob.value === job) {
         restorePageMutationGeometryPreview();
         cancelStagedRevisionSwap();
         pendingPreserveVisibleContent = false;
@@ -1164,7 +1167,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
 
     /** Takes the source just published; its intent, not the previous source, says whether it opens a new document. */
     function admit(job: IPdfSourceJob) {
-        const previousSource = currentJob?.source ?? null;
+        const previousSource = currentJob.value?.source ?? null;
         replaceCurrentJob(job);
         sourceLoader.cancelPendingOpen();
         if (!job.source) {
@@ -1182,6 +1185,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         if (views.value.size === 0) {
             // Nothing presents the document: the next view that does loads it,
             // and a new document retires the one it replaces before that view can present it.
+            job.accept({status: 'no-view'});
             if (!isReload) {
                 void invalidate('source-replaced');
                 cleanup();
@@ -1198,7 +1202,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
 
     /** No view presents the document any more: release it, as closing its last viewer does. */
     function releaseDocument() {
-        if (currentJob) settlePdfSourceJob(currentJob, {status: 'released'});
+        if (currentJob.value) settlePdfSourceJob(currentJob.value, {status: 'released'});
         documentLoadToken += 1;
         presentingLoad = null;
         pendingPageMutationRevisionSwap = null;
@@ -1898,7 +1902,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             },
             /** Resolves when the current source job has ended; throws its load failure. */
             waitForLoadSettled: async () => {
-                const outcome = await currentJob?.finished;
+                const outcome = await currentJob.value?.finished;
                 if (outcome?.status === 'failed') {
                     throw outcome.error instanceof Error ? outcome.error : new Error(getErrorMessage(outcome.error));
                 }
@@ -1971,7 +1975,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             return pendingPageMutationRevisionSwap;
         },
         get currentJob() {
-            return currentJob;
+            return currentJob.value;
         },
         attachView,
     };

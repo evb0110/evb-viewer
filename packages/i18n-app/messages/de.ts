@@ -1883,6 +1883,7 @@ export default {
             'noPdfData': 'Keine PDF-Daten oder kein Pfad in der Antwort',
             'createSearchablePdf': 'Durchsuchbares PDF konnte nicht erstellt werden',
             'changedReload': 'OCR-Ergebnisse wurden nicht angewendet, weil das Dokument geändert wurde. Laden Sie die Datei neu und führen Sie OCR erneut aus.',
+            'appliedNotShown': 'Der OCR-Text wurde im PDF gespeichert, aber die aktualisierten Seiten konnten nicht angezeigt werden. Öffnen Sie die Datei erneut, um sie zu sehen.',
             'noText': 'Kein OCR-Text gefunden. Führen Sie zuerst OCR aus.',
             'exportDocx': 'DOCX-Export fehlgeschlagen',
             'cancel': 'Fehler beim Abbrechen der OCR',

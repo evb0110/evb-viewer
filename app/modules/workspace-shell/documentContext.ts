@@ -1,4 +1,6 @@
 import type { InjectionKey } from 'vue';
+import type { TDocumentCommitReceipt } from '@app/types/workspaceExpose';
+import { until } from '@vueuse/core';
 import {createWorkspaceDocumentRecovery} from '@app/modules/workspace-shell/checkpoint/createWorkspaceDocumentRecovery';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {getErrorMessage} from '@app/utils/error';
@@ -7,6 +9,7 @@ import {
     createPdfDocumentAnnotations,
     createPdfSourceDataReader,
     createPdfDocumentSessionSlot,
+    pdfjsDocumentTeardownCoordinator,
     useOcrTextContent,
     usePdfHistory,
 } from '@app/modules/pdf-viewer/public';
@@ -41,9 +44,13 @@ import {
 import type { IDocumentSourceCapabilities } from '@app/modules/document-viewer/public';
 import { EMPTY_SOURCE_CAPABILITIES } from '@app/modules/workspace-shell/document-sessions/useDocumentSourceSession';
 import {
+    discardScanCleanupDocumentState,
     flushScanCleanupDocumentPreferencesStore,
     flushScanCleanupPreferencesStore,
 } from '@app/modules/scan-cleanup/public/runtime';
+import { useScanCleanupSourceSha256 } from '@app/modules/scan-cleanup/public/workspace';
+import { captureFailureForPresentation } from '@app/utils/failureReporter';
+import { useFailureToast } from '@app/composables/useFailureToast';
 import { createDocumentViews } from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
 import { createReadingViewLifecycleHooks } from '@app/modules/workspace-shell/document-sessions/recentReadingView';
 
@@ -84,9 +91,24 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         getOpenSurface: () => views.soleView.value?.openSurface ?? null,
         runDocumentOpen: (request, run) => views.runDocumentOpen(views.soleView.value, request, run),
         document: controller,
-        admitPdfSource: intent => pdfDocumentSessionSlot.admit(intent),
+        // A saved revision replaces the shown one: each view keeps its place,
+        // taken before the new source's job is admitted.
+        admitPdfSource: (intent) => {
+            if (intent === 'adopt' && !isOpeningDocument.value) views.holdPlaceForAdoption(file.documentRevisionToken.value);
+            if (intent !== 'clear') resetForPublishedSource(intent !== 'open');
+            return pdfDocumentSessionSlot.admit(intent);
+        },
         resetDocumentPresentation: () => resetDocumentPresentation(),
+        dismissWorkingPathState: () => dismissWorkingPathState(),
     });
+    // Scan Cleanup's source hash, acquired while a view shows it and kept until the revision changes.
+    const scanCleanupSource = useScanCleanupSourceSha256({
+        enabled: computed(() => [...views.viewPorts.value.values()].some(port => port.isActive.value
+            && controller.getView(port.tabId)?.viewState.value.surfaceMode === 'scan-cleanup')),
+        sourcePath: file.workingCopyPath,
+        documentRevision: file.documentRevisionToken,
+    });
+    const { presentFailureToast } = useFailureToast();
     const {
         settings: appSettings,
         save: saveSettings,
@@ -136,7 +158,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         workingCopyPath: file.workingCopyPath,
         source: file.pdfSrc,
         documentRevisionToken: file.documentRevisionToken,
-        documentSession: file.fileHistorySessionVersion,
+        documentSession: computed(() => controller.snapshot.value.identity.documentSessionKey),
         isSaving: computed(() => isSaving.value || isSavingAs.value),
     });
     const { clearCache: clearOcrCache } = useOcrTextContent();
@@ -193,7 +215,61 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
             assertCurrent();
             await file.closeFile();
         },
+        drain: () => pdfDocumentSessionSlot.drain(whenIdle),
+        // The same revision again, without the publication resets: edits and metadata stay.
+        republish: () => {
+            if (file.pdfSrc.value) pdfDocumentSessionSlot.admit('reload');
+        },
+        save: saveBeforeClose,
+        retire: retireDocument,
+        // The working copy, then the PDF.js document its clear retired; the DjVu grant goes detached.
+        teardown: async () => {
+            const lifecycleKey = file.originalPath.value;
+            const cleared = await file.closeFileWithViewerLifecycle();
+            await cleared?.finished;
+            if (cleared && lifecycleKey) await pdfjsDocumentTeardownCoordinator.waitForIdle(lifecycleKey);
+        },
     });
+
+    // Nothing runs in the document: its lease drained, and no note mid-save (notes save outside it).
+    async function whenIdle() {
+        do {
+            await controller.operationLease.whenIdle();
+            await until(annotations.isAnyAnnotationNoteSaving).toBe(false);
+        } while (controller.operationLease.isBusy.value);
+    }
+
+    // A closing document's Save: its durable result, and nothing newer left unsaved.
+    async function saveBeforeClose(onCommitted?: TDocumentCommitReceipt) {
+        if (await save.handleSave(onCommitted) && !hasPendingUnsavedChanges.value) return true;
+        if (!saveService.hasSaveFailure.value) presentFailureToast({
+            failure: BrowserLogger.error('workspace', 'Close could not complete the save', {}, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'}),
+            title: t('errors.file.save'),
+            description: t('errors.save.notCompleted'),
+        });
+        return false;
+    }
+
+    // What showed the closing document resets against the identity it has now: its
+    // views (Start re-arms from an empty surface), history and Scan Cleanup settings.
+    function retireDocument() {
+        const documentKey = file.documentKey.value;
+        const sourceSha256 = scanCleanupSource.sha256.value;
+        views.forEachView((port) => {
+            port.view.closeAllDropdowns();
+            if (port.openSurface.snapshot.value.phase !== 'idle') port.openSurface.reset();
+        });
+        if (file.pdfSrc.value) resetDocumentPresentation();
+        file.clearDocumentHistory();
+        void discardScanCleanupDocumentState(documentKey, sourceSha256).catch((error: unknown) => {
+            BrowserLogger.warn('scan-cleanup', 'Failed to discard saved cleanup settings', error);
+            presentFailureToast({
+                ...captureFailureForPresentation({code: 'RENDERER_WORKSPACE_OPERATION_FAILED', local: {source: 'scan-cleanup', message: 'Failed to discard saved cleanup settings', cause: error}}),
+                title: t('errors.settings.save'),
+            });
+        });
+    }
+
 
     const unencryptedSaveNotice = useUnencryptedSaveNotice();
     const getSourcePdfData = createPdfSourceDataReader({
@@ -259,6 +335,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
                 runSaveTransaction: request => pdfViewerRef.value?.runSaveTransaction(request)
                     ?? Promise.reject(new Error('Missing PDF viewer save transaction')),
                 getSourceData: getSourcePdfData,
+                readSourceJob: () => pdfDocumentSessionSlot.currentJob,
             },
             persistence: {
                 validatePdfPath: path => getDocumentPdfCapability().validatePdfPath(path, {purpose: 'save'}),
@@ -276,7 +353,6 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
             },
             lifecycle: {
                 loadRecentFiles: () => void file.loadRecentFiles(),
-                preparePostSaveReload: () => views.prepareReload(undefined, false),
                 commitDrafts: recovery.commitDrafts,
             },
             runWithDocumentOperationLease: runExclusive,
@@ -496,20 +572,16 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
     });
 
     const {
-        ocr, resetDocumentPresentation,
+        ocr, resetDocumentPresentation, resetForPublishedSource, dismissWorkingPathState,
     } = useWorkspaceDocumentLifecycleEffects({
         documentAnnotations: pdfDocumentAnnotations,
         totalPages,
         // The OCR panel opens in the toolbar of the active tab.
         ocrCurrentPage: () => [...views.viewPorts.value.values()].find(port => port.isActive.value)?.view.currentPage.value ?? 1,
         views,
-        isDjvuMode: file.isDjvuMode,
-        djvuSourcePath: file.djvuSourcePath,
-        pdfSrc: file.pdfSrc,
         workingCopyPath: file.workingCopyPath,
         documentRevisionInfo: file.documentRevisionInfo,
         documentRevisionToken: file.documentRevisionToken,
-        pdfError: file.pdfError,
         clearViews: () => views.forEachView((port) => {
             port.view.pdfDocument.value = null;
             port.view.showSidebar.value = false;
@@ -527,7 +599,6 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
             port.pageContextMenu.closePageContextMenu();
         }),
         closeAllAnnotationNotes: annotations.closeAllAnnotationNotes,
-        loadRecentFiles: () => void file.loadRecentFiles(),
         // OCR waits for document writers; a background recovery copy only reads.
         isBusy: computed(() => controller.operationLease.isForegroundBusy.value || saveService.isAnySaving.value),
         clearOcrCache,
@@ -569,6 +640,8 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         splitPayload,
         ocr,
         views,
+        scanCleanupSource,
+        whenIdle,
     };
 };
 export type TDocumentContext = ReturnType<typeof createDocumentContext>;

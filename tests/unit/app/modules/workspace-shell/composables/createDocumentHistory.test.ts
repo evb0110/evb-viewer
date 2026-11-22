@@ -49,6 +49,8 @@ const revisionToken = (name: string) => requireDocumentRevisionToken(name);
 
 /** A working copy whose revisions undo restores; `mutate` is a page operation that makes the next one. */
 function createHistoryHarness(isDesktopRuntime = false) {
+    // The controller's logical document; a new one starts a new session.
+    const sessionKey = ref('session-1');
     const state = createDocumentSessionState({
             isDesktopRuntime: ref(isDesktopRuntime),
             document: createWorkspaceDocumentController({tabId: 'tab-1'}),
@@ -84,6 +86,7 @@ function createHistoryHarness(isDesktopRuntime = false) {
         documentFiles: () => documentFiles,
         documentWorkingCopy: () => documentWorkingCopy,
         readOpenTransactionId: () => null,
+        readDocumentSessionKey: () => sessionKey.value,
         readPdfStateFromPath: vi.fn(async (): Promise<IPdfLoadedState> => ({
             pdfData: null,
             pdfSrc: {
@@ -114,6 +117,10 @@ function createHistoryHarness(isDesktopRuntime = false) {
         retained,
         history: {
             ...history,
+            startDocumentSession: () => {
+                sessionKey.value = crypto.randomUUID();
+                history.resetCommandSink();
+            },
             undo: ledger.undoTimeline,
             redo: ledger.redoTimeline,
             canUndo: ledger.canUndoTimeline,
@@ -131,6 +138,7 @@ function createHistoryHarness(isDesktopRuntime = false) {
 }
 
 function createContentHistoryHarness(pathHistory: boolean, beforeRevisionPrepare?: () => Promise<void>, documentAnnotations?: () => ReturnType<typeof createPdfDocumentAnnotations>) {
+    const sessionKey = ref('session-1');
     vi.stubGlobal('useToast', () => ({
         add: vi.fn(),
         update: vi.fn(),
@@ -263,7 +271,7 @@ function createContentHistoryHarness(pathHistory: boolean, beforeRevisionPrepare
         cleanupPreviousWorkingCopy: async () => undefined,
         clearPdfConformanceProfile: () => undefined,
         deferPdfConformanceProfile: () => undefined,
-        incrementSessionVersion: () => history.incrementSessionVersion(),
+        resetCommandSink: () => history.resetCommandSink(),
         readOpenTransactionId: () => null,
         resetDocumentPresentation: vi.fn(),
         resetHistory: options => history.resetHistory(options),
@@ -280,6 +288,7 @@ function createContentHistoryHarness(pathHistory: boolean, beforeRevisionPrepare
         documentFiles: () => files,
         documentWorkingCopy: () => workingCopies,
         readOpenTransactionId: () => null,
+        readDocumentSessionKey: () => sessionKey.value,
         readPdfStateFromPath: readState,
     });
     const ledger = useWorkspaceCommandLedger();
@@ -346,8 +355,13 @@ function createContentHistoryHarness(pathHistory: boolean, beforeRevisionPrepare
     return {
         state,
         ledger,
+        sessionKey,
         history: {
             ...history,
+            startDocumentSession: () => {
+                sessionKey.value = crypto.randomUUID();
+                history.resetCommandSink();
+            },
             undo: ledger.undoTimeline,
             redo: ledger.redoTimeline,
             canUndo: ledger.canUndoTimeline,
@@ -419,7 +433,7 @@ describe('createDocumentHistory', () => {
         await entered.promise;
         // A new document/session takes ownership while the old surface is
         // preparing. Refusing that restore must also refuse its view mapping.
-        h.history.incrementSessionVersion();
+        h.history.startDocumentSession();
         release.resolve(undefined);
         await expect(undo).resolves.toBe(false);
         // The working copy took the undo, which the next session reads; the replaced one keeps its views in place.
@@ -586,7 +600,7 @@ describe('createDocumentHistory', () => {
         await expect(registrations[0]?.undo()).resolves.toBe(true);
         await expect(registrations[0]?.cmd()).resolves.toBe(true);
 
-        history.incrementSessionVersion();
+        history.startDocumentSession();
         expect(reset).toHaveBeenLastCalledWith(undefined);
     });
 
@@ -667,7 +681,7 @@ describe('createDocumentHistory', () => {
 
         const baseline = history.ensureHistoryBaselineForMutation();
         state.workingCopyPath.value = requireDocumentRef('/tmp/next.pdf');
-        history.incrementSessionVersion();
+        history.startDocumentSession();
         revision.resolve(info);
 
         await expect(baseline).resolves.toBe(false);
@@ -738,7 +752,7 @@ describe.each([
             workingCopyPath: h.state.workingCopyPath,
             source: h.state.pdfSrc,
             documentRevisionToken: h.state.documentRevisionToken,
-            documentSession: h.history.fileHistorySessionVersion,
+            documentSession: h.sessionKey,
         }))!;
         owner.history.setWorkspaceCommandSink({
             register: h.ledger.registerCommand,
@@ -836,7 +850,7 @@ describe.each([
         await expect(h.ledger.redoTimeline()).resolves.toBe(true);
         expect(h.state.isDirty.value).toBe(true);
         const stale = h.history.captureHistoryCleanState();
-        h.history.incrementSessionVersion();
+        h.history.startDocumentSession();
         await h.history.resetHistory();
         h.state.recoveryDirtyBaseline.value = true;
         await stale();
@@ -884,7 +898,7 @@ describe.each([
         const h = setup();
         h.store.createNote(h.note);
         h.owner.setTextBoxDraft('draft', 'pending');
-        h.history.incrementSessionVersion();
+        h.history.startDocumentSession();
         expect(h.store.list()).toEqual([]);
         expect(h.owner.textBoxDrafts.size).toBe(0);
         expect(h.ledger.canUndoTimeline.value).toBe(false);

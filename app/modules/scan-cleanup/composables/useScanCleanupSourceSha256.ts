@@ -32,7 +32,8 @@ interface IUseScanCleanupSourceSha256Options {
  * Reads the source hash owned by the desktop document pipeline. The renderer
  * never reads or hashes the document bytes; it only retains the hash returned
  * by the main-process managed-file handle for the current document revision.
- * The view's Scan cleanup workspace injects the acquisition state.
+ * The document owns it, so it outlives its views; each view provides the
+ * acquisition state to its Scan cleanup workspace.
  */
 export const useScanCleanupSourceSha256 = (options: IUseScanCleanupSourceSha256Options) => {
     const sourceSha256 = ref<string | null>(null);
@@ -132,11 +133,13 @@ export const useScanCleanupSourceSha256 = (options: IUseScanCleanupSourceSha256O
         () => { void refresh(); },
         {immediate: true},
     );
-    onBeforeUnmount(() => { generation += 1; });
-    provide(scanCleanupSourceIdentityKey, {
-        state,
-        retry: () => { void refresh(); },
-    });
+    onScopeDispose(() => { generation += 1; });
 
-    return computed(() => sourceSha256.value);
+    return {
+        sha256: computed(() => sourceSha256.value),
+        identity: {
+            state,
+            retry: () => { void refresh(); },
+        } satisfies IScanCleanupSourceIdentity,
+    };
 };

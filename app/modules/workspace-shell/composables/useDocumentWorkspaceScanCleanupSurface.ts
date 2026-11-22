@@ -1,7 +1,3 @@
-import { captureFailureForPresentation } from '@app/utils/failureReporter';
-import { useFailureToast } from '@app/composables/useFailureToast';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import {discardScanCleanupDocumentState} from '@app/modules/scan-cleanup/public/runtime';
 import type {
     IWorkspaceDocumentController,
     IWorkspaceDocumentIdentity,
@@ -21,16 +17,12 @@ interface IDocumentWorkspaceScanCleanupSurfaceOptions {
     documentSession: IWorkspaceDocumentController;
     documentView: IWorkspaceDocumentView;
     closeAllDropdowns: () => void;
-    readDocumentKey: () => string | null | undefined;
-    readSourceSha256?: () => string | null;
 }
 
 /** Which surface the tab shows, reader or Scan Cleanup; the tab's view state owns it. */
 export const useDocumentWorkspaceScanCleanupSurface = (
     options: IDocumentWorkspaceScanCleanupSurfaceOptions,
 ) => {
-    const { t } = useTypedI18n();
-    const { presentFailureToast } = useFailureToast();
     const {
         documentSession,
         documentView,
@@ -66,24 +58,11 @@ export const useDocumentWorkspaceScanCleanupSurface = (
         documentView.applyViewState(viewState);
     }
 
-    function discardScanCleanupState() {
-        discardScanCleanupSessionState();
-        void discardScanCleanupDocumentState(
-            options.readDocumentKey(),
-            options.readSourceSha256?.() ?? null,
-        ).catch((error: unknown) => {
-            BrowserLogger.warn('scan-cleanup', 'Failed to discard saved cleanup settings', error);
-            presentFailureToast({
-                ...captureFailureForPresentation({code: 'RENDERER_WORKSPACE_OPERATION_FAILED', local: {source: 'scan-cleanup', message: 'Failed to discard saved cleanup settings', cause: error}}),
-                title: t('errors.settings.save'),
-            });
-        });
-    }
-
     // Scan Cleanup edits a document; it cannot outlive one. The final tab keeps
     // its mounted workspace across a close, so without this the surface stays in
     // 'scan-cleanup' over an empty session and reopens there for the next
     // document, replaying a stale page selection against fresh source pages.
+    // The document's close discards its saved settings; hiding or evicting a view does not.
     watch(
         () => hasScanCleanupSourceDocument(documentSession.snapshot.value.identity),
         (hasDocument, hadDocument) => {
@@ -91,7 +70,7 @@ export const useDocumentWorkspaceScanCleanupSurface = (
                 return;
             }
             surfaceMode.value = 'reader';
-            discardScanCleanupState();
+            discardScanCleanupSessionState();
         },
     );
 
@@ -115,7 +94,6 @@ export const useDocumentWorkspaceScanCleanupSurface = (
         workspaceMounted,
         updateScanCleanupSessionState,
         closeScanCleanup,
-        discardScanCleanupState,
         openScanCleanup,
     };
 };

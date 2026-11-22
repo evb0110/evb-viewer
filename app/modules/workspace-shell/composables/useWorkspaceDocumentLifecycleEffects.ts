@@ -4,7 +4,9 @@ import { useDocumentTransitions } from '@app/modules/workspace-shell/composables
 import type { IDocumentTransitionDeps } from '@app/modules/workspace-shell/composables/useDocumentTransitions';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {useMetadataSession} from '@app/modules/workspace-shell/composables/useMetadataSession';
-import type { TPdfDocumentAnnotations } from '@app/modules/pdf-viewer/public';
+import type {
+    IPdfSourceJob, TPdfDocumentAnnotations,
+} from '@app/modules/pdf-viewer/public';
 import type {
     IDocumentRevisionInfo,
     TDocumentRevisionToken,
@@ -26,13 +28,9 @@ interface IOcrCompletePayload extends IOcrSearchablePdfResult {
     sourceWorkingCopyPath: TDocumentRef;
 }
 
-interface IOcrApplyReloadResult {
-    restorePromise: Promise<void>;
-    getRestoreError: () => unknown;
-}
-
 interface IWorkspaceDocumentLifecycleEffectsOptions extends Omit<IDocumentTransitionDeps,
     'bookmarkItems' | 'bookmarksDirty' | 'bookmarkEditMode' | 'pageLabels' | 'pageLabelRanges' | 'pageLabelsDirty' | 'consumePreservedSourceReloadMetadata'> {
+    workingCopyPath: Ref<TDocumentRef | null>;
     documentAnnotations: TPdfDocumentAnnotations;
     metadata: ReturnType<typeof useMetadataSession>;
     documentRevisionInfo: Ref<IDocumentRevisionInfo | null>;
@@ -47,7 +45,7 @@ interface IWorkspaceDocumentLifecycleEffectsOptions extends Omit<IDocumentTransi
     clearOcrCache: (path: TDocumentRef) => void;
     ensureHistoryBaselineForMutation: () => Promise<boolean>;
     /** Resolves to the published revision's job, or null when nothing was published. */
-    reloadWorkingCopyIntoHistory: () => Promise<object | null>;
+    reloadWorkingCopyIntoHistory: () => Promise<IPdfSourceJob | null>;
     runWithDocumentOperationLease?: <T>(
         kind: TDocumentOperationKind,
         operation: () => Promise<T>,
@@ -59,12 +57,8 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         documentRevisionInfo,
         documentRevisionToken,
         views,
-        pdfSrc,
         totalPages,
         workingCopyPath,
-        isDjvuMode,
-        djvuSourcePath,
-        pdfError,
         clearViews,
         annotationComments,
         annotationActiveCommentStableKey,
@@ -75,7 +69,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         closeSearch,
         closeContextMenus,
         closeAllAnnotationNotes,
-        loadRecentFiles,
         clearOcrCache,
         ensureHistoryBaselineForMutation,
         reloadWorkingCopyIntoHistory,
@@ -155,12 +148,7 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         unsubscribeDocumentRevision();
     });
 
-    const {resetDocumentPresentation} = useDocumentTransitions({
-        pdfSrc,
-        workingCopyPath,
-        isDjvuMode,
-        djvuSourcePath,
-        pdfError,
+    const transitions = useDocumentTransitions({
         clearViews,
         annotationComments,
         annotationActiveCommentStableKey,
@@ -176,7 +164,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         closeSearch,
         closeContextMenus,
         closeAllAnnotationNotes,
-        loadRecentFiles,
         consumePreservedSourceReloadMetadata,
     });
 
@@ -207,9 +194,7 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         }
     }
 
-    async function replaceOcrWorkingCopy(payload: IOcrCompletePayload): Promise<IOcrApplyReloadResult | null> {
-        let restoreError: unknown = null;
-        let restorePromise: Promise<void> | null = null;
+    async function replaceOcrWorkingCopy(payload: IOcrCompletePayload) {
         try {
             if (workingCopyPath.value !== payload.sourceWorkingCopyPath) return null;
             clearOcrCache(payload.sourceWorkingCopyPath);
@@ -243,33 +228,21 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
                 });
             }
 
-            restorePromise = views.prepareReload().promise.catch((error: unknown) => {
-                restoreError = error;
-            });
-            if (!await reloadWorkingCopyIntoHistory()) {
-                void restorePromise;
-                return null;
-            }
-        } catch (error) {
-            void restorePromise;
-            throw error;
+            return await reloadWorkingCopyIntoHistory();
         } finally {
             await acknowledgeOcrResultFile(payload);
         }
-        return {
-            restorePromise,
-            getRestoreError: () => restoreError,
-        };
     }
 
     async function applyOcrCompleteResult(payload: IOcrCompletePayload): Promise<boolean> {
         const warmupPageCountHint = totalPages.value > 0
             ? totalPages.value
             : undefined;
+        // The lease lasts until OCR's own reload is presented in the views that
+        // show the document; with none, nothing waits. A close releases it.
         const applyReload = () => metadata.runWithPreservedMetadataReload(async () => {
-            const applied = await replaceOcrWorkingCopy(payload);
-            if (applied) await applied.restorePromise;
-            return applied;
+            const job = await replaceOcrWorkingCopy(payload);
+            return job && {outcome: (await job.accepted).status === 'no-view' ? null : await job.finished};
         }, () => views.prepareReload());
         const result = runWithDocumentOperationLease
             ? await runWithDocumentOperationLease('ocr-apply', applyReload)
@@ -281,12 +254,13 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         if (workingCopyPath.value !== payload.sourceWorkingCopyPath) {
             return false;
         }
-        const restoreError = result.getRestoreError();
-        if (restoreError) {
-            BrowserLogger.warn('ocr', 'OCR result was applied but page restore failed', {
-                sourceWorkingCopyPath: payload.sourceWorkingCopyPath,
-                error: restoreError,
+        // The searchable bytes are saved; a view that could not show them says so, not that OCR is complete.
+        if (result.outcome?.status === 'failed') {
+            presentFailureToast({
+                failure: BrowserLogger.error('ocr', 'OCR result was applied but could not be shown', result.outcome.error, {code: 'RENDERER_OCR_RUN_FAILED'}),
+                title: t('errors.ocr.appliedNotShown'),
             });
+            return true;
         }
         void getSearchCapability().warmIndex(payload.sourceWorkingCopyPath, {...(warmupPageCountHint === undefined
             ? {}
@@ -348,6 +322,7 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
     });
 
     return {
-        ocr, resetDocumentPresentation,
+        ocr,
+        ...transitions,
     };
 };

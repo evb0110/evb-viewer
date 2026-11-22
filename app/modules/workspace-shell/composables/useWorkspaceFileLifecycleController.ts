@@ -22,6 +22,7 @@ import {
     type TDocumentOpenOutcome,
 } from '@app/types/documentOpenOutcome';
 import type { IPdfRasterDisplayProfileOpenOptions } from '@app/types/pdfRasterDisplayProfile';
+import type { IPdfSourceJob } from '@app/modules/pdf-viewer/public';
 import {
     describeDocumentTarget,
     describeOpenResult,
@@ -54,7 +55,7 @@ function createWorkspaceFileSwitch(deps: {
     openFileDirect: (path: TDocumentRef, options?: TDocumentDirectOpenOptions) => Promise<TDocumentOpenOutcome>;
     openFileDirectBatch: (paths: TDocumentRef[]) => Promise<TDocumentOpenOutcome>;
     finalizeOpen: (outcome: TDocumentOpenOutcome) => Promise<TDocumentOpenOutcome>;
-    closeFile: () => void | Promise<void>;
+    closeFile: () => Promise<IPdfSourceJob>;
 }) {
     function markOutcomeStale(outcome: TDocumentOpenOutcome): TDocumentOpenOutcome {
         return 'result' in outcome
@@ -94,18 +95,17 @@ function createWorkspaceFileSwitch(deps: {
         return outcome;
     }
 
-    async function closeFileWithViewerLifecycle() {
-        const {activeTransaction, identity} = deps.readDocument();
+    // The close keeps to the document it began on, captured before any wait;
+    // it returns the clear it published, or null when another took the tab.
+    async function closeFileWithViewerLifecycle({activeTransaction, identity} = deps.readDocument(), beforeHooks?: () => Promise<void>) {
+        await beforeHooks?.();
         for (const hooks of deps.getViewerLifecycleHooks()) {
             await hooks.beforeClose?.();
         }
         const current = deps.readDocument();
-        if (current.activeTransaction?.id === activeTransaction?.id && current.identity.documentInstanceId === identity.documentInstanceId) {
-            await deps.closeFile();
-            // Source watchers own derived navigation, toolbar, and chassis
-            // cleanup; let them observe the empty source before close commits.
-            await nextTick();
-        }
+        return current.activeTransaction?.id === activeTransaction?.id && current.identity.documentInstanceId === identity.documentInstanceId
+            ? deps.closeFile()
+            : null;
     }
 
     return {
@@ -250,7 +250,7 @@ export const useWorkspaceFileLifecycleController = (
                     options.document.commitFile({
                         originalPath: path,
                         isDjvu: true,
-                    });
+                    }, options.document.snapshot.value.activeTransaction?.id);
                 },
             });
             BrowserLogger.info('djvu-open-transaction', 'Activation returned', {
@@ -369,9 +369,8 @@ export const useWorkspaceFileLifecycleController = (
         }
     }
 
-    async function closeFileWithViewerLifecycle() {
-        await handleDjvuCancel();
-        await closeFileWithViewerLifecycleBase();
+    function closeFileWithViewerLifecycle() {
+        return closeFileWithViewerLifecycleBase(options.document.snapshot.value, handleDjvuCancel);
     }
 
     function initFromStorage() {

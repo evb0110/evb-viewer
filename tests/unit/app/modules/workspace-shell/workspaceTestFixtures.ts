@@ -107,6 +107,14 @@ export function bindTestDocumentFrontier(
         read: () => String(flag.value),
         prepare: async () => {},
         close: async () => {},
+        drain: () => controller.operationLease.whenIdle().then(() => false),
+        republish: () => {},
+        save: async () => {
+            flag.value = false;
+            return true;
+        },
+        retire: () => {},
+        teardown: async () => {},
         ...frontier,
         isDirty: () => flag.value,
     });

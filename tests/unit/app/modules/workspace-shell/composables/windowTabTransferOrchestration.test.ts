@@ -350,10 +350,6 @@ describe('window tab transfer orchestration helpers', () => {
                 kind: 'djvu',
                 sourcePath: path,
             }),
-            handleCloseFileFromUi: async options => {
-                await options?.onCloseCommit?.();
-                return true;
-            },
         }));
         const tabs = ref<ITab[]>([
             {id: 'source'},
@@ -1202,10 +1198,6 @@ describe('window tab transfer orchestration helpers', () => {
                 isDirty: false,
                 currentPage: id === 'cold' ? cold.getView('cold')!.viewState.value.currentPage! : 4,
             }),
-            handleCloseFileFromUi: async options => {
-                await options?.onCloseCommit?.();
-                return true;
-            },
         }));
         mount('hot');
         mount('survivor');

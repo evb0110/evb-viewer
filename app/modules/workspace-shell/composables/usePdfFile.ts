@@ -23,6 +23,8 @@ export interface IPdfFileOptions extends IHistoryRevisionSwapOptions {
     admitPdfSource: (intent: TPdfSourceJobIntent) => IPdfSourceJob;
     /** Empties the views of the document a new one replaces. */
     resetDocumentPresentation: () => void;
+    /** Dismisses what belonged to the working copy a Save As or an optimized copy moved from. */
+    dismissWorkingPathState: () => void;
 }
 
 export const usePdfFile = (options: IPdfFileOptions) => {
@@ -42,7 +44,11 @@ export const usePdfFile = (options: IPdfFileOptions) => {
         openedWorkingCopyPath,
     } = sessionState;
     // A file open, a replay or a close is current while the controller's open transaction is the one it started under.
-    const readOpenTransactionId = () => options.document.snapshot.value.activeTransaction?.id ?? null;
+    // A close is not an open: work that began before it stays current through its Cancel.
+    const readOpenTransactionId = () => {
+        const transaction = options.document.snapshot.value.activeTransaction;
+        return transaction?.kind === 'close' ? null : transaction?.id ?? null;
+    };
     const {
         clearPdfConformanceProfile,
         deferPdfConformanceProfile,
@@ -56,6 +62,7 @@ export const usePdfFile = (options: IPdfFileOptions) => {
         documentFiles: getDocumentFilesCapability,
         documentWorkingCopy: getDocumentWorkingCopyCapability,
         readOpenTransactionId,
+        readDocumentSessionKey: () => options.document.snapshot.value.identity.documentSessionKey,
         readPdfStateFromPath: (...args) => documentOpenFlow.readPdfStateFromPath(...args),
     });
     const documentOpenFlow: ReturnType<typeof createDocumentOpenFlow> = createDocumentOpenFlow(sessionState, {
@@ -63,7 +70,7 @@ export const usePdfFile = (options: IPdfFileOptions) => {
         clearPdfConformanceProfile,
         cleanupPreviousWorkingCopy: history.cleanupPreviousWorkingCopy,
         deferPdfConformanceProfile,
-        incrementSessionVersion: history.incrementSessionVersion,
+        resetCommandSink: history.resetCommandSink,
         readOpenTransactionId,
         resetDocumentPresentation: options.resetDocumentPresentation,
         resetHistory: history.resetHistory,
@@ -71,6 +78,7 @@ export const usePdfFile = (options: IPdfFileOptions) => {
         t,
     });
     const persistence = createDocumentPersistence(sessionState, {
+        onWorkingCopyMoved: options.dismissWorkingPathState,
         refreshDocumentRevisionToken: documentOpenFlow.refreshDocumentRevisionToken,
         deferPdfConformanceProfile,
         captureHistoryCleanState: history.captureHistoryCleanState,
@@ -80,6 +88,12 @@ export const usePdfFile = (options: IPdfFileOptions) => {
         toPdfBlob: documentOpenFlow.toPdfBlob,
     });
 
+    function clearDocumentHistory() {
+        history.resetCommandSink();
+        history.clearHistory();
+    }
+
+    // Every clear of a shown PDF source empties its views with it.
     async function closeFile() {
         const pathsToCleanup = [...new Set([
             workingCopyPath.value,
@@ -89,10 +103,10 @@ export const usePdfFile = (options: IPdfFileOptions) => {
         // M4.3: Clear OCR cache for the current file before closing
         pathsToCleanup.forEach(path => clearOcrCache(path));
 
-        sessionState.resetForClose();
+        if (sessionState.pdfSrc.value) options.resetDocumentPresentation();
+        const cleared = sessionState.resetForClose();
         clearPdfConformanceProfile();
-        history.incrementSessionVersion();
-        history.clearHistory();
+        clearDocumentHistory();
         await Promise.all(pathsToCleanup.map(path =>
             getDocumentWorkingCopyCapability().cleanupFile(path).catch((cleanupError: unknown) => {
                 BrowserLogger.warn(
@@ -105,6 +119,7 @@ export const usePdfFile = (options: IPdfFileOptions) => {
                 );
             }),
         ));
+        return cleared;
     }
 
     function markDirty() {
@@ -131,7 +146,6 @@ export const usePdfFile = (options: IPdfFileOptions) => {
         reloadWorkingCopyIntoHistory: history.reloadWorkingCopyIntoHistory,
         mapHistoryPage: history.mapHistoryPage,
         fileHistoryMutationVersion: history.fileHistoryMutationVersion,
-        fileHistorySessionVersion: history.fileHistorySessionVersion,
         setWorkspaceCommandSink: history.setWorkspaceCommandSink,
         ...(typeof documentFiles.repairPdf === 'function' ? { repairWorkingCopy: persistence.repairWorkingCopy } : {}),
         ...(typeof documentFiles.optimizePdfForInteraction === 'function' ? { optimizeWorkingCopy: persistence.optimizeWorkingCopy } : {}),
@@ -140,6 +154,7 @@ export const usePdfFile = (options: IPdfFileOptions) => {
         trySavePdfNativeMutations: persistence.trySavePdfNativeMutations,
         saveWorkingCopyAs: persistence.saveWorkingCopyAs,
         closeFile,
+        clearDocumentHistory,
         markDirty,
     };
 };

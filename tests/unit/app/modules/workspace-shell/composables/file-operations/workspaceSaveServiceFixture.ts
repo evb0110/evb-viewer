@@ -92,7 +92,7 @@ type TFileOperationsSaveControllerTestDeps =
         getDeletedEmbeddedShapeAnnotationIds?: () => string[];
         getDeletedEmbeddedShapeStableKeys?: () => string[];
         loadRecentFiles: IWorkspaceSaveDependencies['lifecycle']['loadRecentFiles'];
-        preparePostSaveReload?: IWorkspaceSaveDependencies['lifecycle']['preparePostSaveReload'];
+        readSourceJob?: IWorkspaceSaveDependencies['pdf']['readSourceJob'];
         commitDrafts?: IWorkspaceSaveDependencies['lifecycle']['commitDrafts'];
         runWithDocumentOperationLease?: IWorkspaceSaveDependencies['runWithDocumentOperationLease'];
         canonicalAnnotationComments: Ref<IAnnotationCommentSummary[]>;
@@ -183,6 +183,7 @@ function createSaveDependencies(
                 : {}),
             runSaveTransaction: deps.runSaveTransaction,
             getSourceData: deps.getSourcePdfData,
+            ...(deps.readSourceJob ? {readSourceJob: deps.readSourceJob} : {}),
         },
         persistence: {
             validatePdfPath: deps.validatePdfPath,
@@ -205,9 +206,6 @@ function createSaveDependencies(
         lifecycle: {
             loadRecentFiles: deps.loadRecentFiles,
             commitDrafts: deps.commitDrafts ?? (async () => {}),
-            ...(deps.preparePostSaveReload
-                ? {preparePostSaveReload: deps.preparePostSaveReload}
-                : {}),
         },
         runWithDocumentOperationLease: deps.runWithDocumentOperationLease
             ?? createWorkspaceDocumentController({tabId: 'save-tab'}).operationLease.runExclusive,

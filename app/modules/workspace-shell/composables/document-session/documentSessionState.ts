@@ -76,7 +76,8 @@ export interface IDocumentSessionState {
     documentRevisionInfo: Ref<IDocumentRevisionInfo | null>;
     documentRevisionToken: Ref<TDocumentRevisionToken | null>;
     isActiveWorkingCopy: (path: TDocumentRef) => boolean;
-    resetForClose: () => void;
+    /** Clears the document; returns the clear job its views retire it with. */
+    resetForClose: () => IPdfSourceJob;
 }
 
 export function createDocumentSessionState(deps: {
@@ -130,7 +131,7 @@ export function createDocumentSessionState(deps: {
     }
 
     function resetForClose() {
-        publishPdfSource(null, 'clear');
+        const cleared = publishPdfSource(null, 'clear');
         pdfData.value = null;
         pdfRasterDisplayProfile.value = null;
         openedWorkingCopyPath.value = null;
@@ -151,6 +152,7 @@ export function createDocumentSessionState(deps: {
         recoveryDirtyBaseline.value = false;
         wasEncrypted.value = false;
         lastSaveMode.value = 'rewrite';
+        return cleared;
     }
 
     return {

@@ -5,11 +5,9 @@ import type {
 import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWindow';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { IRecentFile } from '@contracts/shared';
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
-import { waitUntilIdle } from '@app/utils/asyncHelpers';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { useFailureToast } from '@app/composables/useFailureToast';
 import { dirtyTabCloseConfirmationKey } from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
@@ -49,11 +47,11 @@ export interface IPageFileOperationsDeps {
     requestDirtyTabCloseConfirmation?: TDirtyTabCloseConfirmation;
     pdfSrc: Ref<TPdfSource | null>;
     hasDocument: Ref<boolean>;
-    isAnySaving: Ref<boolean>;
-    isHistoryBusy: Ref<boolean>;
-    isExportingDocx: Ref<boolean>;
     isAnyAnnotationNoteSaving: Ref<boolean>;
-    isDocumentOperationInProgress?: Ref<boolean> | ComputedRef<boolean>;
+    /** Saves, history, export and page operations run in the document's lease. */
+    isDocumentOperationInProgress: Ref<boolean> | ComputedRef<boolean>;
+    /** Resolves once nothing runs in the document. */
+    whenDocumentIdle: () => Promise<void>;
     hasSaveFailure?: Ref<boolean> | ComputedRef<boolean>;
     annotationNoteWindows: Ref<IAnnotationNoteWindowViewModel[]>;
     hasPendingUnsavedChanges: ComputedRef<boolean>;
@@ -68,7 +66,7 @@ export interface IPageFileOperationsDeps {
     openFile: (preSelected?: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
     openFileDirect: (path: TDocumentRef) => Promise<TDocumentOpenOutcome>;
     openFileDirectBatch: (paths: TDocumentRef[]) => Promise<TDocumentOpenOutcome>;
-    closeFile: () => void | Promise<void>;
+    closeFile: () => Promise<unknown>;
     closeAllDropdowns: () => void;
     emitOpenInNewTab: (pathOrResult: TDocumentRef | TOpenFileResult) => void;
     /** Runs one open as the tab controller's transaction, which ends when the viewer presents it. */
@@ -80,9 +78,6 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         pdfSrc,
         requestDirtyTabCloseConfirmation: requestDirtyTabCloseConfirmationFromDeps,
         hasDocument,
-        isAnySaving,
-        isHistoryBusy,
-        isExportingDocx,
         isAnyAnnotationNoteSaving,
         isDocumentOperationInProgress,
         hasSaveFailure,
@@ -162,40 +157,20 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         busyFeedbackToastId = null;
     }
 
-    async function waitUntilAllIdle(action?: TBusyGateAction) {
-        if (action && hasBusyOperation()) {
+    async function waitUntilAllIdle(action: TBusyGateAction) {
+        if (hasBusyOperation()) {
             notifyBusyGate(action);
         }
 
         try {
-            return await waitUntilIdle(() =>
-                isAnySaving.value
-                || isHistoryBusy.value
-                || isExportingDocx.value
-                || isAnyAnnotationNoteSaving.value
-                || (isDocumentOperationInProgress?.value ?? false),
-            );
+            await deps.whenDocumentIdle();
         } finally {
             clearBusyGateFeedback();
         }
     }
 
-    function getBusyState() {
-        return {
-            isAnySaving: isAnySaving.value,
-            isHistoryBusy: isHistoryBusy.value,
-            isExportingDocx: isExportingDocx.value,
-            isAnyAnnotationNoteSaving: isAnyAnnotationNoteSaving.value,
-            isDocumentOperationInProgress: isDocumentOperationInProgress?.value ?? false,
-        };
-    }
-
     function hasBusyOperation() {
-        return isAnySaving.value
-            || isHistoryBusy.value
-            || isExportingDocx.value
-            || isAnyAnnotationNoteSaving.value
-            || (isDocumentOperationInProgress?.value ?? false);
+        return isAnyAnnotationNoteSaving.value || isDocumentOperationInProgress.value;
     }
 
     function hasPendingPersistenceChanges() {
@@ -204,7 +179,6 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
 
     function logPersistenceGateStart() {
         BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Ensuring document is persisted before switch', {
-            busyState: getBusyState(),
             annotationNoteWindows: annotationNoteWindows.value.length,
             annotationDirty: annotationDirty.value,
             isDirty: isDirty.value,
@@ -318,12 +292,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         logPersistenceGateStart();
 
         try {
-            const settled = await waitUntilAllIdle('switch');
-            if (!settled || hasBusyOperation()) {
-                BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Switch blocked: workspace remained busy after idle wait', {busyState: getBusyState()});
-                notifySaveFailure();
-                return false;
-            }
+            await waitUntilAllIdle('switch');
 
             const decision = await resolveDirtySwitchDecision();
             if (decision === 'cancel') {
@@ -427,7 +396,6 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'handleOpenFileDirectWithPersist called', {
             path,
             hadDocumentBeforeOpen: Boolean(pdfSrc.value),
-            busyState: getBusyState(),
         });
 
         const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
@@ -545,31 +513,10 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         return didCompletePageFileOpen(await handleOpenFileDirectBatchWithPersistDetailed(paths));
     }
 
-    async function handleCloseFileFromUi(options: NonNullable<Parameters<IWorkspaceExpose['handleCloseFileFromUi']>[0]> = {}) {
-        const shouldPersist = options.persist ?? false;
-        const settled = await waitUntilAllIdle('close');
-        if (!settled || hasBusyOperation()) {
-            return false;
-        }
-
-        if (shouldPersist) {
-            try {
-                if (!await persistOpenAnnotationNotes() || !await savePendingChangesBeforeSwitch()) {
-                    return false;
-                }
-            } catch (persistError) {
-                const failure = BrowserLogger.error(
-                    RECENT_OPEN_LOG_SECTION,
-                    'Close blocked: persistence before close threw',
-                    {error: getErrorMessage(persistError)},
-                    {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},
-                );
-                notifySaveFailure(failure);
-                return false;
-            }
-        }
-
-        await options.onCloseCommit?.();
+    // Removes the document's file from this workspace without asking, as a
+    // failed open's cleanup does; closing the document is its controller's.
+    async function handleCloseFileFromUi() {
+        await waitUntilAllIdle('close');
         await closeFile();
         closeAllDropdowns();
         return true;
