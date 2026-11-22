@@ -1,5 +1,6 @@
 import type { Ref } from 'vue';
 import type {TDocumentCommitReceipt} from '@app/types/workspaceExpose';
+import type {IDocumentOperationOwnership} from '@app/types/documentOperationKind';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TRequestId } from '@contracts/shared';
@@ -72,20 +73,10 @@ import type {
     TWorkspaceSavePlan,
     TWorkspaceSaveRequest,
 } from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionSupport';
-export {
-    buildSaveTransactionRequest,
-    createWorkspaceSavePlan,
-    getSaveFlow,
-    getSaveMode,
-    requiresNativePathBackedSave,
-} from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionSupport';
+export {createWorkspaceSavePlan} from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionSupport';
 export type {
     IWorkspaceSaveDependencies,
-    IWorkspaceSaveBaseline,
     IWorkspaceSaveDirtyState,
-    IWorkspaceSaveTarget,
-    IWorkspaceSerializedSaveBody,
-    TWorkspaceSavePlan,
     TWorkspaceSaveRequest,
 } from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionSupport';
 
@@ -487,7 +478,6 @@ function executeSavePlan(
 
 export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
     const failureSurface = deps.failureSurface ?? useWorkspaceFailureSurface();
-    const runWithDocumentOperationLease = deps.runWithDocumentOperationLease;
     let saveOperations = 0;
     // A Save shows as saving from its request until it ends, also while the
     // lease holds it behind an earlier one.
@@ -534,6 +524,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         request: TWorkspaceSaveRequest,
         queuedTarget: Omit<IWorkspaceSaveTarget, 'expectedRevisionToken'>,
         onCommitted?: TDocumentCommitReceipt,
+        holder?: IDocumentOperationOwnership,
     ) {
         const releaseIndicator = holdIndicator(isSaveAsRequest(request) ? deps.status.isSavingAs : deps.status.isSaving);
         const queuedTargetIsCurrent = () => (
@@ -763,17 +754,17 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                 isAnySaveAdmitted.value = false;
             }
         };
-        return runWithDocumentOperationLease(resolveOperationKind(request), runSave);
+        return deps.runWithDocumentOperationLease(resolveOperationKind(request), runSave, holder);
     }
 
     // The document lease is the one queue. The target is captured when the
     // Save is requested and checked when the lease admits it.
-    function save(request: TWorkspaceSaveRequest, onCommitted?: TDocumentCommitReceipt) {
+    function save(request: TWorkspaceSaveRequest, onCommitted?: TDocumentCommitReceipt, holder?: IDocumentOperationOwnership) {
         return executeSave(request, {
             expectedDocumentSessionKey: deps.document.sessionKey.value,
             expectedOriginalPath: deps.document.originalPath.value,
             expectedWorkingPath: deps.document.workingCopyPath.value,
-        }, onCommitted);
+        }, onCommitted, holder);
     }
 
     const canSave = computed(() => failureSurface.hasSaveFailure.value || (deps.hasPendingUnsavedChanges?.value ?? (
@@ -783,10 +774,10 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         || deps.metadata.bookmarksDirty.value
         || deps.shapes.hasChanges()
     )));
-    const saveIfDirty = (onCommitted?: TDocumentCommitReceipt) => (
+    const saveIfDirty = (onCommitted?: TDocumentCommitReceipt, holder?: IDocumentOperationOwnership) => (
         deps.hasPendingUnsavedChanges && !canSave.value
             ? Promise.resolve(!failureSurface.hasSaveFailure.value)
-            : save({kind: 'save'}, onCommitted)
+            : save({kind: 'save'}, onCommitted, holder)
     );
 
     return {

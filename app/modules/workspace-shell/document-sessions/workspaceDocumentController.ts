@@ -20,8 +20,9 @@ import {
     type TWorkspaceOpenFinish,
 } from '@app/types/documentOpenOutcome';
 import type {
-    IDocumentOperationOwnership, TDocumentOperationKind,
+    IDocumentOperationOwnership, TDocumentOperationKind, TRunWithDocumentOperationLease,
 } from '@app/types/documentOperationKind';
+import type { TDirtyCloseDecision } from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
 import {
     createWorkspaceDocumentView,
     type IWorkspaceDocumentView,
@@ -56,7 +57,8 @@ export type {
 };
 
 interface IWorkspaceDocumentCloseRequest {
-    persist: boolean;
+    /** Asked in the close's lease turn when the document is dirty. */
+    decide?: () => Promise<TDirtyCloseDecision>;
     ownership?: IDocumentOperationOwnership;
     assertCurrent?: () => void;
 }
@@ -76,7 +78,7 @@ export interface IDocumentOperationLease {
     isBusy: ComputedRef<boolean>;
     /** Busy with an operation other than a background recovery copy, which only reads the document. */
     isForegroundBusy: ComputedRef<boolean>;
-    runExclusive: <T>(kind: TDocumentOperationKind, operation: (ownership: IDocumentOperationOwnership) => Promise<T>) => Promise<T>;
+    runExclusive: TRunWithDocumentOperationLease;
 }
 
 /** A document the shell assigns to a tab before any workspace has loaded it. */
@@ -200,7 +202,10 @@ function createDocumentOperationLease(): IDocumentOperationLease {
     const pendingRecoveryCount = ref(0);
     let queueTail: Promise<void> = Promise.resolve();
 
-    async function runExclusive<T>(kind: TDocumentOperationKind, operation: (ownership: IDocumentOperationOwnership) => Promise<T>) {
+    async function runExclusive<T>(kind: TDocumentOperationKind, operation: (ownership: IDocumentOperationOwnership) => Promise<T>, holder?: IDocumentOperationOwnership) {
+        // The lease is not re-entrant: its holder's own work runs inside the held turn.
+        holder?.assertCurrent();
+        if (holder) return operation(holder);
         pendingCount.value += 1;
         const isRecovery = kind === 'recovery-snapshot';
         if (isRecovery) pendingRecoveryCount.value += 1;
@@ -593,7 +598,7 @@ export function createWorkspaceDocumentController(options: {
         }, true);
     }
 
-    function runClose(request: IWorkspaceDocumentCloseRequest) {
+    function runClose(request: IWorkspaceDocumentCloseRequest, ownership: IDocumentOperationOwnership, persist: boolean) {
         const onCloseCommit = async () => {
             // A document closes with its last view; that view's place is kept.
             for (const tabId of views.value.keys()) {
@@ -603,7 +608,7 @@ export function createWorkspaceDocumentController(options: {
             resetToEmpty();
         };
         const frontier = mutationFrontier.value;
-        if (!request.persist && request.ownership && frontier) {
+        if (request.ownership && frontier) {
             // The transfer already owns admission. Close through the document's
             // lifecycle, rather than waiting for this same lease to become idle.
             request.ownership.assertCurrent();
@@ -613,14 +618,21 @@ export function createWorkspaceDocumentController(options: {
             });
         }
         return getDocumentWorkspace({views})?.handleCloseFileFromUi({
-            ...request,
+            persist,
+            ownership,
             onCloseCommit,
         })
             ?? onCloseCommit().then(() => true);
     }
 
+    // A user Close decides in its own lease turn, after the work requested
+    // before it; a transfer closes in the turn it already holds.
     function close(request: IWorkspaceDocumentCloseRequest) {
-        activeClose ??= runClose(request).finally(() => {
+        if (request.ownership) return runClose(request, request.ownership, false);
+        activeClose ??= operationLease.runExclusive('close', async (ownership) => {
+            const decision = snapshot.value.dirty ? await request.decide?.() ?? 'discard' : 'discard';
+            return decision !== 'cancel' && runClose(request, ownership, decision === 'save');
+        }).finally(() => {
             activeClose = null;
         });
         return activeClose;

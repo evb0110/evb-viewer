@@ -68,7 +68,7 @@ describe('workspace document controller views', () => {
             await options?.onCloseCommit?.();
             return cleanup.promise;
         }}));
-        const closing = controller.close({persist: false});
+        const closing = controller.close({});
         await vi.waitFor(() => expect(controller.snapshot.value.phase).toBe('empty'));
         expect(snapshotOccupiesTab(controller.snapshot.value)).toBe(false);
         cleanup.resolve(true);

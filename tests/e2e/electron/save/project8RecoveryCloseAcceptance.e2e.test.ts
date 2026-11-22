@@ -73,6 +73,8 @@ import {createE2ERunScopedSessionName} from '@scripts/electron-run/electronRunRu
 import {getSessionInfo} from '@scripts/electron-run/electronRunSessionArtifacts';
 import {isProcessAlive} from '@scripts/electron-run/electronRunProcessTree';
 import {runElectronE2ETeardown} from '@tests/e2e/electron/helpers/electronE2ESessionFailure';
+import type * as Pdfjs from 'pdfjs-dist';
+import type {Page} from 'puppeteer-core';
 
 const E2E_TIMEOUT_MS = 240_000;
 
@@ -485,6 +487,78 @@ async function startBusyCloseAndWaitForDecision(
     }), {timeout: 2_000}).toBe(false);
 }
 
+const HELD_PDF_READ_KEY = '__c1HeldPdfRead';
+
+interface IHeldPdfRead {
+    isHeld: () => boolean;
+    release: () => void;
+}
+
+/** Holds the next document read the viewer gives PDF.js, as a slow disk would, until the test releases it. */
+async function holdNextPdfRead(page: Page) {
+    await page.evaluate(async (key: string) => {
+        const pdfjs = (window as Window & {pdfjsLib?: typeof Pdfjs}).pdfjsLib;
+        if (!pdfjs) throw new Error('PDF.js is not loaded in the renderer');
+        pdfjs.GlobalWorkerOptions.workerSrc ||= new URL('/pdf/pdf.worker.min.mjs', document.baseURI).href;
+        const probe = pdfjs.getDocument({data: new TextEncoder().encode('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 10 10]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF')});
+        await probe.promise;
+        const prototype = Object.getPrototypeOf(probe) as object;
+        await probe.destroy();
+        const descriptor = Object.getOwnPropertyDescriptor(prototype, 'promise');
+        if (!descriptor?.get || !descriptor.configurable) throw new Error('PDF.js read cannot be held');
+        const released = Promise.withResolvers<void>();
+        let heldTask: object | null = null;
+        Object.defineProperty(prototype, 'promise', {
+            ...descriptor,
+            get(this: object) {
+                const read = descriptor.get!.call(this) as Promise<unknown>;
+                heldTask ??= this;
+                if (heldTask !== this) return read;
+                void read.catch(() => undefined);
+                return released.promise.then(() => read);
+            },
+        });
+        Reflect.set(window, key, {
+            isHeld: () => heldTask !== null,
+            release: () => {
+                Object.defineProperty(prototype, 'promise', descriptor);
+                released.resolve();
+            },
+        } satisfies IHeldPdfRead);
+    }, HELD_PDF_READ_KEY);
+    onTestFinished(() => releaseHeldPdfRead(page).catch(() => undefined));
+}
+
+async function releaseHeldPdfRead(page: Page) {
+    await page.evaluate((key: string) => (Reflect.get(window, key) as IHeldPdfRead | undefined)?.release(), HELD_PDF_READ_KEY);
+}
+
+function readFirstPageShape(page: Page) {
+    return page.$eval('.editor-pane.is-active .page_container[data-page="1"]', (element) => {
+        const bounds = element.getBoundingClientRect();
+        return bounds.width > bounds.height ? 'landscape' : 'portrait';
+    });
+}
+
+/** Records every failure toast the app shows from now on. */
+async function recordFailureNotices(page: Page) {
+    await page.evaluate(() => {
+        const shown: string[] = [];
+        Reflect.set(window, '__c1FailureNotices', shown);
+        new MutationObserver(() => {
+            for (const toast of document.querySelectorAll('.app-toast-failure')) {
+                const text = toast.textContent?.replace(/\s+/gu, ' ').trim() ?? '';
+                if (text && !shown.includes(text)) shown.push(text);
+            }
+        }).observe(document.body, {
+            childList: true,
+            subtree: true,
+            characterData: true,
+        });
+    });
+    return () => page.evaluate(() => Reflect.get(window, '__c1FailureNotices') as string[]);
+}
+
 async function activateTabWithWorkingCopy(
     session: IElectronE2ESession,
     expectedPath: string,
@@ -772,6 +846,90 @@ describe('Project 8 recovered close decisions', () => {
         await expect.poll(async () => (
             await readPdfPageSnapshots(await readDocumentBytes(session!.page, workingCopyPath))
         )[0]?.rotation, {timeout: 30_000}).toBe(270);
+    }, E2E_TIMEOUT_MS);
+
+    // #1598 C1 (finding 15): Close waits for the page operation that began
+    // before it, so its question covers that operation's edit.
+    it.each([
+        'Cancel',
+        'Discard',
+    ] as const)('asks about a rotation still being read back when Close was pressed, then answers %s', async (decision) => {
+        const stamp = Date.now();
+        const slug = decision.toLowerCase();
+        const pdfPath = await createMultiPageTextFixturePdf(`c1-held-read-${slug}-${stamp}.pdf`, 2);
+        const originalDigest = await getFileSha256(pdfPath);
+        session = await startElectronE2ESession(`e2e-c1-held-read-${slug}-${stamp}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+        });
+        const page = session.page;
+        await waitForPdfLoaded(page, 60_000);
+        await waitForViewerInteractive(page, 60_000);
+        expect(await readFirstPageShape(page)).toBe('portrait');
+
+        await holdNextPdfRead(page);
+        await rotateFirstPageCounterclockwise(session);
+        await page.waitForFunction((key: string) => (Reflect.get(window, key) as IHeldPdfRead | undefined)?.isHeld() === true, {timeout: 30_000}, HELD_PDF_READ_KEY);
+        await clickActiveTabClose(session);
+        await expect.poll(() => page.evaluate(() => document.body.innerText), {timeout: 10_000})
+            .toContain('Closing after page processing finishes.');
+        expect(await page.$$('[role="dialog"]')).toHaveLength(0);
+
+        await releaseHeldPdfRead(page);
+        await page.waitForSelector('[role="dialog"]', {
+            visible: true,
+            timeout: 60_000,
+        });
+        expect(await page.$$('[role="dialog"]')).toHaveLength(1);
+        await clickDirtyTabDecision(session, decision);
+        if (decision === 'Cancel') {
+            await page.waitForSelector('.editor-pane.is-active .tab.is-active.is-dirty');
+            await expect.poll(() => readFirstPageShape(page), {timeout: 30_000}).toBe('landscape');
+            expect((await getWorkspaceToolbarSnapshot(page))?.hasPdf).toBe(true);
+        } else {
+            await expect.poll(async () => (await getWorkspaceToolbarSnapshot(page))?.hasPdf, {timeout: 30_000}).toBe(false);
+        }
+        expect(await getFileSha256(pdfPath)).toBe(originalDigest);
+    }, E2E_TIMEOUT_MS);
+
+    // #1598 C1 (required row 1): an Undo asked for while the Close question is
+    // open takes effect after Cancel, and Save from the question saves and closes.
+    it.each([
+        'Cancel',
+        'Save',
+    ] as const)('keeps Undo and Save whole around the Close question: %s', async (decision) => {
+        const stamp = Date.now();
+        const slug = decision.toLowerCase();
+        const pdfPath = await createMultiPageTextFixturePdf(`c1-close-question-${slug}-${stamp}.pdf`, 2);
+        const originalDigest = await getFileSha256(pdfPath);
+        session = await startElectronE2ESession(`e2e-c1-close-question-${slug}-${stamp}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+        });
+        const page = session.page;
+        await waitForPdfLoaded(page, 60_000);
+        await waitForViewerInteractive(page, 60_000);
+        await rotateFirstPageCounterclockwise(session);
+        await page.waitForSelector('.editor-pane.is-active .tab.is-active.is-dirty');
+        await expect.poll(() => readFirstPageShape(page), {timeout: 30_000}).toBe('landscape');
+        await waitForWorkspaceToolbarIdle(page, {timeoutMs: 60_000});
+        const readFailureNotices = await recordFailureNotices(page);
+
+        await clickActiveTabClose(session);
+        await page.waitForSelector('[role="dialog"]', {visible: true});
+        if (decision === 'Cancel') {
+            await requireWorkspaceCommand(page, 'handleUndo');
+            await clickDirtyTabDecision(session, 'Cancel');
+            await expect.poll(() => readFirstPageShape(page), {timeout: 30_000}).toBe('portrait');
+            await expect.poll(async () => (await getWorkspaceToolbarSnapshot(page))?.canRedo, {timeout: 30_000}).toBe(true);
+            expect((await getWorkspaceToolbarSnapshot(page))?.hasPdf).toBe(true);
+            expect(await getFileSha256(pdfPath)).toBe(originalDigest);
+        } else {
+            await clickDirtyTabDecision(session, 'Save');
+            await expect.poll(async () => (await getWorkspaceToolbarSnapshot(page))?.hasPdf, {timeout: 60_000}).toBe(false);
+            expect((await readPdfPageSnapshots(pdfPath))[0]?.rotation).toBe(270);
+        }
+        expect(await readFailureNotices(), 'no failure is reported').toEqual([]);
     }, E2E_TIMEOUT_MS);
 
     it('Cancel keeps recovered dirty bytes open', async () => {

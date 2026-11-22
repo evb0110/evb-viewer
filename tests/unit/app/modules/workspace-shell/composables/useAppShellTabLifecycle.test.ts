@@ -43,12 +43,6 @@ vi.mock('@app/modules/workspace-shell/document-sessions/recentReadingView', asyn
 
 const asyncHelpersMock = vi.hoisted(() => ({
     waitForVisualFrames: vi.fn(async () => {}),
-    waitUntilIdle: vi.fn(async (isBusy: () => boolean) => {
-        while (isBusy()) {
-            await new Promise<void>(resolve => setTimeout(resolve, 0));
-        }
-        return true;
-    }),
 }));
 vi.mock('@app/utils/asyncHelpers', () => asyncHelpersMock);
 

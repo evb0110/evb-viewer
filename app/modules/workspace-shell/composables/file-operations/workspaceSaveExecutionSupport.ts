@@ -29,7 +29,7 @@ import {
 import type {
     IPdfPersistResult, IPdfSaveResult,
 } from '@app/types/pdfUi';
-import type {TDocumentOperationKind} from '@app/types/documentOperationKind';
+import type {TRunWithDocumentOperationLease} from '@app/types/documentOperationKind';
 import type {TWorkspaceFailureSurface} from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 import {collectDirtyState} from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveState';
 import {isNativeDocumentRef} from '@app/utils/documentRef';
@@ -203,7 +203,7 @@ export function getSaveMode(plan: TWorkspaceSavePlan): TPdfSaveMode {
     return plan.request.kind === 'save-as' || plan.request.kind === 'optimize-copy' ? 'save_as_rewrite' : 'rewrite';
 }
 
-export function getSaveFlow(plan: TWorkspaceSavePlan): 'save' | 'save_as' {
+function getSaveFlow(plan: TWorkspaceSavePlan): 'save' | 'save_as' {
     return plan.request.kind === 'save-as' || plan.request.kind === 'optimize-copy' ? 'save_as' : 'save';
 }
 
@@ -336,10 +336,7 @@ export interface IWorkspaceSaveDependencies {
         commitDrafts: () => Promise<void>;
     };
     /** The document lease: the one queue every Save and recovery copy waits in. */
-    runWithDocumentOperationLease: <T>(
-        kind: TDocumentOperationKind,
-        operation: () => Promise<T>,
-    ) => Promise<T>;
+    runWithDocumentOperationLease: TRunWithDocumentOperationLease;
     failureSurface?: TWorkspaceFailureSurface;
 }
 

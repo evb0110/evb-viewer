@@ -31,6 +31,7 @@ import type {
     IScrollToPageOptions,
 } from '@app/modules/pdf-viewer/public';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
+import type { IDocumentOperationOwnership } from '@app/types/documentOperationKind';
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import type { IFailureToastAction } from '@app/composables/useFailureToast';
 
@@ -268,6 +269,8 @@ export interface IWorkspaceExpose extends IWorkspaceDocumentRecoveryPort {
     handleOpenFileWithResult: (result: TOpenFileResult) => Promise<boolean>;
     handleCloseFileFromUi: (options?: {
         persist?: boolean;
+        /** The lease turn the close runs in; without it the close takes its own. */
+        ownership?: IDocumentOperationOwnership;
         onCloseCommit?: () => Promise<void> | void;
     }) => Promise<boolean>;
     handleExportDocx: () => Promise<void>;
