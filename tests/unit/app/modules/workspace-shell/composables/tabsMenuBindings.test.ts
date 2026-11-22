@@ -13,6 +13,8 @@ import {cast} from '@tests/helpers/cast';
 import {requireDocumentRef} from '@contracts/documentRef';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { registerTabsMenuBindings } from '@app/modules/workspace-shell/menu/registerTabsMenuBindings';
+import { routeRecentFile } from '@app/modules/workspace-shell/composables/useTabsShellBindings';
+import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 
@@ -42,7 +44,7 @@ function createDeps(overrides: Partial<Parameters<typeof registerTabsMenuBinding
         createTab: vi.fn(() => ({ id: 'tab-1' })),
         handleCloseTab: vi.fn(async (_tabId: string) => {}),
         handleFallbackToolbarOpenFile: vi.fn(async () => {}),
-        openPathInAppropriateTab: vi.fn(async (_path: string) => true),
+        openRecentInAppropriateTab: vi.fn(async (_path: string) => true),
         openPathsInAppropriateTab: vi.fn(async (_paths: string[]) => {}),
         clearRecentFiles: vi.fn(async () => {}),
         loadRecentFiles: vi.fn(async () => {}),
@@ -171,11 +173,11 @@ describe('registerTabsMenuBindings', () => {
     });
 
     it('keeps the queue flowing after a failed document-open request', async () => {
-        const openPathInAppropriateTab = vi
+        const openRecentInAppropriateTab = vi
             .fn(async (_path: string) => true)
             .mockRejectedValueOnce(new Error('boom'))
             .mockResolvedValueOnce(true);
-        const deps = createDeps({ openPathInAppropriateTab });
+        const deps = createDeps({ openRecentInAppropriateTab });
         const menuApi = createRegistryMenuApi();
 
         registerTabsMenuBindings(menuApi.api, deps);
@@ -185,9 +187,9 @@ describe('registerTabsMenuBindings', () => {
         menuApi.emitRecentFile('/docs/second.pdf');
         await flushMicrotasks();
 
-        expect(openPathInAppropriateTab).toHaveBeenCalledTimes(2);
-        expect(openPathInAppropriateTab).toHaveBeenNthCalledWith(1, '/docs/first.pdf');
-        expect(openPathInAppropriateTab).toHaveBeenNthCalledWith(2, '/docs/second.pdf');
+        expect(openRecentInAppropriateTab).toHaveBeenCalledTimes(2);
+        expect(openRecentInAppropriateTab).toHaveBeenNthCalledWith(1, '/docs/first.pdf');
+        expect(openRecentInAppropriateTab).toHaveBeenNthCalledWith(2, '/docs/second.pdf');
     });
 });
 
@@ -218,5 +220,32 @@ describe('#1608 tab shell action feedback', () => {
         expect(messages.join(' '), 'I1: clipboard/shell rejection must reach the user').toMatch(
             kind === 'copy-path' ? /cop|clipboard/i : /folder|reveal/i,
         );
+    });
+
+    it('shows Start, not the open tab, when a repeated Recent selection names a gone file', async () => {
+        const path = requireDocumentRef('/docs/gone.pdf');
+        const openTab = cast<IWorkspaceDocumentController>({
+            file: shallowRef({originalPath: path}),
+            snapshot: ref({phase: 'presented', activeTransaction: null}),
+        });
+        const activateTab = vi.fn();
+        const open = vi.fn(async () => false);
+        // The first selection removes the entry; the queued second finds nothing to remove.
+        const forgetRecentFileIfMissing = vi.fn(async () => false).mockResolvedValueOnce(true);
+        const route = {
+            sessionsByTabId: () => ({'tab-open': openTab}),
+            activateTab,
+            forgetRecentFileIfMissing,
+            statSource: vi.fn(async () => {
+                throw new Error('ENOENT');
+            }),
+        };
+
+        expect(await routeRecentFile(path, open, route)).toBe(false);
+        expect(open).not.toHaveBeenCalled();
+        await routeRecentFile(path, open, route);
+
+        expect(activateTab).not.toHaveBeenCalled();
+        expect(open).toHaveBeenCalledTimes(1);
     });
 });
