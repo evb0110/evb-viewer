@@ -24,6 +24,7 @@ import {
 import type { TDocumentRef } from '@contracts/documentRef';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import DocumentPageSourceFeaturePack from '@app/modules/document-viewer/page-source-renderer/DocumentPageSourceFeaturePack.vue';
+import * as pageSourceState from '@app/modules/document-viewer/page-source-renderer/documentPageSourceFeaturePackState';
 import { useDocumentOpenVisualSettle } from '@app/modules/workspace-shell/composables/useDocumentOpenVisualSettle';
 import {
     createDocumentOpenSurfaceSession,
@@ -106,9 +107,6 @@ function createFeaturePackHost(
             // The shell reads the renderer's loading live from what it exposes.
             const isLoading = computed(() => featurePack.value?.isDocumentLoading?.() ?? false);
             const settle = useDocumentOpenVisualSettle({
-                pdfSrc: ref(null),
-                pdfDocument: ref(null),
-                totalPages,
                 isLoading,
                 pdfError: ref(null),
                 djvuError: ref(null),
@@ -162,11 +160,11 @@ afterEach(() => {
 });
 
 // A 900x700 viewport whose page images have loaded at 860x1146.
-function layOutLoadedPages() {
+function layOutLoadedPages(imagesLoaded = true) {
     vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(900);
     vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(700);
-    vi.spyOn(HTMLImageElement.prototype, 'complete', 'get').mockReturnValue(true);
-    vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockReturnValue(600);
+    vi.spyOn(HTMLImageElement.prototype, 'complete', 'get').mockReturnValue(imagesLoaded);
+    vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockReturnValue(imagesLoaded ? 600 : 0);
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
         bottom: 1_146,
         height: 1_146,
@@ -180,7 +178,74 @@ function layOutLoadedPages() {
     });
 }
 
+async function flushOpeningFrame() {
+    await new Promise<void>(resolve => setImmediate(resolve));
+    vi.advanceTimersToNextFrame();
+    await new Promise<void>(resolve => setImmediate(resolve));
+}
+
 describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
+    it.each([
+        {scenario: 'no required target renders', isActive: false},
+        {scenario: 'the navigation ticket retires before commit', isActive: true},
+    ])('settles the DjVu visual when $scenario', async ({isActive}) => {
+        vi.useFakeTimers({toFake: ['requestAnimationFrame', 'cancelAnimationFrame']});
+        layOutLoadedPages(false);
+        const documentRef = '/documents/unpresented.djvu' as TDocumentRef;
+        mocks.createDjvuPagePreviewSourceFromPath.mockResolvedValue({path: documentRef});
+        mocks.createDjvuPageSource.mockResolvedValue(createPageSource(documentRef, 2));
+        const surface = createDocumentOpenSurfaceSession();
+        surface.begin({
+            documentId: documentRef,
+            documentRevision: 'open-intent:unpresented',
+            provisional: true,
+        }, null, 1);
+        if (isActive) surface.navigate(createPageNavigationRequest(2, 'restore'));
+
+        let visual: boolean | 'pending' = 'pending';
+        const {createDocumentPageSourceOpenJob} = pageSourceState;
+        vi.spyOn(pageSourceState, 'createDocumentPageSourceOpenJob').mockImplementation(() => {
+            const job = createDocumentPageSourceOpenJob();
+            void job.visual.then(result => { visual = result; });
+            return job;
+        });
+
+        const settle = createWorkspaceOpenSettleHarness();
+        const errors = ref<unknown[]>([]);
+        const root = document.createElement('div');
+        document.body.append(root);
+        const app = createApp(createFeaturePackHost(surface, documentRef, errors, settle, ref(false), ref(isActive)));
+        app.component('USkeleton', defineComponent({setup: () => () => h('span')}));
+        app.component('UButton', defineComponent({
+            props: ['label'],
+            setup: props => () => h('button', props.label),
+        }));
+        app.mount(root);
+
+        try {
+            await flushOpeningFrame();
+            expect(settle.totalPages.value).toBe(2);
+            expect(errors.value).toEqual([]);
+            expect(surface.snapshot.value.committedRender).toBeNull();
+            const image = root.querySelector('[data-testid="document-page-source-image"]');
+            if (isActive) {
+                expect(image?.isConnected).toBe(true);
+                expect(visual).toBe('pending');
+                const ticket = surface.navigationTicket.value!;
+                expect(surface.reportNavigation(ticket, {kind: 'abandoned', by: 'user-input'})).toBe(true);
+                await expect(ticket.finished).resolves.toEqual({kind: 'superseded', by: 'user-input'});
+                await flushOpeningFrame();
+            } else {
+                expect(image).toBeNull();
+            }
+            expect(visual, 'the visual job must settle without a committed render').toBe(false);
+        } finally {
+            app.unmount();
+            root.remove();
+            vi.useRealTimers();
+        }
+    });
+
     it.each([
         'resize',
         'resolution',

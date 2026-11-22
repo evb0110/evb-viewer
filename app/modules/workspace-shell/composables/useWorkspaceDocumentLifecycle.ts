@@ -2,6 +2,7 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
+import { until } from '@vueuse/core';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {
     IWorkspaceOpenFailure,
@@ -17,8 +18,10 @@ import {
     type IWorkspaceOpenRequest,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import {
-    didOpenDocument,
+    admitOpenedDocument,
+    didPresent,
     type TDocumentOpenOutcome,
+    type TWorkspaceOpenFinish,
 } from '@app/types/documentOpenOutcome';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
 import {
@@ -44,14 +47,14 @@ interface IUseWorkspaceDocumentLifecycleOptions {
     } | null>;
     /** The first page is on screen, or the document failed. */
     documentOpenSettled: TReadableRef<boolean>;
-    /** The document's pages are loaded, painted or not. */
-    documentOpenAccepted: TReadableRef<boolean>;
     readOpenFailure: () => IWorkspaceOpenFailure | null;
     toolbarSnapshot: TReadableRef<IWorkspaceToolbarSnapshot>;
     readViewState: () => ITabViewSessionState;
     /** Opens a file without an open transaction of its own; the caller runs it in one. */
     openPath: (path: TDocumentRef) => Promise<TDocumentOpenOutcome>;
     closeFailedDocument: () => Promise<boolean>;
+    /** An open this view ran showed its document, or accepted it where no view had to. */
+    onOpened: () => void;
     hasWorkingCopy: () => boolean;
     goToPage: (page: number, options?: IScrollToPageOptions) => void;
     formatBatchLabel: (values: {
@@ -62,8 +65,8 @@ interface IUseWorkspaceDocumentLifecycleOptions {
 
 /**
  * Connects one DocumentWorkspace to its document controller and its tab's view. Every open
- * runs as a controller transaction that ends when the viewer presents the
- * document or reports why it could not; the workspace writes dirty state
+ * runs as a controller transaction that ends with its document's presentation
+ * in the views, or why it could not; the workspace writes dirty state
  * and view state through controller methods.
  */
 export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLifecycleOptions) => {
@@ -75,8 +78,6 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
         return transaction && transaction.kind !== 'close' ? transaction : null;
     });
     const hasDocument = computed(() => options.toolbarSnapshot.value.hasPdf || options.isDjvuMode.value);
-    // The source of the open has been accepted; from here the viewer decides.
-    const acceptedTransactionId = ref<string | null>(null);
     let pendingPage: number | null = null;
     // An open of a Recent file first asks whether it is gone; page commands
     // sent meanwhile wait for the open as they do once it has claimed the tab.
@@ -92,37 +93,27 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
             : null);
     });
 
-    watch(
-        [
-            acceptedTransactionId,
-            options.documentOpenSettled,
-            options.documentOpenAccepted,
-            options.readOpenFailure,
-        ],
-        ([
-            acceptedId,
-            settled,
-            accepted,
-            failure,
-        ]) => {
-            const transaction = activeOpen.value;
-            if (!transaction || transaction.id !== acceptedId) {
-                // A page operation owns its reload failure. Unowned failures
-                // are told here; an open's failure is told when it ends.
-                if (!transaction && failure && session.operationLease.activeKind.value !== 'page-operation') {
-                    session.reportFailure(failure);
-                }
-                return;
-            }
-            if (failure) {
-                session.markFailed(failure);
-            } else if (settled || (transaction.acceptDocumentWithoutVisual && accepted)) {
-                session.markPresented();
-            }
-        },
-    );
+    // A page operation owns its reload failure, and an open the failure of
+    // its document; any other failure is told here.
+    watch(options.readOpenFailure, (failure) => {
+        if (failure && !activeOpen.value && session.operationLease.activeKind.value !== 'page-operation') {
+            session.reportFailure(failure);
+        }
+    });
 
-    async function runOpen(request: IWorkspaceOpenRequest, run: () => Promise<boolean>) {
+    // An open presents when its first page is on screen in this view, told by
+    // the view's open surface: after a PDF's source job presented, and for a
+    // page source, whose open job does not reach the document's DjVu activation.
+    function presentInView(transactionId: string) {
+        return until(computed((): TWorkspaceOpenFinish | null => {
+            const failure = options.readOpenFailure();
+            if (activeOpen.value?.id !== transactionId) return {status: 'superseded'};
+            if (failure) return {status: 'failed', failure};
+            return options.documentOpenSettled.value ? {status: 'presented'} : null;
+        })).not.toBeNull();
+    }
+
+    async function runOpen(request: IWorkspaceOpenRequest, run: () => Promise<TDocumentOpenOutcome>) {
         // A gone Recent file is told, and the place in the document this open
         // replaces is remembered, before the open claims the tab; a tab its
         // caller already claimed (a drop's new tab) and other files open at once.
@@ -146,9 +137,9 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
         const shapeSource = request.pageShapeSource === undefined ? path : request.pageShapeSource;
         const pageShape = request.pageShape?.path === shapeSource ? request.pageShape : readPdfPageShape(shapeSource);
         let transactionId = null as string | null;
-        let presented = false;
+        let finish: TWorkspaceOpenFinish = {status: 'cancelled'};
         try {
-            presented = await session.runOpen({
+            finish = await session.runOpen({
                 ...request,
                 pageShape,
             }, async (shape, id) => {
@@ -169,23 +160,25 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
                         pendingPage = null;
                     }
                 }
-                const accepted = await run();
-                if (activeOpen.value?.id === id) {
-                    if (accepted) {
-                        acceptedTransactionId.value = id;
-                    } else {
-                        session.markFailed(options.readOpenFailure());
-                    }
+                const admission = admitOpenedDocument(await run(), options.readOpenFailure);
+                if (!admission && activeOpen.value?.id === id) {
+                    session.markFailed(options.readOpenFailure());
                 }
-                return accepted;
-            });
+                // A generated or recovered document needs no paint, only its source job's load.
+                return admission && {presentation: (admission.presentation ?? Promise.resolve({status: 'presented'})).then(finish => (
+                    finish.status !== 'presented' ? finish : request.acceptDocumentWithoutVisual ? {status: 'accepted-without-visual'} : presentInView(id)))};
+            }).finished;
         } finally {
             // However the open ends (shown, failed, cancelled, superseded or
             // thrown), it gives back its surface claim.
-            if (!presented && transactionId && options.openSurface.snapshot.value.identity?.documentRevision === `open-intent:${transactionId}`) {
+            if (!didPresent(finish) && transactionId && options.openSurface.snapshot.value.identity?.documentRevision === `open-intent:${transactionId}`) {
                 options.openSurface.reset();
             }
         }
+        const presented = didPresent(finish);
+        // A tab whose open did not present shows what it held before.
+        if (presented) options.onOpened();
+        else presentWhenShown();
         // An open that fails on an empty tab gives the tab back to Start,
         // which then says why the file did not open. A generated result
         // belongs to the page that made it, which reports its own failure and
@@ -232,19 +225,18 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
                     originalPath: path,
                     isDjvu: current.identity.isDjvu,
                 },
-            }, async () => didOpenDocument(await options.openPath(path)));
+            }, () => options.openPath(path));
         }
     }
+    // A view opens or presents its document when shown and when given one;
+    // an open that ends without presenting re-presents what the tab held.
     watch(
         [
             options.isShown,
-            snapshot,
+            () => snapshot.value.identity.documentSessionKey,
         ],
         presentWhenShown,
     );
-    // The open runs through the workspace, which is complete only once it has
-    // mounted; a tab shown at mount opens from here, not during setup.
-    onMounted(presentWhenShown);
 
     // Closing ends the document's visual generation; Start re-arms from the
     // empty surface instead of inheriting the closed document's frame.
@@ -274,6 +266,9 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
     return {
         captureViewState,
         goToPage,
+        // The open runs through the workspace, which is complete only once it
+        // has mounted and attached; a tab shown then opens, not during setup.
+        presentWhenShown,
         runOpen,
     };
 };

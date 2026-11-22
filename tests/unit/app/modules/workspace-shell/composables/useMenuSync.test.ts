@@ -77,14 +77,7 @@ function sessionOf(state: Ref<IActiveDocumentState>) {
             void session.runOpen({
                 kind: 'open',
                 target: null,
-            }, () => Promise.resolve(true));
-        } else if (state.value.phase === 'presented') {
-            const settled = session.runOpen({
-                kind: 'open',
-                target: null,
-            }, () => Promise.resolve(true));
-            session.markPresented();
-            void settled;
+            }, () => Promise.resolve({presentation: new Promise(() => {})}));
         }
         session.getView('tab-1')?.publishToolbarSnapshot(state.value.toolbarSnapshot);
         return session;

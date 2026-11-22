@@ -47,11 +47,17 @@ vi.mock('@app/modules/workspace-shell/components/DocumentWorkspace.vue', () => {
     };
 });
 
+const recentOpen = vi.hoisted(() => ({followed: null as Promise<boolean> | null}));
 vi.mock('@app/modules/pdf-viewer/public/component-exports/pdfEmptyState', () => ({PdfEmptyState: defineComponent({
-    emits: ['reveal-recent'],
-    setup: (_props, {emit}) => () => h('button', {onClick: () => emit('reveal-recent', {
-        originalPath: '/docs/recent.pdf', fileName: 'recent.pdf',
-    })}, 'Reveal recent'),
+    emits: ['reveal-recent', 'open-recent'],
+    setup: (_props, {emit}) => () => h('div', [
+        h('button', {onClick: () => emit('reveal-recent', {
+            originalPath: '/docs/recent.pdf', fileName: 'recent.pdf',
+        })}, 'Reveal recent'),
+        h('button', {onClick: () => emit('open-recent', {
+            originalPath: '/docs/recent.djvu', fileName: 'recent.djvu',
+        }, false, (opening: Promise<boolean>) => { recentOpen.followed = opening; })}, 'Open recent'),
+    ]),
 })}));
 
 vi.mock('@app/composables/useRecentFiles', () => ({useRecentFiles: () => ({
@@ -175,5 +181,36 @@ it.each(['reject', 'false'])('#1608 explains a failed Recent show-in-folder acti
     try {
         host.querySelector('button')!.click();
         await vi.waitFor(() => expect(messages.join(' ')).toMatch(/folder|reveal/i));
+    } finally {Reflect.deleteProperty(window, 'electronAPI');}
+});
+
+it('ends a cold Start Recent open whose claim another open took while its workspace mounts', async () => {
+    vi.stubGlobal('useToast', () => ({add: () => undefined}));
+    vi.stubGlobal('window', Object.assign(window, {electronAPI: createElectronPlatformApiFixture()}));
+    const state = new Map<string, unknown>();
+    vi.stubGlobal('useState', (key: string, initial: () => unknown) => {
+        if (!state.has(key)) state.set(key, ref(initial()));
+        return state.get(key);
+    });
+    const {createWorkspaceDocumentController} = await import('@app/modules/workspace-shell/document-sessions/workspaceDocumentController');
+    const {default: DocumentWorkspaceTab} = await import('@app/modules/workspace-shell/components/DocumentWorkspaceTab.vue');
+    host = document.createElement('div'); document.body.append(host);
+    const session = createWorkspaceDocumentController({tabId: 'cold'});
+    app = createApp({render: () => h(DocumentWorkspaceTab, {
+        tabId: 'cold', documentSession: session,
+        isActive: true, isRenderActive: true, isTabTransitionBusy: false,
+        startSection: 'recent', isFullscreen: false, fullscreenSupported: true, isWorkspaceLayoutResizing: false,
+    })});
+    app.component('ClientOnly', defineComponent({setup: (_props, {slots}) => () => slots.default?.()}));
+    app.component('UProgress', defineComponent({setup: () => () => h('div')}));
+    app.mount(host);
+    try {
+        recentOpen.followed = null;
+        [...host.querySelectorAll('button')].find(button => button.textContent === 'Open recent')!.click();
+        await nextTick();
+        expect(session.snapshot.value.activeTransaction?.target?.originalPath).toBe('/docs/recent.djvu');
+        // The workspace never mounts; another open takes the tab meanwhile.
+        session.claimOpen({kind: 'open', target: null});
+        await expect(recentOpen.followed).resolves.toBe(false);
     } finally {Reflect.deleteProperty(window, 'electronAPI');}
 });

@@ -77,10 +77,9 @@
                         :recent-files="recentFiles"
                         :recent-files-resolved="recentFilesResolved"
                         :recent-files-error="recentFilesError"
-                        :open-in-progress="openInProgress"
                         :is-recent-open-ready="isRecentOpenReady"
                         @press-recent="emit('press-recent', $event)"
-                        @open-recent="(file, pressed) => emit('open-recent', file, pressed)"
+                        @open-recent="(file, pressed, follow) => emit('open-recent', file, pressed, follow)"
                         @remove-recent="emit('remove-recent', $event)"
                         @reveal-recent="emit('reveal-recent', $event)"
                         @clear-recent="emit('clear-recent')"
@@ -152,7 +151,7 @@ const emit = defineEmits<{
     'update:start-section': [section: TStartSection];
     'open-file': [];
     'press-recent': [file: IRecentFile];
-    'open-recent': [file: IRecentFile, pressed: boolean];
+    'open-recent': [file: IRecentFile, pressed: boolean, follow: (opening: Promise<unknown>) => void];
     'remove-recent': [file: IRecentFile];
     'reveal-recent': [file: IRecentFile];
     'clear-recent': [];

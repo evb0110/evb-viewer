@@ -449,7 +449,7 @@ describe('useAppShellTabLifecycle', () => {
                 fileName: 'dictionary.pdf',
                 originalPath: requireDocumentRef('/docs/dictionary.pdf'),
             },
-        }, () => new Promise<boolean>(() => {}));
+        }, () => new Promise<null>(() => {}));
         const {lifecycle} = createLifecycle({
             panes: ref([createPane('pane-1', 'tab-1', ['tab-1'])]),
             tabs: ref([{id: 'tab-1'}]),
@@ -459,7 +459,7 @@ describe('useAppShellTabLifecycle', () => {
         await lifecycle.handleCloseTab('pane-1', 'tab-1');
 
         shape.resolve(null);
-        await expect(open).resolves.toBe(false);
+        await expect(open.finished).resolves.toEqual({status: 'superseded'});
         expect(session.snapshot.value.activeTransaction).toBeNull();
         expect(session.snapshot.value.phase).toBe('empty');
         expect(lifecycle.isTabTransitionBusy.value).toBe(false);

@@ -131,9 +131,6 @@ function createGenerationHarness() {
     const scope = createTrackedScope();
     const harness = scope.run(() => {
         const settle = useDocumentOpenVisualSettle({
-            pdfSrc: ref({path: DOCUMENT_IDENTITY.documentId}),
-            pdfDocument: ref({}),
-            totalPages: ref(1),
             isLoading: ref(false),
             pdfError: ref(null),
             djvuError: ref(null),

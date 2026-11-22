@@ -2,9 +2,6 @@ import type { Ref } from 'vue';
 import type {IDocumentOpenSurfaceSession} from '@app/modules/document-viewer/public';
 
 interface IUseDocumentOpenVisualSettleOptions {
-    pdfSrc: Ref<unknown>;
-    pdfDocument: Ref<unknown>;
-    totalPages: Ref<number>;
     isLoading: Ref<boolean>;
     pdfError: Ref<unknown>;
     djvuError: Ref<unknown>;
@@ -13,10 +10,8 @@ interface IUseDocumentOpenVisualSettleOptions {
 }
 
 /**
- * The viewer's view of an open: `documentOpenAccepted` once the document's
- * pages are loaded, `documentOpenSettled` once its first page is on screen,
- * painted or showing why it could not be. An open error settles both. The
- * workspace reports these to the tab controller.
+ * The viewer's view of an open: `documentOpenSettled` once its first page is
+ * on screen, painted or showing why it could not be, or the open failed.
  */
 export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettleOptions) => {
     const committedInitialVisualIdentity = shallowRef<{
@@ -82,16 +77,6 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
             && !residentVisualLost;
     });
     const hasOpenError = computed(() => Boolean(options.pdfError.value) || Boolean(options.djvuError.value));
-    const documentOpenAccepted = computed(() => hasOpenError.value || (
-        options.showDjvuSource.value
-            ? !options.isLoading.value && options.totalPages.value > 0
-            : Boolean(
-                options.pdfSrc.value
-                && options.pdfDocument.value
-                && options.totalPages.value > 0
-                && !options.isLoading.value,
-            )
-    ));
     const documentOpenSettled = computed(() => hasOpenError.value || (
         options.showDjvuSource.value
             ? !options.isLoading.value && initialDocumentVisualReady.value
@@ -102,7 +87,6 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
     ));
 
     return {
-        documentOpenAccepted,
         documentOpenSettled,
         initialDocumentVisualReady,
     };

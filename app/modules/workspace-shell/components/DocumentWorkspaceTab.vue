@@ -172,16 +172,16 @@ function pressRecentFile(file: IRecentFile) {
     pressedRecentShape = readPdfPageShape(file.originalPath);
 }
 
-async function openRecentFile(file: IRecentFile, pressed: boolean) {
+function openRecentFile(file: IRecentFile, pressed: boolean, follow: (opening: Promise<boolean>) => void) {
     const pageShape = pressed && pressedRecentShape?.path === file.originalPath
         ? pressedRecentShape
         : readPdfPageShape(file.originalPath);
     pressedRecentShape = null;
-    return openInWorkspace({
+    follow(openInWorkspace({
         kind: 'open',
         target: describeDocumentTarget(file.originalPath),
         pageShape,
-    }, workspace => workspace.handleOpenFileDirectWithPersist(file.originalPath, pageShape));
+    }, workspace => workspace.handleOpenFileDirectWithPersist(file.originalPath, pageShape)));
 }
 
 // The picker is requested in the click's own call: a browser shows a file
@@ -209,8 +209,11 @@ function openInWorkspace(request: IWorkspaceOpenRequest, open: (workspace: IWork
         return open(mounted);
     }
     // The tab is opening from the click, not from when the workspace chunk
-    // arrives; the workspace's own open replaces this transaction once mounted.
-    return documentSession.runOpen(request, () => withWorkspace(open));
+    // arrives; the workspace's own open replaces this transaction once
+    // mounted, and the result is that open's. A claim lost before then is false.
+    let opened = Promise.resolve(false);
+    return documentSession.runOpen(request, () => withWorkspace(workspace => (opened = open(workspace))).then(() => null))
+        .finished.then(() => opened);
 }
 
 async function revealRecentFile(file: IRecentFile) {

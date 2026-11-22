@@ -337,19 +337,17 @@ export function createDocumentOpenFlow(
                         modifiedAt,
                     };
             }, () => null);
-        try {
-            await loadPdfFromPath(result.workingPath, {
-                originalPath: result.originalPath,
-                markDirty: result.isGenerated === true || result.recoveryDirtyBaseline === true,
-                recoveryDirtyBaseline: result.recoveryDirtyBaseline === true,
-                openRequestId,
-                validationRevision,
-            });
-        } catch (error) {
+        const job = await loadPdfFromPath(result.workingPath, {
+            originalPath: result.originalPath,
+            markDirty: result.isGenerated === true || result.recoveryDirtyBaseline === true,
+            recoveryDirtyBaseline: result.recoveryDirtyBaseline === true,
+            openRequestId,
+            validationRevision,
+        }).catch(async (error: unknown) => {
             await cleanupAbandonedPdfWorkingCopy(result, 'failed-pdf-load');
             throw error;
-        }
-        if (!isCurrentOpenRequest(openRequestId) || state.workingCopyPath.value !== result.workingPath) {
+        });
+        if (!job || !isCurrentOpenRequest(openRequestId) || state.workingCopyPath.value !== result.workingPath) {
             await cleanupAbandonedPdfWorkingCopy(result, 'stale-pdf-load');
             return {
                 status: 'stale',
@@ -377,6 +375,7 @@ export function createDocumentOpenFlow(
         return {
             status: 'opened',
             result,
+            presentation: job.finished,
         } satisfies TDocumentOpenOutcome;
     }
 
@@ -634,7 +633,8 @@ export function createDocumentOpenFlow(
         }
     }
 
-    async function applyLoadedPdfState(
+    /** Publishes the loaded PDF as the document's source and returns its source job; null when the load is no longer current. */
+    async function publishLoadedPdfState(
         path: TDocumentRef,
         nextState: IPdfLoadedState,
         options?: {
@@ -648,18 +648,18 @@ export function createDocumentOpenFlow(
         },
     ) {
         if (options?.isCurrent?.() === false) {
-            return false;
+            return null;
         }
 
         const didRefreshRevision = await refreshDocumentRevisionToken(path, options?.isCurrent);
         if (!didRefreshRevision) {
-            return false;
+            return null;
         }
 
         if (!options?.preserveHistory) deps.incrementSessionVersion();
 
         const commitRevisionSwap = await options?.beforeSourceCommit?.(state.documentRevisionToken.value);
-        if (options?.isCurrent?.() === false) return false;
+        if (options?.isCurrent?.() === false) return null;
         if (commitRevisionSwap) commitRevisionSwap();
 
         // A replacement can paint while history and old-copy cleanup still wait.
@@ -674,19 +674,19 @@ export function createDocumentOpenFlow(
         }
         if (!options?.preserveHistory && state.pdfSrc.value) deps.resetDocumentPresentation();
         state.pdfData.value = nextState.pdfData;
-        state.publishPdfSource(nextState.pdfSrc, options?.preserveHistory ? 'reload' : 'open');
+        const job = state.publishPdfSource(nextState.pdfSrc, options?.preserveHistory ? 'reload' : 'open');
         if (!options?.preserveHistory) state.recoveryDirtyBaseline.value = options?.recoveryDirtyBaseline === true;
         deps.clearPdfConformanceProfile();
 
         if (!options?.preserveHistory) {
             if (!await deps.resetHistory({isCurrent: options?.isCurrent}) || options?.isCurrent?.() === false) {
-                return false;
+                return null;
             }
             deps.syncDirtyFromHistory();
         }
 
         if (options?.isCurrent?.() === false) {
-            return false;
+            return null;
         }
 
         if (typeof options?.markDirty === 'boolean') {
@@ -700,12 +700,12 @@ export function createDocumentOpenFlow(
         ) {
             await deps.cleanupPreviousWorkingCopy(options.previousPath, path);
             if (options.isCurrent?.() === false) {
-                return false;
+                return null;
             }
         }
 
         deps.deferPdfConformanceProfile(path, { fileSize: getLoadedPdfFileSize(nextState) });
-        return true;
+        return job;
     }
 
     async function refreshDocumentRevisionToken(
@@ -813,7 +813,7 @@ export function createDocumentOpenFlow(
             elapsedMs: performance.now() - visualYieldStartedAt,
         });
         if (!isCurrent()) {
-            return;
+            return null;
         }
 
         // Verify and read file BEFORE committing any reactive state.
@@ -831,7 +831,7 @@ export function createDocumentOpenFlow(
                 ...traceContext,
                 currentOpenRequestId: deps.readOpenTransactionId(),
             });
-            return;
+            return null;
         }
 
         // The open capability only stages a working copy. Keep the currently
@@ -862,7 +862,7 @@ export function createDocumentOpenFlow(
             elapsedMs: performance.now() - validateStartedAt,
         });
         if (!isCurrent()) {
-            return;
+            return null;
         }
         if (!validation.isValid) {
             BrowserLogger.warn('pdf-file', 'Rejected invalid staged PDF', {
@@ -880,7 +880,7 @@ export function createDocumentOpenFlow(
             ...traceContext,
             sourceKind: nextState.pdfData ? 'data' : 'path',
         });
-        const didCommit = await applyLoadedPdfState(path, nextState, {
+        const job = await publishLoadedPdfState(path, nextState, {
             ...(opts.originalPath ? {originalPath: opts.originalPath} : {}),
             isCurrent,
             markDirty: !!opts.markDirty,
@@ -890,13 +890,14 @@ export function createDocumentOpenFlow(
         logPdfRenderTrace('pdf-open-state-commit-end', {
             path,
             ...traceContext,
-            didCommit,
+            didCommit: job !== null,
             elapsedMs: performance.now() - commitStartedAt,
         });
+        return job;
     }
 
     return {
-        applyLoadedPdfState,
+        applyLoadedPdfState: async (...args: Parameters<typeof publishLoadedPdfState>) => await publishLoadedPdfState(...args) !== null,
         loadPdfFromPath,
         openFile,
         openFileDirect,
