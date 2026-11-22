@@ -21,7 +21,7 @@ function dispatchAppReady() {
     window.dispatchEvent(new Event('evb:app-ready'));
 }
 
-function dispatchVisualReady(reason: 'painted' | 'password-prompt' | 'timed-out') {
+function dispatchVisualReady(reason: 'first-view-presented' | 'password-prompt' | 'timed-out') {
     window.dispatchEvent(new CustomEvent('evb:startup-open-visual-ready', {detail: {reason}}));
 }
 
@@ -106,7 +106,7 @@ describe('installStartupOverlayLifecycle', () => {
         expect(document.getElementById(OVERLAY_ID)).toBeNull();
     });
 
-    it.each(['painted', 'password-prompt', 'timed-out'] as const)('retains a positive claim until the %s visual receipt', (reason) => {
+    it.each(['first-view-presented', 'password-prompt', 'timed-out'] as const)('retains a positive claim until the %s visual receipt', (reason) => {
         install();
         dispatchAppReady();
         dispatchClaim(1);
@@ -182,7 +182,7 @@ describe('installStartupOverlayLifecycle', () => {
 
         dispatchAppReady();
         dispatchClaim(1);
-        dispatchVisualReady('painted');
+        dispatchVisualReady('first-view-presented');
         dispatchStartupFailed();
         window.dispatchEvent(new Event('DOMContentLoaded'));
 

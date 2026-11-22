@@ -8,7 +8,7 @@ import { useDocumentOpenVisualSettle } from '@app/modules/workspace-shell/compos
 import { useDocumentWorkspaceRestoreState } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceRestoreState';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSidebarOpenGeneration } from '@app/modules/workspace-shell/composables/useWorkspaceSidebarOpenGeneration';
-import { useWorkspaceStartupReadiness } from '@app/modules/workspace-shell/composables/useWorkspaceStartupReadiness';
+import { dispatchStartupOpenVisualReady } from '@app/modules/workspace-shell/composables/useWorkspaceStartupReadiness';
 
 /**
  * What the workspace shows while a document opens, restores or converts:
@@ -78,10 +78,6 @@ export const useWorkspacePresentation = (
         showDjvuSource: showsDjvuSource,
         openSurface,
     });
-    const {
-        scheduleStartupOpenVisualReady,
-        dispatchStartupOpenVisualReady,
-    } = useWorkspaceStartupReadiness(documentOpenSettled);
     const hasOpenError = computed(() => Boolean(file.pdfError.value) || Boolean(file.djvuError.value));
     const { toolbarShowSidebarForDisplay } = useWorkspaceSidebarOpenGeneration({
         sidebarPresentationEnabled,
@@ -171,16 +167,6 @@ export const useWorkspacePresentation = (
             || phase === 'viewport-committed';
     });
 
-    watch(file.pdfSrc, (src) => {
-        if (src) {
-            scheduleStartupOpenVisualReady('pdf-src');
-        }
-    });
-    watch(() => driverView.value?.startupVisualSource ?? null, (source) => {
-        if (source) {
-            scheduleStartupOpenVisualReady(source);
-        }
-    });
     const documentOpenIdle = computed(() => (
         !isOpeningDocument.value && (documentOpenSettled.value || !toolbarHasPdf.value)
     ));
