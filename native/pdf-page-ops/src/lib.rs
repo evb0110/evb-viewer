@@ -37,6 +37,7 @@ mod conformance;
 mod content_parse;
 mod decrypt;
 mod dispatcher;
+mod exchange_paths;
 mod incremental;
 mod incremental_document;
 mod input;

@@ -28,6 +28,7 @@ import {
     activatePaneByTab, createNewWorkspaceTab, splitActiveTabFromTabMenu,
 } from '@tests/e2e/electron/helpers/workspaceTabs';
 import {callWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {waitForCrashCheckpointPath} from '@tests/e2e/electron/nightly/large-pdf/largePdfAnnotationSaveShared';
 import {
     startElectronE2ESession, type IElectronE2ESession,
 } from '@tests/e2e/electron/helpers/startElectronE2ESession';
@@ -643,7 +644,8 @@ describe('checkpointed annotation recovery', () => {
         ].map(Math.fround));
     }, 120_000);
 
-    // The main-process hook lets Save run to the cut, then holds it there until the kill.
+    // The main-process hook lets Save run to the cut, then holds it there until the kill. Both cuts follow the atomic
+    // exchange: the PDF already holds the new bytes and the staging name the original, which moves to `.evb-replaced`.
     it.runIf(process.platform === 'linux' || process.platform === 'darwin').each([
         'displaced',
         'published',
@@ -656,15 +658,15 @@ describe('checkpointed annotation recovery', () => {
         const hook = join(outputDirectory, 'hold-save.cjs');
         writeFileSync(hook, `const fs = require('node:fs'), fsp = require('node:fs/promises');
 if (process.type === 'browser') {
-    const target = ${JSON.stringify(sourcePath)}, held = ${JSON.stringify(held)}, cut = ${JSON.stringify(cut)};
+    const displaced = ${JSON.stringify(join(outputDirectory, '.save-crash.pdf.evb-replaced'))}, held = ${JSON.stringify(held)}, cut = ${JSON.stringify(cut)};
     const hold = () => { fs.writeFileSync(held, ''); return new Promise(() => {}); };
-    const {rename, link} = fsp;
-    fsp.rename = async (from, to) => {
-        await rename(from, to);
-        if ((cut === 'displaced' && from === target && String(to).endsWith('.evb-replaced'))
-            || (cut === 'published' && to === target)) await hold();
+    const {link} = fsp;
+    // Only the move from the staging name links into the displaced name.
+    fsp.link = async (from, to) => {
+        if (cut === 'displaced' && to === displaced) await hold();
+        await link(from, to);
+        if (cut === 'published' && to === displaced) await hold();
     };
-    fsp.link = async (from, to) => { await link(from, to); if (cut === 'published' && to === target) await hold(); };
 }`);
         const sessionName = `e2e-save-crash-${cut}-${Date.now()}`;
         session = await startElectronE2ESession(sessionName, {
@@ -680,6 +682,7 @@ if (process.type === 'browser') {
             y: 0.31,
         });
         await session.page.waitForSelector('.editor-pane.is-active .tab.is-active.is-dirty', {visible: true});
+        await waitForCrashCheckpointPath(session.name, sourcePath);
         await clickVisibleToolbarButton(session.page, 'Save');
         await expect.poll(() => existsSync(held), {timeout: 60_000}).toBe(true);
 
@@ -693,25 +696,32 @@ if (process.type === 'browser') {
             crashElectronBeforeStop: true,
         });
         session = null;
-        // At the displaced cut the PDF is gone until the restart puts it back; at the published one another program changes it.
+        // The PDF holds the complete new bytes at both cuts, the complete original stays beside it, and at the published
+        // cut another program then changes the PDF.
+        expect((await readPdfTextAnnotationRecords(sourcePath)).some(record => record.contents === marker)).toBe(true);
+        const folder = outputDirectory;
+        expect(readdirSync(folder).filter(name => /^\.[0-9a-f]{16}\.tmp$/u.test(name))
+            .map(name => readFileSync(join(folder, name)))).toEqual([sourceBytes]);
         if (cut === 'published') appendFileSync(sourcePath, '\n% external change after crash\n');
-        const onDiskBeforeRestart = cut === 'published' ? readFileSync(sourcePath) : null;
+        const onDiskBeforeRestart = readFileSync(sourcePath);
 
         session = await startElectronE2ESession(sessionName, {clean: false});
         await waitForPdfLoaded(session.page, 60_000);
         await session.page.waitForFunction((text: string) => Array.from(
             document.querySelectorAll<HTMLElement>('.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"]'),
         ).some(entity => entity.textContent?.trim() === text), {timeout: 60_000}, marker);
-        await session.page.waitForSelector('.editor-pane.is-active .tab.is-active.is-dirty', {visible: true});
+        const ownedFiles = () => readdirSync(folder).filter(name => name.startsWith('.') || name.startsWith('save-crash')).sort();
+        // At the displaced cut the PDF still holds what the Save published, so recovery acknowledges it.
+        await session.page.waitForSelector(`.editor-pane.is-active .tab.is-active${cut === 'displaced' ? ':not(.is-dirty)' : '.is-dirty'}`, {visible: true});
         if (cut === 'displaced') {
-            expect(readFileSync(sourcePath)).toEqual(sourceBytes);
-            expect(readdirSync(outputDirectory).filter(name => name.startsWith('save-crash'))).toEqual(['save-crash.pdf']);
+            expect(readFileSync(sourcePath)).toEqual(onDiskBeforeRestart);
+            expect(ownedFiles()).toEqual(['save-crash.pdf']);
             return;
         }
         await session.page.waitForFunction(() => document.body.textContent?.includes('during the save or later'), {timeout: 30_000});
         expect(readFileSync(sourcePath)).toEqual(onDiskBeforeRestart);
         expect(readFileSync(join(outputDirectory, 'save-crash (original).pdf'))).toEqual(sourceBytes);
-        expect(readdirSync(outputDirectory).filter(name => name.startsWith('save-crash')).sort()).toEqual([
+        expect(ownedFiles()).toEqual([
             'save-crash (original).pdf',
             'save-crash.pdf',
         ]);

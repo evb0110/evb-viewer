@@ -251,6 +251,8 @@ export async function atomicReplace(
         assertDestinationCurrent?: () => Promise<void>;
         /** Save-owned path that retains the exact revision displaced at publication. */
         destinationBackupPath?: string;
+        /** With a backup path: swaps the two files in one step where it can, or answers false with nothing moved. */
+        exchange?: (srcTemp: string, dst: string) => Promise<boolean>;
         markMutationCommitStarted?: boolean;
     } = {},
 ) {
@@ -266,6 +268,12 @@ export async function atomicReplace(
     if (options.destinationBackupPath !== undefined) {
         const backupPath = options.destinationBackupPath;
         assertNoSymlinkPathSegments(backupPath);
+        if (process.platform !== 'win32' && await options.exchange?.(srcTemp, dst)) {
+            await moveFileToMissingPath(srcTemp, backupPath);
+            await fsyncPath(backupPath);
+            await fsyncParentDirectory(dst);
+            return;
+        }
         await rename(dst, backupPath);
         await fsyncPath(backupPath);
         await moveFileToMissingPath(srcTemp, dst);

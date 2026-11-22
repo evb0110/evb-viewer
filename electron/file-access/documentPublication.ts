@@ -24,14 +24,22 @@ import type {
 } from '@document-store/documentDirectory';
 import {copyNewFile} from '@document-store/nodeStorePort';
 import {isErrnoException} from '@contracts/runtimeGuards';
+import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
+import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {
     atomicReplace,
     fsyncParentDirectory,
     makeSiblingTempPath,
+    moveFileToMissingPath,
 } from '@electron/utils/atomicReplace';
 import {keepOriginalBeside} from '@electron/utils/boundedPathComponent';
+import {isSameFile} from '@electron/utils/fileIdentity';
 import {rememberKeptOriginal} from '@electron/file-access/keptOriginalNotices';
 import {withOriginalPathMutationLock} from '@electron/file-access/withOriginalPathMutationLock';
+import {createLogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
+
+const logger = createLogger('document-publication');
 
 const isMissing = (error: unknown) => isErrnoException(error) && error.code === 'ENOENT';
 
@@ -106,16 +114,59 @@ async function settleDisplacedOriginal(destination: string, baseline: string | n
 const SIBLING_TEMP_NAME = /^\.[0-9a-f]{16}\.tmp$/u;
 
 /**
+ * Whether the name a save staged its copy at holds nothing of anyone else's: it is missing, the save staged no
+ * witness yet, or it still holds the `staged` copy. Otherwise an exchange left there the version it displaced.
+ */
+function holdsOnlyStagedCopy(temp: string, staged: string | undefined) {
+    const found = statOrNull(temp);
+    return !found || staged === undefined || sameWitness(metadataFact(found), staged);
+}
+
+/**
  * Settles a save a crash or a failure interrupted: removes the copy it staged beside the PDF, which its record names,
- * and the save finished only if the PDF is the file it was publishing, whose metadata it staged. Returns the PDF's
- * witness afterwards; throws while the PDF cannot be read, so the document keeps the save to settle later.
+ * and the save finished only if the PDF is the file it was publishing, whose metadata it staged. A staging name that
+ * holds the version an exchange displaced is moved where the save keeps that version, or kept as "(original)" when
+ * that name is taken, and never deleted. Returns the PDF's witness afterwards; throws while the PDF cannot be read,
+ * so the document keeps the save to settle later.
  */
 function settleInterruptedPublish({destination, witness: published, temp}: IPendingPublish, baseline: string | null) {
     return withOriginalPathMutationLock(destination, async () => {
-        if (temp !== undefined && dirname(temp) === dirname(destination) && SIBLING_TEMP_NAME.test(basename(temp))) await rm(temp, {force: true});
+        if (temp !== undefined && dirname(temp) === dirname(destination) && SIBLING_TEMP_NAME.test(basename(temp))) {
+            if (holdsOnlyStagedCopy(temp, published)) await rm(temp, {force: true});
+            else await moveFileToMissingPath(temp, displacedPath(destination)).catch(async (error: unknown) => {
+                if (!isErrnoException(error) || error.code !== 'EEXIST') throw error;
+                // A move a crash cut short after its link left the displaced version at both names.
+                if (await isSameFile(displacedPath(destination), temp)) await rm(temp, {force: true});
+                else await keepOriginalBeside(temp, destination, keptPath => rememberKeptOriginal(destination, keptPath));
+            });
+        }
         await settleDisplacedOriginal(destination, baseline, sameWitness(await fileWitness(destination), published));
         return fileWitness(destination);
     });
+}
+
+/**
+ * Exchanges the staged copy with the PDF in one step through the page engine, so the PDF's path never goes missing;
+ * the staging name then holds the version it displaced. Whether that happened is read from the staging name, whatever
+ * the engine reported. False, with nothing moved, where it did not happen for any reason: the present sequence runs.
+ */
+async function exchangeIntoPlace(temp: string, destination: string) {
+    const staged = metadataFact(statSync(temp, {bigint: true}));
+    const engine = resolveNativePageOpsPath();
+    let outcome = 'the page engine is missing';
+    if (engine) {
+        try {
+            outcome = (await runNativeToolCommand(engine, ['exchange-paths', temp, destination], {
+                commandLabel: 'evb-pdf-page-ops(exchange-paths)',
+                maxStdoutBytes: 4096,
+            })).stdout.trim();
+        } catch (error) {
+            outcome = getErrorMessage(error);
+        }
+    }
+    if (metadataFact(statSync(temp, {bigint: true})) !== staged) return true;
+    logger.warn(`Saving "${destination}" without an atomic exchange: ${outcome}`);
+    return false;
 }
 
 class DestinationChanged extends Error {}
@@ -143,14 +194,16 @@ export function createDesktopPublication(absolute: (storePath: string) => string
             const temp = makeSiblingTempPath(destination);
             // Named in the pending publish before it exists, so recovery after a crash removes it.
             await reserve?.(temp);
+            let staged: string | undefined;
             try {
                 await copyRevision(source, absolute(source.path), temp);
-                const staged = metadataFact(statSync(temp, {bigint: true}));
+                staged = metadataFact(statSync(temp, {bigint: true}));
                 await stage(staged);
                 let checked: string | undefined;
                 try {
                     await atomicReplace(temp, destination, expected === null ? {} : {
                         destinationBackupPath: displacedPath(destination),
+                        exchange: exchangeIntoPlace,
                         assertDestinationCurrent: () => {
                             const before = statOrNull(destination);
                             checked = before ? metadataFact(before) : undefined;
@@ -167,7 +220,8 @@ export function createDesktopPublication(absolute: (storePath: string) => string
                 const kept = keptOriginal === undefined ? {} : {keptOriginal};
                 return installed ? {status: 'published', witness: staged, ...kept} : {status: 'conflict', ...kept};
             } finally {
-                await rm(temp, {force: true});
+                // A displaced version left at the staging name stays for `settleInterruptedPublish`.
+                if (holdsOnlyStagedCopy(temp, staged)) await rm(temp, {force: true});
             }
         }),
     };
