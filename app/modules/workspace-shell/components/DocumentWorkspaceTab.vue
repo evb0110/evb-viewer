@@ -43,6 +43,7 @@
                 :open-batch-progress="null"
                 :open-in-progress="isOpening"
                 :is-recent-open-ready="isRecentOpenReady"
+                :is-visible="isStartVisible && isRenderActive"
                 :start-section="startSection"
                 can-combine-files
                 :open-combine-result="result => withWorkspace(workspace => workspace.handleOpenFileWithResult(result))"

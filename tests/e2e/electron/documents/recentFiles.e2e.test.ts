@@ -89,6 +89,8 @@ const RECENT_OPEN_TIMEOUT_MS = 12_000;
 const RECENT_STARTUP_STABILITY_MS = 1_500;
 const RECENT_OPEN_STABILITY_MS = 2_500;
 const RECENT_POLL_INTERVAL_MS = 50;
+// Start redraws the Opened column at least twice a minute while it is shown.
+const RECENT_OPENED_AGE_TIMEOUT_MS = 45_000;
 const RECENT_FIRST_PAGE_SHELL_BUDGET_MS = 100;
 const RECENT_FIRST_VISIBLE_PAGE_SHELL_BUDGET_FRAMES = 2;
 const RECENT_FIRST_CANVAS_BUDGET_MS = 2_500;
@@ -1538,6 +1540,40 @@ describe('Electron E2E - Recent Files', () => {
             activeTabTitle: 'New Tab',
             hasVisibleDocumentContent: false,
         });
+    });
+
+    it('ages a Recent file\'s Opened time while Start stays on screen', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-recent-opened-age-${Date.now()}`,
+        });
+        try {
+            const {page} = session;
+            const fixturePath = await createMultiPageTextFixturePdf(`recent-opened-age-${Date.now()}.pdf`, 1);
+            await waitForStartupOverlayRemoved(session);
+            await openPdfInApp(page, fixturePath);
+            await waitForPdfLoaded(page);
+            await clickAsUser(page, '.tab-list .tab.is-active .tab-close');
+            await page.waitForSelector('.recent-search input', {visible: true});
+            const readOpened = () => evaluateInPage(page, (source: string) => (
+                Array.from(document.querySelectorAll<HTMLElement>(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .recent-row--data:not(.recent-row--skeleton)',
+                )).find(row => row.dataset.recentSource === source)
+                    ?.querySelector('.recent-col--time')?.textContent?.trim() ?? null
+            ), fixturePath);
+            await expect.poll(readOpened, {timeout: RECENT_ROW_TIMEOUT_MS}).toBe('Just now');
+
+            // Two days pass while Start stays on screen and nothing else
+            // changes. The session restarts below, so the shifted clock does
+            // not reach later cases.
+            await evaluateInPage(page, (offsetMs: number) => {
+                const realNow = Date.now.bind(Date);
+                Date.now = () => realNow() + offsetMs;
+            }, (2 * 24 + 1) * 60 * 60 * 1000);
+            await expect.poll(readOpened, {timeout: RECENT_OPENED_AGE_TIMEOUT_MS}).toBe('2 days ago');
+        } finally {
+            await sessionFixture.restart({clean: true});
+        }
     });
 
     it('opens the exact recent source when two files share a basename', async () => {

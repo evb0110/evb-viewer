@@ -78,6 +78,7 @@
                         :recent-files-resolved="recentFilesResolved"
                         :recent-files-error="recentFilesError"
                         :is-recent-open-ready="isRecentOpenReady"
+                        :is-visible="isVisible"
                         @press-recent="emit('press-recent', $event)"
                         @open-recent="(file, pressed, follow) => emit('open-recent', file, pressed, follow)"
                         @remove-recent="emit('remove-recent', $event)"
@@ -136,6 +137,7 @@ const {
     canCombineFiles = false,
     startSection = 'recent',
     openCombineResult = undefined,
+    isVisible = true,
 } = defineProps<{
     recentFiles: IRecentFile[];
     recentFilesResolved?: boolean | undefined;
@@ -146,6 +148,8 @@ const {
     canCombineFiles?: boolean | undefined;
     startSection?: TStartSection | undefined;
     openCombineResult?: (result: TOpenFileResult) => Promise<boolean>;
+    /** Whether Start is on screen; its host keeps it mounted while hidden. */
+    isVisible?: boolean | undefined;
 }>();
 const emit = defineEmits<{
     'update:start-section': [section: TStartSection];
