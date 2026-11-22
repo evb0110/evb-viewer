@@ -36,6 +36,8 @@ interface IUseAppShellTabLifecycleOptions {
     requestDirtyTabCloseConfirmation: (tabId: string) => Promise<TDirtyCloseDecision>;
 }
 
+type TEndRelease = ReturnType<IWorkspaceDocumentController['releaseJobs']> | null;
+
 interface ICloseHandoffTarget {
     paneId: string;
     tabId: string;
@@ -399,9 +401,14 @@ export const useAppShellTabLifecycle = (
         activateHandoffTarget(targetPane.paneId, targetTab.id);
     }
 
-    async function closeWorkspaceDocument(paneId: string, tabId: string) {
+    async function closeWorkspaceDocument(paneId: string, tabId: string, endRelease: TEndRelease) {
         const controller = getDocumentSession(tabId);
-        if (!controller || !await controller.close({decide: () => requestDirtyTabCloseConfirmation(tabId)})) {
+        // A Save or Cancel keeps the document, which publishes the revision its Close ended again first.
+        if (!controller || !await controller.close({decide: async () => {
+            const decision = await requestDirtyTabCloseConfirmation(tabId);
+            endRelease?.(decision !== 'discard');
+            return decision;
+        }})) {
             return false;
         }
         const pane = getPaneByTabId(tabId) ?? getPaneById(paneId);
@@ -413,7 +420,7 @@ export const useAppShellTabLifecycle = (
         return true;
     }
 
-    async function closeTabDuringTransition(paneId: string, tabId: string) {
+    async function closeTabDuringTransition(paneId: string, tabId: string, endRelease: TEndRelease = null) {
         const tab = getTabById(tabId);
         if (!tab) {
             return;
@@ -431,13 +438,18 @@ export const useAppShellTabLifecycle = (
             // The other view may have let go of the document meanwhile; this
             // one is then its last and closes it, asking about unsaved work.
             if ((getDocumentSession(tabId)?.views.value.size ?? 0) < 2) {
-                await closeTabDuringTransition(paneId, tabId);
+                const endRelease = getDocumentSession(tabId)?.releaseJobs() ?? null;
+                try {
+                    await closeTabDuringTransition(paneId, tabId, endRelease);
+                } finally {
+                    endRelease?.(true);
+                }
                 return;
             }
         }
 
         if (closesDocument && tabOccupied(tabId)) {
-            if (!await closeWorkspaceDocument(paneId, tabId)) {
+            if (!await closeWorkspaceDocument(paneId, tabId, endRelease)) {
                 return;
             }
         } else {
@@ -467,17 +479,21 @@ export const useAppShellTabLifecycle = (
             return;
         }
 
+        const closing = getDocumentSession(tabId);
+        // The last view's Close ends its document's running jobs until it decides, so a reader that never returns
+        // cannot hold the question (#1598). A linked view's close takes no lease and waits for nothing.
+        const endRelease = closing && closing.views.value.size < 2 ? closing.releaseJobs() : null;
         const transition = (async () => {
-            await waitForTabOperationsToSettle(tabId);
+            if (endRelease) await waitForTabOperationsToSettle(tabId);
             await enqueueTabTransition(
-                () => closeTabDuringTransition(paneId, tabId),
+                () => closeTabDuringTransition(paneId, tabId, endRelease),
                 {
                     action: 'close-tab',
                     paneId,
                     tabId,
                 },
             );
-        })();
+        })().finally(() => endRelease?.(true));
         pendingCloseTransitions.set(tabId, transition);
         try {
             await transition;

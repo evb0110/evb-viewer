@@ -687,9 +687,10 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             if (transferCommitted) {
                 return;
             }
-            if (target) {
-                await rollbackIncomingTransferTarget(target, transfer.payload, false, true);
-            }
+            // The rollback closes in a transfer turn of its own, so it never joins a user Close's question.
+            const rollback = (ownership?: IDocumentOperationOwnership) => rollbackIncomingTransferTarget(target, transfer.payload, false, true, ownership);
+            const session = getDocumentSession(target.tab.tabId);
+            await (session ? session.operationLease.runExclusive('tab-transfer', rollback) : rollback());
             await acknowledgeTransfer(transfer.transferId, false, getErrorMessage(error));
         } finally {
             const session = getDocumentSession(target?.tab.tabId);

@@ -67,24 +67,6 @@ describe('createPdfReloadWaiter', () => {
         expect(scrollToPage).toHaveBeenCalledWith(5);
     });
 
-    it('can wait for reload completion without restoring the viewport', async () => {
-        const surface = createReloadingSurface();
-        const scrollToPage = vi.fn();
-        const resetSearchCache = vi.fn();
-        const waiter = createPdfReloadWaiter({
-            pdfViewerRef: ref({scrollToPage}),
-            openSurface: surface.openSurface,
-            resetSearchCache,
-            pageToRestore: 8,
-            restoreScroll: false,
-        });
-
-        surface.reload();
-        await waiter.promise;
-        expect(resetSearchCache).toHaveBeenCalledOnce();
-        expect(scrollToPage).not.toHaveBeenCalled();
-    });
-
     it('restores the page once the reloaded open surface is ready', async () => {
         vi.useFakeTimers();
         const visiblePage = ref(1);

@@ -28,7 +28,6 @@ import type {
     IWorkspaceDocumentController,
     IWorkspaceOpenRequest,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { beginOpenSurfaceWithPageShape } from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
 import { runDetached } from '@app/utils/asyncGuard';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import { useWorkspaceDocumentDriverBinding } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
@@ -115,19 +114,6 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         totalPages,
         pdfDocument,
     } = view;
-    // Saves capture before clearing; page mutations own their page remapping.
-    watch(pdfSrc, (source, previous) => {
-        const identity = openSurface.snapshot.value.identity;
-        if (!saveService.isAnySaveAdmitted.value || !source || !previous || !identity || document.isOpeningDocument.value) {
-            return;
-        }
-        beginOpenSurfaceWithPageShape(openSurface, {
-            documentId: identity.documentId,
-            documentRevision: String(documentRevisionToken.value ?? identity.documentRevision),
-            provisional: true,
-        }, documentView.captureReadingAnchor() ?? currentPage.value, null);
-    }, {flush: 'sync'});
-
     // The sidebar this view renders and the tabs its format offers: the PDF
     // sidebar's format predicates or the page source's providers. The rendered
     // sidebar and the search commands read these same tabs.

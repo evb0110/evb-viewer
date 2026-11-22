@@ -122,13 +122,12 @@ export const createDocumentViews = (controller: IWorkspaceDocumentController) =>
      * Waits for a reload of the document in one view, which returns to `page`
      * once it shows the new bytes, unless its reader moved meanwhile.
      */
-    function prepareViewReload(port: IDocumentViewPort, page: number, restoreScroll = true) {
+    function prepareViewReload(port: IDocumentViewPort, page: number) {
         return createPdfReloadWaiter({
             pdfViewerRef: port.view.pdfViewerRef,
             openSurface: port.openSurface,
             resetSearchCache: port.search.resetSearchCache,
             pageToRestore: resolvePdfReloadPage(page),
-            restoreScroll,
         });
     }
 
@@ -136,8 +135,8 @@ export const createDocumentViews = (controller: IWorkspaceDocumentController) =>
      * Waits for a reload of the document in every view; each keeps its own
      * page, moved through `mapPage` when the reload changes the pages (T4).
      */
-    function prepareReload(mapPage: (page: number) => number = page => page, restoreScroll = true) {
-        const waiters = ports().map(port => prepareViewReload(port, mapPage(port.view.currentPage.value), restoreScroll));
+    function prepareReload(mapPage: (page: number) => number = page => page) {
+        const waiters = ports().map(port => prepareViewReload(port, mapPage(port.view.currentPage.value)));
         return {
             promise: Promise.all(waiters.map(waiter => waiter.promise)).then(() => undefined),
             cancel: () => waiters.forEach(waiter => waiter.cancel()),

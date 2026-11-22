@@ -92,7 +92,7 @@ type TFileOperationsSaveControllerTestDeps =
         getDeletedEmbeddedShapeAnnotationIds?: () => string[];
         getDeletedEmbeddedShapeStableKeys?: () => string[];
         loadRecentFiles: IWorkspaceSaveDependencies['lifecycle']['loadRecentFiles'];
-        preparePostSaveReload?: IWorkspaceSaveDependencies['lifecycle']['preparePostSaveReload'];
+        acceptAdoption?: IWorkspaceSaveDependencies['lifecycle']['acceptAdoption'];
         commitDrafts?: IWorkspaceSaveDependencies['lifecycle']['commitDrafts'];
         runWithDocumentOperationLease?: IWorkspaceSaveDependencies['runWithDocumentOperationLease'];
         canonicalAnnotationComments: Ref<IAnnotationCommentSummary[]>;
@@ -205,8 +205,8 @@ function createSaveDependencies(
         lifecycle: {
             loadRecentFiles: deps.loadRecentFiles,
             commitDrafts: deps.commitDrafts ?? (async () => {}),
-            ...(deps.preparePostSaveReload
-                ? {preparePostSaveReload: deps.preparePostSaveReload}
+            ...(deps.acceptAdoption
+                ? {acceptAdoption: deps.acceptAdoption}
                 : {}),
         },
         runWithDocumentOperationLease: deps.runWithDocumentOperationLease
