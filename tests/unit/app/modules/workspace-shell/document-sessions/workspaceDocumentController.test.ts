@@ -215,16 +215,34 @@ describe('workspace document controller views', () => {
             fileName: 'opened.pdf',
         };
         const presented = Promise.withResolvers<{status: 'presented'}>();
+        const transactionId = controller.claimOpen({
+            kind: 'open',
+            target,
+        });
         const opened = controller.runOpen({
             kind: 'open',
             target,
+            transactionId,
         }, async () => ({presentation: presented.promise}));
         expect(controller.validateCommandTarget(oldTarget).ok).toBe(false);
+        // The old document's own Save, answering the open's dirty prompt, stays that document.
+        controller.commitFile({originalPath: requireDocumentRef('/docs/source.pdf'), revisionInfo: {
+            version: 1,
+            token: requireDocumentRevisionToken('saved-before-switch'),
+            documentRef: requireDocumentRef('/working/source.pdf'),
+            authority: 'electron-working-copy',
+            contentRevision: 2,
+            mintedAt: requireEpochMs(1_790_000_000_000),
+        }});
+        expect(controller.snapshot.value.identity).toMatchObject({
+            documentSessionKey: admitted.documentSessionKey,
+            documentInstanceId: admitted.documentInstanceId,
+        });
         controller.commitFile({
             ...target,
             isDjvu: false,
             revisionInfo: null,
-        });
+        }, transactionId);
         expect(controller.snapshot.value.identity.documentSessionKey).not.toBe(admitted.documentSessionKey);
         expect(controller.snapshot.value.identity.documentInstanceId).not.toBe(admitted.documentInstanceId);
         expect(controller.snapshot.value.activeTransaction?.kind).toBe('open');

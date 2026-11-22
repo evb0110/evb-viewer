@@ -41,6 +41,9 @@ import {
 } from 'pdf-lib';
 import type {Page} from 'puppeteer-core';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
+import {
+    requireDocumentRef, type TDocumentRef,
+} from '@contracts/documentRef';
 import {findSessionOwnedElectronPids} from '@scripts/electron-run/electronRunProcessIdentity';
 import {
     collectDescendantPidsUnix,
@@ -73,6 +76,7 @@ import {
 import {
     clickLatestVisibleNoteWindowClose,
     clickVisibleAnnotationControl,
+    createCanonicalTextBoxWithPointer,
     createFreeTextAnnotationWithPointer,
     createStickyNoteWithPointer,
     selectAllFocusedAnnotationText,
@@ -678,6 +682,84 @@ describe('Electron E2E - save pipeline diagnostics', () => {
                 'Captured note',
             ]);
         await page.waitForSelector('.editor-pane.is-active .tab.is-active.is-dirty', {hidden: true});
+    }, E2E_TIMEOUT_MS);
+
+    // #1598 K: the Save that the dirty prompt starts commits A's own revision
+    // while B's open holds the tab. That Save stays A's: it completes, and B opens.
+    it.each([
+        'Save changes',
+        'Discard changes',
+        'Cancel',
+    ])('opens another PDF into a dirty tab after the dirty prompt answers %s', async (decision) => {
+        const stamp = Date.now();
+        const slug = decision.split(' ')[0]!.toLowerCase();
+        const pathA = await createMultiPageTextFixturePdf(`switch-dirty-${slug}-a-${stamp}.pdf`, 1);
+        const pathB = await createMultiPageTextFixturePdf(`switch-dirty-${slug}-b-${stamp}.pdf`, 2);
+        const originalA = await readFile(pathA);
+        session = await startElectronE2ESession(`e2e-switch-dirty-${slug}-${stamp}`, {
+            clean: true,
+            initialOpenPaths: [pathA],
+        });
+        const page = session.page;
+        await waitForOpenedPdf(page, pathA);
+        const edit = `SWITCH-${slug}-${stamp}`;
+        await createCanonicalTextBoxWithPointer(page, edit, {
+            x: 0.3,
+            y: 0.3,
+        }, 1);
+        await page.waitForSelector('.editor-pane.is-active .tab.is-active.is-dirty');
+        await waitForSaveFrontierReady(page);
+        await page.evaluate(() => {
+            const shown: string[] = [];
+            Reflect.set(window, '__switchFailureNotices', shown);
+            new MutationObserver(() => {
+                for (const toast of document.querySelectorAll('.app-toast-failure')) {
+                    const text = toast.textContent?.replace(/\s+/gu, ' ').trim() ?? '';
+                    if (text && !shown.includes(text)) shown.push(text);
+                }
+            }).observe(document.body, {
+                childList: true,
+                subtree: true,
+                characterData: true,
+            });
+        });
+
+        // The workspace's own open replaces A in its tab; the shell's routed
+        // open would give B another tab instead.
+        await page.evaluate(async (path: TDocumentRef) => {
+            await window.__allowRendererFileOpenForAutomation?.(path);
+        }, requireDocumentRef(pathB));
+        const opening = requireWorkspaceCommand<boolean>(page, 'handleOpenFileDirectWithPersist', [pathB]);
+        await page.waitForSelector('[role="dialog"]', {visible: true});
+        await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
+            .find(button => button.textContent?.trim() === label), decision, {description: decision});
+        const opened = await opening;
+        await waitForWorkspaceToolbarIdle(page, {timeoutMs: SAVE_TIMEOUT_MS});
+
+        const savedEdits = (await readPdfTextAnnotationRecords(pathA)).map(record => record.contents);
+        if (decision === 'Save changes') expect(savedEdits, 'A on disk holds the text box').toContain(edit);
+        else expect((await readFile(pathA)).equals(originalA), 'A on disk is unchanged').toBe(true);
+        expect(await page.evaluate(() => Reflect.get(window, '__switchFailureNotices') as string[]), 'no failure is reported').toEqual([]);
+        expect(opened).toBe(decision !== 'Cancel');
+        const activeTab = () => page.$eval('.editor-pane.is-active .tab.is-active', tab => ({
+            label: tab.querySelector('.tab-label')?.textContent?.trim() ?? null,
+            dirty: tab.classList.contains('is-dirty'),
+        }));
+        if (decision === 'Cancel') {
+            expect(await activeTab()).toEqual({
+                label: basename(pathA),
+                dirty: true,
+            });
+            await page.waitForFunction((text: string) => Array.from(document.querySelectorAll('.editor-pane.is-active [data-annotation-kind="text-box"]'))
+                .some(box => box.textContent?.includes(text)), {timeout: SAVE_TIMEOUT_MS}, edit);
+        } else {
+            await waitForOpenedPdf(page, pathB);
+            expect(await activeTab()).toEqual({
+                label: basename(pathB),
+                dirty: false,
+            });
+            await page.waitForSelector('.editor-pane.is-active .page_container[data-page="2"]');
+        }
     }, E2E_TIMEOUT_MS);
 
     it('keeps each reading point when Save As reloads a linked split or single view', async () => {

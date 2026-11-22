@@ -93,7 +93,7 @@ export interface ICreatePdfDocumentAnnotationsOptions {
     workingCopyPath: Readonly<Ref<string | null>>;
     source: Readonly<Ref<TPdfSource | null>>;
     documentRevisionToken: Readonly<Ref<TDocumentRevisionToken | null>>;
-    documentSession?: Readonly<Ref<number>>;
+    documentSession?: Readonly<Ref<unknown>>;
     /** A finished save reads the revision it wrote into a store it left partial. */
     isSaving?: Readonly<Ref<boolean>>;
 }

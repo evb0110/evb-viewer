@@ -136,7 +136,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         workingCopyPath: file.workingCopyPath,
         source: file.pdfSrc,
         documentRevisionToken: file.documentRevisionToken,
-        documentSession: file.fileHistorySessionVersion,
+        documentSession: computed(() => controller.snapshot.value.identity.documentSessionKey),
         isSaving: computed(() => isSaving.value || isSavingAs.value),
     });
     const { clearCache: clearOcrCache } = useOcrTextContent();

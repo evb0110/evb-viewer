@@ -56,6 +56,7 @@ export const usePdfFile = (options: IPdfFileOptions) => {
         documentFiles: getDocumentFilesCapability,
         documentWorkingCopy: getDocumentWorkingCopyCapability,
         readOpenTransactionId,
+        readDocumentSessionKey: () => options.document.snapshot.value.identity.documentSessionKey,
         readPdfStateFromPath: (...args) => documentOpenFlow.readPdfStateFromPath(...args),
     });
     const documentOpenFlow: ReturnType<typeof createDocumentOpenFlow> = createDocumentOpenFlow(sessionState, {
@@ -63,7 +64,7 @@ export const usePdfFile = (options: IPdfFileOptions) => {
         clearPdfConformanceProfile,
         cleanupPreviousWorkingCopy: history.cleanupPreviousWorkingCopy,
         deferPdfConformanceProfile,
-        incrementSessionVersion: history.incrementSessionVersion,
+        resetCommandSink: history.resetCommandSink,
         readOpenTransactionId,
         resetDocumentPresentation: options.resetDocumentPresentation,
         resetHistory: history.resetHistory,
@@ -91,7 +92,7 @@ export const usePdfFile = (options: IPdfFileOptions) => {
 
         sessionState.resetForClose();
         clearPdfConformanceProfile();
-        history.incrementSessionVersion();
+        history.resetCommandSink();
         history.clearHistory();
         await Promise.all(pathsToCleanup.map(path =>
             getDocumentWorkingCopyCapability().cleanupFile(path).catch((cleanupError: unknown) => {
@@ -131,7 +132,6 @@ export const usePdfFile = (options: IPdfFileOptions) => {
         reloadWorkingCopyIntoHistory: history.reloadWorkingCopyIntoHistory,
         mapHistoryPage: history.mapHistoryPage,
         fileHistoryMutationVersion: history.fileHistoryMutationVersion,
-        fileHistorySessionVersion: history.fileHistorySessionVersion,
         setWorkspaceCommandSink: history.setWorkspaceCommandSink,
         ...(typeof documentFiles.repairPdf === 'function' ? { repairWorkingCopy: persistence.repairWorkingCopy } : {}),
         ...(typeof documentFiles.optimizePdfForInteraction === 'function' ? { optimizeWorkingCopy: persistence.optimizeWorkingCopy } : {}),

@@ -88,7 +88,7 @@ function createOpenFlowHarness() {
         clearPdfConformanceProfile: vi.fn(),
         cleanupPreviousWorkingCopy: vi.fn(async () => undefined),
         deferPdfConformanceProfile: vi.fn(),
-        incrementSessionVersion: vi.fn(),
+        resetCommandSink: vi.fn(),
         readOpenTransactionId: () => controller.snapshot.value.activeTransaction?.id ?? null,
         resetDocumentPresentation: vi.fn(),
         resetHistory: vi.fn(async (options?: IResetHistoryTestOptions) => options?.isCurrent?.() !== false),
