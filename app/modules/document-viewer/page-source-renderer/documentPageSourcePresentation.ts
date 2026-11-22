@@ -372,6 +372,17 @@ export function createDocumentPageSourcePresentation(options: {
             })
             : true;
     }
+    // An open's visual nothing will commit ends: an inactive renderer draws no
+    // target, and the navigation it opened with can retire without arriving,
+    // even before the open got here (or hand over to a newer one).
+    function settleUncommittedVisual(job: TDocumentPageSourceOpenJob, ticket = options.chassisAuthority?.openSurface.navigationTicket.value) {
+        const openSurface = options.chassisAuthority?.openSurface;
+        if (!options.readIsActive()) return job.settleVisual(false);
+        void ticket?.finished.then((outcome) => {
+            if (outcome.kind === 'arrived' || job.abort.signal.aborted) return;
+            return openSurface?.navigationTicket.value ? settleUncommittedVisual(job) : job.settleVisual(false);
+        });
+    }
     function markReady(pageNumber: number, state: IDocumentPageSourceVisualState) {
         const initialOpen = options.chassisAuthority?.openSurface.viewportSession.value.lifecycle === 'opening';
         state.ready = true;
@@ -762,6 +773,7 @@ export function createDocumentPageSourcePresentation(options: {
         },
         commitReady,
         commitTerminalError,
+        settleUncommittedVisual,
         dispose() {
             for (const pageNumber of [...pageStates.keys()]) {
                 releasePage(pageNumber);

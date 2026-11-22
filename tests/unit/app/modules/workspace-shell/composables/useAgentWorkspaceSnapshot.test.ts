@@ -750,8 +750,7 @@ describe('useAgentWorkspaceSnapshot command guards', () => {
             void session.runOpen({
                 kind: 'open',
                 target: {originalPath: requireDocumentRef('/tmp/document.pdf')},
-            }, async () => true);
-            session.markPresented();
+            }, async () => ({presentation: null}));
         }});
         harnessRef.current = harness;
 

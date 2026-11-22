@@ -321,18 +321,23 @@ describe('window tab transfer orchestration helpers', () => {
             isDjvu: true,
             revisionInfo: null,
         });
-        source.claimOpen({
+        const sourcePresented = Promise.withResolvers<{status: 'presented'}>();
+        const sourceOpen = source.runOpen({
             kind: 'restore',
             target: {
                 fileName: 'source.djvu',
                 originalPath: path,
                 isDjvu: true,
             },
-        });
+        }, async () => ({presentation: sourcePresented.promise}));
+        const presentSource = async () => {
+            sourcePresented.resolve({status: 'presented'});
+            await sourceOpen.finished;
+        };
         // The source's first paint may arrive after the destination's ACK.
         // Both show the same document; the source must still be removed.
         transferMock.mockImplementationOnce(async () => {
-            source.markPresented();
+            await presentSource();
             return {
                 success: true,
                 transferId: 'transfer-source',
@@ -340,7 +345,7 @@ describe('window tab transfer orchestration helpers', () => {
             };
         });
         source.attachWorkspace('source', createWorkspaceExposeFixture({
-            waitForDocumentOpenSettled: async () => {source.markPresented();},
+            waitForDocumentOpenSettled: presentSource,
             captureSplitPayload: async () => ({
                 kind: 'djvu',
                 sourcePath: path,
@@ -720,12 +725,11 @@ describe('window tab transfer orchestration helpers', () => {
                                 presentation: 'committed',
                             });
                             controller.commitFile(document);
-                            controller.markPresented();
                         }
-                        return true;
-                    });
+                        return {presentation: beforePresentation ? new Promise<never>(() => {}) : Promise.resolve({status: 'presented'})};
+                    }).finished;
                     aPresented.resolve(undefined);
-                    return {status: opened ? 'opened' : 'cancelled'};
+                    return {status: opened.status === 'presented' ? 'opened' : 'cancelled'};
                 },
             }));
             let outcome: TDocumentOpenOutcome | null = null;
@@ -812,9 +816,8 @@ describe('window tab transfer orchestration helpers', () => {
                         originalPath: b,
                         revisionInfo: null,
                     });
-                    controller.markPresented();
-                    return true;
-                });
+                    return {presentation: Promise.resolve({status: 'presented'})};
+                }).finished;
             }
             if (beforePresentation) await incoming;
             surface.value = cast({

@@ -55,7 +55,6 @@ export interface IWorkspaceDocumentTransaction {
     id: string;
     kind: TWorkspaceDocumentTransactionKind;
     target: IWorkspaceDocumentTarget | null;
-    acceptDocumentWithoutVisual: boolean;
 }
 
 /** Why an open failed, with the file it tried to open. */

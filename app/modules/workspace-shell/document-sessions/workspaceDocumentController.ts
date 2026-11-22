@@ -13,6 +13,12 @@ import type {
     IWorkspaceExpose,
     IWorkspaceOpenFailure,
 } from '@app/types/workspaceExpose';
+import {
+    didPresent,
+    type IWorkspaceOpenAdmission,
+    type IWorkspaceOpenOperation,
+    type TWorkspaceOpenFinish,
+} from '@app/types/documentOpenOutcome';
 import type {
     IDocumentOperationOwnership, TDocumentOperationKind,
 } from '@app/types/documentOperationKind';
@@ -105,10 +111,10 @@ export interface IWorkspaceDocumentController {
     readonly operationLease: IDocumentOperationLease;
     assign(document: TWorkspaceDocumentAssignment): void;
     claimOpen(request: IWorkspaceOpenRequest, onPresented?: () => void): string;
-    runOpen(request: IWorkspaceOpenRequest, run: (shape: IPdfOpeningGeometry | null, transactionId: string) => Promise<boolean>): Promise<boolean>;
+    /** `run` does the open's file work and returns what it admitted; the open finishes with its presentation. */
+    runOpen(request: IWorkspaceOpenRequest, run: (shape: IPdfOpeningGeometry | null, transactionId: string) => Promise<IWorkspaceOpenAdmission | null>): IWorkspaceOpenOperation;
     setOpeningLabel(label: string | null): void;
     commitFile(patch: Partial<IWorkspaceDocumentFile>): void;
-    markPresented(): void;
     markFailed(failure: IWorkspaceOpenFailure | null): void;
     /** Tells why the document failed outside an open, without changing its phase. */
     reportFailure(failure: IWorkspaceOpenFailure): void;
@@ -250,7 +256,7 @@ export function createWorkspaceDocumentController(options: {
     });
     const views = shallowRef(new Map<string, IWorkspaceDocumentViewRecord>());
     const operationLease = createDocumentOperationLease();
-    const settleWaiters = new Map<string, PromiseWithResolvers<boolean>>();
+    const openWaiters = new Map<string, {accepted: PromiseWithResolvers<boolean>; finished: PromiseWithResolvers<TWorkspaceOpenFinish>; onPresented?: (() => void) | undefined}>();
     let activeClose: Promise<boolean> | null = null;
     const file = shallowRef<IWorkspaceDocumentFile>(EMPTY_FILE);
     const mutationFrontier = shallowRef<IDocumentMutationFrontier | null>(null);
@@ -281,9 +287,14 @@ export function createWorkspaceDocumentController(options: {
         };
     }
 
-    function settle(transaction: IWorkspaceDocumentTransaction, presented: boolean) {
-        settleWaiters.get(transaction.id)?.resolve(presented);
-        settleWaiters.delete(transaction.id);
+    function settle(transaction: IWorkspaceDocumentTransaction, finish: TWorkspaceOpenFinish) {
+        const waiter = openWaiters.get(transaction.id);
+        openWaiters.delete(transaction.id);
+        waiter?.accepted.resolve(false);
+        // Commands for this open are captured at presentation, before an
+        // awaiting caller can start another open in the same workspace.
+        if (didPresent(finish)) waiter?.onPresented?.();
+        waiter?.finished.resolve(finish);
     }
 
     function settleMountWaiters(workspace: IWorkspaceExpose | null) {
@@ -318,11 +329,11 @@ export function createWorkspaceDocumentController(options: {
     }
 
     // An open that loses its tab to a newer open, a close or a disposal
-    // reports that it did not present; the newer owner decides the phase.
+    // ends superseded; the newer owner decides the phase.
     function supersedeActiveTransaction() {
         const transaction = snapshot.value.activeTransaction;
         if (transaction) {
-            settle(transaction, false);
+            settle(transaction, {status: 'superseded'});
         }
     }
 
@@ -359,17 +370,11 @@ export function createWorkspaceDocumentController(options: {
             id: `workspace-document-transaction:${crypto.randomUUID()}`,
             kind: request.kind,
             target: request.target,
-            acceptDocumentWithoutVisual: request.acceptDocumentWithoutVisual === true,
         };
-        const settled = Promise.withResolvers<boolean>();
-        // Commands for this open are captured at presentation, before an
-        // awaiting caller can start another open in the same workspace.
-        settleWaiters.set(transaction.id, {
-            ...settled,
-            resolve: (presented) => {
-                if (presented === true) onPresented?.();
-                settled.resolve(presented);
-            },
+        openWaiters.set(transaction.id, {
+            accepted: Promise.withResolvers<boolean>(),
+            finished: Promise.withResolvers<TWorkspaceOpenFinish>(),
+            onPresented,
         });
         update({
             activeTransaction: transaction,
@@ -379,18 +384,17 @@ export function createWorkspaceDocumentController(options: {
         return transaction.id;
     }
 
-    function runOpen(request: IWorkspaceOpenRequest, run: (shape: IPdfOpeningGeometry | null, transactionId: string) => Promise<boolean>) {
+    function runOpen(request: IWorkspaceOpenRequest, run: (shape: IPdfOpeningGeometry | null, transactionId: string) => Promise<IWorkspaceOpenAdmission | null>): IWorkspaceOpenOperation {
         const transactionId = request.transactionId ?? claimOpen(request);
         const transaction = snapshot.value.activeTransaction;
-        const settled = settleWaiters.get(transactionId);
-        if (!transaction || transaction.id !== transactionId || !settled) {
-            return Promise.resolve(false);
+        const waiter = openWaiters.get(transactionId);
+        if (!transaction || transaction.id !== transactionId || !waiter) {
+            return {accepted: Promise.resolve(false), finished: Promise.resolve({status: 'superseded'})};
         }
         update({activeTransaction: {
             ...transaction,
             kind: request.kind,
             target: request.target,
-            acceptDocumentWithoutVisual: request.acceptDocumentWithoutVisual === true,
         }});
         const isActive = () => snapshot.value.activeTransaction?.id === transactionId;
         // The intent is busy while its shape is admitted. Publishing opening
@@ -398,25 +402,33 @@ export function createWorkspaceDocumentController(options: {
         // an idle viewport between the two owners.
         const begin = (shape: IPdfOpeningGeometry | null = null) => {
             if (!isActive()) {
-                return false;
+                return null;
             }
             update({phase: 'opening'});
             return run(shape, transaction.id);
         };
-        // The open ends when the viewer presents or fails, or when a newer
-        // open or a close takes the tab, even if the source is still loading.
-        Promise.resolve(request.pageShape ? request.pageShape.answer.then(begin) : begin()).then((accepted) => {
-            if (!accepted && isActive()) {
-                markFailed(null);
+        // The open ends with its document's presentation in the views, or
+        // when no view has to show it, or a newer open or a close takes the tab.
+        Promise.resolve(request.pageShape ? request.pageShape.answer.then(begin) : begin()).then(async (admission) => {
+            if (!isActive()) return;
+            if (!admission) return markFailed(null);
+            waiter.accepted.resolve(true);
+            const finish = await admission.presentation?.catch((): TWorkspaceOpenFinish => ({status: 'failed', failure: null}));
+            if (!isActive()) return;
+            if (!finish || didPresent(finish)) {
+                present(finish ?? {status: 'accepted-without-visual'});
+            } else {
+                markFailed(finish.status === 'failed' ? finish.failure : null, finish);
             }
-        }, (error: unknown) => {
+        }).catch((error: unknown) => {
             if (isActive()) {
-                settled.reject(error);
-                settleWaiters.delete(transaction.id);
+                waiter.accepted.resolve(false);
+                waiter.finished.reject(error);
+                openWaiters.delete(transaction.id);
                 markFailed(null);
             }
         });
-        return settled.promise;
+        return {accepted: waiter.accepted.promise, finished: waiter.finished.promise};
     }
 
     function setOpeningLabel(label: string | null) {
@@ -472,7 +484,7 @@ export function createWorkspaceDocumentController(options: {
         update({identity}, true);
     }
 
-    function markPresented() {
+    function present(finish: TWorkspaceOpenFinish) {
         const transaction = snapshot.value.activeTransaction;
         if (!transaction) {
             return;
@@ -494,11 +506,11 @@ export function createWorkspaceDocumentController(options: {
                 }}
                 : {}),
         }, true);
-        settle(transaction, true);
+        settle(transaction, finish);
     }
 
     /** A null failure is a cancelled open: the tab returns to what it held. */
-    function markFailed(failure: IWorkspaceOpenFailure | null) {
+    function markFailed(failure: IWorkspaceOpenFailure | null, finish?: TWorkspaceOpenFinish) {
         const transaction = snapshot.value.activeTransaction;
         if (!transaction && !failure) {
             return;
@@ -518,7 +530,7 @@ export function createWorkspaceDocumentController(options: {
             failure: recorded,
         }, true);
         if (transaction) {
-            settle(transaction, false);
+            settle(transaction, recorded ? {status: 'failed', failure: recorded} : finish ?? {status: 'cancelled'});
         }
         if (recorded) {
             settleMountWaiters(null);
@@ -563,12 +575,7 @@ export function createWorkspaceDocumentController(options: {
         // restores the document from its identity.
         const transaction = snapshot.value.activeTransaction;
         if (transaction && transaction.kind !== 'close') {
-            update({
-                phase: restingPhase(),
-                activeTransaction: null,
-                openingLabel: null,
-            }, true);
-            settle(transaction, false);
+            markFailed(null);
         }
     }
 
@@ -700,7 +707,6 @@ export function createWorkspaceDocumentController(options: {
         runOpen,
         setOpeningLabel,
         commitFile,
-        markPresented,
         markFailed,
         reportFailure,
         dismissFailure,

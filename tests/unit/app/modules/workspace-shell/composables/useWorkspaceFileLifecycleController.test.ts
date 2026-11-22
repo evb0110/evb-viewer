@@ -131,7 +131,7 @@ function createController() {
             const hooks = getWorkspaceViewerAdapter('djvu').createLifecycleHooks?.(context);
             return hooks ? [hooks] : [];
         },
-        runDocumentOpen: (_request, run) => run(),
+        runDocumentOpen: async (_request, run) => (await run()).status === 'opened',
         document,
         admitPdfSource: intent => createPdfSourceJob(intent, {}),
         resetDocumentPresentation: vi.fn(),
@@ -411,11 +411,9 @@ describe('useWorkspaceFileLifecycleController', () => {
             await cleanupStarted.promise;
             const newer = controller.document.runOpen({kind: 'open', target: null}, async () => {
                 const result = await controller.openFileDirectWithViewerLifecycle(bPath);
-                if (result.status !== 'opened') return false;
-                controller.document.markPresented();
-                return true;
+                return result.status === 'opened' ? {presentation: Promise.resolve({status: 'presented'})} : null;
             });
-            await expect(newer).resolves.toBe(true);
+            await expect(newer.finished).resolves.toEqual({status: 'presented'});
             expect(state.workingCopyPath.value).toBe(bWorkingPath);
             resumeCleanup.resolve();
             await closing;

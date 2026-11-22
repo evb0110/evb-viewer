@@ -847,6 +847,7 @@ describe('useDjvu', () => {
                     originalPath: requireDocumentRef('/tmp/out.pdf'),
                     workingPath: requireDocumentRef('/tmp/out-working.pdf'),
                 },
+                presentation: null,
             }));
 
             const djvu = useDjvu();
@@ -881,6 +882,7 @@ describe('useDjvu', () => {
                     originalPath: requireDocumentRef('/tmp/out.pdf'),
                     workingPath: requireDocumentRef('/tmp/out-working.pdf'),
                 },
+                presentation: null,
             }));
 
             const djvu = useDjvu();
@@ -919,6 +921,7 @@ describe('useDjvu', () => {
                     originalPath: requireDocumentRef('/tmp/out.pdf'),
                     workingPath: requireDocumentRef('/tmp/out-working.pdf'),
                 },
+                presentation: null,
             })));
 
             expect(mockConvertJobResult).toHaveBeenCalledWith(
@@ -953,6 +956,7 @@ describe('useDjvu', () => {
                     originalPath: requireDocumentRef('/tmp/out.pdf'),
                     workingPath: requireDocumentRef('/tmp/out-working.pdf'),
                 },
+                presentation: null,
             }));
             const djvu = useDjvu();
             await djvu.openDjvuFile('/tmp/input.djvu');
@@ -1022,6 +1026,7 @@ describe('useDjvu', () => {
                     originalPath: requireDocumentRef('/tmp/out.pdf'),
                     workingPath: requireDocumentRef('/tmp/out-working.pdf'),
                 },
+                presentation: null,
             })));
 
             await started.promise;
