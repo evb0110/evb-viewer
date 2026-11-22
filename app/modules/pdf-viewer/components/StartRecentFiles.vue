@@ -134,7 +134,7 @@
                     </span>
                 </span>
                 <span class="recent-col recent-col--time" role="cell">
-                    {{ formatRelativeTimeLocalized(file.timestamp) }}
+                    {{ formatRelativeTimeLocalized(file.timestamp, now) }}
                 </span>
                 <span class="recent-col recent-col--actions" role="cell">
                     <button
@@ -235,6 +235,12 @@
 </template>
 
 <script setup lang="ts">
+import {
+    useDocumentVisibility,
+    useEventListener,
+    useIntervalFn,
+    useMounted,
+} from '@vueuse/core';
 import type { IRecentFile } from '@contracts/shared';
 import { formatRelativeTime } from '@app/utils/formatters';
 import { isBrowserDocumentRef } from '@app/utils/documentRef';
@@ -250,11 +256,14 @@ const {
     recentFilesResolved = true,
     recentFilesError = null,
     isRecentOpenReady = () => true,
+    isVisible = true,
 } = defineProps<{
     recentFiles: IRecentFile[];
     recentFilesResolved?: boolean | undefined;
     recentFilesError?: string | null | undefined;
     isRecentOpenReady?: ((file: IRecentFile) => boolean) | undefined;
+    /** Whether the list is on screen; the host keeps it mounted while hidden. */
+    isVisible?: boolean | undefined;
 }>();
 const emit = defineEmits<{
     'press-recent': [file: IRecentFile];
@@ -310,7 +319,30 @@ const recentItemsLabel = computed(() => (
         : t('common.loading')
 ));
 
-function formatRelativeTimeLocalized(timestamp: number) {
+// The Opened column is measured against this clock, not the time of the last
+// render. It ticks only while the list is on screen, catches up as soon as the
+// list is shown again or its window regains focus, and stops when hidden.
+const RELATIVE_TIME_REFRESH_MS = 30_000;
+const now = ref(Date.now());
+function refreshNow() {
+    now.value = Date.now();
+}
+const isMounted = useMounted();
+const documentVisibility = useDocumentVisibility();
+const isClockRunning = computed(() => isMounted.value && isVisible && documentVisibility.value === 'visible');
+const relativeTimeClock = useIntervalFn(refreshNow, RELATIVE_TIME_REFRESH_MS, {
+    immediate: false,
+    immediateCallback: true,
+});
+watch(isClockRunning, (running) => {
+    if (running) relativeTimeClock.resume();
+    else relativeTimeClock.pause();
+}, {immediate: true});
+useEventListener('focus', () => {
+    if (isClockRunning.value) refreshNow();
+});
+
+function formatRelativeTimeLocalized(timestamp: number, at: number) {
     return formatRelativeTime(timestamp, {
         yesterday: t('relativeTime.yesterday'),
         daysAgo: (count: number) => t('relativeTime.daysAgo', { count }),
@@ -319,7 +351,7 @@ function formatRelativeTimeLocalized(timestamp: number) {
         oneMinuteAgo: t('relativeTime.oneMinuteAgo'),
         minutesAgo: (count: number) => t('relativeTime.minutesAgo', { count }),
         justNow: t('relativeTime.justNow'),
-    });
+    }, at);
 }
 
 function getParentFolder(filePath: string) {
