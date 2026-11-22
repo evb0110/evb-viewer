@@ -27,6 +27,8 @@ interface IUseScanCleanupWorkspaceSessionOptions {
     beforeRun?: (signal?: AbortSignal) => Promise<TScanCleanupPreviewFrameRevealOutcome> | undefined;
     sourcePath: () => TDocumentRef | null;
     documentKey: () => string | null;
+    /** The logical document: a restore keeps it, an open of another document does not. */
+    documentSessionKey?: () => string | null;
     sourceSha256?: () => string | null;
     documentRevision?: () => string | null;
     ownerId?: () => string | undefined;
@@ -87,7 +89,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
             ...(pageMapping ? {pageMapping} : {}),
         });
     }
-    const documentIdentity = computed(() => `${sourcePath.value ?? ''}\u0000${documentRevision.value}`);
+    const documentIdentity = computed(() => `${options.documentSessionKey?.() ?? sourcePath.value ?? ''}\u0000${documentRevision.value}`);
     // One transition for the selection: coming on screen restarts it at its
     // leader, a replaced document maps it through the replacement's page
     // mapping, and a changed page count keeps it in range.
@@ -100,8 +102,12 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         identity,
         pageCount,
     ], previous) => {
-        const normalizedPageCount = Math.max(1, Math.trunc(pageCount));
-        if (active && !previous?.[0]) selection.resetToLeader(previewResult?.totalPages.value ?? normalizedPageCount);
+        // No count yet (a document still loading) is not a count of no pages: the last one stands.
+        const countedPages = pageCount > 0 ? pageCount : previous?.[2] ?? 0;
+        const normalizedPageCount = Math.max(1, Math.trunc(countedPages));
+        // A retained page stands until the viewer or a preview has counted the pages.
+        const knownPageCount = previewResult?.rawResult.value?.totalPages ?? previewResult?.result.value?.totalPages ?? (countedPages > 0 ? normalizedPageCount : null);
+        if (active && !previous?.[0] && knownPageCount !== null) selection.resetToLeader(knownPageCount);
         if (!previous?.length) return;
         if (identity !== previous[1]) {
             const pageMapping = options.pageMapping?.();
@@ -111,7 +117,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
                 ...(pageMapping === undefined ? {} : {pageMapping}),
             });
             saveViewState(null);
-        } else if (pageCount !== previous[2]) {
+        } else if (pageCount > 0 && pageCount !== previous[2]) {
             selection.reconcilePageCount(normalizedPageCount, options.currentPage());
         }
     }, {immediate: true});

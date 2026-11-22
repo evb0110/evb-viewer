@@ -8,10 +8,11 @@
             :page-source="view.documentPageSource.value"
             :page-source-pending="view.documentPageSource.value === null && view.isLoading.value"
             :document-key="file.documentKey.value"
+            :document-session-key="controller.snapshot.value.identity.documentSessionKey"
             :document-revision="file.documentRevisionToken.value"
             :source-sha256="scanCleanupSourceSha256"
             :current-page="view.currentPage.value"
-            :total-pages="view.totalPages.value"
+            :total-pages="totalPages"
             :session-state="scanCleanup.scanCleanupSessionState.value"
             :toolbar-active="isActive"
             :can-teleport-toolbar="canTeleportToolbar"
@@ -38,8 +39,10 @@ const ScanCleanupWorkspace = defineAsyncComponent({
 defineProps<{canTeleportToolbar: boolean;}>();
 
 const {
+    controller,
     file,
     metadata,
+    pdfDocumentSessionSlot,
 } = useDocumentContext();
 provide(workspaceCommandSinkKey, metadata.workspaceCommandSink);
 const {
@@ -48,6 +51,11 @@ const {
     view,
     isActive,
 } = useDocumentViewContext();
+// A PDF's pages are counted by its document, which a returning view's provisional
+// page does not stand for; a page source is counted by its view.
+const totalPages = computed(() => (controller.file.value.isDjvu
+    ? view.totalPages.value
+    : pdfDocumentSessionSlot.session.value?.document.value?.numPages ?? 0));
 </script>
 
 <style scoped>

@@ -38,6 +38,8 @@ export interface IWorkspaceDocumentFile {
     /** Leads `revisionInfo` only while a page operation adopts its result before reading the stamp. */
     revisionToken: TDocumentRevisionToken | null;
     isDjvu: boolean;
+    /** The working copy's SHA-256 at this revision, once Scan Cleanup has read it. */
+    sourceSha256: string | null;
 }
 
 export interface IWorkspaceDocumentIdentity {

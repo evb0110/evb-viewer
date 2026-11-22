@@ -35,6 +35,7 @@ interface IWorkspaceDocumentLifecycleEffectsOptions extends Omit<IDocumentTransi
     'bookmarkItems' | 'bookmarksDirty' | 'bookmarkEditMode' | 'pageLabels' | 'pageLabelRanges' | 'pageLabelsDirty' | 'consumePreservedSourceReloadMetadata'> {
     documentAnnotations: TPdfDocumentAnnotations;
     metadata: ReturnType<typeof useMetadataSession>;
+    workingCopyPath: Ref<TDocumentRef | null>;
     documentRevisionInfo: Ref<IDocumentRevisionInfo | null>;
     documentRevisionToken: Ref<TDocumentRevisionToken | null>;
     /** OCR rewrites the document under every view of it; each keeps its page. */
@@ -62,8 +63,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         pdfSrc,
         totalPages,
         workingCopyPath,
-        isDjvuMode,
-        djvuSourcePath,
         pdfError,
         clearViews,
         annotationComments,
@@ -75,7 +74,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         closeSearch,
         closeContextMenus,
         closeAllAnnotationNotes,
-        loadRecentFiles,
         clearOcrCache,
         ensureHistoryBaselineForMutation,
         reloadWorkingCopyIntoHistory,
@@ -157,9 +155,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
 
     const {resetDocumentPresentation} = useDocumentTransitions({
         pdfSrc,
-        workingCopyPath,
-        isDjvuMode,
-        djvuSourcePath,
         pdfError,
         clearViews,
         annotationComments,
@@ -176,7 +171,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         closeSearch,
         closeContextMenus,
         closeAllAnnotationNotes,
-        loadRecentFiles,
         consumePreservedSourceReloadMetadata,
     });
 

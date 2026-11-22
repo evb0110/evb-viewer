@@ -222,6 +222,7 @@ const {
     currentPage = 1,
     totalPages = 1,
     documentKey = null,
+    documentSessionKey = null,
     documentRevision = null,
     sourceSha256 = null,
     pageSource = null,
@@ -234,6 +235,7 @@ const {
     currentPage?: number;
     totalPages?: number;
     documentKey?: string | null;
+    documentSessionKey?: string | null;
     documentRevision?: string | null;
     sourceSha256?: string | null;
     pageSource?: IDocumentPageSource | null;
@@ -265,6 +267,7 @@ const workspaceSession = useScanCleanupWorkspaceSession({
     beforeRun: signal => previewPane.value?.revealLatestFrame(signal),
     sourcePath: () => sourcePath,
     documentKey: () => documentKey,
+    documentSessionKey: () => documentSessionKey,
     documentRevision: () => documentRevision,
     pageMapping: () => sessionState?.pageMapping,
     sourceSha256: () => sourceSha256,

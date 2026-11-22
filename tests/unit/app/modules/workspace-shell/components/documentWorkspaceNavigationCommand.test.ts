@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import {runBrowserLock} from '@app/platform/browser/runBrowserLock';
 import {
     afterAll,
     afterEach,
@@ -151,7 +152,11 @@ vi.mock('@app/modules/scan-cleanup/public/workspace', () => ({
         inheritAttrs: false,
         setup: () => () => h('div', {class: 'scan-cleanup-workspace-stub'}),
     }),
-    useScanCleanupSourceSha256: () => shallowRef(null),
+    useScanCleanupSourceSha256: () => ({
+        sha256: shallowRef(null),
+        identity: {state: shallowRef('unavailable'), retry: () => {}},
+    }),
+    scanCleanupSourceIdentityKey: Symbol('scan-cleanup-source-identity'),
 }));
 
 vi.mock('@app/modules/workspace-shell/components/ScanCleanupWorkspaceLoading.vue', () => ({default: defineComponent({
@@ -558,6 +563,33 @@ describe('DocumentWorkspace navigation command', () => {
             releaseOperation();
             await operation;
             await save?.catch(() => false);
+        }
+    });
+
+    it('#1608 tells the user when closing the document cannot discard its Scan Cleanup settings', async () => {
+        const messages: string[] = [];
+        vi.stubGlobal('useToast', () => ({add: (notice: {title: string; description?: string}) => {
+            messages.push([notice.title, notice.description].filter(Boolean).join(' '));
+        }, remove: vi.fn()}));
+        const path = requireDocumentRef('/tmp/cleanup.pdf');
+        const write = vi.spyOn(localStorage, 'setItem');
+        try {
+            const workspace = await mountDocumentWorkspace({
+                pendingDocumentPath: path,
+                openSurfaceDocument: path,
+            });
+            workspace.documentContext.file.originalPath.value = path;
+            write.mockImplementation(() => {
+                throw new DOMException('Preference disk full', 'QuotaExceededError');
+            });
+
+            await expect(workspace.documentSession.close({})).resolves.toBe(true);
+            // Wait behind the real preference write in the existing storage lock.
+            await runBrowserLock('__evb_scan_cleanup_preferences_storage_lock__', async () => undefined);
+            expect(messages.join(' ')).toMatch(/cleanup|settings|preferences/i);
+        } finally {
+            write.mockRestore();
+            vi.stubGlobal('useToast', () => ({add: vi.fn()}));
         }
     });
 

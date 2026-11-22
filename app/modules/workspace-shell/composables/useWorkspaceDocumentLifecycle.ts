@@ -238,14 +238,6 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
         presentWhenShown,
     );
 
-    // Closing ends the document's visual generation; Start re-arms from the
-    // empty surface instead of inheriting the closed document's frame.
-    watch(snapshot, (current) => {
-        if (current.phase === 'empty' && current.activeTransaction === null && options.openSurface.snapshot.value.phase !== 'idle') {
-            options.openSurface.reset();
-        }
-    }, {flush: 'sync'});
-
     // While an open has not claimed a surface yet, a page command waits for it.
     function goToPage(page: number, scrollOptions?: IScrollToPageOptions) {
         if (!activeOpen.value && !checkingOpenSource) {

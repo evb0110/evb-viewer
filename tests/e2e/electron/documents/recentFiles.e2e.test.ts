@@ -31,11 +31,17 @@ import {
     createLargeScannedFixturePdf,
     createMixedPageSizeTextFixturePdf,
     createMultiPageTextFixturePdf,
+    createOutlinePageLabelFixturePdf,
     createScannedTextFixturePdf,
+    fixtureBookmark,
     resolveDjvuFixturePath,
     selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {
+    clickAnnotationTool,
+    waitForNoOpenNoteWindows,
+} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {readWorkspaceRecoveryRecords} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 import type {IWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
@@ -1721,6 +1727,63 @@ describe('Electron E2E - Recent Files', () => {
         await clickAsUser(session.page, '.editor-pane.is-active .start-open-panel .open-panel-cta');
         await waitForPdfLoaded(session.page);
         await expectReadingPlace(session, 1, defaultZoomLabel);
+    });
+
+    it('closes an outlined PDF with an open note window to Start and reopens it from Recent with only its own outline', async () => {
+        const stamp = Date.now();
+        const first = await createOutlinePageLabelFixturePdf(`recent-close-outline-a-${stamp}.pdf`, [
+            fixtureBookmark('Alpha part', 0),
+            fixtureBookmark('Alpha appendix', 3),
+        ]);
+        const second = await createOutlinePageLabelFixturePdf(`recent-close-outline-b-${stamp}.pdf`, [fixtureBookmark('Beta part', 1)]);
+        // File > Open answers with the second fixture, as the native dialog would.
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-recent-close-outline-${stamp}`,
+            extraEnv: {EVB_E2E_OPEN_DIALOG_PATH: second},
+        });
+        const {page} = session;
+        const readOutline = () => evaluateInPage(page, () => Array.from(
+            document.querySelectorAll<HTMLElement>('.editor-pane.is-active .document-bookmark-item__row'),
+        ).filter(row => row.getBoundingClientRect().width > 0).map(row => row.textContent?.trim() ?? ''));
+
+        await openPdfInApp(page, first);
+        await waitForViewerInteractive(page);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await expect.poll(readOutline, {timeout: RECENT_OPEN_TIMEOUT_MS}).toEqual(['Alpha part', 'Alpha appendix']);
+        await clickAnnotationTool(page, 'Note');
+        const notePoint = await page.$eval('.editor-pane.is-active .page_container[data-page="1"]', (element) => {
+            const rect = element.getBoundingClientRect();
+            return {x: rect.x + rect.width * 0.3, y: rect.y + rect.height * 0.35};
+        });
+        await page.mouse.click(notePoint.x, notePoint.y);
+        await page.waitForSelector('textarea.note-window__textarea', {visible: true});
+        await page.keyboard.type('Open while the tab closes');
+
+        await clickAsUser(page, '.editor-pane.is-active .tab.is-active .tab-close');
+        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] button'))
+            .find(button => button.textContent?.trim() === 'Discard changes'), undefined, {description: 'Discard changes in the dirty-close dialog'});
+        await waitForFunctionInPage(page, (source: string) => {
+            const row = document.querySelector<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)');
+            return row?.dataset.recentSource === source && row.dataset.recentOpenActionable === 'true';
+        }, {timeout: RECENT_ROW_TIMEOUT_MS}, first);
+        // The closed document takes its note window with it.
+        await waitForNoOpenNoteWindows(page);
+
+        await clickRecentFile(session, first);
+        await waitForRecentPdfOpen(session, first);
+        await waitForViewerInteractive(page);
+        await waitForToolbarCurrentPage(page, 1);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await expect.poll(readOutline, {timeout: RECENT_OPEN_TIMEOUT_MS}).toEqual(['Alpha part', 'Alpha appendix']);
+        await waitForNoOpenNoteWindows(page);
+
+        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+O'});
+        await waitForActiveDocumentSource(page, second);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await expect.poll(readOutline, {timeout: RECENT_OPEN_TIMEOUT_MS}).toEqual(['Beta part']);
     });
 
     it('opens a changed source at the defaults, not at the place left in its former bytes', async () => {

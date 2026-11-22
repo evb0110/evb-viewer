@@ -21,7 +21,7 @@ export interface IPdfFileOptions extends IHistoryRevisionSwapOptions {
     document: TDocumentFileRecord;
     /** Admits each published PDF source to the document's PDF session. */
     admitPdfSource: (intent: TPdfSourceJobIntent) => IPdfSourceJob;
-    /** Empties the views of the document a new one replaces. */
+    /** Empties the views of the document a new one replaces or a close clears. */
     resetDocumentPresentation: () => void;
 }
 
@@ -90,6 +90,8 @@ export const usePdfFile = (options: IPdfFileOptions) => {
         // M4.3: Clear OCR cache for the current file before closing
         pathsToCleanup.forEach(path => clearOcrCache(path));
 
+        // The views let go of the document before its source clears, as a replacement's do.
+        if (sessionState.pdfSrc.value) options.resetDocumentPresentation();
         sessionState.resetForClose();
         clearPdfConformanceProfile();
         history.resetCommandSink();
