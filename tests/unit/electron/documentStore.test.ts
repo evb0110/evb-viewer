@@ -1,4 +1,9 @@
-import {existsSync} from 'node:fs';
+import {
+    existsSync,
+    renameSync,
+    utimesSync,
+    writeFileSync,
+} from 'node:fs';
 import * as fsPromises from 'node:fs/promises';
 import {
     chmod,
@@ -37,9 +42,52 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => diagnosticLo
 
 let tempRoot = '';
 
+/**
+ * FAT32 under Windows numbers a file by where its directory entry lies: a rename gives the same file a new id and
+ * keeps its size, time and volume (#353). While `dir` is set, files directly in it report such an id, by path and
+ * through a handle opened at that path.
+ */
+const fat32 = vi.hoisted(() => ({
+    dir: '',
+    names: new Map<string, bigint>(),
+    afterCheck: undefined as undefined | (() => void),
+    renumber: <T>(_path: unknown, stats: T) => stats,
+}));
+
 vi.mock('node:fs/promises', async (importOriginal) => {
     const original = await importOriginal<typeof fsPromises>();
-    return {...original, open: vi.fn(original.open)};
+    const open = (async (path, flags, mode) => {
+        const handle = await original.open(path, flags, mode);
+        const stat = handle.stat.bind(handle);
+        handle.stat = (async (options?: {bigint?: boolean}) => fat32.renumber(path, await stat(options))) as typeof handle.stat;
+        return handle;
+    }) as typeof original.open;
+    return {...original, open: vi.fn(open)};
+});
+
+vi.mock('node:fs', async (importOriginal) => {
+    const original = await importOriginal<typeof import('node:fs')>();
+    const {basename: nameOf, dirname: folderOf} = await import('node:path');
+    fat32.renumber = (path, stats) => {
+        const ino = (stats as {ino?: unknown} | undefined)?.ino;
+        if (!fat32.dir || typeof path !== 'string' || folderOf(path) !== fat32.dir || typeof ino !== 'bigint') return stats;
+        const name = nameOf(path);
+        if (!fat32.names.has(name)) fat32.names.set(name, BigInt(fat32.names.size + 1));
+        (stats as {ino: bigint}).ino = (ino << 16n) + fat32.names.get(name)!;
+        return stats;
+    };
+    const statSync = ((path: string, options?: {bigint?: boolean}) => {
+        const stats = fat32.renumber(path, original.statSync(path, options));
+        // A Save's check is the first look at the PDF while its staged copy lies beside it.
+        if (fat32.afterCheck && typeof path === 'string' && folderOf(path) === fat32.dir && nameOf(path) === 'report.pdf'
+            && original.readdirSync(fat32.dir).some(entry => /^\.[0-9a-f]{16}\.tmp$/u.test(entry))) {
+            const act = fat32.afterCheck;
+            fat32.afterCheck = undefined;
+            act();
+        }
+        return stats;
+    }) as typeof original.statSync;
+    return {...original, statSync};
 });
 
 vi.mock('electron', () => ({
@@ -754,6 +802,106 @@ describe('desktop document store', () => {
             open.mockImplementation(realOpen);
             removeAllowedOpenPath(pdf);
         }
+    });
+});
+
+describe('#353 Save on a volume whose renames renumber files (FAT32 under Windows)', () => {
+    // FAT32 keeps modification times to two seconds; the PDF and another program's file share this one.
+    const WRITTEN = new Date('2026-11-20T10:00:00Z');
+    const SAME_SIZE = new TextEncoder().encode('%PDF-1.7\nforeign! bytes\n%%EOF\n');
+
+    beforeEach(() => {
+        fat32.dir = tempRoot;
+        fat32.names.clear();
+    });
+
+    afterEach(() => {
+        fat32.dir = '';
+        fat32.afterCheck = undefined;
+    });
+
+    async function openOnFat32() {
+        const pdf = await writeTemp('report.pdf', ORIGINAL);
+        await utimes(pdf, WRITTEN, WRITTEN);
+        return {pdf, entry: await store.openDocumentFromFile(pdf, {ownerWebContentsId: 7})};
+    }
+
+    const besidePdf = async (pdf: string) => (await readdir(dirname(pdf))).filter(name => name.startsWith('.') || name.includes('report')).sort();
+
+    it('saves twice, keeping nothing beside the PDF', async () => {
+        const {pdf, entry} = await openOnFat32();
+        const twice = new TextEncoder().encode('%PDF-1.7\nedited twice\n%%EOF\n');
+
+        const first = await store.saveOpenDocument(entry, '1' as never, {commit: {kind: 'rewrite', source: await writeTemp('edited.pdf', EDITED)}});
+        expect(first).toMatchObject({status: 'saved'});
+        expect(first).not.toHaveProperty('keptOriginal');
+        expect(await readFile(pdf)).toEqual(Buffer.from(EDITED));
+        expect(await besidePdf(pdf)).toEqual(['report.pdf']);
+
+        // The baseline is the renamed PDF's own id, so the next Save's check accepts the file the first one wrote.
+        const second = await store.saveOpenDocument(entry, store.documentRevisionToken(entry), {commit: {kind: 'rewrite', source: await writeTemp('twice.pdf', twice)}});
+        expect(second).toMatchObject({status: 'saved'});
+        expect(second).not.toHaveProperty('keptOriginal');
+        expect(await readFile(pdf)).toEqual(Buffer.from(twice));
+        expect(await besidePdf(pdf)).toEqual(['report.pdf']);
+        expect(entry.doc.state().dirty).toBe(false);
+        expect(await findKeptOriginal(pdf)).toBeUndefined();
+    });
+
+    it('keeps a file of the same size and time that another program put in the PDF\'s place after the check', async () => {
+        const {pdf, entry} = await openOnFat32();
+        fat32.afterCheck = () => {
+            const outside = join(tempRoot, 'outside.pdf');
+            const displacedByOther = join(tempRoot, 'displaced-by-other.pdf');
+            writeFileSync(outside, SAME_SIZE);
+            utimesSync(outside, WRITTEN, WRITTEN);
+            // Windows refuses MoveFileExW(REPLACE_EXISTING) onto an open target,
+            // while moving the open file aside first (permitted by FILE_SHARE_DELETE) succeeds.
+            renameSync(pdf, displacedByOther);
+            renameSync(outside, pdf);
+        };
+
+        const result = await store.saveOpenDocument(entry, '1' as never, {commit: {kind: 'rewrite', source: await writeTemp('edited.pdf', EDITED)}});
+
+        const kept = join(dirname(pdf), 'report (original).pdf');
+        expect(fat32.afterCheck).toBeUndefined();
+        expect(result).toMatchObject({status: 'saved', keptOriginal: kept});
+        expect(await readFile(kept)).toEqual(Buffer.from(SAME_SIZE));
+        expect(await readFile(pdf)).toEqual(Buffer.from(EDITED));
+        expect(await besidePdf(pdf)).toEqual(['report (original).pdf', 'report.pdf']);
+        expect(await findKeptOriginal(pdf)).toBe(kept);
+    });
+
+    it('puts the PDF back after a crash between moving it aside and installing the save', async () => {
+        const {pdf, entry} = await openOnFat32();
+        await crashDuringPublish(entry, await writeTemp('edited.pdf', EDITED));
+        await rename(pdf, displaced(pdf));
+        const id = entry.doc.id;
+        await restart();
+
+        const reopened = await store.reopenStoredDocument(id, {});
+
+        expect(await readFile(pdf)).toEqual(Buffer.from(ORIGINAL));
+        expect(await besidePdf(pdf)).toEqual(['report.pdf']);
+        expect(reopened.doc.state().dirty).toBe(true);
+        expect(await readAll(reopened)).toEqual(EDITED);
+    });
+
+    it('loses nothing after a crash once the save installed, keeping the moved-aside PDF it cannot prove unchanged', async () => {
+        const {pdf, entry} = await openOnFat32();
+        const copy = await crashDuringPublish(entry, await writeTemp('edited.pdf', EDITED));
+        await rename(pdf, displaced(pdf));
+        await rename(copy, pdf);
+        const id = entry.doc.id;
+        await restart();
+
+        const reopened = await store.reopenStoredDocument(id, {});
+
+        const kept = join(dirname(pdf), 'report (original).pdf');
+        expect(await readFile(pdf)).toEqual(Buffer.from(EDITED));
+        expect(await readFile(kept)).toEqual(Buffer.from(ORIGINAL));
+        expect(await besidePdf(pdf)).toEqual(['report (original).pdf', 'report.pdf']);
+        expect(await readAll(reopened)).toEqual(EDITED);
     });
 });
 
