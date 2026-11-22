@@ -50,6 +50,7 @@ import { captureFailureForPresentation } from '@app/utils/failureReporter';
 import { useFailureToast } from '@app/composables/useFailureToast';
 import { createDocumentViews } from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
 import { createReadingViewLifecycleHooks } from '@app/modules/workspace-shell/document-sessions/recentReadingView';
+import { beginOpenSurfaceWithPageShape } from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
 
 /**
  * One document's context: the controller, the working copy and its
@@ -88,7 +89,15 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         getOpenSurface: () => views.soleView.value?.openSurface ?? null,
         runDocumentOpen: (request, run) => views.runDocumentOpen(views.soleView.value, request, run),
         document: controller,
-        admitPdfSource: intent => pdfDocumentSessionSlot.admit(intent),
+        // A saved revision reopens each view where its reader is, before its job is admitted.
+        admitPdfSource: (intent) => {
+            if (intent === 'adopt' && !isOpeningDocument.value) views.forEachView((port) => {
+                const identity = port.openSurface.snapshot.value.identity;
+                if (identity) beginOpenSurfaceWithPageShape(port.openSurface, {documentId: identity.documentId, documentRevision: String(file.documentRevisionToken.value ?? identity.documentRevision), provisional: true},
+                    controller.getView(port.tabId)?.captureReadingAnchor() ?? port.view.currentPage.value, null);
+            });
+            return pdfDocumentSessionSlot.admit(intent);
+        },
         resetDocumentPresentation: () => resetDocumentPresentation(),
     });
     // Scan Cleanup's source hash, acquired while a view shows it and kept until the revision changes.
@@ -225,6 +234,26 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
                 });
             });
         },
+        // While a view shows the document, ends its running job and each one it publishes until the returned end;
+        // the end publishes the revision again when it ended one and the working copy is still this one (#1598).
+        release: () => {
+            const path = file.workingCopyPath.value;
+            let released = false;
+            const end = () => {
+                const job = file.workingCopyPath.value === path && views.viewPorts.value.size ? pdfDocumentSessionSlot.running() : null;
+                if (job) {
+                    pdfDocumentSessionSlot.release(job);
+                    released = true;
+                }
+            };
+            end();
+            const stop = watch(file.pdfSrc, end);
+            return (republish) => {
+                stop();
+                if (republish && released && file.workingCopyPath.value === path) file.publishPdfSource(file.pdfSrc.value, 'reload');
+                released = false;
+            };
+        },
     });
 
     const unencryptedSaveNotice = useUnencryptedSaveNotice();
@@ -288,8 +317,11 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
                 viewer: pdfViewerRef,
                 // Every view's open text editors; it resolves once the store holds their drafts.
                 commitEditorsForSave: pdfDocumentAnnotations.commitPendingDraftsForSave,
-                runSaveTransaction: request => pdfViewerRef.value?.runSaveTransaction(request)
-                    ?? Promise.reject(new Error('Missing PDF viewer save transaction')),
+                // A Save reads the PDF after a revision published outside its turn has loaded, however that ended (CR-4).
+                runSaveTransaction: async (request) => {
+                    if (views.viewPorts.value.size) await pdfDocumentSessionSlot.running()?.finished;
+                    return pdfViewerRef.value?.runSaveTransaction(request) ?? Promise.reject(new Error('Missing PDF viewer save transaction'));
+                },
                 getSourceData: getSourcePdfData,
             },
             persistence: {
@@ -308,7 +340,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
             },
             lifecycle: {
                 loadRecentFiles: () => void file.loadRecentFiles(),
-                preparePostSaveReload: () => views.prepareReload(undefined, false),
+                acceptAdoption: adoption => (views.viewPorts.value.size ? adoption.then(outcome => outcome.status === 'presented' && resetSearchCaches()) : undefined),
                 commitDrafts: recovery.commitDrafts,
             },
             runWithDocumentOperationLease: runExclusive,

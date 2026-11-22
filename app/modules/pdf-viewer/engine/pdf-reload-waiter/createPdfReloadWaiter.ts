@@ -13,7 +13,6 @@ interface ICreatePdfReloadWaiterOptions {
     openSurface: Pick<IDocumentOpenSurfaceSession, 'snapshot' | 'viewportSession'>;
     resetSearchCache: () => void;
     pageToRestore: number;
-    restoreScroll?: boolean;
 }
 
 function logReloadWaiterRecovery(step: string, error: unknown) {
@@ -45,7 +44,6 @@ function readUserViewportInteractionEpoch(viewer: IPdfReloadWaiterViewer | null)
 
 export function createPdfReloadWaiter(options: ICreatePdfReloadWaiterOptions) {
     const isCancelled = ref(false);
-    const shouldRestoreScroll = options.restoreScroll !== false;
     const initialViewportInteractionEpoch = readUserViewportInteractionEpoch(options.pdfViewerRef.value);
     const initialOpenSurfaceState = options.openSurface.snapshot.value;
 
@@ -132,9 +130,6 @@ export function createPdfReloadWaiter(options: ICreatePdfReloadWaiterOptions) {
                 logReloadWaiterRecovery('post-reload tick', error);
             }
             if (Boolean(isCancelled.value) || !isCurrentReload()) {
-                return;
-            }
-            if (!shouldRestoreScroll) {
                 return;
             }
             if (

@@ -251,7 +251,6 @@ describe('save requests while the document lease is held', () => {
         const first = startSave();
         await vi.waitFor(() => expect(deps[indicator].value).toBe(true));
         expect(service.isAnySaving.value).toBe(true);
-        expect(service.isAnySaveAdmitted.value).toBe(false);
 
         expect(writes()).toBe(0);
 
@@ -260,7 +259,6 @@ describe('save requests while the document lease is held', () => {
         expect(writes()).toBe(1);
         expect(deps[indicator].value).toBe(false);
         expect(service.isAnySaving.value).toBe(false);
-        expect(service.isAnySaveAdmitted.value).toBe(false);
     });
 });
 

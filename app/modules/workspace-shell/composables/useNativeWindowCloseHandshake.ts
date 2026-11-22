@@ -42,6 +42,8 @@ export const useNativeWindowCloseHandshake = (
     // order the window holds them: of two tabs that show one file, as linked
     // views or opened on their own, the later one's place is the one kept.
     async function closeWith(decision: 'save' | 'discard'): Promise<TWindowCloseDecision> {
+        // A Save's lease ends a few turns after its released adoption.
+        await until(() => getDocuments().every(session => !session.operationLease.isBusy.value)).toBe(true);
         for (const [tabId, session] of Object.entries(options.documentSessionsByTabId.value)) {
             await rememberReadingView(session, tabId);
         }
@@ -62,6 +64,9 @@ export const useNativeWindowCloseHandshake = (
         }
 
         closeRequestInFlight = true;
+        // While the window decides, each document's running jobs end, so no reader holds the decision. One that had a
+        // job ended gets its revision published again before the decision returns, since main may keep the window (#1598).
+        const ends = getDocuments().map(session => session.releaseJobs());
         try {
             // A cleared source still owns its provisional transfer until commit
             // or restoration. Read the live registry as departing tabs leave it.
@@ -94,6 +99,7 @@ export const useNativeWindowCloseHandshake = (
             BrowserLogger.error('workspace', 'Native window close save failed', {error}, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
             return 'cancel';
         } finally {
+            ends.forEach(end => end(true));
             closeRequestInFlight = false;
         }
     }
