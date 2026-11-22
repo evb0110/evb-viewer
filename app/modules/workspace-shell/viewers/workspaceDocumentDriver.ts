@@ -108,7 +108,6 @@ export interface IWorkspaceDocumentDriverView {
     defaultSourceCapabilities: IDocumentSourceCapabilities | null;
     showDjvuSource: boolean;
     showPdfSidebar: boolean;
-    startupVisualSource: 'djvu-src' | null;
 }
 
 export interface IWorkspaceDriverPrintRequest {
@@ -350,7 +349,6 @@ export function createWorkspaceDocumentDriverForAdapter(
                 defaultSourceCapabilities: isDjvu ? null : PDF_SOURCE_CAPABILITIES,
                 showDjvuSource: isDjvu,
                 showPdfSidebar: !isDjvu,
-                startupVisualSource: isDjvu ? 'djvu-src' : null,
             };
         },
         run: isDjvu

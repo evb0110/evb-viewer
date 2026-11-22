@@ -15,7 +15,10 @@ import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import { requireEpochMs } from '@contracts/timestamps';
 import type { ITab } from '@app/types/tabs';
 import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
-import { didFinishOpen } from '@app/types/documentOpenOutcome';
+import {
+    didFinishOpen,
+    type TWorkspaceOpenFinish,
+} from '@app/types/documentOpenOutcome';
 import {
     createWorkspaceDocumentController,
     describeTabDocument,
@@ -448,7 +451,7 @@ function createRoutingToNewTab() {
     });
     // The tab's workspace mounts and opens the file the way a real one does:
     // its open claims the tab, records the file, then presents it.
-    function mountWorkspace(tabId: string) {
+    function mountWorkspace(tabId: string, presentation: Promise<TWorkspaceOpenFinish> = Promise.resolve({status: 'presented'})) {
         const session = documentSessions.getSession(tabId)!;
         session.attachWorkspace(tabId, createWorkspaceExposeFixture({handleOpenFileDirectWithPersist: async (path: TDocumentRef) => {
             const opened = session.runOpen({
@@ -456,7 +459,7 @@ function createRoutingToNewTab() {
                 target: describeDocumentTarget(path),
             }, async () => {
                 session.commitFile({originalPath: path});
-                return {presentation: Promise.resolve({status: 'presented'})};
+                return {presentation};
             });
             return didFinishOpen(opened);
         }}));
@@ -472,6 +475,52 @@ function createRoutingToNewTab() {
         tabs,
     };
 }
+
+describe('routing the files the app was launched with', () => {
+    afterEach(() => {
+        Reflect.deleteProperty(globalThis, 'window');
+    });
+
+    it('ends the startup overlay when the shown DjVu presents its first view, not when it is selected', async () => {
+        const startupWindow = new EventTarget();
+        Reflect.set(globalThis, 'window', startupWindow);
+        const reasons: unknown[] = [];
+        startupWindow.addEventListener('evb:startup-open-visual-ready', (event) => {
+            reasons.push((event as CustomEvent<{reason: string}>).detail.reason);
+        });
+        const {
+            documentSessions,
+            mountWorkspace,
+            routing,
+        } = createRoutingToNewTab();
+        const firstView = Promise.withResolvers<TWorkspaceOpenFinish>();
+
+        const failedPaths = routing.beginOpenPathsInAppropriateTab([
+            requireDocumentRef('/docs/alpha.pdf'),
+            requireDocumentRef('/docs/beta.pdf'),
+            requireDocumentRef('/docs/gamma.djvu'),
+        ]);
+        mountWorkspace('tab-new');
+        mountWorkspace('tab-opened-1');
+        // The shown tab's DjVu is selected and claimed before its view paints.
+        mountWorkspace('tab-opened-2', firstView.promise);
+        const phases = () => [
+            'tab-new',
+            'tab-opened-1',
+            'tab-opened-2',
+        ].map(tabId => documentSessions.getSession(tabId)!.snapshot.value.phase);
+        await vi.waitFor(() => expect(phases()).toEqual([
+            'presented',
+            'presented',
+            'opening',
+        ]));
+        expect(reasons).toEqual([]);
+
+        firstView.resolve({status: 'presented'});
+        await expect(failedPaths).resolves.toEqual([]);
+        await vi.waitFor(() => expect(reasons).toEqual(['first-view-presented']));
+    });
+});
 
 describe('routing a document while the tab it picked is still mounting', () => {
     it('gives a second open its own tab, and both documents stay open', async () => {
