@@ -160,6 +160,69 @@ describe('document viewer chassis authority', () => {
         expect(authority.viewportWritePort).toBe(originalViewportWritePort);
     });
 
+    it('fences pending viewport writes by the bound source', () => {
+        const openSurface = createDocumentOpenSurfaceSession();
+        const generation = openSurface.begin({
+            documentId: 'scan.pdf',
+            documentRevision: 'revision-1',
+        });
+        const authority = createDocumentViewerRuntime(ref('pdf'), openSurface);
+        const port = authority.viewportWritePort;
+        const container = createViewportContainer();
+        const first = createSource('pdf', 5);
+        authority.bindSource(first);
+        openSurface.metadataReady(5);
+        openSurface.commitGeometry(generation, {
+            width: 612,
+            height: 792,
+            margin: 20,
+        });
+        const fence = openSurface.createRenderFence({
+            generation,
+            documentRevision: 'revision-1',
+            renderVersion: 1,
+            requestId: 1,
+            pageNumber: 1,
+        })!;
+        openSurface.commitCanvas(fence);
+        openSurface.commitViewport({
+            generation,
+            documentRevision: 'revision-1',
+            viewportIntentId: fence.viewportIntentId,
+            documentGeometryRevision: 1,
+            interactionEpoch: 0,
+            pageNumber: 1,
+            left: 0,
+            top: 0,
+        });
+        openSurface.markReady(fence);
+        expect(openSurface.prepareRevisionSwap({
+            documentId: 'scan.pdf',
+            documentRevision: 'revision-2',
+        }, 1, [1])).toBe(true);
+
+        // Unbinding during an in-place revision swap keeps the mounted
+        // source, so a write begun before it still lands.
+        const duringSwap = port.beginIntent('restore-during-swap');
+        authority.bindSource(null);
+        expect(authority.source.value).toBe(first);
+        expect(port.apply(container, {
+            intent: duringSwap,
+            reason: 'restore-during-swap',
+            top: 100,
+        })).toBe(true);
+
+        // A reload unbinds and binds a new source; older writes are stale.
+        const beforeReload = port.beginIntent('restore-before-reload');
+        authority.bindSource(createSource('pdf', 5));
+        expect(port.apply(container, {
+            intent: beforeReload,
+            reason: 'restore-before-reload',
+            top: 200,
+        })).toBe(false);
+        expect(container.scrollTop).toBe(100);
+    });
+
     it('clears an authored scroll origin for physical wheel input but preserves it for zoom', () => {
         const authority = createDocumentViewerRuntime(ref('pdf'));
         const container = createViewportContainer();

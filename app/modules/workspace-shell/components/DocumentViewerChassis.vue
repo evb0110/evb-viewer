@@ -232,6 +232,8 @@ const unsubscribeWheelScrollSequenceChange = getHostCapability().onWheelScrollSe
     chassisAuthority.viewportWritePort.observeWheelScrollSequence(boundary);
 });
 onBeforeUnmount(() => {
+    // The view is gone. A pane relocation moves it under Teleport instead.
+    chassisAuthority.viewportWritePort.retire();
     unsubscribeWheelScrollSequenceChange();
     openingFrameResizeObserver?.disconnect();
     openingFrameResizeObserver = null;

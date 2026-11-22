@@ -869,6 +869,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     });
     onBeforeUnmount(() => {
         mounted = false;
+        viewportWritePort.retire();
         slotShapeRequest?.abort();
         unsubscribeWheelScrollSequence();
         if (scheduledFrame !== null) cancelAnimationFrame(scheduledFrame);

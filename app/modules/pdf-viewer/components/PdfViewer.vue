@@ -317,6 +317,10 @@ function handleOpeningPageContainerUnmounted(pageNumber: TPageNumber) {
 }
 
 onBeforeUnmount(() => {
+    // An injected runtime belongs to its chassis, which retires its port.
+    if (!injectedChassisAuthority) {
+        chassisAuthority.viewportWritePort.retire();
+    }
     openingGeometryDisposed = true;
     if (openingGeometryAnimationFrame !== null) {
         cancelAnimationFrame(openingGeometryAnimationFrame);

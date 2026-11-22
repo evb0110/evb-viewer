@@ -1303,6 +1303,9 @@ export const useDocumentPageSourceRuntime = (options: {
             chassisAuthority.bindSource(null);
         }
         presentation.dispose();
+        if (!chassisAuthority) {
+            viewportWritePort.retire();
+        }
     });
     return {
         activeOpenSurfaceGeneration: transitions.openSurfaceGeneration,
