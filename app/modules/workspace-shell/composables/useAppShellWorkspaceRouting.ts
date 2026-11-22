@@ -4,6 +4,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { markStartupMetricOnce } from '@app/utils/startupMetrics';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { readPdfPageShape } from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
+import { reportStartupFirstView } from '@app/modules/workspace-shell/composables/useWorkspaceStartupReadiness';
 import type { IEditorPaneState } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
 import {
@@ -222,7 +223,8 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
     /**
      * Opens the files the app was launched with. The first reuses the empty
      * startup tab; each other file gets its own tab, and the last one is
-     * shown. Returns the paths no tab could take, for the main process to retry.
+     * shown: the startup overlay ends when its open presents its first view.
+     * Returns the paths no tab could take, for the main process to retry.
      */
     async function beginOpenPathsInAppropriateTab(paths: TDocumentRef[]) {
         const normalizedPaths = normalizeOpenPaths(paths);
@@ -240,9 +242,11 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
                     activate: index === normalizedPaths.length - 1,
                 }).id
         ));
-        const results = await Promise.allSettled(normalizedPaths.map(async (path, index) => {
+        const opens = normalizedPaths.map((path, index) => openInTab(tabIds[index]!, path));
+        void reportStartupFirstView(opens.at(-1)!);
+        const results = await Promise.allSettled(opens.map(async (opening, index) => {
             const tabId = tabIds[index]!;
-            if (await openInTab(tabId, path)) {
+            if (await opening) {
                 return;
             }
             const failure = readFailure(tabId);

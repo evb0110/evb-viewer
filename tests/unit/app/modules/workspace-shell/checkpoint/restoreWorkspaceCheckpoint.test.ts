@@ -266,4 +266,73 @@ describe('restoreWorkspaceCheckpoint', () => {
             zoomMode: 'custom',
         });
     });
+
+    it('ends the startup overlay when the shown restored tab presents its first view', async () => {
+        const startupWindow = new EventTarget();
+        Reflect.set(globalThis, 'window', startupWindow);
+        const reasons: unknown[] = [];
+        startupWindow.addEventListener('evb:startup-open-visual-ready', (event) => {
+            reasons.push((event as CustomEvent<{reason: string}>).detail.reason);
+        });
+        try {
+            const tabs = ref<ITab[]>([]);
+            const documentSessions = useWorkspaceDocumentSessions({
+                activeTabId: ref(null),
+                tabs,
+            });
+            const checkpoint = cast<IWorkspaceCheckpoint>({
+                version: 1,
+                capturedAt: requireEpochMs(1),
+                activePaneId: requirePaneId('pane-1'),
+                activeTabId: requireTabId('tab-1'),
+                layout: null,
+                panes: [{
+                    paneId: requirePaneId('pane-1'),
+                    tabIds: [requireTabId('tab-1')],
+                    activeTabId: requireTabId('tab-1'),
+                }],
+                tabs: [checkpointTab('tab-1', 'pane-1', {
+                    currentPage: 1,
+                    zoom: 1,
+                    zoomMode: 'fit-width',
+                })],
+            });
+
+            const restoring = restoreWorkspaceCheckpoint(checkpoint, {
+                activeTabId: ref(null),
+                documentSessions,
+                restoreGraph: () => {
+                    tabs.value = [{id: 'tab-1'}];
+                },
+                activateTab: () => {},
+            });
+            await nextTick();
+            const document = documentSessions.getSession('tab-1')!;
+            const firstView = Promise.withResolvers<void>();
+            document.attachWorkspace('tab-1', createWorkspaceExposeFixture({waitForDocumentOpenSettled: async () => {
+                await document.runOpen({
+                    kind: 'restore',
+                    target: {
+                        fileName: 'shared.pdf',
+                        originalPath,
+                    },
+                }, async () => {
+                    document.commitFile({
+                        originalPath,
+                        isDjvu: false,
+                        revisionInfo: null,
+                    });
+                    return {presentation: firstView.promise.then(() => ({status: 'presented' as const}))};
+                }).finished;
+            }}));
+            await vi.waitFor(() => expect(document.snapshot.value.phase).toBe('opening'));
+            expect(reasons).toEqual([]);
+
+            firstView.resolve();
+            await expect(restoring).resolves.toEqual([]);
+            await vi.waitFor(() => expect(reasons).toEqual(['first-view-presented']));
+        } finally {
+            Reflect.deleteProperty(globalThis, 'window');
+        }
+    });
 });

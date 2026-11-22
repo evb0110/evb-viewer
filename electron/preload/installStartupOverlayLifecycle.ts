@@ -127,9 +127,10 @@ function unmountStartupOverlay(reason: string, deps: IStartupOverlayLifecycleDep
 
 /**
  * The overlay covers the document until the app has a first view: an empty
- * startup claim together with the app's root (in either order), the first
- * claimed document's visual readiness, or a startup failure, which the app
- * then shows itself. Its producers live in this document and dispatch events.
+ * startup claim together with the app's root (in either order), the shown
+ * startup document's first view presented, its password prompt, its error or
+ * the startup budget's expiry, or a startup failure, which the app then shows
+ * itself. Its producers live in this document and dispatch events.
  */
 export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDeps) {
     // The placeholder about:blank document and Chromium's error page for a
@@ -180,7 +181,7 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
     function handleStartupOpenClaimed(event: Event) {
         const pathCount = getStartupOpenPathCount(event);
         if (pathCount > 0) {
-            deps.forwardPreloadLogToMain('debug', 'loader', 'Startup external open claimed; retaining overlay until first document paint', {
+            deps.forwardPreloadLogToMain('debug', 'loader', 'Startup external open claimed; retaining overlay until the first view is presented', {
                 variant: 'startup-overlay',
                 pathCount,
             });
@@ -195,12 +196,13 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
 
     function handleStartupOpenVisualReady(event: Event) {
         const detail = event instanceof CustomEvent ? event.detail as Record<string, unknown> | null : null;
-        deps.forwardPreloadLogToMain('debug', 'loader', 'Startup document visual readiness reached', {
+        const reason = typeof detail?.reason === 'string' ? detail.reason : 'startup-open-visual-ready';
+        deps.forwardPreloadLogToMain('debug', 'loader', 'Startup document first view or exit reached', {
             variant: 'startup-overlay',
-            reason: typeof detail?.reason === 'string' ? detail.reason : 'startup-open-visual-ready',
+            reason,
             timedOut: detail?.timedOut === true,
         });
-        removeOverlay('startup-open-visual-ready');
+        removeOverlay(reason);
     }
 
     function handleAppReady() {

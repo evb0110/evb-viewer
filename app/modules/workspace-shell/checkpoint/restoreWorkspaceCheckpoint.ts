@@ -12,6 +12,7 @@ import type {
 } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentViewSeed } from '@app/modules/workspace-shell/document-sessions/createWorkspaceDocumentView';
 import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
+import { reportStartupFirstView } from '@app/modules/workspace-shell/composables/useWorkspaceStartupReadiness';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type { TWorkspaceDocumentSessions } from '@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions';
 import {getWorkspaceViewerAdapterForDocumentType} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
@@ -217,6 +218,8 @@ export async function restoreWorkspaceCheckpoint(
             return session !== null && await restoreTab(tab, session, shown);
         })().catch(() => false);
         restoredByTabId.set(tab.tabId, restored);
+        // The window's shown tab ends the startup overlay once its view presents.
+        if (shown && tab.tabId === checkpoint.activeTabId) void reportStartupFirstView(restored);
         return restored;
     }));
     const failedPaths = checkpoint.tabs.flatMap((tab, index): TDocumentRef[] => {
