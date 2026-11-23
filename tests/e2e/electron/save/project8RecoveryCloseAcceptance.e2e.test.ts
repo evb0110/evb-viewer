@@ -34,13 +34,19 @@ import {
     createFixturePath,
     createLargeScannedFixturePdf,
     createMultiPageTextFixturePdf,
+    createScannedTextFixturePdf,
     readPdfPageSnapshots,
     readPdfTextAnnotationRecords,
 } from '@tests/e2e/electron/helpers/fixtures';
 import {createCanonicalTextBoxWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {moveTabToNewWindow} from '@tests/e2e/electron/helpers/moveTabToNewWindow';
 import {installPageEvaluationShims} from '@tests/e2e/electron/helpers/pageRuntime';
-import {getActiveWorkspaceWorkingCopyPath, readDocumentBytes} from '@tests/e2e/electron/helpers/electronApiHelpers';
+import {
+    assertOcrPdfSemanticOutput,
+    getActiveWorkspaceWorkingCopyPath,
+    readDocumentBytes,
+    runOcrSearchablePdf,
+} from '@tests/e2e/electron/helpers/electronApiHelpers';
 import {
     startElectronE2ESession,
     type IElectronE2ESession,
@@ -954,6 +960,45 @@ describe('Project 8 recovered close decisions', () => {
         await waitForHeldPdfRead(page);
         await clickWindowDecision(session, 'Save changes', {waitForClose: true});
         expect((await readPdfPageSnapshots(pdfPath))[0]?.rotation).toBe(270);
+    }, E2E_TIMEOUT_MS);
+
+    // #1598 A (window route, N7): an OCR result applied over a pending text box reloads the document, and the window
+    // close ends that held read. Its Save shows the revision again before it plans from the PDF, so both are saved.
+    it('saves a text box pending under an OCR reload whose read has not returned, then closes the window', async () => {
+        const stamp = Date.now();
+        const recognized = 'Searchable window close';
+        const note = `A window OCR note ${stamp}`;
+        const pdfPath = await createScannedTextFixturePdf(`a-window-ocr-held-read-${stamp}.pdf`, recognized);
+        session = await startElectronE2ESession(`e2e-a-window-ocr-held-read-${stamp}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+        });
+        const page = session.page;
+        await waitForPdfLoaded(page, 60_000);
+        await waitForViewerInteractive(page, 60_000);
+        await createCanonicalTextBoxWithPointer(page, note, {
+            x: 0.4,
+            y: 0.85,
+        });
+        await waitForSaveFrontierReady(page);
+        const workingCopyPath = await getActiveWorkspaceWorkingCopyPath(page);
+        const requestId = `a-window-ocr-${stamp}`;
+        const ocr = await runOcrSearchablePdf(page, workingCopyPath, requestId, recognized);
+        expect(ocr.success).toBe(true);
+
+        await holdNextPdfRead(page);
+        // The result is applied as the app applies a finished recognition; it settles only after its held read.
+        void callWorkspaceCommand(page, 'handleOcrComplete', [{
+            requestId,
+            pdfPath: ocr.pdfPath,
+            sourceDocumentRevisionToken: ocr.sourceDocumentRevisionToken,
+            requiresCleanupAck: true,
+            sourceWorkingCopyPath: workingCopyPath,
+        }]).catch(() => undefined);
+        await waitForHeldPdfRead(page);
+        await clickWindowDecision(session, 'Save changes', {waitForClose: true});
+        expect((await readPdfTextAnnotationRecords(pdfPath)).map(record => record.contents)).toContain(note);
+        expect(await assertOcrPdfSemanticOutput(pdfPath, recognized)).toContain(recognized);
     }, E2E_TIMEOUT_MS);
 
     // #1598 A (CR-4): a Save after a Save As whose revision was held plans from that revision once it has
