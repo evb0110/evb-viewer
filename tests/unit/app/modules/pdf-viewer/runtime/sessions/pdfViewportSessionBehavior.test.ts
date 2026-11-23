@@ -3999,3 +3999,87 @@ describe('PdfViewportSession behavior', () => {
         }
     });
 });
+
+// happy-dom delivers no ResizeObserver callbacks: the receipt must not wait for one.
+describe('PdfViewportSession layout placement receipt', () => {
+    function resize(fixture: ReturnType<typeof createViewportFixture>, width: number, height = 800) {
+        defineDimension(fixture.container, 'clientWidth', width);
+        defineDimension(fixture.container, 'clientHeight', height);
+        defineDimension(fixture.container, 'offsetWidth', width);
+    }
+
+    /** Records when the receipt settles, without awaiting it. */
+    function track(receipt: Promise<void>) {
+        const state = {settled: false};
+        void receipt.then(() => { state.settled = true; });
+        return state;
+    }
+
+    it('settles at once for an unchanged box and after the relayout for a resized one', async () => {
+        const fixture = createViewportFixture();
+        try {
+            await nextTick();
+            // The first reading of the box is its baseline: nothing to place.
+            await fixture.viewport.whenLayoutPlaced();
+            fixture.container.scrollTop = 27_400;
+            fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+            await nextTick();
+            const page = fixture.viewport.currentPage.value;
+            expect(page).toBeGreaterThan(20);
+            const writes = fixture.viewportWrites.writes.length;
+
+            const unchanged = track(fixture.viewport.whenLayoutPlaced());
+            await Promise.resolve();
+            await Promise.resolve();
+            expect(unchanged.settled).toBe(true);
+            expect(fixture.viewportWrites.writes).toHaveLength(writes);
+
+            // A split halves the pane. Fit width shrinks the pages, and the
+            // reading point is placed in the new layout before the receipt settles.
+            const before = fixture.viewport.singlePageScroll.captureCurrentSemanticAnchor()!;
+            resize(fixture, 400);
+            const resized = track(fixture.viewport.whenLayoutPlaced());
+            expect(resized.settled).toBe(false);
+            await vi.waitFor(() => expect(resized.settled).toBe(true));
+            expect(fixture.viewportWrites.writes.length).toBeGreaterThan(writes);
+            expect(fixture.container.scrollTop).toBeLessThan(27_400);
+            expect(fixture.viewport.currentPage.value).toBe(page);
+            expect(fixture.viewport.singlePageScroll.captureCurrentSemanticAnchor()).toMatchObject({
+                page: before.page,
+                pageYFraction: expect.closeTo(before.pageYFraction, 2),
+            });
+        } finally {
+            fixture.app.unmount();
+        }
+    });
+
+    it('settles at once for a hidden view, whose box is not the reader\'s', async () => {
+        const fixture = createViewportFixture();
+        try {
+            await nextTick();
+            await fixture.viewport.whenLayoutPlaced();
+            fixture.isActive.value = false;
+            await nextTick();
+            const writes = fixture.viewportWrites.writes.length;
+            resize(fixture, 0, 0);
+
+            await fixture.viewport.whenLayoutPlaced();
+
+            expect(fixture.viewportWrites.writes).toHaveLength(writes);
+        } finally {
+            fixture.app.unmount();
+        }
+    });
+
+    it('settles when the view closes while its relayout waits for the flush', async () => {
+        const fixture = createViewportFixture();
+        await nextTick();
+        await fixture.viewport.whenLayoutPlaced();
+        resize(fixture, 400);
+        const receipt = fixture.viewport.whenLayoutPlaced();
+
+        fixture.app.unmount();
+
+        await expect(receipt).resolves.toBeUndefined();
+    });
+});

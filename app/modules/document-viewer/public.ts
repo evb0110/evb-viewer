@@ -18,7 +18,7 @@ export {
     clampKeyboardSelection, createKeyboardSelection, updateKeyboardSelection,
 } from '@app/modules/document-viewer/region-geometry/keyboardSelection';
 export {
-    createDocumentOpenSurfaceSession, documentOpenSurfaceSessionKey, hasCommittedDocumentOpeningLayout, injectDocumentOpenSurfaceSession, isDocumentOpenEmptySurfaceTransition, resolveDocumentOpenSurfaceViewportPolicy, resolveDocumentViewportCurrentPage, type IDocumentOpenSurfaceRenderOwner, type IDocumentOpenSurfaceSession, type IDocumentOpenSurfaceSnapshot, type TDocumentOpenSurfacePhase, type TDocumentViewportVisualOwner,
+    createDocumentOpenSurfaceSession, documentOpenSurfaceSessionKey, hasCommittedDocumentOpeningLayout, injectDocumentOpenSurfaceSession, isDocumentOpenEmptySurfaceTransition, resolveDocumentOpenSurfaceViewportPolicy, resolveDocumentViewportCurrentPage, type IDocumentOpenSurfaceRenderOwner, type IDocumentOpenSurfaceSession, type IDocumentOpenSurfaceSnapshot, type TDocumentOpenSurfacePhase, type TDocumentViewportVisualOwner, whenDocumentOpeningPlaced,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 export { createAnchorPageWindow } from '@app/modules/document-viewer/virtualization/pageVirtualization';
 export { createDjvuPageSource } from '@app/modules/document-viewer/source/createDjvuPageSource';

@@ -1091,7 +1091,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         width: number;
         height: number;
     } | null = null;
-    useResizeObserver(options.viewerContainer, () => {
+    function observeViewportSize() {
         const container = options.viewerContainer.value;
         if (!container) {
             return;
@@ -1122,7 +1122,21 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
                 x: previous.width / 2,
                 y: previous.height / 2,
             }, previous));
-    });
+    }
+    useResizeObserver(options.viewerContainer, observeViewportSize);
+    /**
+     * Settles once this view shows its reading point in its current box. The
+     * box is read now: a size the ResizeObserver has not delivered yet is laid
+     * out here, as it would be there, and the delivery then finds it
+     * unchanged. An unchanged box has nothing to place unless a layout change
+     * is waiting for its flush; a hidden or closed view has nothing to place.
+     */
+    async function whenLayoutPlaced() {
+        if (options.isActive.value) {
+            observeViewportSize();
+        }
+        await singlePageScroll.pendingRelayoutReceipt();
+    }
     /**
      * A reload that ends before its placement was superseded. A retargeted
      * opening ticket settles on its outcome: the reader's input meanwhile
@@ -1275,6 +1289,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         scroll,
         scale,
         relayoutRotation,
+        whenLayoutPlaced,
         skeletonInsets,
         reloadTransition,
         viewModel,

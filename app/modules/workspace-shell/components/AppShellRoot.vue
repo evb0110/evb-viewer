@@ -179,7 +179,7 @@
                 @open-settings="openSettingsPage"
                 @toggle-fullscreen="handleToggleFullscreen"
                 @update-split-ratio="setSplitRatio"
-                @update-layout-resizing="isEditorPanesResizing = $event"
+                @update-layout-resizing="isEditorDividerResizing = $event"
             />
             <AgentAssistantPanel
                 v-if="assistantPanelEnabled && assistantPanelOpen && !isFullscreen"
@@ -258,6 +258,7 @@ import { createReaderToolbarSurface } from '@app/utils/readerCommandSurface';
 import { useAppShellDirectionalTabs } from '@app/modules/workspace-shell/composables/useAppShellDirectionalTabs';
 import { useAppShellLifecycle } from '@app/modules/workspace-shell/composables/useAppShellLifecycle';
 import { useAppShellTabLifecycle } from '@app/modules/workspace-shell/composables/useAppShellTabLifecycle';
+import { createWorkspaceLayoutChange } from '@app/modules/workspace-shell/composables/workspaceLayoutChange';
 import { useAppShellUpdatesDialog } from '@app/modules/workspace-shell/composables/useAppShellUpdatesDialog';
 import { useAppShellWorkspaceRouting } from '@app/modules/workspace-shell/composables/useAppShellWorkspaceRouting';
 import { useExternalFileDrop } from '@app/modules/workspace-shell/composables/useExternalFileDrop';
@@ -392,8 +393,12 @@ const {
     isResizingPanel: isAssistantPanelResizing,
     startPanelResize: startAssistantPanelResize,
 } = useAssistantPanelResize();
-const isEditorPanesResizing = ref(false);
-const isWorkspaceLayoutResizing = computed(() => isAssistantPanelResizing.value || isEditorPanesResizing.value);
+// A divider drag and a split or collapse fence the views apart: one ending does not end the other.
+const isEditorDividerResizing = ref(false);
+const isEditorLayoutChanging = ref(false);
+const isWorkspaceLayoutResizing = computed(() => (
+    isAssistantPanelResizing.value || isEditorDividerResizing.value || isEditorLayoutChanging.value
+));
 const fullscreenSupported = ref(true);
 let zenModeRequestInFlight = false;
 const workspaceMemoryBudget = useWorkspaceMemoryPressureMonitor();
@@ -478,6 +483,10 @@ const {
     requestDirtyWindowCloseConfirmation,
     resolveDirtyTabCloseDialog,
 } = useDirtyTabCloseDialog({getSession: getDocumentSession});
+const changeWorkspaceLayout = createWorkspaceLayoutChange({
+    setWorkspaceLayoutResizing: value => { isEditorLayoutChanging.value = value; },
+    documentSessionsByTabId,
+});
 useNativeWindowCloseHandshake({
     documentSessionsByTabId,
     flushSettings: flushDesktopSettings,
@@ -559,6 +568,7 @@ const {
     closeTab,
     closePane,
     requestDirtyTabCloseConfirmation,
+    changeWorkspaceLayout,
 });
 const {
     listeners: fallbackToolbarCommandListeners,
@@ -854,7 +864,7 @@ const {
     linkDocumentView: documentSessions.linkView,
     isSingletonPlaceholderCloseBlocked,
     enqueueTabTransition,
-    setWorkspaceLayoutResizing: value => { isEditorPanesResizing.value = value; },
+    changeWorkspaceLayout,
     moveTabToNewWindow,
     moveTabToWindow,
     handleCloseTab,

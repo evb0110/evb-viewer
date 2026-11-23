@@ -2,9 +2,12 @@ import {
     describe,
     expect,
     it,
+    onTestFinished,
     vi,
 } from 'vitest';
 import {
+    computed,
+    effectScope,
     ref,
     shallowRef,
     watch,
@@ -20,6 +23,11 @@ import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type * as TRecentReadingViewModule from '@app/modules/workspace-shell/document-sessions/recentReadingView';
 import { useAppShellTabLifecycle } from '@app/modules/workspace-shell/composables/useAppShellTabLifecycle';
+import { useAppShellDirectionalTabs } from '@app/modules/workspace-shell/composables/useAppShellDirectionalTabs';
+import { cast } from '@tests/helpers/cast';
+import { createWorkspaceLayoutChange } from '@app/modules/workspace-shell/composables/workspaceLayoutChange';
+import { createViewLayoutReceipt } from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
+import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import {
     createWorkspaceDocumentController,
     type IWorkspaceDocumentController,
@@ -40,11 +48,6 @@ vi.mock('@app/modules/workspace-shell/document-sessions/recentReadingView', asyn
     ...await importOriginal<typeof TRecentReadingViewModule>(),
     rememberReadingView: readingView.remember,
 }));
-
-const asyncHelpersMock = vi.hoisted(() => ({
-    waitForVisualFrames: vi.fn(async () => {}),
-}));
-vi.mock('@app/utils/asyncHelpers', () => asyncHelpersMock);
 
 const toastAdd = vi.hoisted(() => vi.fn(() => ({id: 'busy-toast'})));
 const toastRemove = vi.hoisted(() => vi.fn());
@@ -120,12 +123,14 @@ function createLifecycle(options: {
     );
     const requestDirtyTabCloseConfirmation = vi.fn(async () => options.decision ?? 'discard');
     const closeTab = vi.fn(options.closeTab ?? (() => {}));
+    const documentSessionsByTabId = shallowRef(options.sessions);
+    const layoutResizing = ref(false);
     const lifecycle = useAppShellTabLifecycle({
         panes: options.panes,
         tabs: options.tabs,
         activePaneId: options.activePaneId ?? ref(options.panes.value[0]?.paneId ?? null),
         activeTabId: options.activeTabId ?? ref(options.tabs.value[0]?.id ?? null),
-        documentSessionsByTabId: shallowRef(options.sessions),
+        documentSessionsByTabId,
         workspaceRestoreTracker: {
             start: vi.fn(),
             finish: vi.fn(),
@@ -141,9 +146,14 @@ function createLifecycle(options: {
         closeTab,
         closePane: vi.fn(options.closePane ?? (() => {})),
         requestDirtyTabCloseConfirmation,
+        changeWorkspaceLayout: createWorkspaceLayoutChange({
+            setWorkspaceLayoutResizing: (value) => { layoutResizing.value = value; },
+            documentSessionsByTabId,
+        }),
     });
     return {
         closeTab,
+        layoutResizing,
         lifecycle,
         requestDirtyTabCloseConfirmation,
     };
@@ -257,8 +267,13 @@ describe('useAppShellTabLifecycle', () => {
         });
     });
 
-    it('keeps split close and retained-pane handoff inside the tab transition', async () => {
-        asyncHelpersMock.waitForVisualFrames.mockClear();
+    it('collapses a split under the resize fence and ends once the remaining view is placed', async () => {
+        // No frame is waited for: the close waits for the view's placement.
+        const requestAnimationFrame = vi.fn();
+        Object.assign(globalThis, {requestAnimationFrame});
+        onTestFinished(() => {
+            Reflect.deleteProperty(globalThis, 'requestAnimationFrame');
+        });
         const panes = ref<IEditorPaneState[]>([
             createPane('pane-left', 'tab-document', ['tab-document']),
             createPane('pane-right', 'tab-empty', ['tab-empty']),
@@ -270,26 +285,42 @@ describe('useAppShellTabLifecycle', () => {
         const activePaneId = ref<string | null>('pane-right');
         const activeTabId = ref<string | null>('tab-empty');
         const transitionStates = {
-            closeTab: false,
-            closePane: false,
-            activateRetainedTab: false,
+            closeTab: [false, false],
+            closePane: [false, false],
+            activateRetainedTab: [false, false],
         };
-        const {lifecycle} = createLifecycle({
+        const documentSession = createDocumentSession('tab-document');
+        // The remaining view places its point in the box the collapse gives it,
+        // and records whether its viewer still saw a resize then: the fence or a
+        // tab transition, as DocumentWorkspace passes it to the viewer.
+        const placements: PromiseWithResolvers<void>[] = [];
+        const viewerResizingAtPlacement: boolean[] = [];
+        documentSession.attachWorkspace('tab-document', createWorkspaceExposeFixture({
+            whenLayoutPlaced: () => {
+                viewerResizingAtPlacement.push(layoutResizing.value || lifecycle.isTabTransitionBusy.value);
+                const placement = Promise.withResolvers<void>();
+                placements.push(placement);
+                return placement.promise;
+            },
+        }));
+        const {
+            layoutResizing, lifecycle,
+        } = createLifecycle({
             panes,
             tabs,
             sessions: {
-                'tab-document': createDocumentSession('tab-document'),
+                'tab-document': documentSession,
                 'tab-empty': createWorkspaceDocumentController({tabId: 'tab-empty'}),
             },
             activePaneId,
             activeTabId,
             activateTab: (paneId, tabId) => {
-                transitionStates.activateRetainedTab = lifecycle.isTabTransitionBusy.value;
+                transitionStates.activateRetainedTab = [lifecycle.isTabTransitionBusy.value, layoutResizing.value];
                 activePaneId.value = paneId;
                 activeTabId.value = tabId;
             },
             closeTab: (paneId, tabId) => {
-                transitionStates.closeTab = lifecycle.isTabTransitionBusy.value;
+                transitionStates.closeTab = [lifecycle.isTabTransitionBusy.value, layoutResizing.value];
                 const pane = panes.value.find(candidate => candidate.paneId === paneId);
                 if (pane) {
                     pane.tabIds = pane.tabIds.filter(candidate => candidate !== tabId);
@@ -298,7 +329,7 @@ describe('useAppShellTabLifecycle', () => {
                 tabs.value = tabs.value.filter(tab => tab.id !== tabId);
             },
             closePane: (paneId) => {
-                transitionStates.closePane = lifecycle.isTabTransitionBusy.value;
+                transitionStates.closePane = [lifecycle.isTabTransitionBusy.value, layoutResizing.value];
                 panes.value = panes.value.filter(pane => pane.paneId !== paneId);
             },
         });
@@ -312,17 +343,62 @@ describe('useAppShellTabLifecycle', () => {
         });
         stopWatchingBusyState();
 
-        await lifecycle.handleCloseTab('pane-right', 'tab-empty');
-
+        let closed = false;
+        const closing = lifecycle.handleCloseTab('pane-right', 'tab-empty').then(() => { closed = true; });
+        await vi.waitFor(() => expect(placements).toHaveLength(1));
+        // The close, the collapse and the handoff commit together, inside the
+        // tab transition and the resize fence, which holds until the placement.
         expect(transitionStates).toEqual({
-            closeTab: true,
-            closePane: true,
-            activateRetainedTab: true,
+            closeTab: [true, true],
+            closePane: [true, true],
+            activateRetainedTab: [true, true],
         });
+        expect(layoutResizing.value).toBe(true);
+        placements[0]!.resolve();
+        // Releasing the fence places the point once more before the close ends,
+        // once the viewer no longer sees a resize: its tab transition has ended.
+        await vi.waitFor(() => expect(placements).toHaveLength(2));
+        expect(viewerResizingAtPlacement).toEqual([true, false]);
+        expect(closed).toBe(false);
+        placements[1]!.resolve();
+        await closing;
+
         expect(activePaneId.value).toBe('pane-left');
         expect(activeTabId.value).toBe('tab-document');
         expect(lifecycle.isTabTransitionBusy.value).toBe(false);
-        expect(asyncHelpersMock.waitForVisualFrames).toHaveBeenCalledWith({frames: 2});
+        expect(requestAnimationFrame).not.toHaveBeenCalled();
+    });
+
+    it('closes a tab that leaves its pane with other tabs without a layout change', async () => {
+        const panes = ref<IEditorPaneState[]>([
+            createPane('pane-left', 'tab-document', ['tab-document']),
+            createPane('pane-right', 'tab-empty', ['tab-empty', 'tab-other']),
+        ]);
+        const tabs = ref<ITab[]>([{id: 'tab-document'}, {id: 'tab-empty'}, {id: 'tab-other'}]);
+        const fenceWhenClosed: boolean[] = [];
+        const {
+            layoutResizing, lifecycle,
+        } = createLifecycle({
+            panes,
+            tabs,
+            sessions: {
+                'tab-document': createDocumentSession('tab-document'),
+                'tab-empty': createWorkspaceDocumentController({tabId: 'tab-empty'}),
+                'tab-other': createWorkspaceDocumentController({tabId: 'tab-other'}),
+            },
+            activePaneId: ref('pane-right'),
+            activeTabId: ref('tab-empty'),
+            closeTab: (paneId, tabId) => {
+                fenceWhenClosed.push(layoutResizing.value);
+                const pane = panes.value.find(candidate => candidate.paneId === paneId);
+                if (pane) pane.tabIds = pane.tabIds.filter(candidate => candidate !== tabId);
+            },
+        });
+
+        await lifecycle.handleCloseTab('pane-right', 'tab-empty');
+
+        expect(fenceWhenClosed).toEqual([false]);
+        expect(panes.value).toHaveLength(2);
     });
 
     it('keeps closing available when the user leaves the replacement before its view mounts', async () => {
@@ -457,5 +533,255 @@ describe('useAppShellTabLifecycle', () => {
         expect(session.snapshot.value.activeTransaction).toBeNull();
         expect(session.snapshot.value.phase).toBe('empty');
         expect(lifecycle.isTabTransitionBusy.value).toBe(false);
+    });
+});
+
+/** A viewer whose placements the test settles, recording the fence each one saw. */
+function createPlacingViewer(layoutResizing: {value: boolean}) {
+    const placements: {fence: boolean; placement: PromiseWithResolvers<void>}[] = [];
+    return {
+        placements,
+        whenLayoutPlaced: () => {
+            const placement = Promise.withResolvers<void>();
+            placements.push({
+                fence: layoutResizing.value,
+                placement,
+            });
+            return placement.promise;
+        },
+    };
+}
+
+const placedReport = (page: number) => ({
+    kind: 'placed' as const,
+    page,
+    left: 0,
+    top: 900,
+    geometryRevision: 1,
+    interactionEpoch: 0,
+});
+
+describe('workspace layout change', () => {
+    it('ends a split once the unfocused source view and the new view are placed, with no frame waits', async () => {
+        const requestAnimationFrame = vi.fn();
+        Object.assign(globalThis, {requestAnimationFrame});
+        onTestFinished(() => {
+            Reflect.deleteProperty(globalThis, 'requestAnimationFrame');
+        });
+        const scope = effectScope();
+        onTestFinished(() => scope.stop());
+        const layoutResizing = ref(false);
+        const document = createWorkspaceDocumentController({
+            tabId: 'tab-source',
+            assignment: {
+                fileName: 'sample.pdf',
+                originalPath: requireDocumentRef('/tmp/sample.pdf'),
+                isDirty: false,
+                isDjvu: false,
+            },
+        });
+        const presented = cast<IWorkspaceDocumentController>({snapshot: ref({phase: 'presented'})});
+        const activePaneId = ref('pane-source');
+        // A view is shown while it is its pane's active tab, focused or not
+        // (DocumentWorkspace's isActive || isRenderActive).
+        const createView = (paneId: string, surface: ReturnType<typeof createDocumentOpenSurfaceSession>) => {
+            const viewer = createPlacingViewer(layoutResizing);
+            const focused = computed(() => activePaneId.value === paneId);
+            const whenLayoutPlaced = scope.run(() => createViewLayoutReceipt({
+                controller: presented,
+                openSurface: surface,
+                isShown: computed(() => focused.value || true),
+                viewer: () => viewer,
+            }))!;
+            return {
+                focused,
+                viewer,
+                workspace: createWorkspaceExposeFixture({whenLayoutPlaced}),
+            };
+        };
+        const source = createView('pane-source', createDocumentOpenSurfaceSession());
+        document.attachWorkspace('tab-source', source.workspace);
+        // The new view mounts and begins its opening at the source's place.
+        const linkedSurface = createDocumentOpenSurfaceSession();
+        const linked = createView('pane-new', linkedSurface);
+        const sessions = shallowRef<Record<string, IWorkspaceDocumentController>>({'tab-source': document});
+        const panes = ref<IEditorPaneState[]>([createPane('pane-source', 'tab-source', ['tab-source'])]);
+        const tabs = ref<ITab[]>([{id: 'tab-source'}]);
+        const fenceAtSplit: boolean[] = [];
+        const directionalTabs = useAppShellDirectionalTabs(cast<Parameters<typeof useAppShellDirectionalTabs>[0]>({
+            activePaneId,
+            panes,
+            tabs,
+            documentSessionsByTabId: sessions,
+            isTabTransitionBusy: computed(() => false),
+            getPaneById: (paneId: string | null) => panes.value.find(pane => pane.paneId === paneId) ?? null,
+            splitPane: () => {
+                fenceAtSplit.push(layoutResizing.value);
+                panes.value = [...panes.value, createPane('pane-new', null, [])];
+                return 'pane-new';
+            },
+            createTab: () => {
+                tabs.value = [...tabs.value, {id: 'tab-new'}];
+                return {id: 'tab-new'};
+            },
+            linkDocumentView: (sourceTabId: string, targetTabId: string) => {
+                document.addView(targetTabId);
+                document.attachWorkspace(targetTabId, linked.workspace);
+                linkedSurface.begin({
+                    documentId: 'sample.pdf',
+                    documentRevision: 'open-intent:view:tab-new',
+                    provisional: true,
+                }, null, 4);
+                sessions.value = {
+                    ...sessions.value,
+                    [targetTabId]: document,
+                };
+                return sourceTabId === 'tab-source';
+            },
+            // Split Right moves focus to the new pane; the source pane stays shown.
+            activatePane: (paneId: string) => {
+                activePaneId.value = paneId;
+            },
+            enqueueTabTransition: <T>(task: () => Promise<T>) => task(),
+            changeWorkspaceLayout: createWorkspaceLayoutChange({
+                setWorkspaceLayoutResizing: (value) => { layoutResizing.value = value; },
+                documentSessionsByTabId: sessions,
+            }),
+        }));
+
+        let split = false;
+        const splitting = directionalTabs.splitEditor('right').then(() => { split = true; });
+        await vi.waitFor(() => expect(source.viewer.placements).toHaveLength(1));
+        // The views took their point under the fence before the split moved the pane.
+        expect(fenceAtSplit).toEqual([true]);
+        expect(source.focused.value).toBe(false);
+        expect(source.viewer.placements[0]!.fence).toBe(true);
+        // The new view places its opening's point before its viewer relays out.
+        expect(linked.viewer.placements).toHaveLength(0);
+        expect(linkedSurface.reportNavigation(linkedSurface.navigationTicket.value!, placedReport(4))).toBe(true);
+        await vi.waitFor(() => expect(linked.viewer.placements).toHaveLength(1));
+        source.viewer.placements[0]!.placement.resolve();
+        await Promise.resolve();
+        expect(layoutResizing.value).toBe(true);
+        linked.viewer.placements[0]!.placement.resolve();
+
+        // Releasing the fence places each point once more before the split ends.
+        await vi.waitFor(() => expect(source.viewer.placements).toHaveLength(2));
+        await vi.waitFor(() => expect(linked.viewer.placements).toHaveLength(2));
+        expect(layoutResizing.value).toBe(false);
+        expect(split).toBe(false);
+        source.viewer.placements[1]!.placement.resolve();
+        linked.viewer.placements[1]!.placement.resolve();
+        await splitting;
+        expect(requestAnimationFrame).not.toHaveBeenCalled();
+    });
+
+    it('holds the fence until the last of overlapping layout changes ends', async () => {
+        const fence = ref(false);
+        const change = createWorkspaceLayoutChange({
+            setWorkspaceLayoutResizing: (value) => { fence.value = value; },
+            documentSessionsByTabId: shallowRef({}),
+        });
+        const longer = Promise.withResolvers<void>();
+        let longerEnded = false;
+        const longerChange = change(async (enter) => {
+            await enter();
+            await longer.promise;
+        }).then(() => { longerEnded = true; });
+
+        await change(async (enter) => {
+            await enter();
+            expect(fence.value).toBe(true);
+        });
+
+        // The shorter change ends without waiting for the longer one, whose views still need the fence.
+        expect(fence.value).toBe(true);
+        expect(longerEnded).toBe(false);
+        longer.resolve();
+        await longerChange;
+        expect(fence.value).toBe(false);
+    });
+
+    it('raises no fence for a change that moves no pane, and releases it when a change fails', async () => {
+        const fence = ref(false);
+        const fences: boolean[] = [];
+        const change = createWorkspaceLayoutChange({
+            setWorkspaceLayoutResizing: (value) => {
+                fence.value = value;
+                fences.push(value);
+            },
+            documentSessionsByTabId: shallowRef({}),
+        });
+
+        await change(() => undefined);
+        expect(fences).toEqual([]);
+
+        await expect(change(async (enter) => {
+            await enter();
+            throw new Error('split failed');
+        })).rejects.toThrow('split failed');
+        expect(fences).toEqual([true, false]);
+    });
+});
+
+describe('view layout receipt', () => {
+    function createReceipt(phase: 'presented' | 'opening', surface = createDocumentOpenSurfaceSession()) {
+        const scope = effectScope();
+        const isShown = ref(true);
+        const viewerPlaced = vi.fn(async () => undefined);
+        const whenLayoutPlaced = scope.run(() => createViewLayoutReceipt({
+            controller: cast<IWorkspaceDocumentController>({snapshot: ref({phase})}),
+            openSurface: surface,
+            isShown,
+            viewer: () => ({whenLayoutPlaced: viewerPlaced}),
+        }))!;
+        onTestFinished(() => scope.stop());
+        return {
+            isShown,
+            scope,
+            surface,
+            viewerPlaced,
+            whenLayoutPlaced,
+        };
+    }
+
+    it('does not hold a layout change on an open that is still reading its file', async () => {
+        const view = createReceipt('opening');
+        // The source view's surface opens while the file read is held.
+        view.surface.begin({
+            documentId: 'held.pdf',
+            documentRevision: 'open-intent:held',
+            provisional: true,
+        });
+        expect(view.surface.navigationTicket.value).not.toBeNull();
+
+        await view.whenLayoutPlaced();
+
+        expect(view.viewerPlaced).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+        'unmounted',
+        'hidden',
+    ] as const)('settles at once and stops watching when the opening view is %s', async (end) => {
+        const view = createReceipt('presented');
+        view.surface.begin({
+            documentId: 'sample.pdf',
+            documentRevision: 'open-intent:view',
+            provisional: true,
+        }, null, 3);
+        const ticket = view.surface.navigationTicket.value!;
+        let settled = false;
+        const receipt = view.whenLayoutPlaced().then(() => { settled = true; });
+        await Promise.resolve();
+        expect(settled).toBe(false);
+
+        if (end === 'unmounted') view.scope.stop();
+        else view.isShown.value = false;
+        await receipt;
+
+        expect(settled).toBe(true);
+        expect(view.viewerPlaced).not.toHaveBeenCalled();
+        expect(ticket.signal.aborted).toBe(false);
     });
 });

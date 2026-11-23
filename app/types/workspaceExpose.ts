@@ -345,6 +345,8 @@ export interface IWorkspaceExpose extends IWorkspaceDocumentRecoveryPort {
     scrollToPage?: (page: number) => void;
     /** Where the view reads: the point of a page at its center. */
     captureReadingAnchor?: () => IPdfSemanticAnchor | null;
+    /** Settles once the view shows its reading point in its current box (see the view port). */
+    whenLayoutPlaced?: () => Promise<void>;
     /** Follows the reader from now, so their moves outrank a restored place. */
     followReader?: () => IWorkspaceReaderFollow;
 }

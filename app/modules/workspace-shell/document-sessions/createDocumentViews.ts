@@ -9,9 +9,13 @@ import {
     createPdfPageNavigationRequest,
     createPdfReloadWaiter,
     resolvePdfReloadPage,
+    type IDocumentViewerExpose,
     type usePageContextMenu,
 } from '@app/modules/pdf-viewer/public';
-import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
+import {
+    whenDocumentOpeningPlaced,
+    type IDocumentOpenSurfaceSession,
+} from '@app/modules/document-viewer/public';
 import type { useWorkspaceViewerShellState } from '@app/modules/workspace-shell/composables/useWorkspaceViewerShellState';
 import type { useWorkspaceSearchSidebar } from '@app/modules/workspace-shell/composables/useWorkspaceSearchSidebar';
 import type {
@@ -39,6 +43,13 @@ export interface IDocumentViewPort {
     tabId: string;
     isActive: Readonly<Ref<boolean>>;
     openSurface: IDocumentOpenSurfaceSession;
+    /**
+     * Settles once the view shows its reading point in its current box: its
+     * opening's first placement, then the relayout a changed box asks for. A
+     * hidden view, one whose box did not change and one with nothing to place
+     * settle at once; a closed view settles too.
+     */
+    whenLayoutPlaced: () => Promise<void>;
     runDocumentOpen: (request: IWorkspaceOpenRequest, run: () => Promise<TDocumentOpenOutcome>) => Promise<boolean>;
     emitOpenInNewTab: (result: TDocumentRef | TOpenFileResult) => void;
     /** Gives this view a document of its own and runs the open in its new workspace. */
@@ -61,6 +72,34 @@ export interface IDocumentViewPort {
     pageContextMenu: Pick<ReturnType<typeof usePageContextMenu>, 'closePageContextMenu'>;
     closeAnnotationContextMenu: () => void;
     annotationTool: Ref<TAnnotationTool>;
+}
+
+/**
+ * A view's layout receipt, its port's `whenLayoutPlaced`. A view shown in its
+ * pane, focused or not, that opens a presented document first places the
+ * opening's point; an open still reading the file places itself later and
+ * holds no layout change. Its viewer then places the point its box asks for.
+ * The wait ends once the view is hidden or unmounted: it has nothing to place.
+ */
+export function createViewLayoutReceipt(view: {
+    controller: Pick<IWorkspaceDocumentController, 'snapshot'>;
+    openSurface: Pick<IDocumentOpenSurfaceSession, 'navigationTicket' | 'snapshot' | 'viewportSession'>;
+    isShown: Readonly<Ref<boolean>>;
+    viewer: () => Pick<IDocumentViewerExpose, 'whenLayoutPlaced'> | null;
+}) {
+    const mounted = ref(true);
+    onScopeDispose(() => {
+        mounted.value = false;
+    });
+    const isLive = () => mounted.value && view.isShown.value;
+    return async () => {
+        if (isLive() && view.controller.snapshot.value.phase === 'presented') {
+            await whenDocumentOpeningPlaced(view.openSurface, isLive);
+        }
+        if (isLive()) {
+            await view.viewer()?.whenLayoutPlaced?.();
+        }
+    };
 }
 
 /**

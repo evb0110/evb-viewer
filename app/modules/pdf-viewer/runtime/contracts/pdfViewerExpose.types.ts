@@ -95,6 +95,12 @@ export interface IDocumentViewerExpose {
     /** The point of a page at the viewport center, as a relayout keeps it. */
     captureReadingAnchor?: () => IPdfSemanticAnchor | null;
     /**
+     * Settles once the view shows its reading point in its current box, after
+     * the relayout a changed box asks for. An unchanged, hidden or closed view
+     * settles at once: it waits for no layout delivery that will not come.
+     */
+    whenLayoutPlaced?: () => Promise<void>;
+    /**
      * The reader's moves of this view, PDF or DjVu alike, as the chassis's
      * viewport write port counts them: scrolls, wheels, pointer presses and
      * view commands. A new viewer counts from its own start.

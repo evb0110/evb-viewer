@@ -9,6 +9,7 @@ import {
     createDocumentOpenSurfaceSession,
     resolveDocumentOpenSurfaceViewportPolicy,
     shouldProjectDocumentViewportScroll,
+    whenDocumentOpeningPlaced,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import type { IDocumentOpenSurfaceRenderFence } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 
@@ -1887,5 +1888,65 @@ describe('document open surface session', () => {
             details: {fence},
         });
         consoleWarn.mockRestore();
+    });
+
+    it('settles an opening view on its first placement, before its raster', async () => {
+        const session = createDocumentOpenSurfaceSession();
+        let settled = false;
+        // A surface with nothing opening has nothing to wait for.
+        await whenDocumentOpeningPlaced(session);
+        beginSurface(session);
+
+        const ticket = session.navigate(createPageNavigationRequest(3, 'restore'))!;
+        expect(session.viewportSession.value.lifecycle).toBe('opening');
+        const placed = whenDocumentOpeningPlaced(session).then(() => { settled = true; });
+        await Promise.resolve();
+        expect(settled).toBe(false);
+        expect(session.reportNavigation(ticket, {
+            kind: 'placed',
+            page: 3,
+            left: 0,
+            top: 1_600,
+            geometryRevision: 1,
+            interactionEpoch: 0,
+        })).toBe(true);
+        await placed;
+        expect(settled).toBe(true);
+        expect(ticket.signal.aborted).toBe(false);
+    });
+
+    it('settles an opening view whose ticket ends without a placement', async () => {
+        const session = createDocumentOpenSurfaceSession();
+        beginSurface(session);
+        const ticket = session.navigate(createPageNavigationRequest(3, 'restore'))!;
+        const placed = whenDocumentOpeningPlaced(session);
+
+        expect(session.reportNavigation(ticket, {kind: 'abandoned', by: 'user-input'})).toBe(true);
+
+        await expect(placed).resolves.toBeUndefined();
+    });
+
+    it('ends the wait and stops watching once the waiting view is no longer live', async () => {
+        const session = createDocumentOpenSurfaceSession();
+        beginSurface(session);
+        const ticket = session.navigationTicket.value!;
+        const live = ref(true);
+        const isLive = vi.fn(() => live.value);
+        const placed = whenDocumentOpeningPlaced(session, isLive);
+
+        live.value = false;
+        await placed;
+
+        isLive.mockClear();
+        expect(session.reportNavigation(ticket, {
+            kind: 'placed',
+            page: 1,
+            left: 0,
+            top: 0,
+            geometryRevision: 1,
+            interactionEpoch: 0,
+        })).toBe(true);
+        expect(isLive).not.toHaveBeenCalled();
+        expect(ticket.signal.aborted).toBe(false);
     });
 });

@@ -163,6 +163,7 @@ export const usePdfViewerPublicApiController = (
             );
         },
         captureReadingAnchor: () => viewportSession.singlePageScroll.captureRelayoutAnchor(),
+        whenLayoutPlaced: viewportSession.whenLayoutPlaced,
         admitReload: viewportSession.admitReload,
         ensurePageMetricsInRange: documentSession.ensurePageMetricsInRange,
         pageMetrics: documentSession.pageMetrics,

@@ -1144,6 +1144,8 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         viewportAuthority,
         submitNavigationRequest,
         relayout,
+        /** The receipt of the layout change waiting for its flush, or null when none is. */
+        pendingRelayoutReceipt: () => pendingRelayout?.receipt ?? null,
         captureRelayoutAnchor,
         captureCurrentSemanticAnchor,
         navigationAnchorPage,

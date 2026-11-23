@@ -39,6 +39,7 @@ import {
     type IDocumentPageSource,
     type IDocumentRenderLease,
 } from '@app/modules/document-viewer/public';
+import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
 
 const mocks = vi.hoisted(() => ({
     createDjvuPagePreviewSourceFromPath: vi.fn(),
@@ -59,6 +60,8 @@ interface IWorkspaceOpenSettleHarness {
     initialVisualReady: Ref<boolean>;
     totalPages: Ref<number>;
     documentOpenSettled: Readonly<Ref<boolean>>;
+    /** What the mounted feature pack exposes to the shell. */
+    viewer?: Readonly<Ref<IDocumentViewerExpose | null>>;
 }
 
 function createWorkspaceOpenSettleHarness(): IWorkspaceOpenSettleHarness {
@@ -103,7 +106,7 @@ function createFeaturePackHost(
         setup() {
             const authority = createDocumentViewerRuntime(ref('djvu'), surface);
             const totalPages = ref(0);
-            const featurePack = shallowRef<{isDocumentLoading?: () => boolean} | null>(null);
+            const featurePack = shallowRef<IDocumentViewerExpose & {isDocumentLoading?: () => boolean} | null>(null);
             // The shell reads the renderer's loading live from what it exposes.
             const isLoading = computed(() => featurePack.value?.isDocumentLoading?.() ?? false);
             const settle = useDocumentOpenVisualSettle({
@@ -116,6 +119,7 @@ function createFeaturePackHost(
             settleHarness.initialVisualReady = settle.initialDocumentVisualReady;
             settleHarness.totalPages = totalPages;
             settleHarness.documentOpenSettled = settle.documentOpenSettled;
+            settleHarness.viewer = featurePack;
             provide(documentViewerRuntimeKey, authority);
             return () => {
                 const snapshot = surface.snapshot.value;
@@ -182,6 +186,56 @@ async function flushOpeningFrame() {
     await new Promise<void>(resolve => setImmediate(resolve));
     vi.advanceTimersToNextFrame();
     await new Promise<void>(resolve => setImmediate(resolve));
+}
+
+/** A 5-page DjVu shown at page 3 in a 900x700 box, its first page painted and placed. */
+async function mountPlacedDjvu(isActive = ref(true), isResizing = ref(false)) {
+    layOutLoadedPages();
+    mocks.createDjvuPagePreviewSourceFromPath.mockImplementation(async (path: TDocumentRef) => ({path}));
+    const documentRef = '/documents/split.djvu' as TDocumentRef;
+    const source = createPageSource(documentRef, 5);
+    mocks.createDjvuPageSource.mockResolvedValue(source);
+    const surface = createDocumentOpenSurfaceSession();
+    surface.begin({
+        documentId: documentRef,
+        documentRevision: 'open-intent:split',
+        provisional: true,
+    }, null, 1);
+    surface.navigate(createPageNavigationRequest(3, 'restore'));
+    const settle = createWorkspaceOpenSettleHarness();
+    const root = document.createElement('div');
+    document.body.append(root);
+    const app = createApp(createFeaturePackHost(surface, documentRef, ref<unknown[]>([]), settle, isResizing, isActive));
+    app.component('USkeleton', defineComponent({setup: () => () => h('span')}));
+    app.component('UButton', defineComponent({
+        props: ['label'],
+        setup: props => () => h('button', props.label),
+    }));
+    app.mount(root);
+    const unmount = () => {
+        app.unmount();
+        root.remove();
+        mountedApps.delete(unmount);
+    };
+    mountedApps.add(unmount);
+    await vi.waitFor(() => expect(settle.documentOpenSettled.value).toBe(true));
+    const viewer = settle.viewer!.value!;
+    const pageWidth = () => root.querySelector<HTMLElement>('[data-testid="document-page-source-page"]')!.style.width;
+    // The rendered page publishes its metrics, whose restore frame places the opening's point.
+    const image = await vi.waitFor(() => {
+        const rendered = root.querySelector<HTMLImageElement>('[data-testid="document-page-source-image"]:not([data-page-source-candidate])');
+        expect(rendered).not.toBeNull();
+        return rendered!;
+    });
+    image.dispatchEvent(new Event('load'));
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    return {
+        isActive,
+        isResizing,
+        pageWidth,
+        surface,
+        viewer,
+    };
 }
 
 describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
@@ -454,6 +508,74 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
         await vi.waitFor(() => expect(settle.documentOpenSettled.value).toBe(true));
         expect(committedPages[0]).toBe(3);
         expect(surface.viewportSession.value.committedPage).toBe(3);
+    });
+
+    it('places the DjVu reading page in a resized box before its layout receipt settles', async () => {
+        const {
+            isActive, pageWidth, surface, viewer,
+        } = await mountPlacedDjvu();
+        const settled: string[] = [];
+        const frames = vi.spyOn(window, 'requestAnimationFrame');
+
+        // An unchanged box places nothing and waits for no frame.
+        void viewer.whenLayoutPlaced!().then(() => settled.push('unchanged'));
+        await vi.waitFor(() => expect(settled).toEqual(['unchanged']));
+        expect(frames).not.toHaveBeenCalled();
+        const wideWidth = pageWidth();
+
+        // A split narrows the pane; no ResizeObserver delivery is needed.
+        vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(450);
+        await viewer.whenLayoutPlaced!();
+        // The receipt waited for the restore frame that placed the point in the narrower layout.
+        expect(frames).toHaveBeenCalled();
+        expect(pageWidth()).not.toBe(wideWidth);
+        expect(viewer.getCurrentPage?.()).toBe(3);
+        expect(surface.viewportSession.value.committedPage).toBe(3);
+
+        // A hidden view has nothing to place.
+        isActive.value = false;
+        await nextTick();
+        vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(900);
+        frames.mockClear();
+        await viewer.whenLayoutPlaced!();
+        expect(frames).not.toHaveBeenCalled();
+    });
+
+    it('settles the DjVu layout receipt through a resize release, a navigation and a hidden view', async () => {
+        const {
+            isActive, isResizing, viewer,
+        } = await mountPlacedDjvu();
+        const frames = vi.spyOn(window, 'requestAnimationFrame');
+        const track = () => {
+            const state = {settled: false};
+            void viewer.whenLayoutPlaced!().then(() => { state.settled = true; });
+            return state;
+        };
+
+        // The fence falls: the restore it queues is the receipt's.
+        isResizing.value = true;
+        await nextTick();
+        isResizing.value = false;
+        await nextTick();
+        const released = track();
+        await nextTick();
+        await nextTick();
+        expect(released.settled).toBe(false);
+        await vi.waitFor(() => expect(released.settled).toBe(true));
+        expect(frames).toHaveBeenCalled();
+
+        // A navigation lands while a resize restore waits for its frame.
+        vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(600);
+        const navigated = track();
+        viewer.scrollToPage(2);
+        await vi.waitFor(() => expect(navigated.settled).toBe(true));
+        expect(viewer.getCurrentPage?.()).toBe(2);
+
+        // The view is hidden while a resize restore waits for its frame.
+        vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(450);
+        const hidden = track();
+        isActive.value = false;
+        await vi.waitFor(() => expect(hidden.settled).toBe(true));
     });
 
     it('settles a retained source in a same-file replacement opening', async () => {

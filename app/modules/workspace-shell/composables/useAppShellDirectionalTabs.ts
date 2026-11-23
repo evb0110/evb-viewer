@@ -22,8 +22,8 @@ import type {
 import { hasElectronAPI } from '@app/utils/platform';
 import { isBrowserDocumentRef } from '@app/utils/documentRef';
 import { getDocumentWindowCapability } from '@app/utils/platformDocuments';
-import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import type { TChangeWorkspaceLayout } from '@app/modules/workspace-shell/composables/workspaceLayoutChange';
 
 const DIRECTION_ORDER = [
     'left',
@@ -57,7 +57,7 @@ interface IUseAppShellDirectionalTabsOptions {
     linkDocumentView: (sourceTabId: string, targetTabId: string) => boolean;
     isSingletonPlaceholderCloseBlocked: (paneId: string, tabId: string) => boolean;
     enqueueTabTransition: <T>(task: () => Promise<T>) => Promise<T>;
-    setWorkspaceLayoutResizing?: ((value: boolean) => void) | undefined;
+    changeWorkspaceLayout: TChangeWorkspaceLayout;
     moveTabToNewWindow: (tabId: string) => Promise<void>;
     moveTabToWindow: (windowId: number, tabId: string) => Promise<void>;
     handleCloseTab: (paneId: string, tabId: string) => Promise<void>;
@@ -169,11 +169,11 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
 
     // Split Right/Down shows the active tab's PDF in the new pane as a second
     // view of the same document, also while that PDF is still opening; New
-    // Pane and anything that is not a PDF open an empty pane.
-    async function splitEditorInto(direction: TPaneDirection, linkSourceDocument: boolean) {
-        options.setWorkspaceLayoutResizing?.(true);
-        await nextTick();
-        try {
+    // Pane and anything that is not a PDF open an empty pane. The split ends
+    // once the views it resized and the new pane's view are placed.
+    function splitEditorInto(direction: TPaneDirection, linkSourceDocument: boolean) {
+        return options.changeWorkspaceLayout(async (fence) => {
+            await fence();
             await enqueueTabTransition(() => {
                 const sourcePane = getPaneById(activePaneId.value);
                 if (!sourcePane) {
@@ -194,20 +194,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
                 activatePane(newPaneId);
                 return Promise.resolve();
             });
-            await nextTick();
-            // The split state can trigger a second layout and ResizeObserver
-            // delivery after the first Vue patch. Keep the viewer's resize
-            // fence open through both visual frames so its existing semantic
-            // anchor restore runs before the browser paints the settled track.
-            await waitForVisualFrames({frames: 2});
-        } finally {
-            options.setWorkspaceLayoutResizing?.(false);
-            // Releasing the resize fence schedules one more layout and
-            // ResizeObserver delivery. Keep the split transition alive for
-            // those painted frames so the retained document anchor settles
-            // before callers observe the completed split.
-            await waitForVisualFrames({frames: 2});
-        }
+        });
     }
 
     const splitEditor = (direction: TPaneDirection) => splitEditorInto(direction, true);
