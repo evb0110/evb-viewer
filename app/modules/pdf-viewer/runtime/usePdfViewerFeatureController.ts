@@ -413,7 +413,6 @@ export const usePdfViewerFeatureController = (
         viewerContainer,
         documentSession,
         viewportSession,
-        getUserViewportInteractionEpoch: () => viewportSession.userViewportInteractionEpoch.value,
         cancelPendingSearchScroll: () => renderingSession.cancelPendingSearchScroll(),
         annotationSession,
         waitForViewerLoadSettled: documentSession.waitForLoadSettled,

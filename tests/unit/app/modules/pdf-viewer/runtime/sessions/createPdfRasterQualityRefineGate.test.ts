@@ -14,12 +14,12 @@ const QUALITY_REFINE_INPUT_IDLE_MS = 160;
 
 function createGate(overrides: {
     hasActiveTransaction?: () => boolean;
-    getUserViewportInteractionEpoch?: () => number;
+    getInteractionEpoch?: () => number;
 } = {}) {
     const requestReconcileFrame = vi.fn();
     const gate = createPdfRasterQualityRefineGate({
         getClampedVisibleRefineMode: () => 'input-idle',
-        getUserViewportInteractionEpoch: overrides.getUserViewportInteractionEpoch ?? (() => 1),
+        getInteractionEpoch: overrides.getInteractionEpoch ?? (() => 1),
         hasActiveTransaction: overrides.hasActiveTransaction ?? (() => false),
         requestReconcileFrame,
     });
@@ -43,7 +43,7 @@ describe('createPdfRasterQualityRefineGate', () => {
         const requestReconcileFrame = vi.fn();
         const gate = createPdfRasterQualityRefineGate({
             getClampedVisibleRefineMode: () => 'immediate',
-            getUserViewportInteractionEpoch: () => 1,
+            getInteractionEpoch: () => 1,
             hasActiveTransaction: () => true,
             requestReconcileFrame,
         });
@@ -98,7 +98,7 @@ describe('createPdfRasterQualityRefineGate', () => {
         const {
             gate,
             requestReconcileFrame,
-        } = createGate({getUserViewportInteractionEpoch: () => epoch});
+        } = createGate({getInteractionEpoch: () => epoch});
 
         vi.advanceTimersByTime(120);
         expect(gate.canRefineVisibleRaster()).toBe(false);

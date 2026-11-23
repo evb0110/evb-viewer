@@ -1,4 +1,8 @@
-import { ref } from 'vue';
+import {
+    readonly,
+    ref,
+    shallowRef,
+} from 'vue';
 import type {
     IPdfViewportWrite,
     IPdfViewportWritePort,
@@ -7,10 +11,16 @@ import type {
 export function createTestPdfViewportWritePort() {
     const writes: IPdfViewportWrite[] = [];
     let interactionEpoch = 0;
+    const interactionEpochSignal = shallowRef(0);
     let sequence = 0;
     const commandFences: number[] = [];
     const userScrollSuppressed = ref(false);
     let commandResidueLive = false;
+    // Like the real port, a scroll the user made is reader input.
+    function observeUserInteraction() {
+        interactionEpoch += 1;
+        interactionEpochSignal.value = interactionEpoch;
+    }
     const port: IPdfViewportWritePort = {
         beginIntent(intentId) {
             return {
@@ -28,10 +38,9 @@ export function createTestPdfViewportWritePort() {
         },
         consumeAuthorityScroll: () => false,
         getInteractionEpoch: () => interactionEpoch,
-        observeUserInteraction: () => {
-            interactionEpoch += 1;
-        },
-        observeUserScroll: () => {},
+        interactionEpochSignal: readonly(interactionEpochSignal),
+        observeUserInteraction,
+        observeUserScroll: observeUserInteraction,
         observeZoomPacket: () => {},
         fenceCommandAgainstLiveGesture: () => {
             commandFences.push(++sequence);

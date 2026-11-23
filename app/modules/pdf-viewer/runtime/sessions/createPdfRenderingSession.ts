@@ -875,7 +875,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     }
     const qualityRefineGate = createPdfRasterQualityRefineGate({
         getClampedVisibleRefineMode: () => options.performancePolicy.clampedVisibleRefineMode,
-        getUserViewportInteractionEpoch: () => viewport.userViewportInteractionEpoch.value,
+        getInteractionEpoch: () => viewport.viewportWritePort.getInteractionEpoch(),
         hasActiveTransaction: () => viewport.viewportWork.activeWorkKind.value !== null,
         requestReconcileFrame: () => queueFrame(),
     });

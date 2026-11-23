@@ -4,7 +4,8 @@ const QUALITY_REFINE_INPUT_IDLE_MS = 160;
 
 export interface ICreatePdfRasterQualityRefineGateOptions {
     getClampedVisibleRefineMode: () => TPdfClampedVisibleRefineMode | undefined;
-    getUserViewportInteractionEpoch: () => number;
+    /** The view write port's physical-interaction epoch. */
+    getInteractionEpoch: () => number;
     hasActiveTransaction: () => boolean;
     requestReconcileFrame: () => void;
 }
@@ -29,7 +30,7 @@ export function createPdfRasterQualityRefineGate(
     options: ICreatePdfRasterQualityRefineGateOptions,
 ): IPdfRasterQualityRefineGate {
     let idleTimer: number | null = null;
-    let observedInteractionEpoch = options.getUserViewportInteractionEpoch();
+    let observedInteractionEpoch = options.getInteractionEpoch();
     let lastInteractionAtMs = Date.now();
 
     function clearIdleTimer() {
@@ -40,7 +41,7 @@ export function createPdfRasterQualityRefineGate(
     }
 
     function synchronizeViewportInteractionEpoch() {
-        const epoch = options.getUserViewportInteractionEpoch();
+        const epoch = options.getInteractionEpoch();
         if (epoch !== observedInteractionEpoch) {
             observedInteractionEpoch = epoch;
             lastInteractionAtMs = Date.now();

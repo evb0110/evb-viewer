@@ -39,7 +39,6 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             return;
         }
         const rect = container.getBoundingClientRect();
-        options.markUserViewportInteraction();
         options.relayout(undefined, options.captureRelayoutAnchor({
             x: clamp(event.clientX - rect.left, 0, Math.max(container.clientWidth, 0)),
             y: clamp(event.clientY - rect.top, 0, Math.max(container.clientHeight, 0)),
@@ -56,6 +55,9 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         if (interaction.intent === 'zoom') {
             lastZoomPacketAt = performance.now();
             if (options.isReady()) {
+                // A pinch is the reader taking the view even at a zoom limit,
+                // where it changes no scale.
+                options.markUserViewportInteraction();
                 handleWheelZoom(interaction);
             } else {
                 event.preventDefault();

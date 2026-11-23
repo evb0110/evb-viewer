@@ -57,10 +57,17 @@ import {
     type IDocumentNavigationTicket,
     type TDocumentNavigationOutcome,
 } from '@app/modules/document-viewer/navigation/documentNavigationRequest';
-import { fenceDocumentViewportPaneRelocationScroll } from '@app/modules/document-viewer/runtime/documentViewportWritePort';
+import {
+    createDocumentViewportWritePort,
+    fenceDocumentViewportPaneRelocationScroll,
+    observeDocumentViewportWheelInteraction,
+} from '@app/modules/document-viewer/runtime/documentViewportWritePort';
+import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
 import { createTestPdfViewportWritePort } from '@tests/helpers/createTestPdfViewportWritePort';
+import { usePdfViewerWheelZoom } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerWheelZoom';
+import { ZOOM } from '@app/constants/pdfLayout';
 import type {IFailureToastTarget} from '@app/composables/useFailureToast';
 import {renderToString} from 'vue/server-renderer';
 import {requireEpochMs} from '@contracts/timestamps';
@@ -236,6 +243,8 @@ function createViewportFixture(input: {
     /** Attaches a rendering session whose rasters go through this scheduler. */
     rasterScheduler?: IPdfPageRasterScheduler;
     rasterDemand?: Ref<IPdfViewportDemand>;
+    /** The view's real write port, for sequences whose verdict the port owns. */
+    viewportWritePort?: IPdfViewportWritePort;
     viewMode?: 'single' | 'facing' | 'facing-first-single';
     zoom?: Ref<number>;
     zoomMode?: 'custom' | 'fit-width' | 'fit-height';
@@ -255,7 +264,7 @@ function createViewportFixture(input: {
     const isActive = input.isActive ?? ref(true);
     const emittedPages: number[] = [];
     const viewportWrites = createTestPdfViewportWritePort();
-    const {port} = viewportWrites;
+    const port = input.viewportWritePort ?? viewportWrites.port;
     let rendering: ReturnType<typeof createPdfRenderingSession> | undefined;
     let viewport: ReturnType<typeof createPdfViewportSession> | undefined;
     const root = document.createElement('div');
@@ -350,6 +359,7 @@ function createViewportFixture(input: {
         fitMode,
         isActive,
         outputScale,
+        viewerContainer,
         viewport,
         viewportWrites,
         rendering,
@@ -1571,6 +1581,8 @@ describe('PdfViewportSession behavior', () => {
             ]));
             const cancellationRevision = fixture.viewport.cancelRasterRevision.value;
             if (interaction === 'wheel') {
+                // The chassis reports the packet to the write port first.
+                fixture.viewport.viewportWritePort.observeUserInteraction(fixture.container);
                 fixture.viewport.markUserViewportInteraction();
             } else {
                 fixture.container.scrollTop = 200;
@@ -1800,12 +1812,12 @@ describe('PdfViewportSession behavior', () => {
             }));
             fixture.documentSession.pageMetricsVersion.value += 1;
             await nextTick();
-            const epoch = fixture.viewport.userViewportInteractionEpoch.value;
+            const epoch = fixture.viewport.viewportWritePort.getInteractionEpoch();
 
             fixture.container.scrollTop = 10_000;
             fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
 
-            expect(fixture.viewport.userViewportInteractionEpoch.value).toBe(epoch + 1);
+            expect(fixture.viewport.viewportWritePort.getInteractionEpoch()).toBe(epoch + 1);
             expect(fixture.viewport.currentPage.value).toBeGreaterThan(1);
             expect(fixture.viewport.visibleRange.value.start).toBeGreaterThan(1);
             expect(fixture.emittedPages.at(-1)).toBe(fixture.viewport.currentPage.value);
@@ -1831,7 +1843,7 @@ describe('PdfViewportSession behavior', () => {
             fixture.container.scrollTop = 300;
             fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
             setCurrentPage(fixture.viewport, 4);
-            const interactionEpoch = fixture.viewport.userViewportInteractionEpoch.value;
+            const interactionEpoch = fixture.viewport.viewportWritePort.getInteractionEpoch();
             const visibleRange = {...fixture.viewport.visibleRange.value};
             expect(fixture.viewport.currentPage.value).toBe(4);
 
@@ -1841,7 +1853,7 @@ describe('PdfViewportSession behavior', () => {
             fenceDocumentViewportPaneRelocationScroll(fixture.container);
             fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
 
-            expect(fixture.viewport.userViewportInteractionEpoch.value).toBe(interactionEpoch);
+            expect(fixture.viewport.viewportWritePort.getInteractionEpoch()).toBe(interactionEpoch);
             expect(fixture.viewport.currentPage.value).toBe(4);
             expect(fixture.viewport.visibleRange.value).toEqual(visibleRange);
         } finally {
@@ -1902,13 +1914,13 @@ describe('PdfViewportSession behavior', () => {
             setCurrentPage(fixture.viewport, 4);
             fixture.isActive.value = false;
             await nextTick();
-            const interactionEpoch = fixture.viewport.userViewportInteractionEpoch.value;
+            const interactionEpoch = fixture.viewport.viewportWritePort.getInteractionEpoch();
             expect(fixture.viewport.currentPage.value).toBe(4);
 
             fixture.container.scrollTop = 700;
             fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
 
-            expect(fixture.viewport.userViewportInteractionEpoch.value).toBe(interactionEpoch + 1);
+            expect(fixture.viewport.viewportWritePort.getInteractionEpoch()).toBe(interactionEpoch + 1);
             expect(fixture.viewport.currentPage.value).toBeGreaterThan(4);
         } finally {
             fixture.app.unmount();
@@ -1965,11 +1977,12 @@ describe('PdfViewportSession behavior', () => {
         const fixture = createViewportFixture({isResizing: ref(true)});
         try {
             await nextTick();
+            fixture.viewport.viewportWritePort.observeUserInteraction(fixture.container);
             fixture.viewport.markUserViewportInteraction();
-            const epoch = fixture.viewport.userViewportInteractionEpoch.value;
+            const epoch = fixture.viewport.viewportWritePort.getInteractionEpoch();
             fixture.container.scrollTop = 2_000;
             fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
-            expect(fixture.viewport.userViewportInteractionEpoch.value).toBe(epoch + 1);
+            expect(fixture.viewport.viewportWritePort.getInteractionEpoch()).toBe(epoch + 1);
             expect(fixture.viewport.currentPage.value).toBeGreaterThan(1);
         } finally {
             fixture.app.unmount();
@@ -2030,25 +2043,322 @@ describe('PdfViewportSession behavior', () => {
                 fixture.viewport.viewportWritePort,
                 'consumeAuthorityScroll',
             ).mockReturnValueOnce(true).mockReturnValue(false);
-            const epoch = fixture.viewport.userViewportInteractionEpoch.value;
+            const epoch = fixture.viewport.viewportWritePort.getInteractionEpoch();
 
             // The echo moves the rendered range but does not reinterpret the
             // page the viewer placed.
             fixture.container.scrollTop = 5_000;
             fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
-            expect(fixture.viewport.userViewportInteractionEpoch.value).toBe(epoch);
+            expect(fixture.viewport.viewportWritePort.getInteractionEpoch()).toBe(epoch);
             expect(fixture.viewport.visibleRange.value.start).toBeGreaterThan(1);
             expect(fixture.viewport.currentPage.value).toBe(1);
 
             // The user's own scroll moves the page indicator onto a visible page.
             fixture.container.scrollTop = 7_500;
             fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
-            expect(fixture.viewport.userViewportInteractionEpoch.value).toBe(epoch + 1);
+            expect(fixture.viewport.viewportWritePort.getInteractionEpoch()).toBe(epoch + 1);
             expect(fixture.viewport.currentPage.value).toBeGreaterThanOrEqual(fixture.viewport.visibleRange.value.start);
             expect(fixture.viewport.currentPage.value).toBeLessThanOrEqual(fixture.viewport.visibleRange.value.end);
         } finally {
             fixture.app.unmount();
         }
+    });
+
+    describe('one physical-interaction stream', () => {
+        // 100 pages of 100 px in an 800 px viewport.
+        async function createStreamFixture(port: IPdfViewportWritePort = createDocumentViewportWritePort()) {
+            const fixture = createViewportFixture({
+                bufferPages: 0,
+                pageCount: 100,
+                viewportWritePort: port,
+            });
+            fixture.documentSession.basePageHeight.value = 100;
+            fixture.documentSession.pageMetrics.value = Array.from({length: 100}, () => ({
+                width: 600,
+                height: 100,
+            }));
+            fixture.documentSession.pageMetricsVersion.value += 1;
+            await nextTick();
+            return fixture;
+        }
+        function readStream(fixture: ReturnType<typeof createViewportFixture>) {
+            const port = fixture.viewport.viewportWritePort;
+            return {
+                epoch: port.getInteractionEpoch(),
+                signal: port.interactionEpochSignal.value,
+                demandRevision: fixture.viewport.demand.value.revision,
+            };
+        }
+        function zoomPacket(timeStamp: number) {
+            return {
+                intent: 'zoom' as const,
+                deltaPx: -40,
+                event: {
+                    timeStamp,
+                    clientX: 400,
+                    clientY: 400,
+                    deltaX: 0,
+                    deltaY: -40,
+                    cancelable: true,
+                    defaultPrevented: false,
+                    preventDefault: vi.fn(),
+                },
+            };
+        }
+        /** Delivers a clamp in the same frame as an authored write, before its scroll event. */
+        function writeThenClamp(fixture: ReturnType<typeof createViewportFixture>, top: number, maxTop: number) {
+            const port = fixture.viewport.viewportWritePort;
+            port.apply(fixture.container, {
+                intent: port.beginIntent('navigation-placement'),
+                reason: 'test-navigation',
+                top,
+            });
+            defineDimension(fixture.container, 'scrollHeight', maxTop + 800);
+            fixture.container.scrollTop = maxTop;
+        }
+
+        it('does not count the clamp that a navigation handoff release causes', async () => {
+            const fixture = await createStreamFixture();
+            try {
+                const port = fixture.viewport.viewportWritePort;
+                // A navigation wrote page 34 while earlier pages kept their
+                // painted scale; the browser echoes the write.
+                port.apply(fixture.container, {
+                    intent: port.beginIntent('navigation-handoff'),
+                    reason: 'test-navigation',
+                    top: 3_341,
+                });
+                fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+                const before = readStream(fixture);
+
+                // Releasing them shortens the document under that offset.
+                defineDimension(fixture.container, 'scrollHeight', 3_333);
+                fixture.container.scrollTop = 2_533;
+                fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+                await nextTick();
+                expect(readStream(fixture)).toMatchObject({
+                    epoch: before.epoch,
+                    signal: before.signal,
+                });
+
+                // The reader's own scroll at that end and above it is input.
+                fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+                expect(port.getInteractionEpoch()).toBe(before.epoch + 1);
+                fixture.container.scrollTop = 2_400;
+                fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+                expect(port.getInteractionEpoch()).toBe(before.epoch + 2);
+            } finally {
+                fixture.app.unmount();
+            }
+        });
+
+        it('does not count a residue scroll echo of a superseded gesture', async () => {
+            const viewportWrites = createTestPdfViewportWritePort();
+            const fixture = await createStreamFixture(viewportWrites.port);
+            try {
+                fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(40));
+                await vi.waitFor(() => {
+                    expect(fixture.viewport.singlePageScroll.navigationAnchorPage.value).toBe(40);
+                });
+                const before = readStream(fixture);
+
+                // The compositor applies one more inertial delta of the
+                // gesture the navigation superseded.
+                viewportWrites.setCommandResidueLive(true);
+                fixture.container.scrollTop += 30;
+                fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+                await nextTick();
+                expect(readStream(fixture).epoch).toBe(before.epoch);
+                expect(fixture.viewport.singlePageScroll.navigationAnchorPage.value).toBe(40);
+
+                // A later scroll of the reader's own takes the viewport.
+                viewportWrites.setCommandResidueLive(false);
+                fixture.container.scrollTop += 300;
+                fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+                expect(readStream(fixture).epoch).toBe(before.epoch + 1);
+                expect(fixture.viewport.singlePageScroll.navigationAnchorPage.value).toBeNull();
+            } finally {
+                fixture.app.unmount();
+            }
+        });
+
+        it('counts a zoom gesture once, at its start', async () => {
+            const fixture = await createStreamFixture();
+            try {
+                const port = fixture.viewport.viewportWritePort;
+                const before = readStream(fixture);
+
+                observeDocumentViewportWheelInteraction(port, zoomPacket(1_000), fixture.container);
+                observeDocumentViewportWheelInteraction(port, zoomPacket(1_016), fixture.container);
+                observeDocumentViewportWheelInteraction(port, zoomPacket(1_032), fixture.container);
+                await nextTick();
+
+                // The render demand, and the raster refine window it
+                // restarts, follow the same single interaction.
+                expect(readStream(fixture)).toEqual({
+                    epoch: before.epoch + 1,
+                    signal: before.signal + 1,
+                    demandRevision: before.demandRevision + 1,
+                });
+            } finally {
+                fixture.app.unmount();
+            }
+        });
+
+        it('does not count a clamp that lands before the authored write echoes', async () => {
+            const fixture = await createStreamFixture();
+            try {
+                const port = fixture.viewport.viewportWritePort;
+                fixture.container.scrollTop = 2_000;
+                fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+                const before = port.getInteractionEpoch();
+
+                // One scroll event reports both the write and the clamp.
+                writeThenClamp(fixture, 3_341, 2_533);
+                fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+
+                expect(port.getInteractionEpoch()).toBe(before);
+            } finally {
+                fixture.app.unmount();
+            }
+        });
+
+        it('reads a drag to the end of a shorter next document as reader input', async () => {
+            const fixture = await createStreamFixture();
+            try {
+                const port = fixture.viewport.viewportWritePort;
+                fixture.container.scrollTop = 3_500;
+                fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+                await fixture.documentSession.emit(transition('invalidated', {
+                    isReload: false,
+                    isSelectiveReload: false,
+                    pagesToInvalidate: null,
+                    preserveVisibleContent: false,
+                    preservePageStructure: false,
+                }));
+                const before = port.getInteractionEpoch();
+
+                defineDimension(fixture.container, 'scrollHeight', 1_800);
+                fixture.container.scrollTop = 1_000;
+                fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+
+                expect(port.getInteractionEpoch()).toBe(before + 1);
+            } finally {
+                fixture.app.unmount();
+            }
+        });
+
+        it('reads a drag to the end of a replacement viewport as reader input', async () => {
+            const fixture = await createStreamFixture();
+            try {
+                const port = fixture.viewport.viewportWritePort;
+                fixture.container.scrollTop = 3_500;
+                fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+
+                const replacement = document.createElement('div');
+                defineDimension(replacement, 'clientHeight', 800);
+                defineDimension(replacement, 'clientWidth', 800);
+                defineDimension(replacement, 'scrollHeight', 1_800);
+                fixture.viewerContainer.value = replacement;
+                const before = port.getInteractionEpoch();
+                replacement.scrollTop = 1_000;
+                fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+
+                expect(port.getInteractionEpoch()).toBe(before + 1);
+            } finally {
+                fixture.app.unmount();
+            }
+        });
+
+        it('lets a pinch at the zoom limit take the view from a navigation, counted once', async () => {
+            const fixture = await createStreamFixture();
+            try {
+                const port = fixture.viewport.viewportWritePort;
+                const setZoom = vi.fn();
+                const {handleViewerWheel} = usePdfViewerWheelZoom({
+                    viewerContainer: fixture.viewerContainer,
+                    isReady: () => true,
+                    effectiveScale: ref(ZOOM.MAX),
+                    readZoom: () => ({
+                        state: {
+                            kind: 'custom',
+                            scale: ZOOM.MAX,
+                        },
+                        manualScale: ZOOM.MAX,
+                        set: setZoom,
+                    }),
+                    handlePagedWheel: fixture.viewport.singlePageScroll.handleWheel,
+                    cancelPendingSearchScroll: () => {},
+                    markUserViewportInteraction: fixture.viewport.markUserViewportInteraction,
+                    captureRelayoutAnchor: fixture.viewport.singlePageScroll.captureRelayoutAnchor,
+                    relayout: fixture.viewport.singlePageScroll.relayout,
+                    isSnipActive: () => false,
+                });
+                fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(40));
+                await vi.waitFor(() => {
+                    expect(fixture.viewport.singlePageScroll.navigationAnchorPage.value).toBe(40);
+                });
+                const before = port.getInteractionEpoch();
+
+                // The chassis reports each pinch packet, then the viewer handles it.
+                for (const timeStamp of [
+                    1_000,
+                    1_016,
+                    1_032,
+                ]) {
+                    const packet = zoomPacket(timeStamp);
+                    observeDocumentViewportWheelInteraction(port, packet, fixture.container);
+                    handleViewerWheel(packet);
+                }
+
+                expect(setZoom).not.toHaveBeenCalled();
+                expect(fixture.viewport.singlePageScroll.navigationAnchorPage.value).toBeNull();
+                expect(port.getInteractionEpoch()).toBe(before + 1);
+            } finally {
+                fixture.app.unmount();
+            }
+        });
+
+        it('counts a scrollbar drag that no wheel packet announced', async () => {
+            const fixture = await createStreamFixture();
+            try {
+                const before = readStream(fixture);
+
+                fixture.container.scrollTop = 450;
+                fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+                await nextTick();
+
+                const after = readStream(fixture);
+                expect(after.epoch).toBe(before.epoch + 1);
+                expect(after.signal).toBe(after.epoch);
+                expect(after.demandRevision).toBeGreaterThan(before.demandRevision);
+                expect(fixture.viewport.currentPage.value).toBeGreaterThan(1);
+            } finally {
+                fixture.app.unmount();
+            }
+        });
+
+        it('treats keyboard paging as a command, not reader input', async () => {
+            const fixture = await createStreamFixture();
+            try {
+                const before = readStream(fixture);
+
+                // PageDown reaches the viewer as a page navigation.
+                fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(30));
+                await vi.waitFor(() => {
+                    expect(fixture.viewport.currentPage.value).toBe(30);
+                });
+                // The browser echoes the navigation's own write.
+                fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+                await nextTick();
+
+                expect(fixture.container.scrollTop).toBeGreaterThan(0);
+                expect(readStream(fixture).epoch).toBe(before.epoch);
+                expect(fixture.viewport.currentPage.value).toBe(30);
+            } finally {
+                fixture.app.unmount();
+            }
+        });
     });
 
     it('protects the complete facing-page target row and stops layout writes after cancellation', async () => {

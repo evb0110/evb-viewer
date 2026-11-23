@@ -70,6 +70,8 @@ interface IPdfViewportWork {
 
 interface IViewportAuthorityDependencies {
     getDocumentRevision(): number;
+    /** The view write port's physical-interaction epoch, which intents and commits record. */
+    getInteractionEpoch(): number;
     getGeometryRevision(): number;
     resolveIndicatorPage?(anchor: IPdfSemanticAnchor, previousPage: number): number;
     isIntentCurrent?(intent: IPdfViewportIntent): boolean;
@@ -139,9 +141,11 @@ function awaitWithAbort<T>(
 /**
  * Owns the one viewport operation in flight: a placement intent, or layout
  * work that moves the viewport without one. Page geometry is final for a
- * document revision, so an intent is fenced only by the document, the user's
- * interaction epoch and its own identity; it resolves against the layout at
- * the moment it applies.
+ * document revision, so an intent is fenced only by the document and its own
+ * identity; it resolves against the layout at the moment it applies. Reader
+ * input ends it through `observeUserScroll`. Wheel packets of a paged flip's
+ * own gesture also advance the port's epoch, so the epoch is recorded, not
+ * compared.
  */
 export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
     const terminalOutcomeLimit = 128;
@@ -156,7 +160,6 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
                 : null);
     });
     const currentPage = ref(1);
-    let interactionEpoch = 0;
     let controller: AbortController | null = null;
     const terminal = new Map<string, 'settled' | 'cancelled'>();
     const work = shallowRef<IPdfViewportWork | null>(null);
@@ -209,7 +212,6 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
     function isCurrent(intent: IPdfViewportIntent, signal: AbortSignal) {
         return !signal.aborted
             && activeIntent.value?.id === intent.id
-            && intent.interactionEpoch === interactionEpoch
             && intent.documentRevision === deps.getDocumentRevision()
             && deps.isIntentCurrent?.(intent) !== false;
     }
@@ -282,9 +284,7 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
         return positionCommit;
     }
 
-    async function submit(
-        intent: Omit<IPdfViewportIntent, 'interactionEpoch'> & {interactionEpoch?: number},
-    ) {
+    async function submit(intent: Omit<IPdfViewportIntent, 'interactionEpoch'>) {
         if (intent.documentRevision <= 0) {
             throw new Error('Viewport intents require a positive live document revision');
         }
@@ -302,7 +302,7 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
         }
         const next = {
             ...intent,
-            interactionEpoch: intent.interactionEpoch ?? interactionEpoch,
+            interactionEpoch: deps.getInteractionEpoch(),
         };
         if (!isTicketReplay && activeIntent.value !== null) {
             finish(next, 'cancelled');
@@ -421,7 +421,6 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
     }
 
     function observeUserScroll(anchor: IPdfSemanticAnchor) {
-        interactionEpoch += 1;
         cancelActive();
         commitAnchor(anchor);
         activeIntent.value = null;
@@ -449,7 +448,7 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
         const commit = Object.freeze({
             ...position,
             page: anchor ? currentPage.value : input.page,
-            interactionEpoch,
+            interactionEpoch: deps.getInteractionEpoch(),
         });
         deps.onPositionCommitted?.(commit);
         return commit;
