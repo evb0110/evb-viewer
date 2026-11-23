@@ -10,7 +10,8 @@ use crate::engine::document_analysis::{
 use crate::engine::lossless_placement::{plan_lossless_page, record_source_preservation};
 use crate::engine::output_geometry::{match_page_sizes, write_json_atomic};
 use crate::engine::page_statistics::{
-    derive_page_ink_contexts, derive_page_ink_sample, page_needs_ink_sample,
+    derive_ink_sample_from_paths, derive_page_ink_contexts, derive_page_ink_contexts_with_prior,
+    derive_page_ink_sample, page_needs_ink_sample,
 };
 use crate::engine::page_workflow::{run_classification, run_page, suffixed_path, PageRunResult};
 use crate::engine::resource_planning::{
@@ -23,10 +24,11 @@ use crate::engine::staged_input::{
     StagedLeaseDescriptor, StagedPathPlan,
 };
 use crate::{
+    ink_consistency::{DocumentInkPrior, DocumentInkSample},
     protocol::{
         manifest_v3::{
-            AnalysisPurpose, CanvasScope, ManifestV3, Operation, Page, RenderMode,
-            MAX_MANIFEST_BYTES,
+            AnalysisPurpose, CanvasScope, InkCalibrationPage, ManifestV3, Operation, Page,
+            RenderMode, ResolvedDocumentInkPrior, MAX_MANIFEST_BYTES,
         },
         progress::{PageStageTimings, Progress, ProgressEnvelope, ProgressStage},
         result::ResultEnvelope,
@@ -38,7 +40,7 @@ use evb_native_support::{
 };
 use serde::Serialize;
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     error::Error,
     fs,
     io::{self, Write},
@@ -280,12 +282,17 @@ fn run_manifest(
     }
     preflight_paths(&staged_path_plan(&manifest))?;
     let total = manifest.pages.len();
+    let mut resolved_ink_prior = None;
     let result = run_manifest_transaction(path, &manifest, || {
-        run_manifest_inner(&manifest, is_canceled)
+        run_manifest_inner(&manifest, is_canceled, &mut resolved_ink_prior)
     });
     match result {
         Ok(()) => {
-            write_protocol_line(&ResultEnvelope::success(total, total))?;
+            write_protocol_line(&ResultEnvelope::success_with_ink_prior(
+                total,
+                total,
+                resolved_ink_prior,
+            ))?;
             Ok(())
         }
         Err(error) => {
@@ -306,9 +313,80 @@ fn map_page_error(error: &(dyn Error + 'static)) -> NativeError {
     NativeError::new(envelope.code, envelope.message)
 }
 
+fn derive_calibration_samples(
+    calibration_pages: &[InkCalibrationPage],
+    is_canceled: &AtomicBool,
+    worker_threads: usize,
+) -> Result<Vec<Option<DocumentInkSample>>, Box<dyn Error>> {
+    if calibration_pages.is_empty() {
+        return Ok(Vec::new());
+    }
+    type CalibrationSampleOutcome = Result<Option<DocumentInkSample>, NativeError>;
+    let next_index = std::sync::atomic::AtomicUsize::new(0);
+    let failure_observed = AtomicBool::new(false);
+    let outcomes: Vec<Mutex<Option<CalibrationSampleOutcome>>> = (0..calibration_pages.len())
+        .map(|_| Mutex::new(None))
+        .collect();
+    let workers = worker_threads.clamp(1, calibration_pages.len());
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            let next_index = &next_index;
+            let failure_observed = &failure_observed;
+            let outcomes = &outcomes;
+            scope.spawn(move || loop {
+                if failure_observed.load(std::sync::atomic::Ordering::Acquire)
+                    || is_canceled.load(std::sync::atomic::Ordering::Acquire)
+                {
+                    return;
+                }
+                let index = next_index.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+                if index >= calibration_pages.len() {
+                    return;
+                }
+                let page = &calibration_pages[index];
+                let outcome = derive_ink_sample_from_paths(
+                    &page.trusted_foreground_mask_path,
+                    &page.trusted_mrc_background_path,
+                    page.source_page_index,
+                    page.max_pixels,
+                    page.max_dimension,
+                );
+                if outcome.is_err() {
+                    failure_observed.store(true, std::sync::atomic::Ordering::Release);
+                }
+                *outcomes[index]
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(outcome);
+            });
+        }
+    });
+    let mut samples = Vec::with_capacity(calibration_pages.len());
+    for outcome in outcomes {
+        let Some(result) = outcome
+            .into_inner()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        else {
+            if is_canceled.load(std::sync::atomic::Ordering::Acquire) {
+                return Err(crate::engine::cancellation_error().into());
+            }
+            return Err(NativeError::new(
+                NativeErrorCode::NativeFailure,
+                "Ink calibration worker exited before completing every page",
+            )
+            .into());
+        };
+        samples.push(result?);
+    }
+    if is_canceled.load(std::sync::atomic::Ordering::Acquire) {
+        return Err(crate::engine::cancellation_error().into());
+    }
+    Ok(samples)
+}
+
 fn run_manifest_inner(
     manifest: &ManifestV3,
     is_canceled: &AtomicBool,
+    resolved_ink_prior: &mut Option<ResolvedDocumentInkPrior>,
 ) -> Result<(), Box<dyn Error>> {
     if is_canceled.load(std::sync::atomic::Ordering::Acquire) {
         return Err(crate::engine::cancellation_error().into());
@@ -441,18 +519,84 @@ fn run_manifest_inner(
     } else {
         let page_ink_contexts = {
             let planning_pages = manifest.pages.iter().map(planning_page).collect::<Vec<_>>();
-            let samples = if planning_pages.iter().any(page_needs_ink_sample) {
-                run_regular_page_jobs(
-                    manifest,
-                    is_canceled,
-                    |(_, page)| derive_page_ink_sample(page),
-                    worker_threads,
-                    processing_threads,
-                )?
+            if let Some(given_prior) = manifest.document_ink_prior {
+                let prior = given_prior.as_prior();
+                *resolved_ink_prior = Some(given_prior);
+                let samples = if prior.is_some() && planning_pages.iter().any(page_needs_ink_sample)
+                {
+                    run_regular_page_jobs(
+                        manifest,
+                        is_canceled,
+                        |(_, page)| derive_page_ink_sample(page),
+                        worker_threads,
+                        processing_threads,
+                    )?
+                } else {
+                    vec![None; planning_pages.len()]
+                };
+                derive_page_ink_contexts_with_prior(&samples, prior)
+            } else if let Some(cal_pages) = manifest.ink_calibration_pages.as_deref() {
+                let cal_samples =
+                    derive_calibration_samples(cal_pages, is_canceled, worker_threads)?;
+                let prior =
+                    DocumentInkPrior::from_page_samples(cal_samples.iter().flatten().copied());
+                *resolved_ink_prior = Some(ResolvedDocumentInkPrior::from_option(prior));
+                if prior.is_some() && planning_pages.iter().any(page_needs_ink_sample) {
+                    let cached_samples: HashMap<(usize, &Path, &Path), Option<DocumentInkSample>> =
+                        cal_pages
+                            .iter()
+                            .zip(cal_samples.iter().copied())
+                            .map(|(page, sample)| {
+                                (
+                                    (
+                                        page.source_page_index,
+                                        page.trusted_foreground_mask_path.as_path(),
+                                        page.trusted_mrc_background_path.as_path(),
+                                    ),
+                                    sample,
+                                )
+                            })
+                            .collect();
+                    let samples = run_regular_page_jobs(
+                        manifest,
+                        is_canceled,
+                        |(_, page)| {
+                            if !page_needs_ink_sample(page) {
+                                return Ok(None);
+                            }
+                            if let (Some(mask), Some(bg)) = (
+                                page.trusted_foreground_mask_path.as_deref(),
+                                page.trusted_mrc_background_path.as_deref(),
+                            ) {
+                                if let Some(&cached) =
+                                    cached_samples.get(&(page.source_page_index, mask, bg))
+                                {
+                                    return Ok(cached);
+                                }
+                            }
+                            derive_page_ink_sample(page)
+                        },
+                        worker_threads,
+                        processing_threads,
+                    )?;
+                    derive_page_ink_contexts_with_prior(&samples, prior)
+                } else {
+                    vec![None; planning_pages.len()]
+                }
             } else {
-                vec![None; planning_pages.len()]
-            };
-            derive_page_ink_contexts(&samples)
+                let samples = if planning_pages.iter().any(page_needs_ink_sample) {
+                    run_regular_page_jobs(
+                        manifest,
+                        is_canceled,
+                        |(_, page)| derive_page_ink_sample(page),
+                        worker_threads,
+                        processing_threads,
+                    )?
+                } else {
+                    vec![None; planning_pages.len()]
+                };
+                derive_page_ink_contexts(&samples)
+            }
         };
         let run_one =
             |(index, descriptor): (usize, &PageDescriptor)| -> Result<PageRunResult, NativeError> {
@@ -965,5 +1109,79 @@ mod tests {
                 format!("Missing required argument {missing}")
             );
         }
+    }
+
+    #[test]
+    fn rejects_outside_root_ink_calibration_path_before_sampling() {
+        let base =
+            std::env::temp_dir().join(format!("evb-scan-cleanup-cal-root-{}", std::process::id()));
+        let allowed_root = base.join("allowed");
+        let outside_dir = base.join("outside");
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&allowed_root).expect("create allowed root");
+        std::fs::create_dir_all(&outside_dir).expect("create outside dir");
+
+        let page_input = allowed_root.join("source-1.ppm");
+        let page_output = allowed_root.join("clean-1-0.png");
+        let page_output_meta = allowed_root.join("clean-1-0.json");
+        let page_meta = allowed_root.join("clean-1-page.json");
+        let outside_mask = outside_dir.join("outside-mask.png");
+        let inside_bg = allowed_root.join("bg.ppm");
+
+        // Write valid minimal PPM headers so validation passes regular-file checks
+        // and only allowed_path_root confinement rejects the outside calibration file.
+        let tiny_ppm = b"P6\n1 1\n255\n\x00\x00\x00";
+        std::fs::write(&page_input, tiny_ppm).expect("write input");
+        std::fs::write(&outside_mask, tiny_ppm).expect("write outside mask");
+        std::fs::write(&inside_bg, tiny_ppm).expect("write bg");
+
+        let manifest_path = allowed_root.join("manifest.json");
+        let manifest_json = serde_json::json!({
+            "version": 3,
+            "operation": "render",
+            "renderMode": "final",
+            "canvasScope": "page",
+            "inkCalibrationPages": [{
+                "sourcePageIndex": 0,
+                "trustedForegroundMaskPath": outside_mask,
+                "trustedMrcBackgroundPath": inside_bg,
+            }],
+            "pages": [{
+                "sourcePageIndex": 0,
+                "inputPath": page_input,
+                "pageMetadataPath": page_meta,
+                "options": {
+                    "dpi": 300,
+                    "despeckle": false,
+                    "outputMode": "bw",
+                    "cropContent": false,
+                    "matchPageSize": false,
+                    "pageAlignment": "top-center",
+                },
+                "outputs": [{
+                    "outputPath": page_output,
+                    "metadataPath": page_output_meta,
+                }],
+            }],
+        });
+        std::fs::write(&manifest_path, manifest_json.to_string()).expect("write manifest");
+
+        let error = super::run_manifest(
+            &manifest_path,
+            Some(&allowed_root),
+            &std::sync::atomic::AtomicBool::new(false),
+        )
+        .expect_err("outside-root calibration path must be rejected");
+        let message = error.to_string();
+        assert!(
+            message.contains("outside") || message.contains("allowed") || message.contains("root"),
+            "unexpected error message: {message}"
+        );
+        assert!(
+            !page_output.exists() && !page_meta.exists(),
+            "no outputs may be written when calibration path escapes allowed root"
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

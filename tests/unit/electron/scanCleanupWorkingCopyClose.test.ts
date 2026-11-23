@@ -6,9 +6,11 @@ import {
     writeFileSync,
 } from 'node:fs';
 import {
+    mkdir,
     mkdtemp,
     readFile,
     rm,
+    writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {
@@ -147,6 +149,7 @@ vi.mock('@electron/features/page-ops/public', async importOriginal => ({
 vi.mock('@electron/features/scan-cleanup/public/generatedOutputs', () => ({
     createScanCleanupGeneratedOutputPath: async () => join(mocks.outputRoot, 'run', 'cleaned.pdf'),
     pruneScanCleanupGeneratedOutputs: async () => 0,
+    recordScanCleanupCompletedOutput: async () => undefined,
 }));
 vi.mock('@electron/file-access/openPathCapabilities', () => ({
     allowOpenPath: () => '/managed/cleaned.pdf',
@@ -730,5 +733,103 @@ describe('closing a source document during scan cleanup', () => {
             release.resolve({ok: true});
             await jobs.dispose();
         }
+    });
+
+    it('preserves a resumable checkpoint when cancellation wins between worker publish and main commit, and reclaims it on commit', async () => {
+        const {workingPath} = await createManagedWorkingCopy('checkpoint-commit-race');
+        const service = createScanCleanupService();
+        const webContents = sender();
+
+        // 1. Cancel wins after worker publishes & reports checkpoint-ready,
+        // right before main reaches job.markCommitStarted().
+        const checkpointDir = join(state.tempRoot, 'scan-cleanup-checkpoints');
+        const canceledEntryDir = join(checkpointDir, `entry-${'a'.repeat(64)}`);
+        const workerReady = Promise.withResolvers<void>();
+        const releaseWorker = Promise.withResolvers<void>();
+        mocks.runWorker.mockImplementation(async (
+            _request: unknown,
+            paths: {
+                checkpointDir?: string;
+                deferCheckpointCleanup?: boolean;
+            },
+            _policy: unknown,
+            _signal: AbortSignal,
+            _onProgress: unknown,
+            _jobId: string,
+            options?: {onCheckpointReady?: (entryDir: string) => void},
+        ) => {
+            expect(paths.checkpointDir).toBe(checkpointDir);
+            expect(paths.deferCheckpointCleanup).toBe(true);
+            await mkdir(canceledEntryDir, {recursive: true});
+            await writeFile(join(canceledEntryDir, 'checkpoint.json'), '{}');
+            options?.onCheckpointReady?.(canceledEntryDir);
+            workerReady.resolve();
+            await releaseWorker.promise;
+            return {
+                inputPages: 1,
+                outputPages: 1,
+                spreadsSplit: 0,
+                offcutsDiscarded: 0,
+                deskewSkipped: 0,
+                cropSkipped: 0,
+                excludedPages: 0,
+                blankPagesSkipped: 0,
+                accessibilityTagsRemoved: false,
+                warnings: [],
+            };
+        });
+
+        const startedCanceled = await service.start(webContents, startRequest(workingPath));
+        if (!startedCanceled.started) throw new Error('Expected scan cleanup to start');
+        try {
+            await workerReady.promise;
+            // Cancel arrives BEFORE the worker's result reaches main's markCommitStarted().
+            expect(service.cancel(webContents, startedCanceled.jobId, owner)).toBe(true);
+            releaseWorker.resolve();
+            await vi.waitFor(() => {
+                expect(service.getState(webContents, startedCanceled.jobId, owner)).toMatchObject({status: 'canceled'});
+            });
+        } finally {
+            releaseWorker.resolve();
+        }
+        // Checkpoint entry MUST survive on disk because main never committed!
+        expect(existsSync(join(canceledEntryDir, 'checkpoint.json'))).toBe(true);
+
+        // 2. When no cancellation occurs, main crosses markCommitStarted() and
+        // reclaims the completed checkpoint cleanly.
+        mocks.runWorker.mockImplementation(async (
+            _request: unknown,
+            paths: {
+                checkpointDir?: string;
+                deferCheckpointCleanup?: boolean;
+            },
+            _policy: unknown,
+            _signal: AbortSignal,
+            _onProgress: unknown,
+            _jobId: string,
+            options?: {onCheckpointReady?: (entryDir: string) => void},
+        ) => {
+            expect(paths.deferCheckpointCleanup).toBe(true);
+            options?.onCheckpointReady?.(canceledEntryDir);
+            return {
+                inputPages: 1,
+                outputPages: 1,
+                spreadsSplit: 0,
+                offcutsDiscarded: 0,
+                deskewSkipped: 0,
+                cropSkipped: 0,
+                excludedPages: 0,
+                blankPagesSkipped: 0,
+                accessibilityTagsRemoved: false,
+                warnings: [],
+            };
+        });
+
+        const startedCommitted = await service.start(webContents, startRequest(workingPath));
+        if (!startedCommitted.started) throw new Error('Expected second scan cleanup to start');
+        await vi.waitFor(() => {
+            expect(service.getState(webContents, startedCommitted.jobId, owner)).toMatchObject({status: 'completed'});
+        });
+        expect(existsSync(canceledEntryDir)).toBe(false);
     });
 });

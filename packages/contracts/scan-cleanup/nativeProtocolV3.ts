@@ -4,6 +4,7 @@ import type {
     CleanupOptions,
     CleanupMetadata,
     FoldBandUnmeasuredReason,
+    InkCalibrationPage,
     LosslessPlacement,
     ManifestV3,
     Operation,
@@ -13,6 +14,7 @@ import type {
     PageResultMetadata,
     PlacementAnchor,
     RenderMode,
+    ResolvedDocumentInkPrior,
     SplitDiagnostics,
 } from '@contracts/scan-cleanup/nativeWire.generated';
 import * as v from 'valibot';
@@ -36,6 +38,8 @@ export type IScanCleanupPlacementAnchor = PlacementAnchor;
 export type INativeScanCleanupOptionsV3 = CleanupOptions;
 export type INativeScanCleanupOutputV3 = PageOutput;
 export type INativeScanCleanupPageV3 = Page;
+export type INativeScanCleanupInkCalibrationPageV3 = InkCalibrationPage;
+export type TNativeScanCleanupDocumentInkPriorV3 = ResolvedDocumentInkPrior;
 export type INativeScanCleanupManifestV3 = ManifestV3;
 
 export type INativeScanCleanupPdfPlacementV3 = LosslessPlacement;
@@ -308,10 +312,30 @@ const progress = v.pipe(v.object({
             && value.stage !== 'page-input-released'
         : value.pageNumber <= value.totalPages,
 'Invalid evb-scan-cleanup progress page number'));
+export const NATIVE_SCAN_CLEANUP_DOCUMENT_INK_PRIOR_SCHEMA = v.variant('status', [
+    v.strictObject({status: v.literal('none')}),
+    v.pipe(
+        v.strictObject({
+            status: v.literal('calibrated'),
+            sampleCount: v.pipe(finiteNumber, v.integer(), v.minValue(12)),
+            survivalP10: confidence('Invalid evb-scan-cleanup document ink prior'),
+            survivalMedian: confidence('Invalid evb-scan-cleanup document ink prior'),
+            survivalP90: confidence('Invalid evb-scan-cleanup document ink prior'),
+            referenceWidth: v.pipe(finiteNumber, v.integer(), v.minValue(1)),
+            referenceHeight: v.pipe(finiteNumber, v.integer(), v.minValue(1)),
+        }),
+        v.check(
+            value => value.survivalP10 <= value.survivalMedian && value.survivalMedian <= value.survivalP90,
+            'Invalid evb-scan-cleanup document ink prior',
+        ),
+    ),
+]);
+
 const successResult = v.object({
     status: v.literal('success'),
     completedPages: nonNegativeInteger('Invalid evb-scan-cleanup success result'),
     totalPages: nonNegativeInteger('Invalid evb-scan-cleanup success result'),
+    documentInkPrior: v.optional(NATIVE_SCAN_CLEANUP_DOCUMENT_INK_PRIOR_SCHEMA),
 });
 const failureResult = v.object({
     status: v.literal('failure'),
@@ -575,6 +599,10 @@ const _warningEventCodesMatchCatalog: TSameCodes<
 // The stdout validators must accept exactly the shapes the sidecar declares.
 type TSameShape<TLeft, TRight> = [TLeft] extends [TRight] ? [TRight] extends [TLeft] ? true : never : never;
 const _outputModeDiagnosticsMatchNative: TSameShape<v.InferOutput<typeof outputModeDiagnostics>, OutputModeDiagnostics> = true;
+const _documentInkPriorMatchesNative: TSameShape<
+    v.InferOutput<typeof NATIVE_SCAN_CLEANUP_DOCUMENT_INK_PRIOR_SCHEMA>,
+    ResolvedDocumentInkPrior
+> = true;
 
 export const NATIVE_SCAN_CLEANUP_ENVELOPE_SCHEMA = v.pipe(
     v.unknown(),

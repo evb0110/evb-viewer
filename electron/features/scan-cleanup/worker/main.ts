@@ -27,6 +27,8 @@ const data = workerData as {
     runtimePolicy?: unknown;
     /** The main job this run belongs to, so its lines join the job's. */
     jobId: string;
+    /** Unique owner identifier for worker-lifecycle-bound checkpoint lock/lease reclamation. */
+    checkpointOwnerId?: string;
 };
 const {jobId} = data;
 const logger = createLogger('scan-cleanup-worker');
@@ -70,9 +72,15 @@ try {
         source: basename(data.request.sourcePdfPath),
         selectedPages: data.request.sourcePageNumbers?.length ?? 'all',
     });
+    const workerPaths: IScanCleanupWorkerPaths = data.checkpointOwnerId === undefined
+        ? data.paths
+        : {
+            ...data.paths,
+            checkpointOwnerId: data.checkpointOwnerId,
+        };
     const result = await runScanCleanupPipeline(
         request,
-        data.paths,
+        workerPaths,
         abortController.signal,
         (progress: TScanCleanupProgress) => {
             if (progress.stage !== lastProgressStage) {
@@ -97,6 +105,15 @@ try {
         },
         runtimePolicy,
         logScanCleanupWorkerMessage,
+        undefined,
+        {
+            onCheckpointReadyForCleanup: entryDir => {
+                port.postMessage({
+                    type: 'checkpoint-ready',
+                    entryDir,
+                });
+            },
+        },
     );
     port.postMessage({
         type: 'result',

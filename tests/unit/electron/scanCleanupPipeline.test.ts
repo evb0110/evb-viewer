@@ -1,4 +1,5 @@
 import {
+    mkdir,
     mkdtemp,
     readFile,
     rm,
@@ -28,6 +29,7 @@ import {
 import type {WebContents} from 'electron';
 import type {
     IScanCleanupOptions,
+    TNativeScanCleanupDocumentInkPriorV3,
     TScanCleanupOutputMode,
     TScanCleanupProgress,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
@@ -62,7 +64,11 @@ import {
     runScanCleanupPipeline,
     type IRunScanCleanupPipelineDependencies,
 } from '@electron/features/scan-cleanup/worker/runScanCleanupPipeline';
-import {observeScanCleanupAnalysisReleasePromises} from '@evb/scan-cleanup/core/runScanCleanupConversion';
+import {
+    observeScanCleanupAnalysisReleasePromises,
+    runScanCleanupConversion,
+    type IScanCleanupWorkerPaths,
+} from '@evb/scan-cleanup/core/runScanCleanupConversion';
 import {
     resolveScanCleanupCombineEnv,mapScanCleanupRasterPages,
 } from '@evb/scan-cleanup/core/resolveRasterHandoff';
@@ -121,7 +127,10 @@ import {createScanCleanupRenderers} from '@evb/scan-cleanup/adapters/createScanC
 import {
     markUnprovenNativeTermination, getUnprovenNativeTerminationDetail,
 } from '@electron/utils/nativeTerminationProof';
-import {NativeScanCleanupError} from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
+import {
+    NativeScanCleanupError,
+    runScanCleanupSidecar,
+} from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
 import {
     assertScanCleanupCompactSourceBudget,
     resolveScanCleanupCompactSourceBudget,
@@ -2212,7 +2221,7 @@ describe('scan cleanup pipeline', () => {
 
     async function runOversizedRasterPipeline(availableScratchBytes: number | null) {
         const fixture = await setup();
-        let inputPaths: string[] = [];
+        const inputPaths: string[] = [];
         const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(async (_binary, manifestPath) => {
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
                 inputPath: string;
@@ -2220,7 +2229,7 @@ describe('scan cleanup pipeline', () => {
                 options: {dpi: number};
                 outputs: ICleanupOutput[]
             }>};
-            inputPaths = manifest.pages.map(page => page.inputPath);
+            inputPaths.push(...manifest.pages.map(page => page.inputPath));
             for (const page of manifest.pages) {
                 await writeFile(page.pageMetadataPath, JSON.stringify({
                     layoutClassification: 'single-uncut-page',
@@ -7146,6 +7155,420 @@ describe.skipIf(missingParityTools.length > 0)(`browser scan-cleanup WASM final 
             }
         }, 180_000);
     }
+});
+
+describe.skipIf(scanCleanupCliBinary === null)(`native evb-scan-cleanup streaming DocumentInkPrior parity${scanCleanupCliBinary === null ? ' (skipped: missing evb-scan-cleanup)' : ''}`, () => {
+    it('matches monolithic native evb-scan-cleanup output bit-for-bit across page-cap, byte-cap, and checkpoint-resumed streaming for 16 eligible bilevel MRC pages', async () => {
+        const binaryPath = scanCleanupCliBinary!;
+        const width = 300;
+        const height = 300;
+        const bgWidth = 150;
+        const bgHeight = 150;
+        const bgPpm = Buffer.concat([
+            Buffer.from(`P6\n${String(bgWidth)} ${String(bgHeight)}\n255\n`, 'ascii'),
+            Buffer.alloc(bgWidth * bgHeight * 3, 0x80),
+        ]);
+
+        const buildMrcPageBuffers = (thinOutlier: boolean) => {
+            const mask = new Uint8Array(width * height).fill(255);
+            const rawRgb = new Uint8Array(width * height * 3).fill(255);
+            const drawBar = (yStart: number, barHeight: number, xStart: number, barWidth: number, addHalo: boolean) => {
+                for (let y = yStart; y < yStart + barHeight; y += 1) {
+                    for (let x = xStart; x < xStart + barWidth; x += 1) {
+                        mask[y * width + x] = 0;
+                        const rgbIdx = (y * width + x) * 3;
+                        rawRgb[rgbIdx] = 20;
+                        rawRgb[rgbIdx + 1] = 20;
+                        rawRgb[rgbIdx + 2] = 20;
+                    }
+                }
+                if (addHalo) {
+                    for (const hy of [
+                        yStart - 1,
+                        yStart + barHeight,
+                    ]) {
+                        if (hy < 0 || hy >= height) continue;
+                        for (let x = xStart; x < xStart + barWidth; x += 1) {
+                            const rgbIdx = (hy * width + x) * 3;
+                            rawRgb[rgbIdx] = 140;
+                            rawRgb[rgbIdx + 1] = 140;
+                            rawRgb[rgbIdx + 2] = 140;
+                        }
+                    }
+                }
+            };
+            if (!thinOutlier) {
+                // 19x16 grid of 8x6 glyph blocks = 14,592 px (16.21% ink), erosion survival = 0.50.
+                for (let row = 0; row < 16; row += 1) {
+                    for (let col = 0; col < 19; col += 1) {
+                        drawBar(8 + row * 18, 6, 8 + col * 15, 8, false);
+                    }
+                }
+            } else {
+                // 18x35 grid of 12x2 thin glyph strokes = 15,120 px (16.80% ink), 0.0 erosion
+                // survival with a 1px dark halo that DocumentInkPrior restores.
+                for (let row = 0; row < 35; row += 1) {
+                    for (let col = 0; col < 18; col += 1) {
+                        drawBar(10 + row * 8, 2, 8 + col * 16, 12, true);
+                    }
+                }
+            }
+            const maskPng = Buffer.from(encodePng({
+                width,
+                height,
+                data: mask,
+                channels: 1,
+                depth: 8,
+            }));
+            const rawPpm = Buffer.concat([
+                Buffer.from(`P6\n${String(width)} ${String(height)}\n255\n`, 'ascii'),
+                Buffer.from(rawRgb),
+            ]);
+            return {
+                maskPng,
+                rawPpm,
+            };
+        };
+
+        const thickPage = buildMrcPageBuffers(false);
+        const thinOutlierPage = buildMrcPageBuffers(true);
+        const thinOutlierPages = new Set([
+            6,
+            12,
+        ]);
+        const pageCount = 16;
+        const mrcBwOptions: IScanCleanupOptions = {
+            preserveOriginalQuality: false,
+            layoutMode: 'force-single',
+            outputMode: 'bw',
+            readingOrder: 'ltr',
+            thickness: 0,
+            crop: false,
+            matchPageSize: false,
+            pageAlignment: 'top-center',
+            marginsMm: {
+                leftMm: 0,
+                topMm: 0,
+                rightMm: 0,
+                bottomMm: 0,
+            },
+            despeckle: false,
+            skipBlankPages: false,
+            pageOverrides: {},
+        };
+        const runtimePolicy: IScanCleanupRuntimePolicy = {
+            rasterConcurrency: 2,
+            logicalCpus: 4,
+            totalRamBytes: 8 * 1024 ** 3,
+        };
+
+        const runRealNativeConversion = async (config: {
+            maxChunkPages: number;
+            maxInFlightPages: number;
+            maxInFlightBytes?: number;
+            checkpointDir?: string;
+            abortOnChunkIndex?: number;
+        }) => {
+            const root = await createParityDir();
+            const sourcePdfPath = join(root, 'source.pdf');
+            const outputPdfPath = join(root, 'output.pdf');
+            const scratchDir = join(root, 'scratch');
+            await mkdir(scratchDir, {recursive: true});
+            await writeFile(sourcePdfPath, '%PDF-1.7-native-ink-prior-parity');
+
+            const observedManifests: Array<{
+                pageNumbers: number[];
+                inkCalibrationPagesCount: number | null;
+                documentInkPrior: TNativeScanCleanupDocumentInkPriorV3 | null;
+            }> = [];
+            const abortController = new AbortController();
+            const workerPaths: IScanCleanupWorkerPaths = {
+                qpdfBinary: '/qpdf',
+                pdftoppmBinary: '/pdftoppm',
+                pdfimagesBinary: '/pdfimages',
+                scanCleanupBinary: binaryPath,
+                pdfImageCombineBinary: '/pdf-image-combine',
+                pdfPageOpsBinary: '/pdf-page-ops',
+                tempDir: root,
+                scratchDir,
+                provenanceStampSupport: false,
+                ...(config.checkpointDir === undefined ? {} : {checkpointDir: config.checkpointDir}),
+            };
+
+            let chunkCounter = 0;
+            const dependencies: IRunScanCleanupPipelineDependencies = {
+                getPageCount: vi.fn(async () => pageCount),
+                getPageSizeStore: vi.fn(async () => createArrayBackedPdfPageSizeStore(
+                    Array.from({length: pageCount}, (_, index) => ({
+                        pageNumber: index + 1,
+                        xPoints: 0,
+                        yPoints: 0,
+                        widthPoints: 72,
+                        heightPoints: 72,
+                        rotation: 0,
+                        allImagesPageAligned: true,
+                        mediaXPoints: 0,
+                        mediaYPoints: 0,
+                        mediaWidthPoints: 72,
+                        mediaHeightPoints: 72,
+                        dominantImageWidthPoints: 72,
+                        dominantImageHeightPoints: 72,
+                        dominantImageWidthPx: width,
+                        dominantImageHeightPx: height,
+                    })),
+                )),
+                detectSourceDpi: vi.fn(async () => ({
+                    detected: true,
+                    documentDpi: 300,
+                    compactLayeredPageCount: pageCount,
+                    compactLayeredPageCountComplete: true,
+                    getPageRaster: () => ({
+                        dpi: 300,
+                        width,
+                        height,
+                        hasBilevelLayer: true,
+                        hasDominantBilevelLayer: true,
+                        backgroundDpi: 150,
+                    }),
+                })),
+                getAvailableScratchBytes: vi.fn(async () => null),
+                hashNativeBinary: vi.fn(async () => 'a'.repeat(64)),
+                extractMrcLayersBatch: vi.fn(async ({targets}) => {
+                    const map = new Map();
+                    for (const target of targets) {
+                        const pair = thinOutlierPages.has(target.pageNumber) ? thinOutlierPage : thickPage;
+                        const maskPath = `${target.selectionMaskOutputPath}.png`;
+                        const bgPath = target.backgroundOutputPath;
+                        await writeFile(maskPath, pair.maskPng);
+                        await writeFile(bgPath, bgPpm);
+                        map.set(target.pageNumber, {
+                            backgroundDpi: 150,
+                            backgroundPath: bgPath,
+                            foregroundDpi: 300,
+                            foregroundHeight: height,
+                            foregroundPath: target.foregroundOutputPath,
+                            foregroundWidth: width,
+                            selectionMaskDecode: 'default' as const,
+                            selectionMaskPath: maskPath,
+                        });
+                    }
+                    return map;
+                }),
+                renderPage: vi.fn(async (_paths, _log, _pageNumber, _source, outputPath) => {
+                    await writeFile(outputPath, PNG);
+                }),
+                renderPagePpm: vi.fn(async (_paths, _log, pageNumber, _source, outputPath) => {
+                    const pair = thinOutlierPages.has(pageNumber) ? thinOutlierPage : thickPage;
+                    await writeFile(outputPath, pair.rawPpm);
+                }),
+                runSidecar: vi.fn(async (bin, manifestPath, sig, logFn, onProgress, opts) => {
+                    const currentChunk = chunkCounter;
+                    chunkCounter += 1;
+                    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+                        pages: Array<{sourcePageIndex: number}>;
+                        inkCalibrationPages?: unknown[];
+                        documentInkPrior?: TNativeScanCleanupDocumentInkPriorV3;
+                    };
+                    observedManifests.push({
+                        pageNumbers: manifest.pages.map(page => page.sourcePageIndex + 1),
+                        inkCalibrationPagesCount: manifest.inkCalibrationPages?.length ?? null,
+                        documentInkPrior: manifest.documentInkPrior ?? null,
+                    });
+                    if (config.abortOnChunkIndex !== undefined && currentChunk === config.abortOnChunkIndex) {
+                        abortController.abort(new DOMException(`Abort at chunk ${String(currentChunk)}`, 'AbortError'));
+                        sig.throwIfAborted();
+                    }
+                    await runScanCleanupSidecar(bin, manifestPath, sig, logFn, onProgress, opts);
+                }),
+                runCommand: vi.fn(async (_binary, args) => {
+                    if (args[0] === 'annotation-index') {
+                        await writeFile(args[args.indexOf('--output') + 1]!, `${JSON.stringify({
+                            format: 'evb-pdf-annotation-name-index',
+                            schemaVersion: 1,
+                            pageCount,
+                            chunkBytes: 4 * 1024 * 1024,
+                        })}\n`);
+                        return {
+                            exitCode: 0,
+                            stdout: '',
+                            stderr: '',
+                        };
+                    }
+                    if (args[0] === 'ocr-text-visibility') {
+                        const pages = (await readFile(args[args.indexOf('--pages-file') + 1]!, 'utf8'))
+                            .trim().split('\n').filter(Boolean).map(Number);
+                        return {
+                            exitCode: 0,
+                            stderr: '',
+                            stdout: JSON.stringify({
+                                format: 'evb-pdf-ocr-text-visibility',
+                                schemaVersion: 3,
+                                pages: pages.map(pageNumber => ({
+                                    pageNumber,
+                                    evbOcrLayer: false,
+                                    paintedText: false,
+                                    hiddenText: false,
+                                    uncertain: null,
+                                    unsupported: null,
+                                    evbOcrLines: null,
+                                })),
+                            }),
+                        };
+                    }
+                    if (args[0] === '--check') {
+                        return {
+                            exitCode: 0,
+                            stdout: '',
+                            stderr: '',
+                        };
+                    }
+                    const outputIndex = args.indexOf('--output');
+                    const output = outputIndex >= 0 ? args[outputIndex + 1]! : args.at(-1)!;
+                    await writeFile(output, '%PDF-1.7\n%%EOF\n');
+                    return {
+                        exitCode: 0,
+                        stdout: '',
+                        stderr: '',
+                    };
+                }),
+                streamingHandoff: {
+                    maxChunkPages: config.maxChunkPages,
+                    maxInFlightPages: config.maxInFlightPages,
+                    ...(config.maxInFlightBytes === undefined ? {} : {maxInFlightBytes: config.maxInFlightBytes}),
+                },
+            };
+
+            await runScanCleanupConversion(
+                {
+                    sourcePdfPath,
+                    outputPdfPath,
+                    options: mrcBwOptions,
+                },
+                workerPaths,
+                abortController.signal,
+                () => undefined,
+                runtimePolicy,
+                () => undefined,
+                dependencies,
+            );
+
+            const pageOutputBytes = new Map<number, Buffer>();
+            const pageInkApplied = new Map<number, {
+                applied: boolean;
+                addedInkPixels: number;
+                priorSampleCount: number;
+            }>();
+            for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+                const metaPath = join(scratchDir, `clean-${String(pageNumber)}-0.json`);
+                const meta = JSON.parse(await readFile(metaPath, 'utf8')) as {
+                    bilevelWritten?: boolean;
+                    inkConsistencyDiagnostics?: {
+                        applied: boolean;
+                        addedInkPixels: number;
+                        priorSampleCount: number;
+                    };
+                };
+                const rasterFile = meta.bilevelWritten
+                    ? join(scratchDir, `clean-${String(pageNumber)}-0.pbm`)
+                    : join(scratchDir, `clean-${String(pageNumber)}-0.png`);
+                pageOutputBytes.set(pageNumber, await readFile(rasterFile));
+                if (meta.inkConsistencyDiagnostics !== undefined) {
+                    pageInkApplied.set(pageNumber, meta.inkConsistencyDiagnostics);
+                }
+            }
+            return {
+                observedManifests,
+                pageOutputBytes,
+                pageInkApplied,
+            };
+        };
+
+        // 1. Monolithic baseline (all 16 pages in one sidecar call).
+        const monolithic = await runRealNativeConversion({
+            maxChunkPages: 16,
+            maxInFlightPages: 16,
+        });
+        expect(monolithic.observedManifests).toHaveLength(1);
+        for (const outlierPage of thinOutlierPages) {
+            expect(monolithic.pageInkApplied.get(outlierPage)).toMatchObject({
+                applied: true,
+                priorSampleCount: 16,
+            });
+            expect(monolithic.pageInkApplied.get(outlierPage)!.addedInkPixels).toBeGreaterThan(0);
+        }
+
+        // 2. Page-cap chunked streaming (4 chunks of 4 pages each).
+        const chunked = await runRealNativeConversion({
+            maxChunkPages: 4,
+            maxInFlightPages: 8,
+        });
+        expect(chunked.observedManifests).toHaveLength(4);
+        expect(chunked.observedManifests[0]!.inkCalibrationPagesCount).toBe(16);
+        expect(chunked.observedManifests[0]!.documentInkPrior).toBeNull();
+        for (const later of chunked.observedManifests.slice(1)) {
+            expect(later.inkCalibrationPagesCount).toBeNull();
+            expect(later.documentInkPrior).toMatchObject({
+                status: 'calibrated',
+                sampleCount: 16,
+            });
+        }
+        for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+            expect(chunked.pageOutputBytes.get(pageNumber)!.equals(monolithic.pageOutputBytes.get(pageNumber)!))
+                .toBe(true);
+        }
+
+        // 3. Byte-cap split streaming (maxChunkPages=16, maxInFlightPages=16,
+        // no checkpoint, tight maxInFlightBytes forcing multiple chunks).
+        const byteSplit = await runRealNativeConversion({
+            maxChunkPages: 16,
+            maxInFlightPages: 16,
+            maxInFlightBytes: 800_000,
+        });
+        expect(byteSplit.observedManifests.length).toBeGreaterThan(1);
+        expect(byteSplit.observedManifests[0]!.inkCalibrationPagesCount).toBe(16);
+        expect(byteSplit.observedManifests[0]!.documentInkPrior).toBeNull();
+        for (const later of byteSplit.observedManifests.slice(1)) {
+            expect(later.inkCalibrationPagesCount).toBeNull();
+            expect(later.documentInkPrior).toMatchObject({
+                status: 'calibrated',
+                sampleCount: 16,
+            });
+        }
+        for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+            expect(byteSplit.pageOutputBytes.get(pageNumber)!.equals(monolithic.pageOutputBytes.get(pageNumber)!))
+                .toBe(true);
+        }
+
+        // 4. Interrupted & checkpoint-resumed chunked conversion.
+        const sharedCheckpointDir = await createParityDir();
+        await expect(runRealNativeConversion({
+            maxChunkPages: 4,
+            maxInFlightPages: 8,
+            checkpointDir: sharedCheckpointDir,
+            abortOnChunkIndex: 2,
+        })).rejects.toThrow('Abort at chunk 2');
+
+        const resumed = await runRealNativeConversion({
+            maxChunkPages: 4,
+            maxInFlightPages: 8,
+            checkpointDir: sharedCheckpointDir,
+        });
+        expect(resumed.observedManifests.map(entry => entry.pageNumbers)).toEqual([
+            [9, 10, 11, 12],
+            [13, 14, 15, 16],
+        ]);
+        for (const resumedChunk of resumed.observedManifests) {
+            expect(resumedChunk.inkCalibrationPagesCount).toBeNull();
+            expect(resumedChunk.documentInkPrior).toMatchObject({
+                status: 'calibrated',
+                sampleCount: 16,
+            });
+        }
+        for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+            expect(resumed.pageOutputBytes.get(pageNumber)!.equals(monolithic.pageOutputBytes.get(pageNumber)!))
+                .toBe(true);
+        }
+    }, 30_000);
 });
 
 /** One of the four soft-gutter spreads at half size, as {@link readHalfSizeSpread} reads the first. */

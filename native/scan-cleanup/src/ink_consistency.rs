@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 const DENSE_TEXT_INK_FRACTION_MIN: f64 = 0.15;
 const DENSE_TEXT_INK_FRACTION_MAX: f64 = 0.185;
-const MINIMUM_PRIOR_PAGES: usize = 12;
+pub const MINIMUM_PRIOR_PAGES: usize = 12;
 const MAXIMUM_ADDED_INK_FRACTION: f64 = 0.25;
 const MINIMUM_RAW_EDGE_DEPTH: u8 = 12;
 // Per-component survival deltas slightly over-predict the page result because
