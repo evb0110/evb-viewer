@@ -8,7 +8,7 @@ use std::sync::{
     Mutex,
 };
 use xref_admission::preflight_pdf_xref_chain;
-pub(crate) use xref_admission::{check_xref_chain, path_has_encryption_entry, path_xref_chain};
+pub(crate) use xref_admission::{check_xref_chain, path_has_encryption_entry};
 
 pub(crate) const MAX_ENCODED_PDF_BYTES: usize = 512 * 1024 * 1024;
 pub(crate) const MAX_DECOMPRESSED_PDF_STREAM_BYTES: usize = 64 * 1024 * 1024;
@@ -144,13 +144,30 @@ pub(crate) fn page_content_with_limit(
     page_id: ObjectId,
     max_bytes: usize,
 ) -> lopdf::Result<Vec<u8>> {
+    page_content_read_with_limit(document, page_id, max_bytes, |_, stream, _| {
+        Ok(std::borrow::Cow::Borrowed(stream))
+    })
+}
+
+/// [`page_content_with_limit`] taking each content stream with its encoded
+/// bytes from `read(id, stream, max_bytes)`, which may read them from a source
+/// that holds them, at most the page's whole budget of them.
+pub(crate) fn page_content_read_with_limit<'d>(
+    document: &'d Document,
+    page_id: ObjectId,
+    max_bytes: usize,
+    read: impl Fn(ObjectId, &'d Stream, usize) -> lopdf::Result<std::borrow::Cow<'d, Stream>>,
+) -> lopdf::Result<Vec<u8>> {
     let mut content = Vec::new();
     for object_id in document.get_page_contents(page_id) {
         let Ok(stream) = document.get_object(object_id).and_then(Object::as_stream) else {
             continue;
         };
         let remaining = max_bytes.saturating_sub(content.len());
-        match decompressed_stream_with_limit(stream, remaining) {
+        // The encoded bytes may exceed what decoding has left, as a small
+        // Flate stream's overhead does; only the decoded output must fit.
+        let stream = read(object_id, stream, max_bytes)?;
+        match decompressed_stream_with_limit(&stream, remaining) {
             Ok(data) => content.extend_from_slice(&data),
             Err(LopdfError::Decompress(DecompressError::MemoryLimitExceeded { .. })) => {
                 return Err(DecompressError::MemoryLimitExceeded { limit: max_bytes }.into());
@@ -388,106 +405,6 @@ pub(crate) fn load_pdf_bytes_with_password(
     load_pdf_bytes_with_policy_and_password(bytes, BROWSER_PDF_LOAD_POLICY, password)
 }
 
-pub(crate) fn load_incremental_pdf_path(
-    path: &Path,
-    qpdf_path: Option<&Path>,
-) -> Result<IncrementalDocument> {
-    load_incremental_pdf_path_with_policy(path, qpdf_path, false, None)
-}
-
-/// For callers that read and rewrite only dictionaries: page geometry, crop
-/// and print appearances. Their base streams are never read.
-pub(crate) fn load_dictionary_incremental_pdf_path(
-    path: &Path,
-    qpdf_path: Option<&Path>,
-) -> Result<IncrementalDocument> {
-    load_incremental_pdf_path_with_policy(path, qpdf_path, true, None)
-}
-
-/// Read-only projections share dictionary admission, while writers keep the
-/// complete base object graph. Only an absent bundled library uses the CLI.
-pub(crate) fn load_readonly_metadata_pdf_path(
-    path: &Path,
-    qpdf_path: Option<&Path>,
-    purpose: QpdfMetadataPurpose,
-) -> Result<IncrementalDocument> {
-    load_incremental_pdf_path_with_policy(path, qpdf_path, true, Some(purpose))
-}
-
-/// Below this size an eager load is cheap in both memory and time.
-const DICTIONARY_LOAD_STRUCTURAL_MIN_BYTES: u64 = 16 * 1024 * 1024;
-/// qpdf's structural pass costs about 50-70 us per object and reads no stream
-/// bytes; an eager load costs about 1.5 ms per encoded MiB and holds roughly
-/// twice the file. From about 45 KiB per object the structural pass is the
-/// faster one too, so 64 KiB keeps object-dense files on the eager path.
-const DICTIONARY_LOAD_STRUCTURAL_MIN_BYTES_PER_OBJECT: u64 = 64 * 1024;
-
-/// Above the byte-input ceiling every load is structural. Below it, a
-/// dictionary-only load is structural when the file's encoded bytes are
-/// mostly stream payloads, such as a scanned book's images. An encrypted
-/// file, or one whose cross-reference chain cannot be probed, stays eager and
-/// keeps its error classification.
-fn incremental_path_admission(
-    path: &Path,
-    qpdf_path: Option<&Path>,
-    policy: PdfLoadPolicy,
-    dictionaries_only: bool,
-) -> Result<(u64, bool)> {
-    let encoded_len = fs::metadata(path)
-        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?
-        .len();
-    let structural = encoded_len > policy.max_encoded_bytes as u64
-        || (dictionaries_only
-            && qpdf_path.is_some()
-            && encoded_len >= DICTIONARY_LOAD_STRUCTURAL_MIN_BYTES
-            && path_xref_chain(path, encoded_len).is_ok_and(|chain| {
-                !chain.encrypted
-                    && chain.size.is_some_and(|size| {
-                        size > 0
-                            && encoded_len / size >= DICTIONARY_LOAD_STRUCTURAL_MIN_BYTES_PER_OBJECT
-                    })
-            }));
-    Ok((encoded_len, structural))
-}
-
-fn load_incremental_pdf_path_with_policy(
-    path: &Path,
-    qpdf_path: Option<&Path>,
-    dictionaries_only: bool,
-    purpose: Option<QpdfMetadataPurpose>,
-) -> Result<IncrementalDocument> {
-    let policy = PDF_PATH_LOAD_POLICY;
-    let (encoded_len, structural) =
-        incremental_path_admission(path, qpdf_path, policy, dictionaries_only)?;
-    if structural {
-        let qpdf_path = qpdf_path.ok_or_else(|| {
-            domain_error(
-                NativeErrorCode::TooLarge,
-                "Large incremental PDF input requires the bundled qpdf structural reader",
-            )
-        })?;
-        let projection = purpose
-            .map(|purpose| load_qpdf_metadata_pdf_path(path, qpdf_path, purpose))
-            .transpose()?
-            .flatten();
-        let (incremental, qpdf_warned) = projection
-            .map(Ok)
-            .unwrap_or_else(|| load_qpdf_structural_incremental_pdf(path, qpdf_path))?;
-        // Below the ceiling, retain eager diagnostics. Both structural
-        // backends share this one fallback.
-        if encoded_len > policy.max_encoded_bytes as u64 || !qpdf_warned {
-            validate_loaded_document(incremental.get_prev_documents(), policy)?;
-            return Ok(incremental);
-        }
-    }
-    let bytes = read_file_bounded(path, policy.max_encoded_bytes, "PDF input")?;
-    Ok(IncrementalDocument::from_document(
-        load_pdf_bytes_with_policy(&bytes, policy)?,
-        u64::try_from(bytes.len())?,
-        bytes.last().copied(),
-    ))
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum AdmissionKey {
     BitsPerComponent,
@@ -566,11 +483,38 @@ struct AdmissionDictionary {
     xref_stm: Option<u64>,
     index_total: Option<u64>,
     length: Option<u64>,
-    length_is_direct: bool,
+    /// Present when `length` is the object number of an indirect `/Length`.
+    length_generation: Option<u64>,
+    /// A `/Length` key was met, whether or not its value parsed: the first
+    /// of duplicate keys counts, as the indexed reader reads it.
+    length_seen: bool,
     largest_index_end: Option<u64>,
     width_count: Option<usize>,
     largest_width: Option<u64>,
     array: Option<AdmissionArray>,
+}
+
+impl AdmissionDictionary {
+    /// Reads the value that follows key `name`, unless it repeats a
+    /// `/Length` already met, whose first value stands.
+    fn expect_value_of(&mut self, name: &[u8]) {
+        self.pending_key = match admission_key(name) {
+            Some(AdmissionKey::Length) if self.length_seen => None,
+            Some(AdmissionKey::Length) => {
+                self.length_seen = true;
+                Some(AdmissionKey::Length)
+            }
+            key => key,
+        };
+    }
+}
+
+/// How the preflight steps over the body of a top-level stream.
+#[derive(Clone, Copy)]
+enum StreamLength {
+    Direct(usize),
+    /// An indirect `/Length`, or none the body can be measured by.
+    Recovered(Option<ObjectId>),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -747,13 +691,10 @@ impl<'a> AdmissionLexer<'a> {
         }
     }
 
-    fn skip_stream_body(&mut self, declared_length: usize) -> bool {
-        if input_byte(self.bytes, self.cursor) == Some(&b'\r') {
-            self.cursor += 1;
-        }
-        if input_byte(self.bytes, self.cursor) == Some(&b'\n') {
-            self.cursor += 1;
-        }
+    /// Steps over a body of `declared_length` bytes from `data`, where its
+    /// stream's data starts, to the `endstream` after it.
+    fn skip_stream_body(&mut self, data: usize, declared_length: usize) -> bool {
+        self.cursor = data;
         let Some(stream_end) = self.cursor.checked_add(declared_length) else {
             self.cursor = self.bytes.len();
             return false;
@@ -771,9 +712,25 @@ impl<'a> AdmissionLexer<'a> {
         self.cursor = marker_end;
         true
     }
+}
 
-    fn skip_remaining_bytes(&mut self) {
-        self.cursor = self.bytes.len();
+/// Where a stream's data starts when its `stream` keyword ends at `at`:
+/// after spaces and tabs, one end of line (CRLF, LF or CR), as lopdf, the
+/// indexed reader and the admission scan all read it. `Err(true)` when
+/// `bytes` end first, `Err(false)` when no end of line follows.
+pub(crate) fn stream_data_offset(bytes: &[u8], mut at: usize) -> std::result::Result<usize, bool> {
+    while matches!(bytes.get(at), Some(b' ' | b'\t')) {
+        at += 1;
+    }
+    match bytes.get(at) {
+        None => Err(true),
+        Some(b'\n') => Ok(at + 1),
+        Some(b'\r') => match bytes.get(at + 1) {
+            None => Err(true),
+            Some(b'\n') => Ok(at + 2),
+            Some(_) => Ok(at + 1),
+        },
+        Some(_) => Err(false),
     }
 }
 
@@ -858,20 +815,23 @@ fn admission_dictionary_type(name: &[u8]) -> Option<AdmissionDictionaryType> {
 }
 
 fn preflight_pdf_structure(bytes: &[u8], policy: PdfLoadPolicy) -> Result<()> {
+    // The chain first: the scan reads it to resolve an indirect /Length.
+    preflight_pdf_xref_chain(bytes, policy)?;
     let mut lexer = AdmissionLexer::new(bytes);
     let mut dictionaries = Vec::<AdmissionDictionary>::new();
     let mut array_depth = 0_usize;
     let mut previous_integers = [None, None];
     let mut indirect_object_count = 0_usize;
     let mut declared_object_stream_objects = 0_u64;
-    let mut pending_stream_length = None;
-    let mut pending_stream_dictionary = false;
+    // The `/Length` of the top-level dictionary just closed, which a
+    // `stream` keyword after it applies to.
+    let mut pending_stream = None;
+    let mut stream_ends = crate::IndirectStreamEnds::new(bytes);
 
     while let Some(token) = lexer.next_token() {
         match token {
             AdmissionToken::DictionaryStart => {
-                pending_stream_length = None;
-                pending_stream_dictionary = false;
+                pending_stream = None;
                 let is_decode_parms = dictionaries.last_mut().is_some_and(|parent| {
                     parent
                         .pending_key
@@ -901,11 +861,19 @@ fn preflight_pdf_structure(bytes: &[u8], policy: PdfLoadPolicy) -> Result<()> {
                     }
                 }
                 if dictionaries.is_empty() {
-                    pending_stream_dictionary = true;
-                    pending_stream_length = dictionary
-                        .length
-                        .filter(|_| dictionary.length_is_direct)
-                        .and_then(|length| usize::try_from(length).ok());
+                    pending_stream =
+                        Some(match (dictionary.length, dictionary.length_generation) {
+                            (Some(length), None) => match usize::try_from(length) {
+                                Ok(length) => StreamLength::Direct(length),
+                                Err(_) => StreamLength::Recovered(None),
+                            },
+                            (Some(number), Some(generation)) => StreamLength::Recovered(
+                                u32::try_from(number)
+                                    .ok()
+                                    .zip(u16::try_from(generation).ok()),
+                            ),
+                            (None, _) => StreamLength::Recovered(None),
+                        });
                 }
                 previous_integers = [None, None];
             }
@@ -958,10 +926,10 @@ fn preflight_pdf_structure(bytes: &[u8], policy: PdfLoadPolicy) -> Result<()> {
                         dictionary.dictionary_type = admission_dictionary_type(name);
                         dictionary.pending_key = None;
                     } else {
-                        dictionary.pending_key = admission_key(name);
+                        dictionary.expect_value_of(name);
                     }
                 }
-                pending_stream_dictionary = false;
+                pending_stream = None;
                 previous_integers = [None, None];
             }
             AdmissionToken::Integer(value) => {
@@ -990,7 +958,7 @@ fn preflight_pdf_structure(bytes: &[u8], policy: PdfLoadPolicy) -> Result<()> {
                             AdmissionKey::First => dictionary.first = Some(value),
                             AdmissionKey::Length => {
                                 dictionary.length = Some(value);
-                                dictionary.length_is_direct = !lexer.next_is_reference();
+                                dictionary.length_generation = lexer.next_reference_generation();
                             }
                             AdmissionKey::N => dictionary.n = Some(value),
                             AdmissionKey::Prev => dictionary.prev = Some(value),
@@ -1014,24 +982,37 @@ fn preflight_pdf_structure(bytes: &[u8], policy: PdfLoadPolicy) -> Result<()> {
             }
             AdmissionToken::Keyword(keyword) => {
                 if keyword == b"stream" {
-                    if let Some(length) = pending_stream_length.take() {
-                        if !lexer.skip_stream_body(length) {
+                    let pending = pending_stream.take();
+                    let data = match pending {
+                        Some(_) => stream_data_offset(lexer.bytes, lexer.cursor).map_err(|_| {
+                            limit_error("PDF stream keyword is not followed by an end of line")
+                        })?,
+                        None => lexer.cursor,
+                    };
+                    let length = match pending {
+                        Some(StreamLength::Direct(length)) => Some(length),
+                        // An indirect or unusable /Length is resolved as the
+                        // indexed reader resolves it, so every object after
+                        // the body is admitted too.
+                        Some(StreamLength::Recovered(reference)) => {
+                            let length = stream_ends.body_len(reference, data as u64)?;
+                            Some(usize::try_from(length).map_err(|_| {
+                                limit_error("PDF stream body exceeds the addressable input")
+                            })?)
+                        }
+                        None => None,
+                    };
+                    if let Some(length) = length {
+                        if !lexer.skip_stream_body(data, length) {
                             return Err(limit_error(
                                 "PDF stream body exceeds its declared bounds or is missing endstream",
                             ));
                         }
-                    } else if pending_stream_dictionary {
-                        // An indirect /Length cannot be resolved without materializing the
-                        // cross-reference graph. Treat the body as opaque instead of guessing
-                        // at an attacker-controlled `endstream` byte sequence.
-                        lexer.skip_remaining_bytes();
                     }
-                    pending_stream_dictionary = false;
                     previous_integers = [None, None];
                     continue;
                 }
-                pending_stream_length = None;
-                pending_stream_dictionary = false;
+                pending_stream = None;
                 if keyword == b"obj" && previous_integers.iter().all(Option::is_some) {
                     indirect_object_count = indirect_object_count.saturating_add(1);
                     if indirect_object_count > policy.max_objects {
@@ -1055,7 +1036,6 @@ fn preflight_pdf_structure(bytes: &[u8], policy: PdfLoadPolicy) -> Result<()> {
             policy.max_objects
         )));
     }
-    preflight_pdf_xref_chain(bytes, policy)?;
     Ok(())
 }
 
@@ -1431,36 +1411,6 @@ mod tests {
     }
 
     #[test]
-    fn incremental_path_loads_small_input_with_path_policy() {
-        struct RemoveOnDrop(std::path::PathBuf);
-
-        impl Drop for RemoveOnDrop {
-            fn drop(&mut self) {
-                let _ = std::fs::remove_file(&self.0);
-            }
-        }
-
-        let bytes = document_bytes(1, false);
-        let unique = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let temp_file = RemoveOnDrop(std::env::temp_dir().join(format!(
-            "evb-pdf-page-ops-incremental-load-policy-{unique}.pdf"
-        )));
-        std::fs::write(&temp_file.0, &bytes).unwrap();
-
-        let loaded = load_incremental_pdf_path(&temp_file.0, None).unwrap();
-        assert_eq!(
-            PageTreeResolver::new(loaded.get_prev_documents())
-                .unwrap()
-                .page_count(),
-            1
-        );
-        assert_eq!(loaded.previous_len(), u64::try_from(bytes.len()).unwrap());
-    }
-
-    #[test]
     fn xref_probe_accepts_revision_windows_that_run_into_later_revisions() {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -1829,13 +1779,293 @@ mod tests {
         preflight_pdf_structure(&bytes, policy(bytes.len(), 1_024, 2, 2)).unwrap();
     }
 
+    /// `body` as object 1 with `/Length 2 0 R`, object 2 the body's length,
+    /// then `after`, with a classic cross-reference table for objects 1 and 2.
+    fn indirect_length_pdf(body: &[u8], after: &[u8]) -> Vec<u8> {
+        let mut bytes = b"%PDF-1.7\n".to_vec();
+        let first = bytes.len();
+        bytes.extend_from_slice(b"1 0 obj << /Length 2 0 R >>\nstream\n");
+        bytes.extend_from_slice(body);
+        bytes.extend_from_slice(b"\nendstream\nendobj\n");
+        let second = bytes.len();
+        bytes.extend_from_slice(format!("2 0 obj {} endobj\n", body.len()).as_bytes());
+        bytes.extend_from_slice(after);
+        let xref = bytes.len();
+        bytes.extend_from_slice(
+            format!(
+                "xref\n0 3\n0000000000 65535 f \n{first:010} 00000 n \n{second:010} 00000 n \ntrailer\n<< /Size 3 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n"
+            )
+            .as_bytes(),
+        );
+        bytes
+    }
+
     #[test]
-    fn preflight_treats_indirect_length_stream_data_as_opaque() {
-        let stream_data = b"prefix endstream 9 0 obj << /Type /ObjStm /N 999 >> suffix";
-        let mut bytes = b"%PDF-1.7\n1 0 obj << /Length 2 0 R >>\nstream\n".to_vec();
-        bytes.extend_from_slice(stream_data);
-        bytes.extend_from_slice(b"\nendstream\nendobj\n2 0 obj 62 endobj\n");
-        preflight_pdf_structure(&bytes, policy(bytes.len(), 1_024, 2, 2)).unwrap();
+    fn preflight_steps_over_a_body_by_its_indirect_length() {
+        // The body spells structure the scan must not read as such.
+        let bytes = indirect_length_pdf(
+            b"prefix endstream 9 0 obj << /Type /ObjStm /N 999 >> suffix",
+            b"",
+        );
+        preflight_pdf_structure(&bytes, policy(bytes.len(), 1_024, 3, 2)).unwrap();
+    }
+
+    #[test]
+    fn preflight_admits_what_follows_a_body_with_an_indirect_length() {
+        let bytes = indirect_length_pdf(b"data", b"3 0 obj << /Type /ObjStm /N 999 >> endobj\n");
+        assert_too_large(
+            preflight_pdf_structure(&bytes, policy(bytes.len(), 1_024, 10, 2)).unwrap_err(),
+        );
+    }
+
+    #[test]
+    fn preflight_recovers_a_wrong_indirect_length_at_the_only_end() {
+        // The same length's digits, so the offsets the table holds stay true.
+        let wrong = |body: &[u8]| {
+            let digits = body.len().to_string();
+            String::from_utf8(indirect_length_pdf(body, b""))
+                .unwrap()
+                .replacen(
+                    &format!("2 0 obj {digits} endobj"),
+                    &format!("2 0 obj {:0>width$} endobj", 1, width = digits.len()),
+                    1,
+                )
+                .into_bytes()
+        };
+        let bytes = wrong(b"data");
+        preflight_pdf_structure(&bytes, policy(bytes.len(), 1_024, 3, 2)).unwrap();
+        // A body that holds a second end cannot be measured.
+        let bytes = wrong(b"da\nendstream\nendobj\nta");
+        assert_corrupt_xref(
+            preflight_pdf_structure(&bytes, policy(bytes.len(), 1_024, 3, 2)).unwrap_err(),
+        );
+    }
+
+    /// Appends one revision to `bytes`: `objects` written now and `relisted`
+    /// at offsets an earlier revision wrote, under a classic cross-reference
+    /// section. Returns the section's offset and where each object starts.
+    fn append_revision(
+        bytes: &mut Vec<u8>,
+        objects: &[(u32, String)],
+        relisted: &[(u32, usize)],
+        prev: Option<usize>,
+        size: u32,
+    ) -> (usize, Vec<(u32, usize)>) {
+        let mut offsets = Vec::new();
+        for (number, body) in objects {
+            offsets.push((*number, bytes.len()));
+            bytes.extend_from_slice(format!("{number} 0 obj\n{body}\nendobj\n").as_bytes());
+        }
+        let xref = bytes.len();
+        bytes.extend_from_slice(b"xref\n");
+        if prev.is_none() {
+            bytes.extend_from_slice(b"0 1\n0000000000 65535 f \n");
+        }
+        for (number, offset) in offsets.iter().chain(relisted) {
+            bytes.extend_from_slice(format!("{number} 1\n{offset:010} 00000 n \n").as_bytes());
+        }
+        let prev = prev.map_or(String::new(), |prev| format!(" /Prev {prev}"));
+        bytes.extend_from_slice(
+            format!("trailer\n<< /Size {size} /Root 1 0 R{prev} >>\nstartxref\n{xref}\n%%EOF\n")
+                .as_bytes(),
+        );
+        (xref, offsets)
+    }
+
+    fn stream(data: &str, length: &str) -> String {
+        format!("<< /Length {length} >>\nstream\n{data}\nendstream")
+    }
+
+    const PAGE: &str =
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << >> /Contents 4 0 R >>";
+
+    fn page_objects() -> Vec<(u32, String)> {
+        vec![
+            (1, "<< /Type /Catalog /Pages 2 0 R >>".into()),
+            (2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".into()),
+            (3, PAGE.into()),
+        ]
+    }
+
+    /// Two revisions: the second redefines content streams 4 and 5 and the
+    /// first's indirect /Length, object 6.
+    fn redefined_streams_pdf() -> Vec<u8> {
+        let mut bytes = b"%PDF-1.7\n".to_vec();
+        let (first, second) = ("0 0 m 10 10 l S", "0 0 m 20 20 l 30 30 l S");
+        let mut objects = page_objects();
+        objects[2].1 = PAGE.replace("/Contents 4 0 R", "/Contents [4 0 R 5 0 R]");
+        objects.extend([
+            (4, stream(first, "6 0 R")),
+            (5, stream("1 0 0 RG", "8")),
+            (6, first.len().to_string()),
+        ]);
+        let (xref, _) = append_revision(&mut bytes, &objects, &[], None, 7);
+        let objects = [
+            (4, stream(second, "6 0 R")),
+            (5, stream("0 1 0 RG", "8")),
+            (6, second.len().to_string()),
+        ];
+        append_revision(&mut bytes, &objects, &[], Some(xref), 7);
+        bytes
+    }
+
+    #[test]
+    fn preflight_does_not_let_an_indirect_length_reach_past_the_next_object() {
+        // Object 7 measures stream 4 through object 6's endstream, which
+        // would step over object 5, an object stream above the ceiling.
+        let render = |length: usize| {
+            let mut objects = page_objects();
+            objects.extend([
+                (4, stream("AAAA", "7 0 R")),
+                (
+                    5,
+                    "<< /Type /ObjStm /N 999 /First 0 /Length 0 >>\nstream\n\nendstream".into(),
+                ),
+                (6, stream("BBBB", "4")),
+                (7, format!("{length:08}")),
+            ]);
+            let mut bytes = b"%PDF-1.7\n".to_vec();
+            let (_, offsets) = append_revision(&mut bytes, &objects, &[], None, 8);
+            (bytes, offsets)
+        };
+        let (bytes, offsets) = render(0);
+        let at = |number| offsets.iter().find(|(n, _)| *n == number).unwrap().1;
+        let data = at(4) + b"4 0 obj\n<< /Length 7 0 R >>\nstream\n".len();
+        let through_six = at(6) + b"6 0 obj\n<< /Length 4 >>\nstream\nBBBB".len() - data;
+        let (bytes, _) = {
+            let (rendered, offsets) = render(through_six);
+            assert_eq!(rendered.len(), bytes.len());
+            (rendered, offsets)
+        };
+        assert_too_large(
+            preflight_pdf_structure(&bytes, policy(bytes.len(), 1_024, 10, 2)).unwrap_err(),
+        );
+        // The indexed reader recovers the stream's own end instead.
+        let source = crate::SourcePdf::open(&bytes[..], bytes.len() as u64).unwrap();
+        assert_eq!(source.stream_range((4, 0)).unwrap().2, 4);
+    }
+
+    #[test]
+    fn preflight_measures_a_relisted_stream_in_the_revision_that_wrote_it() {
+        // Stream 4's body holds a second end, so only its true length
+        // measures it; the second revision relists it unchanged and redefines
+        // its /Length, object 6.
+        let body = "0 0 m\nendstream\nendobj\n10 10 l S";
+        let mut objects = page_objects();
+        objects.extend([(4, stream(body, "6 0 R")), (6, body.len().to_string())]);
+        let mut bytes = b"%PDF-1.7\n".to_vec();
+        let (xref, offsets) = append_revision(&mut bytes, &objects, &[], None, 7);
+        let four = offsets.iter().find(|(number, _)| *number == 4).unwrap().1;
+        append_revision(&mut bytes, &[(6, "1".into())], &[(4, four)], Some(xref), 7);
+        preflight_pdf_structure(&bytes, policy(bytes.len(), 1_024, 10, 2)).unwrap();
+    }
+
+    #[test]
+    fn preflight_keeps_one_entry_per_listing_across_hundreds_of_revisions() {
+        const FILLERS: u32 = 3_000;
+        const REVISIONS: usize = 220;
+        let header = b"4 0 obj\n<< /Length 5 0 R >>\nstream\n".len();
+        let drawing = |revision: usize| format!("0 0 m {revision} {revision} l S");
+        let mut objects = page_objects();
+        objects.extend([
+            (4, stream(&drawing(0), "5 0 R")),
+            (5, drawing(0).len().to_string()),
+        ]);
+        objects.extend((10..10 + FILLERS).map(|number| (number, number.to_string())));
+        let size = 10 + FILLERS;
+        let mut bytes = b"%PDF-1.7\n".to_vec();
+        let (mut xref, offsets) = append_revision(&mut bytes, &objects, &[], None, size);
+        let mut streams = vec![(offsets[3].1 + header, drawing(0).len())];
+        let mut listed = 1 + objects.len();
+        for revision in 1..=REVISIONS {
+            let objects = [
+                (4, stream(&drawing(revision), "5 0 R")),
+                (5, drawing(revision).len().to_string()),
+                (10 + revision as u32, revision.to_string()),
+            ];
+            let (next, offsets) = append_revision(&mut bytes, &objects, &[], Some(xref), size);
+            streams.push((offsets[0].1 + header, drawing(revision).len()));
+            listed += objects.len();
+            xref = next;
+        }
+        preflight_pdf_structure(&bytes, policy(bytes.len(), 1_024, 10_000, 2)).unwrap();
+        // Each revision's stream 4 measures by its own object 5, and what the
+        // measuring keeps follows the entries listed, not revisions × objects.
+        let mut ends = crate::IndirectStreamEnds::new(&bytes);
+        for (data, len) in &streams {
+            assert_eq!(
+                ends.body_len(Some((5, 0)), *data as u64).unwrap(),
+                *len as u64
+            );
+        }
+        let (entries, offsets, cached, values) = ends.retained();
+        assert_eq!(entries, listed);
+        assert_eq!(offsets, listed - 1);
+        assert_eq!(cached, 0);
+        // Every lookup's length counted against one read-wide ceiling.
+        assert_eq!(values, streams.len());
+    }
+
+    #[test]
+    fn preflight_measures_an_earlier_revisions_stream_by_its_own_length() {
+        let bytes = redefined_streams_pdf();
+        preflight_pdf_structure(&bytes, policy(bytes.len(), 1_024, 10, 2)).unwrap();
+        // The decrypt and byte-input loads share that preflight.
+        let document = load_pdf_bytes_bounded(&bytes, Some("")).unwrap();
+        let contents = document.get_page_contents(*document.get_pages().get(&1).unwrap());
+        let first = document
+            .get_object(contents[0])
+            .unwrap()
+            .as_stream()
+            .unwrap();
+        assert_eq!(first.content, b"0 0 m 20 20 l 30 30 l S");
+    }
+
+    #[test]
+    fn preflight_refuses_an_indirect_length_without_an_index() {
+        let mut bytes = b"%PDF-1.7\n1 0 obj << /Length 2 0 R >>\nstream\nab".to_vec();
+        bytes.extend_from_slice(b"\nendstream\nendobj\n2 0 obj 2 endobj\n");
+        assert_corrupt_xref(
+            preflight_pdf_structure(&bytes, policy(bytes.len(), 1_024, 3, 2)).unwrap_err(),
+        );
+    }
+
+    #[test]
+    fn preflight_takes_the_first_of_duplicate_lengths() {
+        // As the indexed reader reads the dictionary: 4, not the 999999 after.
+        let bytes =
+            b"%PDF-1.7\n1 0 obj << /Length 4 /Length 999999 >>\nstream\nAAAA\nendstream\nendobj\n";
+        preflight_pdf_structure(bytes, policy(bytes.len(), 1_024, 10, 2)).unwrap();
+    }
+
+    #[test]
+    fn preflight_reads_a_padded_stream_keyword_as_the_indexed_reader_does() {
+        // Spaces between `stream` and its end of line do not start the data.
+        let after = (
+            3,
+            "<< /Type /ObjStm /N 999 /First 0 /Length 0 >>\nstream\n\nendstream".to_string(),
+        );
+        for length in ["4", "2 0 R"] {
+            let mut bytes = b"%PDF-1.7\n".to_vec();
+            let objects = [
+                (
+                    1,
+                    format!("<< /Length {length} >>\nstream   \nAAAA\nendstream"),
+                ),
+                (2, "4".to_string()),
+                after.clone(),
+            ];
+            append_revision(&mut bytes, &objects, &[], None, 4);
+            // The scan steps over the body to the object stream after it.
+            assert_too_large(
+                preflight_pdf_structure(&bytes, policy(bytes.len(), 1_024, 10, 2)).unwrap_err(),
+            );
+            let without = String::from_utf8(bytes.clone())
+                .unwrap()
+                .replace("/N 999", "/N 001");
+            preflight_pdf_structure(without.as_bytes(), policy(without.len(), 1_024, 10, 2))
+                .unwrap();
+        }
     }
 
     #[test]
@@ -1867,128 +2097,6 @@ mod tests {
         assert_too_large(
             preflight_pdf_structure(bytes, policy(bytes.len(), 1_024, 100, 10)).unwrap_err(),
         );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn dictionary_loads_read_a_stream_dominated_file_through_qpdf_structure() {
-        const STREAM_BYTES: usize = 17 * 1024 * 1024;
-        struct RemoveOnDrop(Vec<std::path::PathBuf>);
-
-        impl Drop for RemoveOnDrop {
-            fn drop(&mut self) {
-                for path in &self.0 {
-                    let _ = std::fs::remove_file(path);
-                }
-            }
-        }
-
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let stem = std::env::temp_dir().join(format!(
-            "evb-dictionary-load-{}-{unique}",
-            std::process::id()
-        ));
-        let input_path = stem.with_extension("pdf");
-        let encrypted_path = stem.with_extension("encrypted.pdf");
-        let sidecar_paths =
-            ["sizes", "eager-sizes"].map(|extension| stem.with_extension(extension));
-        let qpdf_path = stem.with_extension("qpdf");
-        let _cleanup = RemoveOnDrop(
-            [
-                input_path.clone(),
-                encrypted_path.clone(),
-                qpdf_path.clone(),
-            ]
-            .into_iter()
-            .chain(sidecar_paths.iter().cloned())
-            .collect(),
-        );
-
-        // One page over a 17 MiB image-like stream, as in a scanned book.
-        let mut document = Document::with_version("1.7");
-        document.objects.insert(
-            (1, 0),
-            Object::Dictionary(
-                dictionary! {"Type" => "Catalog", "Pages" => Object::Reference((2, 0))},
-            ),
-        );
-        document.objects.insert(
-            (2, 0),
-            Object::Dictionary(dictionary! {
-                "Type" => "Pages",
-                "Kids" => vec![Object::Reference((3, 0))],
-                "Count" => 1,
-            }),
-        );
-        document.objects.insert(
-            (3, 0),
-            Object::Dictionary(dictionary! {
-                "Type" => "Page",
-                "Parent" => Object::Reference((2, 0)),
-                "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
-                "Contents" => Object::Reference((4, 0)),
-            }),
-        );
-        document.objects.insert(
-            (4, 0),
-            Object::Stream(Stream::new(dictionary! {}, vec![0; STREAM_BYTES])),
-        );
-        document.max_id = 4;
-        document.trailer.set("Root", Object::Reference((1, 0)));
-        document.save(&input_path).unwrap();
-        document.trailer.set(
-            "Encrypt",
-            dictionary! {"Filter" => "Standard", "V" => 1, "R" => 2, "P" => -4},
-        );
-        document.save(&encrypted_path).unwrap();
-
-        let structure = format!(
-            r#"{{"qpdf":[{{"jsonversion":2,"pdfversion":"1.7","maxobjectid":4}},{{"trailer":{{"value":{{"/Root":"1 0 R","/Size":5}}}},"obj:1 0 R":{{"value":{{"/Type":"/Catalog","/Pages":"2 0 R"}}}},"obj:2 0 R":{{"value":{{"/Type":"/Pages","/Kids":["3 0 R"],"/Count":1}}}},"obj:3 0 R":{{"value":{{"/Type":"/Page","/Parent":"2 0 R","/MediaBox":[0,0,200,100],"/Contents":"4 0 R"}}}},"obj:4 0 R":{{"stream":{{"dict":{{"/Length":{STREAM_BYTES}}}}}}}}}]}}"#
-        );
-        let script = format!("#!/bin/sh\nprintf '%s' '{structure}'\n");
-        let _fake_qpdf = crate::write_fake_executable(&qpdf_path, &script);
-        let stream_len = |incremental: &IncrementalDocument| {
-            incremental
-                .get_prev_documents()
-                .get_object((4, 0))
-                .unwrap()
-                .as_stream()
-                .unwrap()
-                .content
-                .len()
-        };
-
-        // A caller that may read streams keeps the eager load and its bytes.
-        let eager = load_incremental_pdf_path(&input_path, Some(&qpdf_path)).unwrap();
-        assert_eq!(stream_len(&eager), STREAM_BYTES);
-        drop(eager);
-
-        // A dictionary-only caller takes qpdf's structural view instead.
-        let structural =
-            load_dictionary_incremental_pdf_path(&input_path, Some(&qpdf_path)).unwrap();
-        assert_eq!(stream_len(&structural), 0);
-        read_pdf_outline(&structural, false).unwrap();
-        let mut geometry = Vec::new();
-        write_page_geometry(&input_path, 1, Some(&qpdf_path), &mut geometry).unwrap();
-        assert!(String::from_utf8(geometry)
-            .unwrap()
-            .contains(r#""width":200.0"#));
-
-        // Page-size metadata reads the same view and prints what an eager
-        // load (no qpdf) prints.
-        let [sizes, eager_sizes] = &sidecar_paths;
-        write_page_sizes_path(&input_path, sizes, Some(&qpdf_path), true).unwrap();
-        write_page_sizes_path(&input_path, eager_sizes, None, true).unwrap();
-        assert_eq!(
-            std::fs::read(sizes).unwrap(),
-            std::fs::read(eager_sizes).unwrap()
-        );
-
-        // An encrypted file stays eager, so it keeps its error classification.
-        assert!(load_dictionary_incremental_pdf_path(&encrypted_path, Some(&qpdf_path)).is_err());
     }
 
     /// zlib of one PNG-predicted four-byte row, and of two Columns-2 rows
@@ -2083,26 +2191,59 @@ mod tests {
         }
     }
 
+    /// Object 1, a stream holding `body` whose `/Length` is object 2, which
+    /// holds `length`, behind a cross-reference stream of PNG-predicted rows
+    /// (predictor 12, `/Columns columns`) stored in zlib's uncompressed form.
+    fn predicted_xref_pdf(columns: usize, body: &str, length: usize) -> Vec<u8> {
+        let mut bytes = b"%PDF-1.7\n".to_vec();
+        let first = bytes.len();
+        bytes.extend_from_slice(
+            format!("1 0 obj\n<</Length 2 0 R>>\nstream\n{body}\nendstream\nendobj\n").as_bytes(),
+        );
+        let second = bytes.len();
+        bytes.extend_from_slice(format!("2 0 obj\n{length}\nendobj\n").as_bytes());
+        let xref = bytes.len();
+        // Each row: filter None, then type, offset and generation, a byte each.
+        let rows = [[0, 0, 0], [1, first, 0], [1, second, 0], [1, xref, 0]]
+            .iter()
+            .flat_map(|row| {
+                [0].into_iter()
+                    .chain(row.map(|field| u8::try_from(field).unwrap()))
+            })
+            .collect::<Vec<_>>();
+        let data = crate::page_sizes::tests::stored_zlib(&rows);
+        bytes.extend_from_slice(
+            format!(
+                "3 0 obj\n<</Type/XRef/Size 4/W[1 1 1]/Root 1 0 R/Length {}/Filter/FlateDecode/DecodeParms<</Predictor 12/Columns {columns}>>>>\nstream\n",
+                data.len()
+            )
+            .as_bytes(),
+        );
+        bytes.extend_from_slice(&data);
+        bytes.extend_from_slice(
+            format!("\nendstream\nendobj\nstartxref\n{xref}\n%%EOF\n").as_bytes(),
+        );
+        bytes
+    }
+
     #[test]
     fn xref_chain_bounds_predictor_rows_the_structural_scan_never_reaches() {
-        // The indirect /Length stops the structural scan at object 1, so only the
-        // cross-reference chain walk sees the xref stream after it.
-        let mut bytes =
-            b"%PDF-1.7\n1 0 obj\n<</Length 2 0 R>>\nstream\nab\nendstream\nendobj\n2 0 obj\n2\nendobj\n"
-                .to_vec();
-        let xref_offset = bytes.len();
-        bytes.extend_from_slice(
-            b"3 0 obj\n<</Type/XRef/Size 4/W[1 1 1]/Length 0/Filter/FlateDecode/DecodeParms<</Predictor 12/Columns 1025>>>>\nstream\n\nendstream\nendobj\n",
-        );
-        bytes.extend_from_slice(format!("startxref\n{xref_offset}\n%%EOF\n").as_bytes());
+        // The chain walk bounds the xref stream's predictor rows before the
+        // structural scan reaches it.
+        let bytes = predicted_xref_pdf(1025, "ab", 2);
         assert_too_large(
             load_pdf_bytes_with_policy(&bytes, policy(bytes.len(), 1024, 100, 10)).unwrap_err(),
         );
-
-        let fitting = String::from_utf8(bytes)
-            .unwrap()
-            .replace("/Columns 1025", "/Columns 3");
-        let fitting = fitting.as_bytes();
-        assert!(preflight_pdf_structure(fitting, policy(fitting.len(), 1024, 100, 10)).is_ok());
+        // Rows that fit leave a readable index, which measures the stream by
+        // its indirect /Length.
+        let bytes = predicted_xref_pdf(3, "ab", 2);
+        preflight_pdf_structure(&bytes, policy(bytes.len(), 1024, 100, 10)).unwrap();
+        // A wrong length is the stream's failure, not the index's: the body
+        // holds two ends, so no single one recovers it.
+        let bytes = predicted_xref_pdf(3, "a\nendstream\nendobj\nb", 3);
+        let error = preflight_pdf_structure(&bytes, policy(bytes.len(), 1024, 100, 10))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("stream length is wrong"), "{error}");
     }
 }

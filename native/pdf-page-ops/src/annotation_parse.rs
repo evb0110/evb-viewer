@@ -447,7 +447,7 @@ fn annotation_parse_base<S: ByteSource>(
     if let Some(indexes) = indexes {
         incremental.located_pages = Some(LocatedPages::resolve(&incremental, indexes)?);
     }
-    materialize_annotation_appearance_streams(&mut incremental, StructuralSource::Ranges(&source))?;
+    materialize_annotation_appearance_streams(&mut incremental, &source as StructuralSource)?;
     Ok(incremental)
 }
 

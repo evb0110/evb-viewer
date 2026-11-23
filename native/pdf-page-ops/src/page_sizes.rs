@@ -1,7 +1,7 @@
 use evb_native_support::output::AtomicOutput;
 use lopdf::{
     content::{Content, Operation},
-    DecompressError, Dictionary, Document, Error as LopdfError, Object, ObjectId,
+    DecompressError, Dictionary, Document, Error as LopdfError, Object, ObjectId, Stream,
 };
 use serde::Serialize;
 use std::{
@@ -12,11 +12,10 @@ use std::{
 };
 
 use crate::{
-    assert_plaintext_base, classify_pdf_load_error, domain_error, intersect_rect, load_pdf_path,
-    load_readonly_metadata_pdf_path, reclassify_domain_error, resolve_inherited_box,
-    resolve_page_rotation, resolve_page_user_unit, resolve_page_view, NativeErrorCode,
-    PageTreeResolver, PdfObjectSource, PdfRect, QpdfMetadataPurpose, Result,
-    MAX_DECOMPRESSED_PDF_STREAM_BYTES, MAX_ENCODED_PDF_BYTES,
+    classify_pdf_load_error, domain_error, intersect_rect, reclassify_domain_error,
+    resolve_inherited_box, resolve_page_rotation, resolve_page_user_unit, resolve_page_view,
+    ByteSource, NativeErrorCode, PageTreeResolver, PdfObjectSource, PdfRect, Result, SourcePdf,
+    MAX_DECOMPRESSED_PDF_STREAM_BYTES,
 };
 
 pub(crate) const PAGE_SIZES_SIDECAR_FORMAT: &str = "evb-pdf-page-sizes";
@@ -213,6 +212,7 @@ fn covers_page(matrix: Matrix, page_view: PdfRect) -> bool {
         && max_y.min(page_view.y2) - min_y.max(page_view.y1) >= page_view.height() * 0.98
 }
 
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 pub(crate) fn decode_page_content_with_inline_images(
     document: &Document,
     page_id: ObjectId,
@@ -221,8 +221,31 @@ pub(crate) fn decode_page_content_with_inline_images(
     Content<Vec<Operation>>,
     Vec<crate::content_parse::TInlineImageFacts>,
 )> {
-    let bytes = crate::page_content_with_limit(document, page_id, max_decompressed_bytes)
-        .map_err(|error| {
+    decode_page_content_read(document, page_id, max_decompressed_bytes, borrowed_stream)
+}
+
+/// A stream whose document holds its bytes.
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+fn borrowed_stream(
+    _: ObjectId,
+    stream: &Stream,
+    _: usize,
+) -> lopdf::Result<std::borrow::Cow<'_, Stream>> {
+    Ok(std::borrow::Cow::Borrowed(stream))
+}
+
+fn decode_page_content_read<'d>(
+    document: &'d Document,
+    page_id: ObjectId,
+    max_decompressed_bytes: usize,
+    read: impl Fn(ObjectId, &'d Stream, usize) -> lopdf::Result<std::borrow::Cow<'d, Stream>>,
+) -> Result<(
+    Content<Vec<Operation>>,
+    Vec<crate::content_parse::TInlineImageFacts>,
+)> {
+    let bytes =
+        crate::page_content_read_with_limit(document, page_id, max_decompressed_bytes, read)
+            .map_err(|error| {
             if matches!(
                 error,
                 LopdfError::Decompress(DecompressError::MemoryLimitExceeded { .. })
@@ -250,11 +273,12 @@ pub(crate) fn decode_page_content_with_inline_images(
     Ok((content, inline_images))
 }
 
-fn dominant_full_page_image_with_limit(
-    document: &Document,
+fn dominant_full_page_image_with_limit<'d>(
+    document: &'d Document,
     page_id: ObjectId,
     page_view: PdfRect,
     max_decompressed_bytes: usize,
+    read: impl Fn(ObjectId, &'d Stream, usize) -> lopdf::Result<std::borrow::Cow<'d, Stream>>,
 ) -> Result<Option<FullPageImage>> {
     let images = page_image_dimensions(document, page_id)
         .map_err(|error| reclassify_domain_error(error, NativeErrorCode::CorruptXref))?;
@@ -262,7 +286,7 @@ fn dominant_full_page_image_with_limit(
         return Ok(None);
     }
     let (content, inline_images) =
-        decode_page_content_with_inline_images(document, page_id, max_decompressed_bytes)?;
+        decode_page_content_read(document, page_id, max_decompressed_bytes, read)?;
     let mut aligned = inline_images.is_empty();
     let mut matrix = Matrix::IDENTITY;
     let mut stack = Vec::new();
@@ -340,6 +364,7 @@ fn dominant_full_page_image_with_limit(
     }
     Ok(dominant)
 }
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 pub(crate) fn dominant_full_page_image(
     document: &Document,
     page_id: ObjectId,
@@ -350,6 +375,7 @@ pub(crate) fn dominant_full_page_image(
         page_id,
         page_view,
         MAX_DECOMPRESSED_PDF_STREAM_BYTES,
+        borrowed_stream,
     )
 }
 
@@ -436,7 +462,13 @@ pub(crate) fn write_page_sizes_sidecar(
     )
 }
 
-fn write_page_sizes_sidecar_document(document: &Document, output_path: &Path) -> Result<()> {
+/// Page sizes with the dominant image of each page, whose content streams
+/// `source` reads by range one page at a time.
+fn write_page_sizes_sidecar_source<S: ByteSource>(
+    source: &SourcePdf<S>,
+    output_path: &Path,
+) -> Result<()> {
+    let document = &source.document;
     let page_resolver = PageTreeResolver::new(document)?;
     write_page_sizes_from_resolver(
         document,
@@ -447,7 +479,13 @@ fn write_page_sizes_sidecar_document(document: &Document, output_path: &Path) ->
         |page_number, page_id| {
             let page_view = resolve_page_view(document, page_id)?;
             let rotation = resolve_page_rotation(document, page_id)?;
-            let dominant_image = dominant_full_page_image(document, page_id, page_view)?;
+            let dominant_image = dominant_full_page_image_with_limit(
+                document,
+                page_id,
+                page_view,
+                MAX_DECOMPRESSED_PDF_STREAM_BYTES,
+                |id, stream, max_bytes| source.with_bytes(id, stream, max_bytes),
+            )?;
             page_size_entry(
                 document,
                 page_number,
@@ -520,7 +558,6 @@ where
 pub(crate) fn write_page_sizes_path(
     input_path: &Path,
     output_path: &Path,
-    qpdf_path: Option<&Path>,
     metadata_only: bool,
 ) -> Result<()> {
     if page_sizes_paths_alias(input_path, output_path)? {
@@ -529,42 +566,13 @@ pub(crate) fn write_page_sizes_path(
             "Page-size output must not alias the PDF input",
         ));
     }
-    let encoded_len = fs::metadata(input_path)
-        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?
-        .len();
-    let eager_sized = encoded_len <= MAX_ENCODED_PDF_BYTES as u64;
-    if eager_sized && !metadata_only {
-        let document = load_pdf_path(input_path)
-            .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-        assert_plaintext_base(
-            &document,
-            "Encrypted PDFs are not supported by native page ops",
-        )?;
-        return write_page_sizes_sidecar_document(&document, output_path);
+    // Encryption is refused from the index, before any decryption.
+    let source = SourcePdf::open_plaintext_path(input_path)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    if metadata_only {
+        return write_page_sizes_sidecar(&source.document, output_path);
     }
-
-    // Box metadata reads only dictionaries, and above the eager-load ceiling it
-    // is all a page-size read reports, so both take the dictionary load.
-    if !eager_sized && qpdf_path.is_none() {
-        return Err(domain_error(
-            NativeErrorCode::TooLarge,
-            "Large page-size input requires the bundled qpdf structural reader",
-        ));
-    }
-    let incremental =
-        load_readonly_metadata_pdf_path(input_path, qpdf_path, QpdfMetadataPurpose::Geometry)
-            .map_err(|error| {
-                if eager_sized {
-                    classify_pdf_load_error(error, "Failed to parse PDF structure")
-                } else {
-                    error
-                }
-            })?;
-    assert_plaintext_base(
-        incremental.get_prev_documents(),
-        "Encrypted PDFs are not supported by native page ops",
-    )?;
-    write_page_sizes_sidecar(&incremental, output_path)
+    write_page_sizes_sidecar_source(&source, output_path)
 }
 
 fn page_sizes_paths_alias(input_path: &Path, output_path: &Path) -> Result<bool> {
@@ -1047,7 +1055,8 @@ pub(crate) mod tests {
         let page_view = resolve_page_view(&document, page_id).unwrap();
 
         let error =
-            dominant_full_page_image_with_limit(&document, page_id, page_view, 32).unwrap_err();
+            dominant_full_page_image_with_limit(&document, page_id, page_view, 32, borrowed_stream)
+                .unwrap_err();
         let native_error = error.downcast_ref::<crate::NativeError>().unwrap();
         assert_eq!(native_error.code, NativeErrorCode::TooLarge);
         assert!(native_error
@@ -1100,9 +1109,53 @@ pub(crate) mod tests {
         assert_eq!(expected_page, 514);
     }
 
+    /// zlib's stored (uncompressed) form of `data`, which is larger than it.
+    pub(crate) fn stored_zlib(data: &[u8]) -> Vec<u8> {
+        let (mut a, mut b) = (1_u32, 0_u32);
+        for byte in data {
+            a = (a + u32::from(*byte)) % 65_521;
+            b = (b + a) % 65_521;
+        }
+        let len = data.len() as u16;
+        let mut zlib = vec![0x78, 0x01, 0x01];
+        zlib.extend_from_slice(&len.to_le_bytes());
+        zlib.extend_from_slice(&(!len).to_le_bytes());
+        zlib.extend_from_slice(data);
+        zlib.extend_from_slice(&((b << 16) | a).to_be_bytes());
+        zlib
+    }
+
+    /// A 200 x 100 page that draws a 40 x 20 image over itself through
+    /// `contents`, saved and read back through the indexed reader.
+    fn image_page_source(contents: Vec<Stream>) -> (Vec<u8>, ObjectId) {
+        let (mut document, page_id) = create_test_document();
+        let image = document.add_object(Stream::new(
+            dictionary! {
+                "Type" => "XObject", "Subtype" => "Image", "Width" => 40, "Height" => 20,
+                "ColorSpace" => "DeviceGray", "BitsPerComponent" => 8,
+            },
+            vec![0; 800],
+        ));
+        let contents = contents
+            .into_iter()
+            .map(|stream| Object::Reference(document.add_object(stream)))
+            .collect::<Vec<_>>();
+        let page = document.get_dictionary_mut(page_id).unwrap();
+        page.set(
+            "Resources",
+            dictionary! { "XObject" => dictionary! { "Im0" => image } },
+        );
+        page.set("Contents", contents);
+        let bytes = crate::save_document_to_bytes(&mut document).unwrap();
+        (bytes, page_id)
+    }
+
     #[test]
     fn sidecar_header_reports_performed_dominant_image_analysis() {
-        let (document, _) = create_test_document();
+        let (bytes, _) = image_page_source(vec![Stream::new(
+            Dictionary::new(),
+            b"q 200 0 0 100 0 0 cm /Im0 Do Q".to_vec(),
+        )]);
         let output_path = std::env::temp_dir().join(format!(
             "evb-page-sizes-analysis-performed-{}-{}.jsonl",
             std::process::id(),
@@ -1112,15 +1165,46 @@ pub(crate) mod tests {
                 .as_nanos()
         ));
 
-        write_page_sizes_sidecar_document(&document, &output_path).unwrap();
+        let source = SourcePdf::open(&bytes[..], bytes.len() as u64).unwrap();
+        write_page_sizes_sidecar_source(&source, &output_path).unwrap();
         let output = fs::read_to_string(&output_path).unwrap();
         fs::remove_file(&output_path).unwrap();
-        let header: serde_json::Value =
-            serde_json::from_str(output.lines().next().unwrap()).unwrap();
+        let mut lines = output.lines();
+        let header: serde_json::Value = serde_json::from_str(lines.next().unwrap()).unwrap();
+        let chunk: serde_json::Value = serde_json::from_str(lines.next().unwrap()).unwrap();
 
         assert_eq!(header["declaredPageCount"], 1);
         assert_eq!(header["reachablePageCount"], 1);
         assert_eq!(header["dominantImageAnalysis"], "performed");
+        // The page's content, which the source left unread, was read by range.
+        let page = &chunk["pages"][0];
+        assert_eq!(page["dominantImageWidthPx"], 40, "{output}");
+        assert_eq!(page["dominantImageHeightPx"], 20, "{output}");
+    }
+
+    #[test]
+    fn a_content_stream_larger_encoded_than_the_budget_it_decodes_within_is_read() {
+        // 22 of 34 budget bytes go to the first stream and its newline; the
+        // second decodes to 9 of the 12 left from 20 encoded bytes.
+        let tail = b"/Im0 Do Q";
+        let encoded = stored_zlib(tail);
+        assert!(encoded.len() > 12);
+        let (bytes, page_id) = image_page_source(vec![
+            Stream::new(Dictionary::new(), b"q 200 0 0 100 0 0 cm\n".to_vec()),
+            Stream::new(dictionary! { "Filter" => "FlateDecode" }, encoded),
+        ]);
+        let source = SourcePdf::open(&bytes[..], bytes.len() as u64).unwrap();
+        let view = resolve_page_view(&source.document, page_id).unwrap();
+        let image = dominant_full_page_image_with_limit(
+            &source.document,
+            page_id,
+            view,
+            34,
+            |id, stream, max_bytes| source.with_bytes(id, stream, max_bytes),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!((image.width_px, image.height_px), (40, 20));
     }
 
     #[test]

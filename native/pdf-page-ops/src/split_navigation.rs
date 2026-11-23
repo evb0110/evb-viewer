@@ -139,15 +139,10 @@ pub(crate) fn rebind_retained_destinations(
     output_path: &Path,
     source_path: &Path,
     instructions: &TextLayerFile,
-    qpdf_path: Option<&Path>,
 ) -> Result<bool> {
-    let mut incremental = load_incremental_pdf_path(output_path, qpdf_path)
-        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    assert_plaintext_base(
-        incremental.get_prev_documents(),
-        "Encrypted PDFs are not supported by native page ops",
-    )?;
-    let source = load_incremental_pdf_path(source_path, qpdf_path)?.previous_document;
+    let (_, mut incremental) = SourcePdf::open_append_base_path(output_path)?;
+    let (file, len) = open_source_file(source_path)?;
+    let source = navigation_source(file, len)?;
     let rebind = rebind_retained_destinations_in(&mut incremental, source, instructions)?;
     if !rebind.appends_revision {
         return Ok(rebind.accessibility_tags_removed);
@@ -163,6 +158,13 @@ pub(crate) fn rebind_retained_destinations(
     Ok(rebind.accessibility_tags_removed)
 }
 
+/// The overlay source whose catalog the final pass restores, read through its
+/// index. The pass reads by range the streams of the graph it copies.
+pub(crate) fn navigation_source<S: ByteSource>(bytes: S, len: u64) -> Result<SourcePdf<S>> {
+    SourcePdf::open(bytes, len)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))
+}
+
 /// What the final overlay pass changed on top of the copied text layers.
 pub(crate) struct RetainedDestinationRebind {
     /// Whether the revision holds anything; an empty one is not appended.
@@ -173,9 +175,9 @@ pub(crate) struct RetainedDestinationRebind {
 
 /// Prepares the revision that rebinds retained destinations, restores the
 /// source catalog and stamps provenance over the staged output.
-pub(crate) fn rebind_retained_destinations_in(
+pub(crate) fn rebind_retained_destinations_in<S: ByteSource>(
     incremental: &mut IncrementalDocument,
-    source: Document,
+    source: SourcePdf<S>,
     instructions: &TextLayerFile,
 ) -> Result<RetainedDestinationRebind> {
     let output = incremental.get_prev_documents();
@@ -212,7 +214,7 @@ pub(crate) fn rebind_retained_destinations_in(
         }
     }
     drop(remap);
-    let accessibility_tags_removed = source.catalog()?.has(b"StructTreeRoot");
+    let accessibility_tags_removed = source.document.catalog()?.has(b"StructTreeRoot");
     let restored = restore_source_catalog(incremental, source, instructions)?;
     let stamp = instructions.provenance_stamp_hex.as_deref();
     if rebound.is_empty() && !restored && stamp.is_none() {
@@ -277,11 +279,12 @@ fn stamp_document_provenance(incremental: &mut IncrementalDocument, stamp: &str)
 /// Rebuild navigation once against the final page tree, after qpdf interleaves
 /// preserved pages and raster replacements. The caller supplies the loaded
 /// source and output documents.
-fn restore_source_catalog(
+fn restore_source_catalog<S: ByteSource>(
     output: &mut IncrementalDocument,
-    mut source: Document,
+    mut source_pdf: SourcePdf<S>,
     instructions: &TextLayerFile,
 ) -> Result<bool> {
+    let mut source = std::mem::take(&mut source_pdf.document);
     let previous = &output.previous_document;
     let output_pages = output_plan_pages(previous, instructions)?;
     let annotations =
@@ -350,11 +353,20 @@ fn restore_source_catalog(
         .zip(&output_pages)
         .map(|(mapped, output)| (mapped.1, output.1, &identity, output.3))
         .collect::<Vec<_>>();
+    // Only the graph the assembled catalog keeps is copied, with its streams;
+    // what assembly drops, such as attachments, is never read.
+    let catalog = Object::Dictionary(catalog);
+    source_pdf.read_streams_into(
+        &mut navigation,
+        &catalog,
+        |id| identities.contains_key(&id),
+        MAX_ENCODED_PDF_BYTES,
+    )?;
     let remap = split_destination_mapper(&navigation, &identity_pages);
     let catalog = crate::text_layer::clone_object_graph(
         &navigation,
         &mut output.new_document,
-        &Object::Dictionary(catalog),
+        &catalog,
         &mut identities,
         (&identity_pages, &remap),
         &|_, _| Ok(()),

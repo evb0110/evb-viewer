@@ -464,3 +464,15 @@ fn encryption_probe_does_not_read_an_indirect_xref_stream_length_as_its_size() {
     assert!(!path_has_encryption_entry(&path).unwrap());
     let _ = std::fs::remove_file(path);
 }
+
+#[test]
+fn page_geometry_refuses_a_password_protected_file_as_encrypted() {
+    let path = temp_pdf_path("page-geometry-password");
+    write_fixture(&path, &rc4_r3_fixture("secret"));
+    let error = write_page_geometry(&path, 1, &mut Vec::new()).unwrap_err();
+    remove_file(&path).unwrap();
+    assert_eq!(
+        error.downcast_ref::<NativeError>().unwrap().code,
+        NativeErrorCode::Encrypted
+    );
+}

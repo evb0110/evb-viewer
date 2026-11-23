@@ -291,7 +291,7 @@ fn page_geometry_writes_json() {
     document.save(&pdf).unwrap();
 
     let mut output = Vec::new();
-    write_page_geometry(&pdf, 1, None, &mut output).unwrap();
+    write_page_geometry(&pdf, 1, &mut output).unwrap();
 
     let geometry: serde_json::Value = serde_json::from_slice(&output).unwrap();
     assert_eq!(geometry["mediaBox"]["x"], 0.0);
@@ -470,36 +470,103 @@ fn crop_postcondition_failure_does_not_publish_staged_output() {
     remove_file(output).unwrap();
 }
 
+/// A one-page PDF whose objects sit before a sparse gap that stands in for
+/// page images, with its cross-reference table past the old eager ceiling.
+/// `suffix` follows the startxref value and `trailing` the terminal %%EOF.
+#[cfg(unix)]
+fn write_large_sparse_pdf(pdf: &Path, suffix: &str, trailing: &[u8]) {
+    use std::{
+        fs::File,
+        io::{Seek, SeekFrom, Write},
+    };
+    const LARGE_SOURCE_OFFSET: u64 = 512 * 1024 * 1024 + 1024;
+    let mut source = File::create(pdf).unwrap();
+    source.write_all(b"%PDF-1.4\n").unwrap();
+    let mut offsets = Vec::new();
+    for object in [
+        "1 0 obj\n<</Type/Catalog/Pages 2 0 R>>\nendobj\n",
+        "2 0 obj\n<</Type/Pages/Count 1/Kids[3 0 R]/MediaBox[0 0 200 100]>>\nendobj\n",
+        "3 0 obj\n<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 100]/CustomKey/keep>>\nendobj\n",
+    ] {
+        offsets.push(source.stream_position().unwrap());
+        source.write_all(object.as_bytes()).unwrap();
+    }
+    source.seek(SeekFrom::Start(LARGE_SOURCE_OFFSET)).unwrap();
+    source.write_all(b"xref\n0 4\n0000000000 65535 f \n").unwrap();
+    for offset in offsets {
+        writeln!(source, "{offset:010} 00000 n ").unwrap();
+    }
+    source
+        .write_all(b"trailer\n<</Size 4/Root 1 0 R>>\nstartxref\n")
+        .unwrap();
+    writeln!(source, "{LARGE_SOURCE_OFFSET}{suffix}").unwrap();
+    source.write_all(b"%%EOF\n").unwrap();
+    source.write_all(trailing).unwrap();
+    source.sync_all().unwrap();
+    assert!(source.metadata().unwrap().len() > MAX_ENCODED_PDF_BYTES as u64);
+}
+
 #[cfg(unix)]
 #[test]
-fn large_path_crop_and_remove_crop_use_qpdf_without_reading_the_source() {
+fn a_large_base_whose_startxref_value_is_not_an_integer_takes_no_append() {
+    let pdf = temp_pdf_path("large-startxref-suffix");
+    let pages_file = temp_pdf_path("large-startxref-suffix-pages");
+    write_large_sparse_pdf(&pdf, "x", b"");
+    std::fs::write(&pages_file, b"1\n").unwrap();
+    let len = std::fs::metadata(&pdf).unwrap().len();
+    assert!(matches!(
+        append_admission(&pdf, None).unwrap(),
+        AppendAdmission::Repairable(_)
+    ));
+    let error = mutate_pdf(Config {
+        operation: Operation::RemoveCrop {
+            pages_file: pages_file.clone(),
+        },
+        input_path: pdf.clone(),
+        output_path: Some(pdf.clone()),
+        qpdf_path: None,
+    })
+    .unwrap_err();
+    assert_eq!(
+        error.downcast_ref::<NativeError>().unwrap().code,
+        NativeErrorCode::CorruptXref
+    );
+    assert_eq!(std::fs::metadata(&pdf).unwrap().len(), len);
+    std::fs::remove_file(pdf).unwrap();
+    std::fs::remove_file(pages_file).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn large_path_crop_and_remove_crop_read_the_source_by_index() {
     use std::{
         fs::File,
         io::{Read, Seek, SeekFrom, Write},
     };
 
-    const LARGE_SOURCE_OFFSET: u64 = 512 * 1024 * 1024 + 1024;
     let pdf = temp_pdf_path("large-path-crop");
     let pages_file = temp_pdf_path("large-path-crop-pages");
-    let qpdf = temp_pdf_path("large-path-crop-qpdf");
+    // 600 NUL bytes follow the terminal %%EOF, as qpdf reads without recovery.
+    write_large_sparse_pdf(&pdf, "", &[0; 600]);
 
-    let mut source = File::create(&pdf).unwrap();
-    source.write_all(b"%PDF-1.4\n").unwrap();
-    source.seek(SeekFrom::Start(LARGE_SOURCE_OFFSET)).unwrap();
-    source
-        .write_all(b"xref\n0 1\n0000000000 65535 f \ntrailer\n<</Size 1/Root 1 0 R>>\nstartxref\n")
-        .unwrap();
-    writeln!(source, "{LARGE_SOURCE_OFFSET}").unwrap();
-    source.write_all(b"%%EOF\n").unwrap();
-    source.sync_all().unwrap();
-    assert!(source.metadata().unwrap().len() > MAX_ENCODED_PDF_BYTES as u64);
-    drop(source);
+    let mut geometry = Vec::new();
+    write_page_geometry(&pdf, 1, &mut geometry).expect("large path geometry reads by index");
+    let geometry: serde_json::Value = serde_json::from_slice(&geometry).unwrap();
+    assert_eq!(geometry["mediaBox"]["width"], 200.0);
+    assert_eq!(geometry["mediaBox"]["height"], 100.0);
+    for metadata_only in [true, false] {
+        let sizes = temp_pdf_path("large-path-crop-sizes");
+        write_page_sizes_path(&pdf, &sizes, metadata_only).expect("large path sizes read by index");
+        let lines = std::fs::read_to_string(&sizes).unwrap();
+        std::fs::remove_file(&sizes).unwrap();
+        let chunk: serde_json::Value =
+            serde_json::from_str(lines.lines().nth(1).unwrap()).unwrap();
+        let page = &chunk["pages"][0];
+        assert_eq!(page["widthPoints"], 200.0, "{lines}");
+        assert_eq!(page["heightPoints"], 100.0, "{lines}");
+    }
 
     std::fs::write(&pages_file, b"1\n").unwrap();
-    let qpdf_json = r#"{"qpdf":[{"jsonversion":2,"pdfversion":"1.4","maxobjectid":3},{"trailer":{"value":{"/Root":"1 0 R"}},"obj:1 0 R":{"value":{"/Type":"/Catalog","/Pages":"2 0 R"}},"obj:2 0 R":{"value":{"/Type":"/Pages","/Count":1,"/Kids":["3 0 R"],"/MediaBox":[0,0,200,100]}},"obj:3 0 R":{"value":{"/Type":"/Page","/Parent":"2 0 R","/MediaBox":[0,0,200,100],"/CustomKey":"/keep"}}}]}"#;
-    let script = format!("#!/bin/sh\nprintf '%s' '{qpdf_json}'\n");
-    let _fake_executable = crate::write_fake_executable(&qpdf, &script);
-
     let original_len = std::fs::metadata(&pdf).unwrap().len();
     mutate_pdf(Config {
         operation: Operation::Crop {
@@ -514,9 +581,9 @@ fn large_path_crop_and_remove_crop_use_qpdf_without_reading_the_source() {
         },
         input_path: pdf.clone(),
         output_path: Some(pdf.clone()),
-        qpdf_path: Some(qpdf.clone()),
+        qpdf_path: None,
     })
-    .expect("large path crop should use structural qpdf loading");
+    .expect("large path crop should read the source by index");
 
     let after_crop_len = std::fs::metadata(&pdf).unwrap().len();
     let mut appended = Vec::new();
@@ -535,9 +602,9 @@ fn large_path_crop_and_remove_crop_use_qpdf_without_reading_the_source() {
         },
         input_path: pdf.clone(),
         output_path: Some(pdf.clone()),
-        qpdf_path: Some(qpdf.clone()),
+        qpdf_path: None,
     })
-    .expect("large path crop removal should use structural qpdf loading");
+    .expect("large path crop removal should read the source by index");
 
     let mut appended_removal = Vec::new();
     let mut output = File::open(&pdf).unwrap();
@@ -548,9 +615,27 @@ fn large_path_crop_and_remove_crop_use_qpdf_without_reading_the_source() {
     assert!(appended_removal_text.contains("0 0 200 100"));
     assert!(appended_removal_text.contains("/CustomKey/keep"));
 
+    // Junk past qpdf's startxref window leaves no revision both read: no append.
+    let mut junk = std::fs::OpenOptions::new().write(true).open(&pdf).unwrap();
+    junk.seek(SeekFrom::End(0)).unwrap();
+    junk.write_all(&[b'x'; 4096]).unwrap();
+    drop(junk);
+    let error = mutate_pdf(Config {
+        operation: Operation::RemoveCrop {
+            pages_file: pages_file.clone(),
+        },
+        input_path: pdf.clone(),
+        output_path: Some(pdf.clone()),
+        qpdf_path: None,
+    })
+    .unwrap_err();
+    assert_eq!(
+        error.downcast_ref::<NativeError>().unwrap().code,
+        NativeErrorCode::CorruptXref
+    );
+
     std::fs::remove_file(pdf).unwrap();
     std::fs::remove_file(pages_file).unwrap();
-    std::fs::remove_file(qpdf).unwrap();
 }
 
 #[test]
@@ -771,4 +856,60 @@ fn facing_print_keeps_a_user_unit_two_page_at_twice_the_size_of_a_user_unit_one_
     let widths = printed_form_widths(&document);
     assert_eq!(widths.len(), 2);
     assert_approximately(widths[1] / widths[0], 2.0);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_large_base_whose_startxref_value_ends_at_a_vertical_tab_takes_an_append() {
+    let pdf = temp_pdf_path("large-startxref-vertical-tab");
+    let pages_file = temp_pdf_path("large-startxref-vertical-tab-pages");
+    // qpdf's tokenizer ends the integer at \v, as it does at any space.
+    write_large_sparse_pdf(&pdf, "\x0b", b"");
+    std::fs::write(&pages_file, b"1\n").unwrap();
+    let len = std::fs::metadata(&pdf).unwrap().len();
+    mutate_pdf(Config {
+        operation: Operation::RemoveCrop {
+            pages_file: pages_file.clone(),
+        },
+        input_path: pdf.clone(),
+        output_path: Some(pdf.clone()),
+        qpdf_path: None,
+    })
+    .expect("a startxref value ended by \\v is qpdf's terminal revision");
+    let new_len = std::fs::metadata(&pdf).unwrap().len();
+    assert!(new_len > len);
+    let (xref, _) = read_terminal_xref(&pdf, new_len).unwrap();
+    assert!(xref >= len);
+    let mut geometry = Vec::new();
+    write_page_geometry(&pdf, 1, &mut geometry).unwrap();
+    let geometry: serde_json::Value = serde_json::from_slice(&geometry).unwrap();
+    assert_eq!(geometry["cropBox"], serde_json::Value::Null);
+    std::fs::remove_file(pdf).unwrap();
+    std::fs::remove_file(pages_file).unwrap();
+}
+
+#[test]
+fn page_geometry_refuses_a_page_tree_whose_count_disagrees_with_its_leaves() {
+    let pdf = temp_pdf_path("page-geometry-stale-count");
+    let (mut document, _) = create_test_document();
+    let pages = document
+        .catalog()
+        .unwrap()
+        .get(b"Pages")
+        .unwrap()
+        .as_reference()
+        .unwrap();
+    document.get_dictionary_mut(pages).unwrap().set("Count", 2);
+    document.save(&pdf).unwrap();
+    for page in [1, 2] {
+        let error = write_page_geometry(&pdf, page, &mut Vec::new()).unwrap_err();
+        let error = error.downcast_ref::<NativeError>().unwrap();
+        assert_eq!(error.code, NativeErrorCode::InvalidRequest, "page {page}");
+        assert!(
+            error.message.starts_with("The page tree is damaged"),
+            "page {page}: {}",
+            error.message
+        );
+    }
+    remove_file(pdf).unwrap();
 }

@@ -47,7 +47,7 @@ pub(crate) fn materialize_annotation_appearance_streams(
             continue;
         }
         let Ok(bytes) =
-            source.read_raw(object_id, remaining.min(MAX_STAMP_APPEARANCE_STREAM_BYTES))
+            source.raw_stream(object_id, remaining.min(MAX_STAMP_APPEARANCE_STREAM_BYTES))
         else {
             continue;
         };
@@ -57,21 +57,6 @@ pub(crate) fn materialize_annotation_appearance_streams(
         }
     }
     Ok(())
-}
-
-/// The next qpdf run's streams: a contiguous span whose costs fit one run's
-/// byte and object budgets. Every listed stream fits a run on its own.
-pub(crate) fn batch_end(streams: &[(ObjectId, usize)], start: usize) -> usize {
-    let mut end = start;
-    let mut batch_bytes = 0;
-    while end < streams.len()
-        && end - start < MAX_BATCH_OBJECTS
-        && batch_bytes + streams[end].1 <= MAX_BATCH_RAW_BYTES
-    {
-        batch_bytes += streams[end].1;
-        end += 1;
-    }
-    end
 }
 
 /// The appearance graph of every stamp, managed or foreign: the parse reads
@@ -334,71 +319,6 @@ fn note_appearance_stream_refs(
         .into_iter()
         .filter(|object_id| matches!(document.object(*object_id), Ok(Object::Stream(_))))
         .collect()
-}
-
-/// Each run's stream bytes stay well under the structural reader's object
-/// ceiling once qpdf base64-encodes them, and its output stays bounded.
-pub(crate) const MAX_BATCH_RAW_BYTES: usize = 16 * 1024 * 1024;
-pub(crate) const MAX_BATCH_OBJECTS: usize = 2_048;
-const MAX_BATCH_OUTPUT_BYTES: usize = 2 * MAX_BATCH_RAW_BYTES;
-
-/// Reads the unread streams in `object_ids` with one qpdf run, returning the
-/// raw (undecoded) bytes of each stream qpdf could read. A missing object, or a
-/// stream qpdf did not emit, is left out, so its caller keeps it unavailable.
-pub(crate) fn read_qpdf_stream_batch(
-    path: &Path,
-    qpdf_path: &Path,
-    object_ids: &[ObjectId],
-) -> Result<HashMap<ObjectId, Vec<u8>>> {
-    if object_ids.is_empty() {
-        return Ok(HashMap::new());
-    }
-    if object_ids.len() > MAX_BATCH_OBJECTS {
-        return Err(domain_error(
-            NativeErrorCode::TooLarge,
-            "Annotation stream batch exceeds its object ceiling",
-        ));
-    }
-    let mut arguments = vec![
-        "--suppress-recovery".to_string(),
-        "--json".to_string(),
-        "--json-key=qpdf".to_string(),
-        "--json-stream-data=inline".to_string(),
-        "--decode-level=none".to_string(),
-        "--json-object=trailer".to_string(),
-    ];
-    for (object_number, generation_number) in object_ids {
-        arguments.push(format!("--json-object={object_number},{generation_number}"));
-    }
-    let temp = TempQpdfFiles::create()?;
-    run_qpdf_bounded(
-        path,
-        qpdf_path,
-        &arguments.iter().map(String::as_str).collect::<Vec<_>>(),
-        &temp,
-        MAX_BATCH_OUTPUT_BYTES,
-    )?;
-    let (document, unavailable) = parse_qpdf_structure(&temp.structure, Some(path))?;
-    let streams: HashMap<_, _> = document
-        .objects
-        .into_iter()
-        .filter(|(object_id, _)| !unavailable.contains(object_id))
-        .filter_map(|(object_id, object)| match object {
-            Object::Stream(stream) => Some((object_id, stream.content)),
-            _ => None,
-        })
-        .collect();
-    let raw_bytes = streams
-        .values()
-        .map(Vec::len)
-        .try_fold(0usize, usize::checked_add);
-    if raw_bytes.is_none_or(|bytes| bytes > MAX_BATCH_RAW_BYTES) {
-        return Err(domain_error(
-            NativeErrorCode::TooLarge,
-            "Annotation stream batch exceeds its raw byte ceiling",
-        ));
-    }
-    Ok(streams)
 }
 
 /// A stream in qpdf's JSON. Inline data is the stream's raw bytes, which a

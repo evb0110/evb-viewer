@@ -543,18 +543,8 @@ fn try_write_overlay_source_batch(
         let batch_instructions =
             rebase_overlay_source_instructions(instructions, &subset.pages, pages)
                 .map_err(OverlaySourceBatchFailure::Failed)?;
-        let mut incremental =
-            load_incremental_pdf_path(output_path, Some(qpdf_path)).map_err(|error| {
-                OverlaySourceBatchFailure::Failed(classify_pdf_load_error(
-                    error,
-                    "Failed to parse PDF structure",
-                ))
-            })?;
-        assert_plaintext_base(
-            incremental.get_prev_documents(),
-            "Encrypted PDFs are not supported by native page ops",
-        )
-        .map_err(OverlaySourceBatchFailure::Failed)?;
+        let (_, mut incremental) = SourcePdf::open_append_base_path(output_path)
+            .map_err(OverlaySourceBatchFailure::Failed)?;
         match overlay_text_layers_incremental(&mut incremental, &source, &batch_instructions) {
             Ok(batch_omitted) => omitted.extend(batch_omitted),
             Err(error) => {
@@ -676,12 +666,14 @@ pub(crate) fn overlay_text_bytes(
         "Encrypted source PDFs are not supported by native page ops",
     )?;
     let omitted = overlay_text_layers(&mut target, &source, &instructions)?;
+    // The rebind reads the source again by range; its eager copy goes first.
+    drop(source);
     let mut output = save_document_to_bytes(&mut target)?;
     drop(target);
-    let mut incremental = incremental_from_bytes(&output)?;
+    let (_, mut incremental) = incremental_from_bytes(&output)?;
     let rebind = crate::split_navigation::rebind_retained_destinations_in(
         &mut incremental,
-        source,
+        crate::split_navigation::navigation_source(source_data, source_data.len() as u64)?,
         &instructions,
     )?;
     if rebind.appends_revision {
@@ -716,8 +708,7 @@ pub(crate) fn write_overlay_text_layers_path(
             instructions,
             qpdf_path,
         )?;
-        let tags_removed =
-            rebind_retained_destinations(staged, source_path, instructions, qpdf_path)?;
+        let tags_removed = rebind_retained_destinations(staged, source_path, instructions)?;
         let omitted = omitted_source_pages(instructions, &omitted);
         if tags_removed || !omitted.is_empty() {
             let report = crate::split_pages::scan_cleanup_page_ops_report(tags_removed, &omitted)?;
@@ -793,12 +784,7 @@ fn write_overlay_text_layer_copies(
     // target uses the qpdf-backed incremental writer. This keeps the ordinary
     // source semantics, while avoiding a target-wide rewrite.
     if source_encoded_len <= MAX_ENCODED_PDF_BYTES as u64 {
-        let mut incremental = load_incremental_pdf_path(input_path, Some(qpdf_path))
-            .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-        assert_plaintext_base(
-            incremental.get_prev_documents(),
-            "Encrypted PDFs are not supported by native page ops",
-        )?;
+        let (_, mut incremental) = SourcePdf::open_append_base_path(input_path)?;
         let source = load_pdf_path(source_path).map_err(|error| {
             classify_pdf_load_error(error, "Failed to parse source PDF structure")
         })?;
@@ -824,18 +810,8 @@ fn write_overlay_text_layer_copies(
     // Probe both path-backed documents through qpdf before extracting any
     // source page. qpdf reads structure without retaining stream bodies, so a
     // multi-gigabyte source never crosses the eager decoder boundary here.
-    let target_probe = load_incremental_pdf_path(input_path, Some(qpdf_path))
-        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    assert_plaintext_base(
-        target_probe.get_prev_documents(),
-        "Encrypted PDFs are not supported by native page ops",
-    )?;
-    let source_probe = load_incremental_pdf_path(source_path, Some(qpdf_path))
-        .map_err(|error| classify_pdf_load_error(error, "Failed to parse source PDF structure"))?;
-    assert_plaintext_base(
-        source_probe.get_prev_documents(),
-        "Encrypted source PDFs are not supported by native page ops",
-    )?;
+    SourcePdf::open_append_base_path(input_path)?;
+    let (_, source_probe) = SourcePdf::open_append_base_path(source_path)?;
 
     let source_pages = referenced_source_pages(instructions)?;
     let destinations = OverlayDestinations::new(source_probe.get_prev_documents(), instructions)?;

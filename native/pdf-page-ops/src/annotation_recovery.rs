@@ -203,11 +203,7 @@ pub(crate) fn hydrate_text_box_original_appearances_from_source<S: ByteSource>(
     mut source: SourcePdf<S>,
 ) -> Result<()> {
     let base = source.take_append_base()?;
-    hydrate_text_box_original_appearances_from(
-        mutations,
-        base,
-        Some(StructuralSource::Ranges(&source)),
-    )
+    hydrate_text_box_original_appearances_from(mutations, base, Some(&source as StructuralSource))
 }
 
 /// Hydrates from a structural load of the source, first reading the streams

@@ -57,21 +57,23 @@ pub(crate) struct ReportedBytes {
     pub(crate) report: Vec<u8>,
 }
 
-/// A browser document as the base of an appended revision. Path wrappers load
-/// the same eager document below the byte-input budget.
-pub(crate) fn incremental_from_bytes(data: &[u8]) -> Result<IncrementalDocument> {
+/// A browser document as the base of an appended revision, read through its
+/// cross-reference index as the path wrappers read theirs, with the source
+/// that reads the streams it leaves unread.
+pub(crate) fn incremental_from_bytes(
+    data: &[u8],
+) -> Result<(SourcePdf<&[u8]>, IncrementalDocument)> {
     if data.len() > PAGE_OP_WASM_MAX_BUFFER_BYTES {
         return Err(domain_error(
             NativeErrorCode::TooLarge,
             "Page-op WASM input exceeds the input admission ceiling",
         ));
     }
-    Ok(IncrementalDocument::from_document(
-        load_pdf_bytes(data)
-            .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?,
-        u64::try_from(data.len())?,
-        data.last().copied(),
-    ))
+    let classify = |error| classify_pdf_load_error(error, "Failed to parse PDF structure");
+    let mut source =
+        SourcePdf::open_append_base(data, u64::try_from(data.len())?).map_err(classify)?;
+    let base = source.take_append_base().map_err(classify)?;
+    Ok((source, base))
 }
 
 /// The revision a path wrapper appends to its staged copy, checked the same
@@ -165,12 +167,8 @@ fn browser_geometry_incremental(
     pages: &[u32],
     label: &str,
 ) -> Result<IncrementalDocument> {
-    let incremental = incremental_from_bytes(data)?;
+    let (_, incremental) = incremental_from_bytes(data)?;
     let source = incremental.get_prev_documents();
-    assert_plaintext_base(
-        source,
-        "Encrypted PDFs are not supported by browser page-op WASM",
-    )?;
     PageTreeResolver::validated(source)?;
     validate_browser_page_numbers(pages, label, page_count(source), true, false)?;
     Ok(incremental)

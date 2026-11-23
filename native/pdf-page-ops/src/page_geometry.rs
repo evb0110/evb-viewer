@@ -74,18 +74,13 @@ pub(crate) fn get_page_geometry(
 pub(crate) fn write_page_geometry(
     input_path: &Path,
     page_number: u32,
-    qpdf_path: Option<&Path>,
     output: &mut impl Write,
 ) -> Result<()> {
-    let incremental =
-        load_readonly_metadata_pdf_path(input_path, qpdf_path, QpdfMetadataPurpose::Geometry)
-            .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    assert_plaintext_base(
-        incremental.get_prev_documents(),
-        "Encrypted PDFs are not supported by native page ops",
-    )?;
-
-    let geometry = get_page_geometry(&incremental, page_number)?;
+    // A read appends nothing, so any terminal revision the index reads will
+    // do; encryption is refused from the index, before any decryption.
+    let source = SourcePdf::open_plaintext_path(input_path)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    let geometry = get_page_geometry(&source.document, page_number)?;
     serde_json::to_writer(output, &geometry)?;
     Ok(())
 }
@@ -95,14 +90,8 @@ pub(crate) fn write_crop_pages_path(
     output_path: &Path,
     pages: &[u32],
     margins: CropMargins,
-    qpdf_path: Option<&Path>,
 ) -> Result<()> {
-    let mut incremental = load_dictionary_incremental_pdf_path(input_path, qpdf_path)
-        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    assert_plaintext_base(
-        incremental.get_prev_documents(),
-        "Encrypted PDFs are not supported by native page ops",
-    )?;
+    let (_, mut incremental) = SourcePdf::open_append_base_path(input_path)?;
     PageTreeResolver::validated(incremental.get_prev_documents())?;
 
     crop_pages_incremental(&mut incremental, pages, margins)?;
@@ -119,14 +108,8 @@ pub(crate) fn write_remove_crop_pages_path(
     input_path: &Path,
     output_path: &Path,
     pages: &[u32],
-    qpdf_path: Option<&Path>,
 ) -> Result<()> {
-    let mut incremental = load_dictionary_incremental_pdf_path(input_path, qpdf_path)
-        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    assert_plaintext_base(
-        incremental.get_prev_documents(),
-        "Encrypted PDFs are not supported by native page ops",
-    )?;
+    let (_, mut incremental) = SourcePdf::open_append_base_path(input_path)?;
     PageTreeResolver::validated(incremental.get_prev_documents())?;
 
     remove_crop_from_pages_incremental(&mut incremental, pages)?;

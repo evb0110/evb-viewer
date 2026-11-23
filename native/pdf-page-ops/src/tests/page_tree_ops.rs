@@ -2413,3 +2413,144 @@ fn annotation_delete_effects_omits_empty_affected_page_indices() {
     );
     assert!(annotation_delete_effects(&base).unwrap().is_none());
 }
+
+/// Writes `objects` as `N 0 obj ... endobj`, returning where each starts.
+fn write_objects(bytes: &mut Vec<u8>, objects: &[(u32, String)]) -> Vec<(u32, usize)> {
+    objects
+        .iter()
+        .map(|(number, body)| {
+            let at = bytes.len();
+            bytes.extend_from_slice(format!("{number} 0 obj\n{body}\nendobj\n").as_bytes());
+            (*number, at)
+        })
+        .collect()
+}
+
+/// A classic cross-reference section for `entries` (number, offset, in
+/// use), each in its own subsection, with its trailer; returns its offset.
+fn write_classic_xref(bytes: &mut Vec<u8>, entries: &[(u32, usize, bool)], prev: Option<usize>) -> usize {
+    let xref = bytes.len();
+    bytes.extend_from_slice(b"xref\n");
+    if prev.is_none() {
+        bytes.extend_from_slice(b"0 1\n0000000000 65535 f \n");
+    }
+    for (number, offset, used) in entries {
+        let (offset, generation, kind) = match used {
+            true => (*offset, 0, 'n'),
+            false => (0, 1, 'f'),
+        };
+        bytes.extend_from_slice(format!("{number} 1\n{offset:010} {generation:05} {kind} \n").as_bytes());
+    }
+    let prev = prev.map_or(String::new(), |prev| format!(" /Prev {prev}"));
+    bytes.extend_from_slice(
+        format!("trailer\n<< /Size 10 /Root 1 0 R{prev} >>\nstartxref\n{xref}\n%%EOF\n").as_bytes(),
+    );
+    xref
+}
+
+const SPAN_PAGE_OBJECTS: [(u32, &str); 3] = [
+    (1, "<< /Type /Catalog /Pages 2 0 R >>"),
+    (2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>"),
+    (
+        3,
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << >> /Contents 4 0 R >>",
+    ),
+];
+
+/// Revision 1 holds stream 4, whose /Length (object 6) runs through stream
+/// 5's endstream, and private stream 5; revision 2 replaces or frees 5.
+fn superseded_span_pdf(free: bool) -> Vec<u8> {
+    let render = |length: usize| {
+        let mut bytes = b"%PDF-1.7\n".to_vec();
+        let mut objects = SPAN_PAGE_OBJECTS
+            .iter()
+            .map(|(number, body)| (*number, body.to_string()))
+            .collect::<Vec<_>>();
+        objects.extend([
+            (4, "<< /Length 6 0 R >>\nstream\nq Q\nendstream".to_string()),
+            (5, "<< /Length 20 >>\nstream\nolder private stream\nendstream".to_string()),
+            (6, format!("{length:08}")),
+        ]);
+        let offsets = write_objects(&mut bytes, &objects);
+        let xref = write_classic_xref(
+            &mut bytes,
+            &offsets.iter().map(|(n, at)| (*n, *at, true)).collect::<Vec<_>>(),
+            None,
+        );
+        (bytes, offsets, xref)
+    };
+    let (_, offsets, _) = render(0);
+    let at = |number| offsets.iter().find(|(n, _)| *n == number).unwrap().1;
+    let data = at(4) + "4 0 obj\n<< /Length 6 0 R >>\nstream\n".len();
+    let five_end = at(5) + "5 0 obj\n<< /Length 20 >>\nstream\nolder private stream".len();
+    let (mut bytes, _, xref) = render(five_end - data);
+    let replaced = write_objects(&mut bytes, &[(5, "(replaced)".into())]);
+    write_classic_xref(&mut bytes, &[(5, replaced[0].1, !free)], Some(xref));
+    bytes
+}
+
+#[test]
+fn a_stream_ends_before_an_object_a_later_revision_superseded_or_freed() {
+    for free in [false, true] {
+        let pdf = superseded_span_pdf(free);
+        let sources = [SourcePdf::open(&pdf[..], pdf.len() as u64).unwrap()];
+        let (_, data, len) = sources[0].stream_range((4, 0)).unwrap();
+        assert_eq!(len, 3, "free {free}");
+        assert_eq!(
+            crate::IndirectStreamEnds::new(&pdf)
+                .body_len(Some((6, 0)), data)
+                .unwrap(),
+            3,
+            "free {free}"
+        );
+        let subset = edit_page_structure(PageStructureEdit::Extract(&[1]), &sources).unwrap();
+        let output = subset.write(&sources, Vec::new()).unwrap();
+        subset.verify(&sources, &output.as_slice(), output.len() as u64).unwrap();
+        assert!(find_bytes(&output, b"older private stream").is_none(), "free {free}");
+        assert!(find_bytes(&output, b"q Q").is_some());
+    }
+}
+
+#[test]
+fn a_stream_ends_before_the_cross_reference_section_that_follows_it() {
+    // Revision 2 writes stream 4 right after revision 1's table, then its
+    // cross-reference stream, listing 4 and 8, then object 8. Stream 4's
+    // /Length, object 6 of revision 1, runs into the cross-reference stream's
+    // data, before any object: only the section's start bounds it.
+    const HEAD: &str = "4 0 obj\n<< /Length 6 0 R >>\nstream\n";
+    const TAIL: &[u8] = b"\nendstream\nendobj\n";
+    let render = |length: usize| {
+        let mut bytes = b"%PDF-1.7\n".to_vec();
+        let mut objects = SPAN_PAGE_OBJECTS
+            .iter()
+            .map(|(number, body)| (*number, body.to_string()))
+            .collect::<Vec<_>>();
+        objects.push((6, format!("{length:08}")));
+        let offsets = write_objects(&mut bytes, &objects);
+        let entries = offsets.iter().map(|(n, at)| (*n, *at, true)).collect::<Vec<_>>();
+        let xref = write_classic_xref(&mut bytes, &entries, None);
+        let four = write_objects(&mut bytes, &[(4, "<< /Length 6 0 R >>\nstream\nq Q\nendstream".into())])[0].1;
+        let section = bytes.len();
+        let head = format!(
+            "9 0 obj\n<< /Type /XRef /Size 10 /W [1 4 2] /Index [4 1 8 1] /Root 1 0 R /Prev {xref} /Length 14 >>\nstream\n"
+        );
+        let later = section + head.len() + 14 + TAIL.len();
+        bytes.extend_from_slice(head.as_bytes());
+        for offset in [four, later] {
+            bytes.push(1);
+            bytes.extend_from_slice(&(offset as u32).to_be_bytes());
+            bytes.extend_from_slice(&[0, 0]);
+        }
+        let rows_end = bytes.len();
+        bytes.extend_from_slice(TAIL);
+        write_objects(&mut bytes, &[(8, "(later revision)".into())]);
+        bytes.extend_from_slice(format!("startxref\n{section}\n%%EOF\n").as_bytes());
+        (bytes, four + HEAD.len(), rows_end)
+    };
+    let (_, data, rows_end) = render(0);
+    let (pdf, _, _) = render(rows_end - data);
+    let source = SourcePdf::open(&pdf[..], pdf.len() as u64).unwrap();
+    assert_eq!(source.stream_range((4, 0)).unwrap().2, 3);
+    let mut ends = crate::IndirectStreamEnds::new(&pdf);
+    assert_eq!(ends.body_len(Some((6, 0)), data as u64).unwrap(), 3);
+}

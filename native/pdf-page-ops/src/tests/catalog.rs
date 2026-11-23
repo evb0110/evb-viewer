@@ -1171,8 +1171,81 @@ fn finalize_cleanup_copy(target: &mut Document, source: &Document, instructions:
     let output_path = temp_pdf_path("cleanup-final-output");
     source.clone().save(&source_path).unwrap();
     target.save(&output_path).unwrap();
-    rebind_retained_destinations(&output_path, &source_path, instructions, None).unwrap();
+    rebind_retained_destinations(&output_path, &source_path, instructions).unwrap();
     *target = Document::load(&output_path).unwrap();
+    remove_file(source_path).unwrap();
+    remove_file(output_path).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn final_overlay_never_reads_a_source_attachment_assembly_drops() {
+    use std::io::{Seek, SeekFrom, Write};
+    const ATTACHMENT_BYTES: u64 = MAX_ENCODED_PDF_BYTES as u64 + 1;
+    let source_path = temp_pdf_path("cleanup-final-attachment-source");
+    let output_path = temp_pdf_path("cleanup-final-attachment-output");
+    let mut source = create_overlay_source_document();
+    let attachment = source.add_object(Stream::new(Dictionary::new(), b"x".to_vec()));
+    let filespec = source.add_object(dictionary! {
+        "Type" => "Filespec", "F" => Object::string_literal("scan.bin"),
+        "EF" => dictionary! { "F" => attachment },
+    });
+    source.catalog_mut().unwrap().set(
+        "Names",
+        dictionary! {
+            "EmbeddedFiles" => dictionary! {
+                "Names" => vec![Object::string_literal("scan.bin"), filespec.into()],
+            },
+        },
+    );
+    source.save(&source_path).unwrap();
+    // A revision makes the attachment 512 MiB and a byte, over a sparse hole.
+    let len = fs::metadata(&source_path).unwrap().len();
+    let (prev, _) = crate::read_terminal_xref(&source_path, len).unwrap();
+    let root = source.trailer.get(b"Root").unwrap().as_reference().unwrap();
+    let mut file = fs::OpenOptions::new().write(true).open(&source_path).unwrap();
+    file.seek(SeekFrom::End(0)).unwrap();
+    write!(
+        file,
+        "{} 0 obj\n<< /Type /EmbeddedFile /Length {ATTACHMENT_BYTES} >>\nstream\n",
+        attachment.0
+    )
+    .unwrap();
+    file.seek(SeekFrom::Current(ATTACHMENT_BYTES as i64)).unwrap();
+    file.write_all(b"\nendstream\nendobj\n").unwrap();
+    let xref = file.stream_position().unwrap();
+    write!(
+        file,
+        "xref\n{} 1\n{len:010} 00000 n \ntrailer\n<< /Size {} /Root {} 0 R /Prev {prev} >>\nstartxref\n{xref}\n%%EOF\n",
+        attachment.0,
+        source.max_id + 1,
+        root.0
+    )
+    .unwrap();
+    drop(file);
+    assert!(fs::metadata(&source_path).unwrap().len() > ATTACHMENT_BYTES);
+    let mut target = create_overlay_source_document();
+    target.save(&output_path).unwrap();
+    let instructions = TextLayerFile {
+        provenance_stamp_hex: None,
+        pages: vec![TextLayerInstruction {
+            source_page_index: 0,
+            output_page_index: 0,
+            matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            filter_to_output_page: false,
+            normalize_greek_micro_sign: false,
+            link_only: true,
+            unmapped_geometry: false,
+            source_region: None,
+        }],
+    };
+
+    rebind_retained_destinations(&output_path, &source_path, &instructions).unwrap();
+    let output = Document::load(&output_path).unwrap();
+    let catalog = output.catalog().unwrap();
+    let names = catalog.get(b"Names").and_then(|names| output.dereference(names));
+    assert!(names.is_ok_and(|(_, names)| !names.as_dict().unwrap().has(b"EmbeddedFiles")));
+    assert_eq!(output.get_pages().len(), 2);
     remove_file(source_path).unwrap();
     remove_file(output_path).unwrap();
 }
