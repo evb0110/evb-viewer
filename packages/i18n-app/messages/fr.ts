@@ -1838,6 +1838,7 @@ export default {
             'documentChanged': 'Le document a changé avant la fin de l’enregistrement, rien n’a été écrit.',
             'originalChanged': 'Le fichier sur le disque a changé depuis son ouverture. Vos modifications sont conservées. Utilisez « Enregistrer sous » pour conserver les deux versions.',
             'originalUnreadable': 'Le fichier original ne peut plus être lu ni recevoir les modifications. S’il a été déplacé ou supprimé, restaurez-le et réessayez.',
+            'openedVersionUnavailable': 'Le PDF tel qu’il a été ouvert n’est plus disponible : les zones de texte ne peuvent pas retrouver leur apparence d’origine. Vos modifications restent ouvertes ici.',
             'workingCopyMissing': 'La copie temporaire du document a été supprimée, donc ces modifications ne peuvent pas être enregistrées. Rouvrez le fichier.',
             'notCompleted': 'Le document n’a pas pu être écrit.',
             'permissionDenied': 'EVB Viewer ne peut pas écrire dans le dossier de ce PDF, qui n’a donc pas été enregistré. Choisissez « Enregistrer sous » pour enregistrer vos modifications dans un autre dossier.',

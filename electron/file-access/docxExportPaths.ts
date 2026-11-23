@@ -4,6 +4,7 @@ import {
 } from 'path';
 import type { WebContents } from 'electron';
 import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
+import { isReservedTempPath } from '@electron/utils/pathValidator';
 
 const DOCX_WRITE_PATH_MAX_ENTRIES = 64;
 const DOCX_WRITE_PATH_TTL_MS = 15 * 60 * 1000;
@@ -21,6 +22,9 @@ function normalizePath(filePath: string) {
 
 export function normalizeDocxPath(filePath: string) {
     const normalizedPath = normalizePath(filePath);
+    if (isReservedTempPath(filePath) || isReservedTempPath(normalizedPath)) {
+        throw new Error('Invalid file path: cannot write into reserved application directory');
+    }
     if (extname(normalizedPath).toLowerCase() !== '.docx') {
         throw new Error('Invalid file type: only DOCX files are allowed');
     }

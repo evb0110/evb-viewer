@@ -96,6 +96,7 @@ export const useWorkspaceFailureSurface = () => {
                 ? t('errors.file.originalSavedOtherKept', {path: persistence.keptFilePath})
                 : t('errors.save.originalChanged');
         }
+        if (persistence?.reason === 'source-unavailable') return t('errors.save.openedVersionUnavailable');
         const message = persistence?.message ?? '';
         if (HELD_OR_DENIED_MESSAGE.test(message)) {
             return t(/EBUSY/iu.test(message) ? 'errors.save.fileBusy' : /The PDF is read-only or locked/u.test(message) ? 'errors.save.fileReadOnly' : 'errors.save.permissionDenied');

@@ -69,6 +69,7 @@ import { isSupportedOpenPath } from '@electron/image/pdfConversion';
 import {
     cleanupWorkingCopy,
     getWorkingCopyRevision,
+    releasePinnedDocumentRevisionsForSender,
     requireManagedWorkingCopyPath,
 } from '@electron/file-access/documentStore';
 import { createLogger } from '@electron/utils/createLogger';
@@ -107,6 +108,8 @@ import {
 import {
     handleCreateWorkingCopyFromData,
     handleCreateWorkingCopyFromPath,
+    handlePinDocumentRevision,
+    handleReleasePinnedDocumentRevision,
     handleRestoreDocumentRevision,
     handleRetainDocumentRevisions,
 } from '@electron/features/documents/main/documentWorkingCopyHandlers';
@@ -232,6 +235,7 @@ function registerDocumentsSenderCleanup(event: Pick<IpcMainInvokeEvent, 'sender'
         rendererFileOpenTokens.delete(senderId);
         cancelMainOperationsForOwner(senderId, reason, lifecycleEvent);
         revokeManagedTempFileHandlesForSender(senderId);
+        void releasePinnedDocumentRevisionsForSender(senderId);
         rendererFileOpenTokenCleanupSenders.delete(senderId);
     };
     const stop = onSenderLifetimeEnd(event.sender, (end) => {
@@ -443,6 +447,13 @@ export const documentsMainBindings = {
         handleRestoreDocumentRevision(context, workingPath, revision, revisionOptions),
     retainDocumentRevisions: (context, workingPath, revisions) =>
         handleRetainDocumentRevisions(context, workingPath, revisions),
+    pinDocumentRevision: (context, workingPath, revision) => {
+        // A window that goes away ends its pins with it.
+        registerDocumentsSenderCleanup({sender: context.sender}, context.senderId);
+        return handlePinDocumentRevision(context, workingPath, revision);
+    },
+    releasePinnedDocumentRevision: (context, pinnedRef) =>
+        handleReleasePinnedDocumentRevision(context, pinnedRef),
     cleanupFile: async (context, workingPath) => {
         if (await cleanupWorkingCopy(workingPath, context.senderId)) {
             await discardOcrResultsForDocument(requireDocumentRef(workingPath));

@@ -158,6 +158,11 @@ const schemaArgsExamples: Readonly<Record<string, unknown[]>> = {
         '/tmp/fixture.pdf',
         ['1'],
     ],
+    'working-copy:pinRevision': [
+        '/tmp/fixture.pdf',
+        '1',
+    ],
+    'working-copy:releasePinnedRevision': ['/tmp/pinned-revisions/fixture.pdf'],
     'file:cleanup': ['/tmp/fixture.pdf'],
     'file:read': ['/tmp/fixture.pdf'],
     'pdf:pageLabels:read': ['/tmp/fixture.pdf'],

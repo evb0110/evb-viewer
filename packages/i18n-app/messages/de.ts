@@ -1828,6 +1828,7 @@ export default {
             'documentChanged': 'Das Dokument hat sich vor dem Ende des Speicherns geändert, es wurde nichts geschrieben.',
             'originalChanged': 'Die Datei auf dem Datenträger wurde seit dem Öffnen geändert. Ihre Änderungen bleiben erhalten. Verwenden Sie „Speichern unter“, um beide Versionen zu behalten.',
             'originalUnreadable': 'Die Originaldatei kann nicht mehr gelesen werden. Änderungen können daher nicht gespeichert werden. Wurde sie verschoben oder gelöscht, stellen Sie sie wieder her und versuchen Sie es erneut.',
+            'openedVersionUnavailable': 'Das PDF ist nicht mehr so verfügbar, wie es geöffnet wurde. Textfelder können daher ihr ursprüngliches Aussehen nicht zurückerhalten. Ihre Änderungen bleiben hier geöffnet.',
             'workingCopyMissing': 'Die temporäre Kopie des Dokuments wurde entfernt, daher können diese Änderungen nicht gespeichert werden. Öffnen Sie die Datei erneut.',
             'notCompleted': 'Das Dokument konnte nicht geschrieben werden.',
             'permissionDenied': 'EVB Viewer kann nicht in den Ordner dieser PDF schreiben, daher wurde sie nicht gespeichert. Wählen Sie «Speichern unter», um Ihre Änderungen in einem anderen Ordner zu speichern.',

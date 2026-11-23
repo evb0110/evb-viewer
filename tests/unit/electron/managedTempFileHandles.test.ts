@@ -50,6 +50,22 @@ function changeFileModeAfterCtimeAdvances(path: string, initialMode: number) {
     throw new Error('Filesystem ctime did not advance after repeated mode changes');
 }
 
+/** What the writer of a staged artifact carries: its byte pass's digest and its own handle's stat after writing. */
+function writtenFingerprint(path: string) {
+    const bytes = readFileSync(path);
+    return {trustedFingerprint: {
+        bytes: bytes.byteLength,
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+        writtenFile: statSync(path, {bigint: true}),
+    }};
+}
+
+function withPlatform<T>(platform: NodeJS.Platform, run: () => Promise<T>) {
+    const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')!;
+    Object.defineProperty(process, 'platform', {...descriptor, value: platform});
+    return run().finally(() => Object.defineProperty(process, 'platform', descriptor));
+}
+
 vi.mock('@electron/features/documents/main/documentFilePathResolution', () => ({
     resolveExistingReadableBinaryPath: vi.fn(async () => mocks.path),
     resolveExistingReadableDocumentOrImagePath: vi.fn(async () => mocks.path),
@@ -255,7 +271,7 @@ describe('managed temporary file handles', () => {
             tailCheck: false,
             semanticCheck: false,
             fsynced: false,
-        });
+        }, writtenFingerprint(mocks.path));
 
         expect(artifact).toMatchObject({
             receiptVersion: 1,
@@ -314,7 +330,7 @@ describe('managed temporary file handles', () => {
             tailCheck: false,
             semanticCheck: false,
             fsynced: false,
-        });
+        }, writtenFingerprint(mocks.path));
 
         revokeManagedTempFileHandlesForSender(42);
         await expect(resolveTypedStagedArtifact({senderId: 42}, staged)).rejects.toThrow(/lease|managed|staged/iu);
@@ -324,7 +340,7 @@ describe('managed temporary file handles', () => {
             tailCheck: false,
             semanticCheck: false,
             fsynced: false,
-        });
+        }, writtenFingerprint(mocks.path));
         await expect(resolveTypedStagedArtifact({senderId: 42}, retry)).resolves.toEqual(retry);
     });
 
@@ -338,7 +354,7 @@ describe('managed temporary file handles', () => {
             tailCheck: true,
             semanticCheck: false,
             fsynced: false,
-        });
+        }, writtenFingerprint(mocks.path));
         await expect(resolveTypedStagedArtifact({senderId: 42}, artifact)).resolves.toEqual(artifact);
     });
 
@@ -370,11 +386,7 @@ describe('managed temporary file handles', () => {
 
     it('mints a staged receipt from a trusted incremental fingerprint without rehashing', async () => {
         const {createTypedStagedArtifact} = await import('@electron/features/documents/main/managedTempFileHandles');
-        const bytes = readFileSync(mocks.path);
-        const trustedFingerprint = {
-            bytes: bytes.byteLength,
-            sha256: createHash('sha256').update(bytes).digest('hex'),
-        };
+        const {trustedFingerprint} = writtenFingerprint(mocks.path);
 
         const artifact = await createTypedStagedArtifact({senderId: 42}, mocks.path, {
             qpdfCheck: false,
@@ -393,8 +405,8 @@ describe('managed temporary file handles', () => {
     it('rejects a trusted incremental fingerprint whose byte count drifted', async () => {
         const {createTypedStagedArtifact} = await import('@electron/features/documents/main/managedTempFileHandles');
         const trustedFingerprint = {
+            ...writtenFingerprint(mocks.path).trustedFingerprint,
             bytes: statSync(mocks.path).size + 1,
-            sha256: 'a'.repeat(64),
         };
 
         await expect(createTypedStagedArtifact({senderId: 42}, mocks.path, {
@@ -414,7 +426,7 @@ describe('managed temporary file handles', () => {
             tailCheck: false,
             semanticCheck: false,
             fsynced: false,
-        })).rejects.toThrow('Invalid staged artifact validation receipt');
+        }, writtenFingerprint(mocks.path))).rejects.toThrow('Invalid staged artifact validation receipt');
     });
 
     it('invalidates receipt reuse after size drift', async () => {
@@ -427,7 +439,7 @@ describe('managed temporary file handles', () => {
             tailCheck: false,
             semanticCheck: false,
             fsynced: false,
-        });
+        }, writtenFingerprint(mocks.path));
 
         appendFileSync(mocks.path, 'x');
 
@@ -447,7 +459,7 @@ describe('managed temporary file handles', () => {
             tailCheck: false,
             semanticCheck: false,
             fsynced: false,
-        });
+        }, writtenFingerprint(mocks.path));
 
         const fileStat = statSync(mocks.path);
         utimesSync(mocks.path, fileStat.atime, new Date(fileStat.mtimeMs + 2_000));
@@ -466,7 +478,7 @@ describe('managed temporary file handles', () => {
             tailCheck: false,
             semanticCheck: false,
             fsynced: false,
-        });
+        }, writtenFingerprint(mocks.path));
         const fileStat = statSync(mocks.path);
 
         changeFileModeAfterCtimeAdvances(mocks.path, fileStat.mode);
@@ -485,7 +497,7 @@ describe('managed temporary file handles', () => {
             tailCheck: false,
             semanticCheck: false,
             fsynced: false,
-        });
+        }, writtenFingerprint(mocks.path));
 
         const fileStat = statSync(mocks.path);
         writeFileSync(mocks.path, Buffer.from('rewritten-file-bytes'));
@@ -505,7 +517,7 @@ describe('managed temporary file handles', () => {
             tailCheck: false,
             semanticCheck: false,
             fsynced: false,
-        });
+        }, writtenFingerprint(mocks.path));
         const replacementPath = join(directory, 'replacement.pdf');
         writeFileSync(replacementPath, Buffer.from('managed-file-content'));
 
@@ -525,7 +537,7 @@ describe('managed temporary file handles', () => {
             tailCheck: false,
             semanticCheck: false,
             fsynced: false,
-        });
+        }, writtenFingerprint(mocks.path));
         const otherPath = join(directory, 'other.pdf');
         writeFileSync(otherPath, Buffer.from('managed-file-content'));
 
@@ -546,7 +558,7 @@ describe('managed temporary file handles', () => {
             tailCheck: false,
             semanticCheck: false,
             fsynced: false,
-        });
+        }, writtenFingerprint(mocks.path));
 
         vi.advanceTimersByTime(5 * 60 * 1_000 + 1);
 
@@ -575,6 +587,7 @@ describe('managed temporary file handles', () => {
             {senderId: 42},
             mocks.path,
             validations,
+            writtenFingerprint(mocks.path),
         );
         const rendererQpdfResult = artifact.validations.qpdfResult
             ? {
@@ -619,7 +632,7 @@ describe('managed temporary file handles', () => {
             tailCheck: false,
             semanticCheck: false,
             fsynced: false,
-        });
+        }, writtenFingerprint(mocks.path));
 
         await expect(resolveTypedStagedArtifact({senderId: 7}, artifact))
             .rejects.toThrow('another renderer');
@@ -643,7 +656,7 @@ describe('managed temporary file handles', () => {
                 errors: [],
                 warnings: ['source warning'],
             },
-        });
+        }, writtenFingerprint(mocks.path));
         const copiedPath = join(directory, 'copied.pdf');
         copyFileSync(mocks.path, copiedPath);
         mocks.path = copiedPath;
@@ -655,7 +668,7 @@ describe('managed temporary file handles', () => {
             ...(sourceArtifact.validations.qpdfResult
                 ? {qpdfResult: sourceArtifact.validations.qpdfResult}
                 : {}),
-        });
+        }, writtenFingerprint(copiedPath));
 
         expect(copiedArtifact.leaseId).not.toBe(sourceArtifact.leaseId);
         if (process.platform !== 'win32') {
@@ -673,73 +686,6 @@ describe('managed temporary file handles', () => {
             .resolves.toEqual(copiedArtifact);
     });
 
-    it('registers a generated original-path sibling from an authoritative source receipt', async () => {
-        const {
-            createTypedStagedArtifact,
-            createTypedStagedArtifactForTrustedSiblingCopy,
-            resolveTypedStagedArtifact,
-        } = await import('@electron/features/documents/main/managedTempFileHandles');
-        const sourceArtifact = await createTypedStagedArtifact({senderId: 42}, mocks.path, {
-            qpdfCheck: false,
-            tailCheck: true,
-            semanticCheck: true,
-            semanticScopeSha256: 'b'.repeat(64),
-            fsynced: true,
-        });
-        expect(sourceArtifact.receiptVersion).toBe(1);
-        if (sourceArtifact.receiptVersion !== 1) {
-            throw new Error('Expected a content-fingerprint staged artifact');
-        }
-        const originalPath = join(directory, 'original.pdf');
-        const copiedPath = join(directory, '.abcdef0123456789.tmp.pdf');
-        copyFileSync(mocks.path, copiedPath);
-
-        const copiedArtifact = await createTypedStagedArtifactForTrustedSiblingCopy(
-            {senderId: 42},
-            sourceArtifact,
-            copiedPath,
-            originalPath,
-            {
-                ...sourceArtifact.validations,
-                fsynced: false,
-            },
-        );
-
-        expect(copiedArtifact).toMatchObject({
-            path: copiedPath,
-            size: sourceArtifact.size,
-            sha256: sourceArtifact.sha256,
-            validations: {
-                tailCheck: true,
-                semanticCheck: true,
-                fsynced: false,
-            },
-        });
-        expect(copiedArtifact.leaseId).not.toBe(sourceArtifact.leaseId);
-        await expect(resolveTypedStagedArtifact({senderId: 42}, copiedArtifact))
-            .resolves.toEqual(copiedArtifact);
-
-        writeFileSync(copiedPath, Buffer.from('tampered-file-content'));
-        await expect(createTypedStagedArtifactForTrustedSiblingCopy(
-            {senderId: 42},
-            sourceArtifact,
-            copiedPath,
-            originalPath,
-            {
-                ...sourceArtifact.validations,
-                fsynced: false,
-            },
-        )).rejects.toThrow('does not match its authoritative source');
-
-        await expect(createTypedStagedArtifactForTrustedSiblingCopy(
-            {senderId: 42},
-            sourceArtifact,
-            join(directory, 'unscoped-copy.pdf'),
-            originalPath,
-            sourceArtifact.validations,
-        )).rejects.toThrow('generated sibling');
-    });
-
     it.runIf(process.platform !== 'win32')('invalidates a symlink substitution', async () => {
         const {
             createTypedStagedArtifact,
@@ -750,7 +696,7 @@ describe('managed temporary file handles', () => {
             tailCheck: false,
             semanticCheck: false,
             fsynced: false,
-        });
+        }, writtenFingerprint(mocks.path));
         const movedPath = join(directory, 'moved.pdf');
         renameSync(mocks.path, movedPath);
         symlinkSync(movedPath, mocks.path);
@@ -769,7 +715,7 @@ describe('managed temporary file handles', () => {
             tailCheck: false,
             semanticCheck: false,
             fsynced: false,
-        });
+        }, writtenFingerprint(mocks.path));
         const linkedPath = join(directory, 'linked.pdf');
         linkSync(mocks.path, linkedPath);
 
@@ -793,10 +739,230 @@ describe('managed temporary file handles', () => {
             tailCheck: false,
             semanticCheck: false,
             fsynced: false,
-        });
+        }, writtenFingerprint(mocks.path));
         await commitDocumentMutation(document, null, {kind: 'rewrite', source: edited}, 'write');
 
         await expect(resolveTypedStagedArtifact({senderId: 42}, artifact))
             .rejects.toThrow('changed after staging');
+    });
+    it('resolves a managed handle by its file witness without hashing it again', async () => {
+        const {
+            createManagedTempFileHandle,
+            resolveManagedTempFileHandle,
+        } = await import('@electron/features/documents/main/managedTempFileHandles');
+        const handle = await createManagedTempFileHandle({senderId: 42}, mocks.path);
+        expect(mocks.inspect).toHaveBeenCalledTimes(1);
+
+        await expect(resolveManagedTempFileHandle({senderId: 42}, handle)).resolves.toEqual(handle);
+        await expect(resolveManagedTempFileHandle({senderId: 42}, handle)).resolves.toEqual(handle);
+
+        expect(mocks.inspect).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects a managed handle whose bytes changed in place at the same size', async () => {
+        const {
+            createManagedTempFileHandle,
+            resolveManagedTempFileHandle,
+        } = await import('@electron/features/documents/main/managedTempFileHandles');
+        const handle = await createManagedTempFileHandle({senderId: 42}, mocks.path);
+        const fileStat = statSync(mocks.path);
+        writeFileSync(mocks.path, Buffer.from('rewritten-file-bytes'));
+        utimesSync(mocks.path, fileStat.atime, new Date(fileStat.mtimeMs + 2_000));
+
+        await expect(resolveManagedTempFileHandle({senderId: 42}, handle)).rejects.toThrow('content or revision changed');
+        await expect(resolveManagedTempFileHandle({senderId: 42}, handle)).rejects.toThrow('missing');
+        expect(mocks.inspect).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects a managed handle whose file was replaced by identical bytes', async () => {
+        const {
+            createManagedTempFileHandle,
+            resolveManagedTempFileHandle,
+        } = await import('@electron/features/documents/main/managedTempFileHandles');
+        const handle = await createManagedTempFileHandle({senderId: 42}, mocks.path);
+        const replacementPath = join(directory, 'replacement.pdf');
+        writeFileSync(replacementPath, readFileSync(mocks.path));
+        renameSync(replacementPath, mocks.path);
+
+        await expect(resolveManagedTempFileHandle({senderId: 42}, handle)).rejects.toThrow('content or revision changed');
+        expect(mocks.inspect).toHaveBeenCalledTimes(1);
+    });
+
+    it.runIf(process.platform !== 'win32')('rejects a managed handle whose path became a symlink', async () => {
+        const {
+            createManagedTempFileHandle,
+            resolveManagedTempFileHandle,
+        } = await import('@electron/features/documents/main/managedTempFileHandles');
+        const handle = await createManagedTempFileHandle({senderId: 42}, mocks.path);
+        const movedPath = join(directory, 'moved.pdf');
+        renameSync(mocks.path, movedPath);
+        symlinkSync(movedPath, mocks.path);
+
+        await expect(resolveManagedTempFileHandle({senderId: 42}, handle)).rejects.toThrow('content or revision changed');
+        expect(mocks.inspect).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects a managed handle after its document revision moved', async () => {
+        const {commitDocumentMutation, openDocumentFromFile} = await import('@electron/file-access/documentStore');
+        const document = await openDocumentFromFile(mocks.path, {ownerWebContentsId: 42});
+        const edited = join(directory, 'edited.pdf');
+        writeFileSync(edited, 'edited-content');
+        mocks.path = join(dirname(document.ref), '.staged.pdf');
+        writeFileSync(mocks.path, 'staged-content');
+        const {
+            createManagedTempFileHandle,
+            resolveManagedTempFileHandle,
+        } = await import('@electron/features/documents/main/managedTempFileHandles');
+        const handle = await createManagedTempFileHandle({senderId: 42}, mocks.path);
+        await commitDocumentMutation(document, null, {kind: 'rewrite', source: edited}, 'write');
+
+        await expect(resolveManagedTempFileHandle({senderId: 42}, handle)).rejects.toThrow('content or revision changed');
+        expect(mocks.inspect).toHaveBeenCalledTimes(1);
+    });
+
+    it('ends the lease of an original-backed handle whose original another program replaced', async () => {
+        const originalPath = join(directory, 'original.pdf');
+        renameSync(mocks.path, originalPath);
+        const {openDocumentFromFile} = await import('@electron/file-access/documentStore');
+        mocks.path = (await openDocumentFromFile(originalPath, {ownerWebContentsId: 42})).ref;
+        const {
+            createManagedTempFileHandle,
+            getManagedTempFileCleanupStateForTests,
+            resolveManagedTempFileHandle,
+        } = await import('@electron/features/documents/main/managedTempFileHandles');
+        const handle = await createManagedTempFileHandle({senderId: 42}, mocks.path);
+        const replacementPath = join(directory, 'replacement.pdf');
+        writeFileSync(replacementPath, 'another-programs-text');
+        renameSync(replacementPath, originalPath);
+
+        await expect(resolveManagedTempFileHandle({senderId: 42}, handle)).rejects.toThrow('content or revision changed');
+        expect(getManagedTempFileCleanupStateForTests(handle.leaseId)).toEqual({exists: false, pending: false});
+    });
+
+    it.each([
+        ['released', (leaseId: string, end: typeof import('@electron/features/documents/main/managedTempFileHandles')) =>
+            end.releaseManagedTempFileHandle({senderId: 42}, leaseId)],
+        ['revoked with its renderer', (_leaseId: string, end: typeof import('@electron/features/documents/main/managedTempFileHandles')) =>
+            end.revokeManagedTempFileHandlesForSender(42)],
+    ])('grants nothing from a managed handle %s while it was being checked', async (_how, endLease) => {
+        const handles = await import('@electron/features/documents/main/managedTempFileHandles');
+        const handle = await handles.createManagedTempFileHandle({senderId: 42}, mocks.path);
+
+        const resolving = handles.resolveManagedTempFileHandle({senderId: 42}, handle);
+        endLease(handle.leaseId, handles);
+
+        await expect(resolving).rejects.toThrow('missing, expired, or belongs to another renderer');
+        expect(handles.getManagedTempFileCleanupStateForTests(handle.leaseId)).toEqual({exists: false, pending: false});
+    });
+
+    it('grants nothing from a staged receipt released while it was being checked', async () => {
+        const handles = await import('@electron/features/documents/main/managedTempFileHandles');
+        const artifact = await handles.createTypedStagedArtifact({senderId: 42}, mocks.path, {
+            qpdfCheck: false,
+            tailCheck: false,
+            semanticCheck: false,
+            fsynced: false,
+        }, writtenFingerprint(mocks.path));
+
+        const resolving = handles.resolveTypedStagedArtifact({senderId: 42}, artifact);
+        handles.releaseManagedTempFileHandle({senderId: 42}, artifact.leaseId);
+
+        await expect(resolving).rejects.toThrow('missing, expired, altered, or belongs to another renderer');
+    });
+
+    it('refuses to renew a managed handle lease that expires while its stat check is in flight', async () => {
+        const startNow = 1_700_000_000_000;
+        const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(startNow);
+        try {
+            const handles = await import('@electron/features/documents/main/managedTempFileHandles');
+            const handle = await handles.createManagedTempFileHandle({senderId: 42}, mocks.path);
+
+            const resolving = handles.resolveManagedTempFileHandle({senderId: 42}, handle);
+            // Advance past the 5-minute TTL after the entry check passed without running the 30s sweep timer.
+            nowSpy.mockReturnValue(startNow + 5 * 60 * 1_000 + 1);
+
+            await expect(resolving).rejects.toThrow('missing, expired, or belongs to another renderer');
+            expect(handles.getManagedTempFileCleanupStateForTests(handle.leaseId)).toEqual({exists: false, pending: false});
+        } finally {
+            nowSpy.mockRestore();
+        }
+    });
+
+    it('refuses to renew a staged receipt lease that expires while its stat check is in flight', async () => {
+        const startNow = 1_700_000_000_000;
+        const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(startNow);
+        try {
+            const handles = await import('@electron/features/documents/main/managedTempFileHandles');
+            const artifact = await handles.createTypedStagedArtifact({senderId: 42}, mocks.path, {
+                qpdfCheck: false,
+                tailCheck: false,
+                semanticCheck: false,
+                fsynced: false,
+            }, writtenFingerprint(mocks.path));
+
+            const resolving = handles.resolveTypedStagedArtifact({senderId: 42}, artifact);
+            // Advance past the 5-minute TTL after the entry check passed without running the 30s sweep timer.
+            nowSpy.mockReturnValue(startNow + 5 * 60 * 1_000 + 1);
+
+            await expect(resolving).rejects.toThrow('missing, expired, altered, or belongs to another renderer');
+            expect(handles.getManagedTempFileCleanupStateForTests(artifact.leaseId)).toEqual({exists: false, pending: false});
+        } finally {
+            nowSpy.mockRestore();
+        }
+    });
+
+    it('refuses a receipt for a same-length file put at the path after its writer closed it', async () => {
+        const {createTypedStagedArtifact} = await import('@electron/features/documents/main/managedTempFileHandles');
+        const written = writtenFingerprint(mocks.path);
+        const replacementPath = join(directory, 'replacement.pdf');
+        writeFileSync(replacementPath, Buffer.from('MANAGED-FILE-CONTENT'));
+        renameSync(replacementPath, mocks.path);
+
+        await expect(createTypedStagedArtifact({senderId: 42}, mocks.path, {
+            qpdfCheck: false,
+            tailCheck: true,
+            semanticCheck: false,
+            fsynced: true,
+        }, written)).rejects.toThrow('changed while its receipt was being created');
+    });
+
+    it('rejects a managed handle whose digest the renderer altered', async () => {
+        const {
+            createManagedTempFileHandle,
+            resolveManagedTempFileHandle,
+        } = await import('@electron/features/documents/main/managedTempFileHandles');
+        const handle = await createManagedTempFileHandle({senderId: 42}, mocks.path);
+
+        await expect(resolveManagedTempFileHandle({senderId: 42}, {...handle, sha256: 'a'.repeat(64)}))
+            .rejects.toThrow('missing, expired, or belongs to another renderer');
+        await expect(resolveManagedTempFileHandle({senderId: 42}, handle)).resolves.toEqual(handle);
+    });
+
+    it('resolves a Windows content-fingerprint receipt by file identity without hashing it again', async () => {
+        await withPlatform('win32', async () => {
+            const {
+                createTypedStagedArtifact,
+                resolveTypedStagedArtifact,
+            } = await import('@electron/features/documents/main/managedTempFileHandles');
+            const artifact = await createTypedStagedArtifact({senderId: 42}, mocks.path, {
+                qpdfCheck: false,
+                tailCheck: true,
+                semanticCheck: false,
+                fsynced: true,
+            }, writtenFingerprint(mocks.path));
+            expect(artifact).toMatchObject({
+                receiptVersion: 1,
+                fileIdentity: {platform: 'win32'},
+            });
+
+            await expect(resolveTypedStagedArtifact({senderId: 42}, artifact)).resolves.toEqual(artifact);
+            expect(mocks.inspect).not.toHaveBeenCalled();
+
+            const fileStat = statSync(mocks.path);
+            writeFileSync(mocks.path, Buffer.from('rewritten-file-bytes'));
+            utimesSync(mocks.path, fileStat.atime, new Date(fileStat.mtimeMs + 2_000));
+            await expect(resolveTypedStagedArtifact({senderId: 42}, artifact)).rejects.toThrow('changed after staging');
+            expect(mocks.inspect).not.toHaveBeenCalled();
+        });
     });
 });

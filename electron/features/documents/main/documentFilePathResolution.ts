@@ -8,6 +8,7 @@ import {
 import {resolve} from 'path';
 import {
     describeReadPathValidationForDiagnostics,
+    isReservedTempPath,
     resolveAllowedReadPath,
     getManagedTempPathAccessDecision,
 } from '@electron/utils/pathValidator';
@@ -74,7 +75,8 @@ function resolveDirectSourceReadPath(
             return null;
         }
 
-        return realpathSync(absolutePath);
+        const resolved = realpathSync(absolutePath);
+        return isReservedTempPath(resolved) ? null : resolved;
     } catch {
         return null;
     }
@@ -105,7 +107,7 @@ async function resolveReadablePath(
     extension: string,
     senderId?: number,
 ) {
-    if (!isReadablePathAllowedForSender(normalizedPath, senderId)) {
+    if (isReservedTempPath(normalizedPath) || !isReadablePathAllowedForSender(normalizedPath, senderId)) {
         return null;
     }
     if (isManagedRef(normalizedPath, senderId)) {
@@ -128,7 +130,8 @@ async function resolveReadablePath(
 
 function resolveGrantedReadablePathSync(normalizedPath: string, senderId?: number) {
     try {
-        return requireOpenPath(normalizedPath, senderId);
+        const grantedPath = requireOpenPath(normalizedPath, senderId);
+        return isReservedTempPath(grantedPath) ? null : grantedPath;
     } catch {
         return null;
     }

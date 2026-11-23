@@ -2,14 +2,10 @@ import {realpathSync} from 'node:fs';
 import {
     lstat,
     rm,
+    stat,
 } from 'node:fs/promises';
 import type { BigIntStats } from 'node:fs';
 import {isDeepStrictEqual} from 'node:util';
-import {
-    basename,
-    dirname,
-    isAbsolute,
-} from 'node:path';
 import type { IManagedTempFileHandle } from '@contracts/electronApiDocuments';
 import {MANAGED_TEMP_FILE_HANDLE_SCHEMA} from '@contracts/electronApiDocuments';
 import {parseDocumentRef} from '@contracts/documentRef';
@@ -32,7 +28,6 @@ import {
 } from '@electron/file-access/documentStore';
 import {fingerprintFileWithUtilityProcess} from '@electron/features/documents/main/fingerprintFileWithUtilityProcess';
 import {resolveDocumentReadTransport} from '@electron/features/documents/main/documentFileReadHandlers';
-import {isAllowedOriginalSavePath} from '@electron/file-access/isAllowedOriginalSavePath';
 import {setManagedTempPathAccessValidator} from '@electron/utils/pathValidator';
 import {
     resolveExistingReadableBinaryPath,
@@ -51,6 +46,16 @@ interface IMainManagedTempFileLease {
     invalidated?: boolean;
 }
 
+/**
+ * A managed binary handle: the one hash pass that minted `handle.sha256` was bracketed by these stat witnesses, so
+ * resolving it checks the same file object and metadata instead of hashing the bytes again (ADR 0010).
+ */
+interface IMainManagedBinaryLease extends IMainManagedTempFileLease {
+    handle: IManagedTempFileHandle;
+    fileIdentity: TArtifactFileIdentity;
+    statWitness: IArtifactStatWitness;
+}
+
 interface IMainStagedArtifactLease extends IMainManagedTempFileLease {
     artifact: ITypedStagedArtifact;
     statWitness: IArtifactStatWitness;
@@ -64,7 +69,9 @@ interface IArtifactStatWitness {
     linkCount: bigint;
 }
 
-const leases = new Map<TLeaseId, IMainManagedTempFileLease | IMainStagedArtifactLease>();
+type TMainLease = IMainManagedTempFileLease | IMainManagedBinaryLease | IMainStagedArtifactLease;
+
+const leases = new Map<TLeaseId, TMainLease>();
 const leaseIdsByCanonicalPath = new Map<string, TLeaseId>();
 let leaseSweepTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -125,7 +132,7 @@ setManagedTempPathAccessValidator(assertManagedTempPathAccess);
 
 function registerLease(
     leaseId: TLeaseId,
-    lease: IMainManagedTempFileLease | IMainStagedArtifactLease,
+    lease: TMainLease,
 ) {
     leases.set(leaseId, lease);
     registerLeasePath(leaseId, lease.path);
@@ -222,6 +229,24 @@ async function statRegularArtifact(path: string) {
     return fileStat;
 }
 
+/**
+ * The file a managed binary handle names. A direct path must itself be a regular file, so a symlink swapped in is
+ * refused; an open document's original is followed as its admission check does, and that check guards its identity.
+ */
+async function statManagedBinary(path: string, originalBacked: boolean) {
+    if (!originalBacked) return statRegularArtifact(path);
+    const fileStat = await stat(path, {bigint: true});
+    if (!fileStat.isFile()) {
+        throw new Error('Managed binary path no longer identifies a regular file');
+    }
+    return fileStat;
+}
+
+function isSameArtifactFile(left: BigIntStats, right: BigIntStats) {
+    return isDeepStrictEqual(createArtifactFileIdentity(left), createArtifactFileIdentity(right))
+        && isSameArtifactStatWitness(createArtifactStatWitness(left), createArtifactStatWitness(right));
+}
+
 function invalidateStagedArtifactLease(leaseId: TLeaseId) {
     const lease = leases.get(leaseId);
     if (lease) endLease(leaseId, lease);
@@ -275,6 +300,20 @@ function sweepExpiredLeases() {
     clearLeaseSweepIfIdle();
 }
 
+function renewLeaseIfActive(leaseId: TLeaseId, lease: TMainLease) {
+    sweepExpiredLeases();
+    if (leases.get(leaseId) !== lease || lease.invalidated) {
+        return false;
+    }
+    const now = Date.now();
+    if (lease.expiresAt <= now) {
+        endLease(leaseId, lease);
+        return false;
+    }
+    lease.expiresAt = now + MANAGED_HANDLE_TTL_MS;
+    return true;
+}
+
 function ensureLeaseSweep() {
     leaseSweepTimer ??= setInterval(sweepExpiredLeases, 30_000);
     leaseSweepTimer.unref();
@@ -287,41 +326,56 @@ export async function createManagedTempFileHandle(
 ): Promise<IManagedTempFileHandle> {
     const path = await resolveExistingReadableDocumentOrImagePath(filePath, context.senderId);
     const originalBackedRead = resolveDocumentReadTransport(path, context.senderId);
+    // The one hash pass the handle's digest needs, bracketed by stat witnesses that resolving checks instead. An
+    // original-backed read checks the original unchanged after this returns, and reports that change itself.
+    const inspect = async (physicalPath: string) => ({
+        beforeStat: await statManagedBinary(physicalPath, originalBackedRead !== null),
+        inspection: await fingerprintFileWithUtilityProcess(physicalPath),
+        fileStat: await statManagedBinary(physicalPath, originalBackedRead !== null),
+    });
     const [
-        inspection,
+        {beforeStat, inspection, fileStat},
         currentRevision,
     ] = await Promise.all([
-        originalBackedRead
-            ? originalBackedRead.read(fingerprintFileWithUtilityProcess)
-            : fingerprintFileWithUtilityProcess(path),
+        originalBackedRead ? originalBackedRead.read(inspect) : inspect(path),
         readWorkingCopyRevision(path),
     ]);
+    if (BigInt(inspection.bytes) !== fileStat.size || !isSameArtifactFile(beforeStat, fileStat)) {
+        throw new Error('Managed binary file changed while its handle was being created');
+    }
     const leaseId = createLeaseId('managed-temp');
-    registerLease(leaseId, {
-        ownerId: context.senderId,
-        path: requireDocumentRef(path),
-        expiresAt: Date.now() + MANAGED_HANDLE_TTL_MS,
-        release: options.cleanupOnRelease ? removeFile(path) : undefined,
-    });
-    ensureLeaseSweep();
-    return {
+    const handle: IManagedTempFileHandle = Object.freeze({
         path: requireDocumentRef(path),
         size: inspection.bytes,
         sha256: inspection.sha256,
         leaseId,
         revision: currentRevision?.token ?? null,
-    };
+    });
+    registerLease(leaseId, {
+        ownerId: context.senderId,
+        path: handle.path,
+        expiresAt: Date.now() + MANAGED_HANDLE_TTL_MS,
+        release: options.cleanupOnRelease ? removeFile(path) : undefined,
+        handle,
+        fileIdentity: createArtifactFileIdentity(fileStat),
+        statWitness: createArtifactStatWitness(fileStat),
+    });
+    ensureLeaseSweep();
+    return {...handle};
 }
 
 interface ICreateTypedStagedArtifactOptions {
     cleanupOnRelease?: boolean;
-    expectedFingerprint?: {
+    /** The digest of the byte pass that wrote the artifact; minting a receipt never hashes it again. */
+    trustedFingerprint: {
         bytes: number;
         sha256: string;
-    };
-    trustedFingerprint?: {
-        bytes: number;
-        sha256: string;
+        contentFingerprint?: string;
+        /**
+         * The writer's own open handle, statted after its last write and sync: the receipt names that file object
+         * as it was then, so nothing put at the path after the writer closed it gets the writer's digest.
+         */
+        writtenFile: BigIntStats;
     };
 }
 
@@ -356,68 +410,35 @@ function registerTypedStagedArtifact(
     return authoritativeArtifact;
 }
 
-async function createTypedStagedArtifactAtPath(
+export async function createTypedStagedArtifact(
     context: IDocumentsSenderIdContext,
-    path: string,
+    filePath: unknown,
     validations: IStagedArtifactValidations,
     options: ICreateTypedStagedArtifactOptions,
 ): Promise<ITypedStagedArtifact> {
-    const beforeStat = await statRegularArtifact(path);
-    const expectedFingerprint = options.expectedFingerprint;
-    const trustedFingerprint = options.trustedFingerprint;
-    const invalidFingerprint = [
-        expectedFingerprint,
-        trustedFingerprint,
-    ].some(fingerprint => fingerprint !== undefined && (
-        !Number.isSafeInteger(fingerprint.bytes)
-        || fingerprint.bytes < 0
-        || !/^[a-f0-9]{64}$/u.test(fingerprint.sha256)
-    ));
-    if (invalidFingerprint) {
+    const path = await resolveExistingReadableBinaryPath(filePath, context.senderId);
+    const {trustedFingerprint} = options;
+    if (
+        !Number.isSafeInteger(trustedFingerprint.bytes)
+        || trustedFingerprint.bytes < 0
+        || !/^[a-f0-9]{64}$/u.test(trustedFingerprint.sha256)
+    ) {
         throw new Error('Invalid trusted staged artifact fingerprint');
     }
-    const [
-        inspection,
-        currentRevision,
-    ] = await Promise.all([
-        trustedFingerprint === undefined
-            ? fingerprintFileWithUtilityProcess(path)
-            : Promise.resolve<Awaited<ReturnType<typeof fingerprintFileWithUtilityProcess>>>(trustedFingerprint),
-        readWorkingCopyRevision(path),
-    ]);
     const fileStat = await statRegularArtifact(path);
-    if (
-        expectedFingerprint !== undefined
-        && (
-            inspection.bytes !== expectedFingerprint.bytes
-            || inspection.sha256 !== expectedFingerprint.sha256
-        )
-    ) {
-        throw new Error('Copied staged artifact fingerprint does not match its authoritative source');
-    }
-    if (
-        BigInt(inspection.bytes) !== fileStat.size
-        || !isDeepStrictEqual(
-            createArtifactFileIdentity(beforeStat),
-            createArtifactFileIdentity(fileStat),
-        )
-        || !isSameArtifactStatWitness(
-            createArtifactStatWitness(beforeStat),
-            createArtifactStatWitness(fileStat),
-        )
-    ) {
+    const currentRevision = readWorkingCopyRevision(path);
+    if (BigInt(trustedFingerprint.bytes) !== fileStat.size || !isSameArtifactFile(trustedFingerprint.writtenFile, fileStat)) {
         throw new Error('Staged artifact changed while its receipt was being created');
     }
-    const fileIdentity = createArtifactFileIdentity(fileStat);
     const leaseId = createLeaseId('staged-artifact');
     return registerTypedStagedArtifact(context, {
         receiptVersion: 1,
         artifactKind: 'pdf',
         path: requireDocumentRef(path),
-        size: inspection.bytes,
-        sha256: inspection.sha256,
-        ...(inspection.contentFingerprint === undefined ? {} : {contentFingerprint: inspection.contentFingerprint}),
-        fileIdentity,
+        size: trustedFingerprint.bytes,
+        sha256: trustedFingerprint.sha256,
+        ...(trustedFingerprint.contentFingerprint === undefined ? {} : {contentFingerprint: trustedFingerprint.contentFingerprint}),
+        fileIdentity: createArtifactFileIdentity(fileStat),
         validations,
         leaseId,
         revision: currentRevision?.token ?? null,
@@ -425,16 +446,6 @@ async function createTypedStagedArtifactAtPath(
         release: options.cleanupOnRelease ? removeFile(path) : undefined,
         invalidReceiptMessage: 'Invalid staged artifact validation receipt',
     });
-}
-
-export async function createTypedStagedArtifact(
-    context: IDocumentsSenderIdContext,
-    filePath: unknown,
-    validations: IStagedArtifactValidations,
-    options: ICreateTypedStagedArtifactOptions = {},
-): Promise<ITypedStagedArtifact> {
-    const path = await resolveExistingReadableBinaryPath(filePath, context.senderId);
-    return createTypedStagedArtifactAtPath(context, path, validations, options);
 }
 
 /**
@@ -453,16 +464,7 @@ export async function createOpaqueNativePdfStagedArtifact(
     const beforeStat = await statRegularArtifact(path);
     const currentRevision = await readWorkingCopyRevision(path);
     const fileStat = await statRegularArtifact(path);
-    if (
-        !isDeepStrictEqual(
-            createArtifactFileIdentity(beforeStat),
-            createArtifactFileIdentity(fileStat),
-        )
-        || !isSameArtifactStatWitness(
-            createArtifactStatWitness(beforeStat),
-            createArtifactStatWitness(fileStat),
-        )
-    ) {
+    if (!isSameArtifactFile(beforeStat, fileStat)) {
         throw new Error('Native staged artifact changed while its lease was being created');
     }
     const fileIdentity = createArtifactFileIdentity(fileStat);
@@ -489,32 +491,6 @@ export async function createOpaqueNativePdfStagedArtifact(
     });
 }
 
-export async function createTypedStagedArtifactForTrustedSiblingCopy(
-    context: IDocumentsSenderIdContext,
-    sourceArtifact: ITypedStagedArtifact,
-    copiedPath: string,
-    originalPath: string,
-    validations: IStagedArtifactValidations,
-): Promise<ITypedStagedArtifact> {
-    const authoritativeSource = await resolveTypedStagedArtifact(context, sourceArtifact);
-    if (authoritativeSource.receiptVersion !== 1) {
-        throw new Error('Opaque native staged artifacts cannot authorize trusted fingerprint copies');
-    }
-    if (
-        !isAbsolute(copiedPath)
-        || !isAllowedOriginalSavePath(originalPath)
-        || dirname(copiedPath) !== dirname(originalPath)
-        || !/^\.[a-f0-9]+\.tmp\.pdf$/u.test(basename(copiedPath))
-    ) {
-        throw new Error('Trusted staged PDF copy must be a generated sibling of the original path');
-    }
-    const expectedFingerprint = {
-        bytes: authoritativeSource.size,
-        sha256: authoritativeSource.sha256,
-    };
-    return createTypedStagedArtifactAtPath(context, copiedPath, validations, {expectedFingerprint});
-}
-
 export function releaseManagedTempFileHandle(
     context: IDocumentsSenderIdContext,
     leaseId: unknown,
@@ -532,6 +508,10 @@ export function releaseManagedTempFileHandle(
     return true;
 }
 
+/**
+ * Resolves a handle without hashing it again: the lease's file object, stat witness and revision must be what the
+ * minting hash pass saw. Any difference, or a file that cannot be checked, ends the lease.
+ */
 export async function resolveManagedTempFileHandle(
     context: IDocumentsSenderIdContext,
     value: unknown,
@@ -543,27 +523,48 @@ export async function resolveManagedTempFileHandle(
     const handle = parsed.output;
     sweepExpiredLeases();
     const lease = leases.get(handle.leaseId);
-    if (!lease || lease.invalidated || 'artifact' in lease || lease.ownerId !== context.senderId || lease.path !== handle.path) {
+    if (
+        !lease
+        || lease.invalidated
+        || !('handle' in lease)
+        || lease.ownerId !== context.senderId
+        || !isDeepStrictEqual(handle, lease.handle)
+    ) {
         throw new Error('Managed binary handle lease is missing, expired, or belongs to another renderer');
     }
-    const originalBackedRead = resolveDocumentReadTransport(handle.path, context.senderId);
-    const [
-        inspection,
-        currentRevision,
-    ] = await Promise.all([
-        originalBackedRead
-            ? originalBackedRead.read(fingerprintFileWithUtilityProcess)
-            : fingerprintFileWithUtilityProcess(handle.path),
-        readWorkingCopyRevision(handle.path),
-    ]);
-    const revision = currentRevision?.token ?? null;
-    if (inspection.bytes !== handle.size || inspection.sha256 !== handle.sha256 || revision !== handle.revision) {
-        throw new Error('Managed binary handle content or revision changed after staging');
+    const changed = () => {
+        invalidateStagedArtifactLease(handle.leaseId);
+        return new Error('Managed binary handle content or revision changed after staging');
+    };
+    let fileStat: BigIntStats;
+    try {
+        // An original another program changed or removed fails here, and ends the lease like any other change.
+        const originalBackedRead = resolveDocumentReadTransport(lease.handle.path, context.senderId);
+        const statLeaseFile = (physicalPath: string) => statManagedBinary(physicalPath, originalBackedRead !== null);
+        fileStat = await (originalBackedRead ? originalBackedRead.read(statLeaseFile) : statLeaseFile(lease.handle.path));
+    } catch {
+        throw changed();
     }
-    lease.expiresAt = Date.now() + MANAGED_HANDLE_TTL_MS;
-    return handle;
+    const currentRevision = readWorkingCopyRevision(lease.handle.path);
+    if (
+        BigInt(lease.handle.size) !== fileStat.size
+        || !isDeepStrictEqual(createArtifactFileIdentity(fileStat), lease.fileIdentity)
+        || !isSameArtifactStatWitness(createArtifactStatWitness(fileStat), lease.statWitness)
+        || (currentRevision?.token ?? null) !== lease.handle.revision
+    ) {
+        throw changed();
+    }
+    // A release, an expiry or the renderer's end during the check above ended the lease: it grants nothing now.
+    if (!renewLeaseIfActive(handle.leaseId, lease)) {
+        throw new Error('Managed binary handle lease is missing, expired, or belongs to another renderer');
+    }
+    return {...lease.handle};
 }
 
+/**
+ * Resolves a receipt by its file object (device and inode, or NTFS volume and file id), stat witness and document
+ * revision, the same on every platform and for both receipt versions: the bytes are never hashed again (ADR 0010).
+ */
 export async function resolveTypedStagedArtifact(
     context: IDocumentsSenderIdContext,
     artifact: ITypedStagedArtifact,
@@ -601,17 +602,10 @@ export async function resolveTypedStagedArtifact(
         invalidateStagedArtifactLease(artifact.leaseId);
         throw new Error('Staged artifact content, identity, or revision changed after staging');
     }
-    if (process.platform === 'win32' && lease.artifact.receiptVersion === 1) {
-        const inspection = await fingerprintFileWithUtilityProcess(lease.path);
-        if (
-            inspection.bytes !== lease.artifact.size
-            || inspection.sha256 !== lease.artifact.sha256
-        ) {
-            invalidateStagedArtifactLease(artifact.leaseId);
-            throw new Error('Staged artifact content, identity, or revision changed after staging');
-        }
+    // A release, an expiry or the renderer's end during the check above ended the lease: it grants nothing now.
+    if (!renewLeaseIfActive(artifact.leaseId, lease)) {
+        throw new Error('Staged artifact lease is missing, expired, altered, or belongs to another renderer');
     }
-    lease.expiresAt = Date.now() + MANAGED_HANDLE_TTL_MS;
     return cloneTypedStagedArtifact(lease.artifact);
 }
 

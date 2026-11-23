@@ -1,8 +1,8 @@
 import {EventEmitter} from 'node:events';
 import {existsSync} from 'node:fs';
-import {mkdtemp, rm, writeFile} from 'node:fs/promises';
+import {mkdtemp, rename, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {dirname, join} from 'node:path';
 import type {IpcMainEvent, MessagePortMain, WebContents} from 'electron';
 import type {IPdfValidationResult} from '@contracts/pdfConformance';
 import {
@@ -390,5 +390,51 @@ describe('serialized PDF persistence', () => {
             finishValidator();
             await closed;
         }
+    });
+
+    it('refuses to mint a receipt when a same-length file replaces the staged file after the writer closes it', async () => {
+        const bytes = new TextEncoder().encode('%PDF-1.7\noriginal bytes\n%%EOF\n');
+        const replacement = new TextEncoder().encode('%PDF-1.7\nREPLACED bytes\n%%EOF\n');
+        expect(replacement.byteLength).toBe(bytes.byteLength);
+        const source = join(tempRoot, 'source.pdf');
+        await writeFile(source, bytes);
+        const entry = await store.openDocumentFromFile(source, {ownerWebContentsId: 7});
+        const sender = Object.assign(new EventEmitter(), {id: 7, isDestroyed: () => false}) as WebContents;
+        const port = new TestPort();
+        const posted: Array<{type?: string; phase?: string; error?: string}> = [];
+        port.on('posted', (frame: {type?: string; phase?: string; error?: string}) => {
+            posted.push(frame);
+        });
+        let stagedPath = '';
+        mocks.validate.mockImplementationOnce(async (validationPath: string): Promise<IPdfValidationResult> => {
+            stagedPath = validationPath;
+            const replacementPath = join(dirname(validationPath), 'same-length-replacement.pdf');
+            await writeFile(replacementPath, replacement);
+            await rename(replacementPath, validationPath);
+            return {isValid: true, tool: 'qpdf', errors: [], warnings: []};
+        });
+
+        const session = await persistence.beginSerializedPdfSaveToWorkingCopy(
+            {sender, senderId: sender.id},
+            entry.ref,
+            bytes.byteLength,
+            {workingCopyOnly: true, expectedDocumentRevisionToken: store.documentRevisionToken(entry)},
+        );
+        const closed = persistence.attachSerializedPdfPersistencePort(
+            {sender, ports: [port as unknown as MessagePortMain]} as IpcMainEvent,
+            session.sessionId,
+        );
+        port.emit('message', {data: {type: 'chunk', seq: 0, bytes}});
+        port.emit('message', {data: {type: 'complete'}});
+        await closed;
+
+        expect(stagedPath).not.toBe('');
+        expect(existsSync(stagedPath)).toBe(false);
+        expect(posted.some(frame => frame.type === 'staged')).toBe(false);
+        expect(posted.some(frame =>
+            frame.type === 'error'
+            && frame.phase === 'complete'
+            && typeof frame.error === 'string'
+            && /changed while its receipt was being created/u.test(frame.error))).toBe(true);
     });
 });

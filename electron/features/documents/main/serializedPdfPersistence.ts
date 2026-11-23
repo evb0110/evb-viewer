@@ -430,6 +430,8 @@ async function stageSession(
     }
 
     await syncFileHandleForDurability(session.handle);
+    // The file this session wrote, as it is now: the receipt below must name this file object unchanged.
+    const writtenFile = await session.handle.stat({bigint: true});
     await session.handle.close();
     const validation = await validatePdfFile(session.tempPath, {signal: session.lifecycleOperation.signal});
     if (!validation.isValid) {
@@ -451,6 +453,7 @@ async function stageSession(
         trustedFingerprint: {
             bytes: session.totalBytes,
             sha256: session.hash.digest('hex'),
+            writtenFile,
         },
     };
     const stagedOutput = await createTypedStagedArtifact(

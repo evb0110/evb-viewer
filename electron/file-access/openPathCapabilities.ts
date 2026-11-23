@@ -3,6 +3,7 @@ import { sep } from 'path';
 import { createLogger } from '@electron/utils/createLogger';
 import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 import { normalizeExistingPath } from '@electron/utils/normalizeExistingPath';
+import { isReservedTempPath } from '@electron/utils/pathValidator';
 import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
 import type { Tagged } from 'type-fest';
 
@@ -106,13 +107,23 @@ function isDestroyedOwner(owner: number | WebContents) {
         && owner.isDestroyed();
 }
 
+function isReservedOpenPath(rawPath: string, normalizedPath: string) {
+    return isReservedTempPath(rawPath) || isReservedTempPath(normalizedPath);
+}
+
 /** Grants every path that resolves; one expiration sweep covers the whole batch. */
 function allowPathsForWebContents(
     allowedPathsByOwner: Map<number, Map<string, IOpenPathGrant>>,
     owner: number | WebContents,
     filePaths: readonly string[],
 ) {
-    const normalizedPaths = filePaths.map(filePath => normalizeExistingPath(filePath) as TOpenPath | null);
+    const normalizedPaths = filePaths.map((filePath) => {
+        const normalizedPath = normalizeExistingPath(filePath);
+        if (normalizedPath === null || isReservedOpenPath(filePath, normalizedPath)) {
+            return null;
+        }
+        return normalizedPath as TOpenPath;
+    });
     if (normalizedPaths.every(normalizedPath => normalizedPath === null)) {
         return normalizedPaths;
     }
@@ -163,7 +174,7 @@ function isAllowedPath(
     owner?: number | WebContents,
 ) {
     const normalizedPath = normalizeExistingPath(filePath);
-    if (!normalizedPath) {
+    if (!normalizedPath || isReservedOpenPath(filePath, normalizedPath)) {
         return false;
     }
 
@@ -188,7 +199,11 @@ function isAllowedPath(
 
 /** Whether a path resolves to an existing file, independent of any grant. */
 export function isOpenPathAccessible(rawPath: string) {
-    return normalizeExistingPath(rawPath) !== null;
+    if (typeof rawPath !== 'string' || rawPath.trim() === '') {
+        return false;
+    }
+    const normalizedPath = normalizeExistingPath(rawPath);
+    return normalizedPath !== null && !isReservedOpenPath(rawPath, normalizedPath);
 }
 
 export function requireOpenPath(rawPath: string, owner?: number | WebContents): TOpenPath {
@@ -201,7 +216,7 @@ export function requireOpenPath(rawPath: string, owner?: number | WebContents): 
         throw new Error('Path not accessible');
     }
 
-    if (!isAllowedPath(allowedOpenPathsByOwner, normalizedPath, owner)) {
+    if (isReservedOpenPath(rawPath, normalizedPath) || !isAllowedPath(allowedOpenPathsByOwner, normalizedPath, owner)) {
         throw new Error(`Path not allowed: ${rawPath}`);
     }
 
@@ -219,8 +234,11 @@ export function requireRevealPath(rawPath: string, owner?: number | WebContents)
     }
 
     if (
-        !isAllowedPath(allowedRevealPathsByOwner, normalizedPath, owner)
-        && !isAllowedPath(allowedOpenPathsByOwner, normalizedPath, owner)
+        isReservedOpenPath(rawPath, normalizedPath)
+        || (
+            !isAllowedPath(allowedRevealPathsByOwner, normalizedPath, owner)
+            && !isAllowedPath(allowedOpenPathsByOwner, normalizedPath, owner)
+        )
     ) {
         throw new Error(`Path not allowed: ${rawPath}`);
     }

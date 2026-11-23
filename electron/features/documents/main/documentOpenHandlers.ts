@@ -28,6 +28,7 @@ import { getErrorMessage } from '@electron/utils/error';
 import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import { getDocumentsDialogDefaultPath } from '@electron/utils/dialogDefaultPaths';
+import { isReservedTempPath } from '@electron/utils/pathValidator';
 import { openInputPaths } from '@electron/features/documents/main/openInputPaths.service';
 import {
     errorWithDetails,
@@ -298,7 +299,7 @@ export async function handleOpenImageDialog(context: IDocumentsDialogContext) {
             throw new Error(E2E_OPEN_IMAGE_PATH_ENV + ' must be an absolute path');
         }
         const imageStat = await stat(e2eImagePath).catch(() => null);
-        if (!imageStat?.isFile()) {
+        if (!imageStat?.isFile() || isReservedTempPath(e2eImagePath)) {
             throw new Error(E2E_OPEN_IMAGE_PATH_ENV + ' must point to an image file');
         }
         allowOpenPath(e2eImagePath, context.sender);
@@ -336,6 +337,9 @@ export async function handleOpenImageDialog(context: IDocumentsDialogContext) {
 
     const imagePath = result.filePaths[0] ?? null;
     if (imagePath) {
+        if (isReservedTempPath(imagePath)) {
+            throw new Error(te('errors.file.invalid'));
+        }
         allowOpenPath(imagePath, context.sender);
     }
     return imagePath;

@@ -18,6 +18,7 @@ import {
 } from '@electron/file-access/documentStore';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
 import { allowOpenPath } from '@electron/file-access/openPathCapabilities';
+import { isReservedTempPath } from '@electron/utils/pathValidator';
 import { addRecentFile } from '@electron/recentFiles';
 import { updateRecentFilesMenu } from '@electron/menu';
 import { te } from '@electron/te';
@@ -105,6 +106,9 @@ export async function handleOptimizePdfAsCopy(
             optimizedPages: null,
             pageCount: null,
         };
+    }
+    if (isReservedTempPath(targetPath)) {
+        throw new Error('Invalid file path: cannot save into reserved application directory');
     }
 
     const result = await enqueueWorkingCopyMutation(normalizedWorkingPath, async operation => {

@@ -43,18 +43,30 @@ import {
 vi.mock('@app/composables/useFailureToast', () => ({useFailureToast: () => ({presentNoticeToast: vi.fn()})}));
 
 const {
-    parsePdfAnnotations, createWorkingCopyFromPath, cleanupFile, getDocumentRevision,
+    parsePdfAnnotations, createWorkingCopyFromPath, cleanupFile, getDocumentRevision, revisionPins,
 } = vi.hoisted(() => ({
     parsePdfAnnotations: vi.fn(),
     createWorkingCopyFromPath: vi.fn(),
     cleanupFile: vi.fn(),
     getDocumentRevision: vi.fn(),
+    // Desktop offers revision pins; a platform without them copies the document instead.
+    revisionPins: {
+        offered: false,
+        pin: vi.fn(),
+        release: vi.fn(),
+    },
 }));
 vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentWorkingCopyCapability: () => ({
         parsePdfAnnotations,
         createWorkingCopyFromPath,
         cleanupFile,
+        ...(revisionPins.offered
+            ? {
+                pinDocumentRevision: revisionPins.pin,
+                releasePinnedDocumentRevision: revisionPins.release,
+            }
+            : {}),
     }),
     getDocumentFilesCapability: () => ({getDocumentRevision}),
 }));
@@ -258,6 +270,9 @@ describe('writer annotations shared by linked views', () => {
         createWorkingCopyFromPath.mockReset();
         cleanupFile.mockReset();
         getDocumentRevision.mockReset().mockResolvedValue({token: initialRevision});
+        revisionPins.offered = false;
+        revisionPins.pin.mockReset();
+        revisionPins.release.mockReset().mockResolvedValue(undefined);
     });
     function parsed(text: string, revision = initialRevision): IPdfAnnotationParseResult {
         return {
@@ -540,6 +555,62 @@ describe('writer annotations shared by linked views', () => {
         } finally {
             await capture.dispose();
         }
+    });
+
+    it('pins the parsed revision instead of copying the document where the platform offers pins', async () => {
+        revisionPins.offered = true;
+        const pinned = requireDocumentRef('/app-temp/pinned-revisions/opened.pdf');
+        revisionPins.pin.mockResolvedValueOnce(pinned);
+        const {annotations, resource, document} = setup();
+        const proxy = document.value!;
+        recordPdfDocumentLoadedRevision(proxy, initialRevision);
+        parsePdfAnnotations.mockResolvedValueOnce(parsed('Original text'));
+
+        await expect(annotations.feedStoreFromWriterParse(resource, shallowRef(null))).resolves.toBe(true);
+
+        expect(revisionPins.pin).toHaveBeenCalledWith(requireDocumentRef('/managed/working.pdf'), initialRevision);
+        expect(createWorkingCopyFromPath).not.toHaveBeenCalled();
+        expect(await readPdfDocumentOriginalAnnotationSource(proxy)).toBe(pinned);
+        expect(revisionPins.release).not.toHaveBeenCalled();
+        await releasePdfDocumentOriginalAnnotations(proxy);
+        expect(revisionPins.release).toHaveBeenCalledWith(pinned);
+    });
+
+    it('releases a pin at once when the document moved on while it was made', async () => {
+        revisionPins.offered = true;
+        const pinned = requireDocumentRef('/app-temp/pinned-revisions/retired.pdf');
+        const {annotations, resource, document, revision} = setup();
+        const proxy = document.value!;
+        revisionPins.pin.mockImplementationOnce(async () => {
+            revision.value = nextRevision;
+            return pinned;
+        });
+        recordPdfDocumentLoadedRevision(proxy, initialRevision);
+        parsePdfAnnotations.mockResolvedValueOnce(parsed('Original text'));
+
+        await expect(annotations.feedStoreFromWriterParse(resource, shallowRef(null))).resolves.toBe(false);
+
+        expect(revisionPins.release).toHaveBeenCalledWith(pinned);
+        expect(createWorkingCopyFromPath).not.toHaveBeenCalled();
+        expect(await readPdfDocumentOriginalAnnotationSource(proxy)).toBeNull();
+        expect(annotations.application.value.listCommentSummaries()).toEqual([]);
+    });
+
+    it('leaves original appearance source unavailable without copying when pinning rejects with SOURCE_BACKING_CHANGED', async () => {
+        revisionPins.offered = true;
+        revisionPins.pin.mockRejectedValueOnce(
+            Object.assign(new Error('The original document changed after it was opened'), {code: 'SOURCE_BACKING_CHANGED'}),
+        );
+        const {annotations, resource, document} = setup();
+        const proxy = document.value!;
+        recordPdfDocumentLoadedRevision(proxy, initialRevision);
+        parsePdfAnnotations.mockResolvedValueOnce(parsed('Original text'));
+
+        await expect(annotations.feedStoreFromWriterParse(resource, shallowRef(null))).resolves.toBe(false);
+
+        expect(createWorkingCopyFromPath).not.toHaveBeenCalled();
+        expect(await readPdfDocumentOriginalAnnotationSource(proxy)).toBeNull();
+        expect(annotations.application.value.listCommentSummaries()).toEqual([]);
     });
 
     it('removes the copied bytes when their source revision cannot be verified', async () => {

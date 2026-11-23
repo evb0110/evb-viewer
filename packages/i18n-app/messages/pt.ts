@@ -1840,6 +1840,7 @@ export default {
             'documentChanged': 'O documento mudou antes de o guardar terminar, por isso nada foi escrito.',
             'originalChanged': 'O ficheiro no disco mudou desde que o abriu. As suas alterações são mantidas. Use «Guardar como» para conservar ambas as versões.',
             'originalUnreadable': 'Já não é possível ler o ficheiro original nem guardar as alterações. Se foi movido ou eliminado, restaure-o e tente novamente.',
+            'openedVersionUnavailable': 'O PDF tal como foi aberto já não está disponível, pelo que as caixas de texto não podem recuperar o aspeto original. As suas alterações continuam abertas aqui.',
             'workingCopyMissing': 'A cópia temporária do documento foi removida, por isso estas alterações não podem ser guardadas. Volte a abrir o ficheiro.',
             'notCompleted': 'Não foi possível escrever o documento.',
             'permissionDenied': 'O EVB Viewer não consegue escrever na pasta deste PDF, por isso não foi gravado. Escolha «Guardar Como» para guardar as alterações noutra pasta.',

@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
     existsSync: vi.fn<(path: string) => boolean>(),
     lstatSync: vi.fn<(path: string) => { isSymbolicLink: () => boolean; }>(),
     realpathSync: vi.fn<(path: string) => string>(),
+    statSync: vi.fn<(path: string, options?: unknown) => unknown>(),
 }));
 
 function createStat(isSymlink: boolean) {
@@ -40,6 +41,7 @@ vi.mock('fs', () => ({
     existsSync: (path: string) => mocks.existsSync(path),
     lstatSync: (path: string) => mocks.lstatSync(path),
     realpathSync: (path: string) => mocks.realpathSync(path),
+    statSync: (path: string, options?: unknown) => mocks.statSync(path, options),
 }));
 
 vi.mock('fs/promises', () => ({
@@ -50,6 +52,7 @@ vi.mock('fs/promises', () => ({
 const {
     isAllowedReadPath,
     isAllowedWritePath,
+    isReservedTempPath,
     resetPathValidatorCachesForTests,
     resolveAllowedReadPath,
     resolveAllowedWritePath,
@@ -64,10 +67,14 @@ beforeEach(() => {
     mocks.existsSync.mockReset();
     mocks.lstatSync.mockReset();
     mocks.realpathSync.mockReset();
+    mocks.statSync.mockReset();
 
     mocks.existsSync.mockReturnValue(true);
     mocks.lstatSync.mockReturnValue(createStat(false));
     mocks.realpathSync.mockImplementation((path: string) => path);
+    mocks.statSync.mockImplementation(() => {
+        throw Object.assign(new Error('ENOENT'), {code: 'ENOENT'});
+    });
 });
 
 afterEach(() => {
@@ -270,5 +277,113 @@ describe('resolveAllowedWritePath', () => {
 
         await expect(resolveAllowedWritePath('\\\\?\\C:\\Users\\Alice\\AppData\\Local\\Temp\\evb-viewer-test-profile\\pdf-work-1\\work.pdf'))
             .resolves.toBe('\\\\?\\C:\\Users\\Alice\\AppData\\Local\\Temp\\evb-viewer-test-profile\\pdf-work-1\\work.pdf');
+    });
+});
+
+describe('pinned document revisions', () => {
+    const inRoot = (path: string) => resolve('/tmp/electron-test/evb-viewer-test-profile', path);
+
+    it('refuses the pinned revisions folder to every generic read and write, by any spelling', async () => {
+        const pinned = inRoot('pinned-revisions/0b7c1a.pdf');
+        const alias = inRoot('alias.pdf');
+        mocks.realpathSync.mockImplementation((path: string) => path === alias ? pinned : path);
+
+        expect(isAllowedReadPath(pinned)).toBe(false);
+        expect(isAllowedWritePath(pinned)).toBe(false);
+        expect(isAllowedWritePath(inRoot('pinned-revisions'))).toBe(false);
+        await expect(resolveAllowedReadPath(pinned)).resolves.toBeNull();
+        await expect(resolveAllowedReadPath(alias)).resolves.toBeNull();
+        await expect(resolveAllowedWritePath(pinned)).resolves.toBeNull();
+        await expect(resolveAllowedWritePath(inRoot('pinned-revisions/new.pdf'))).resolves.toBeNull();
+        const sibling = inRoot('pinned-revisions-other/document.pdf');
+        await expect(resolveAllowedReadPath(sibling)).resolves.toBe(sibling);
+    });
+
+    it('refuses case variants and same-identity directory aliases of the pinned revisions folder', async () => {
+        const upperPinned = inRoot('PINNED-REVISIONS/0b7c1a.pdf');
+        const upperNew = inRoot('PINNED-REVISIONS/new.pdf');
+        const upperDir = inRoot('PINNED-REVISIONS');
+        for (const candidate of [
+            upperPinned,
+            upperNew,
+            upperDir,
+        ]) {
+            expect(isAllowedReadPath(candidate)).toBe(false);
+            expect(isAllowedWritePath(candidate)).toBe(false);
+            await expect(resolveAllowedReadPath(candidate)).resolves.toBeNull();
+            await expect(resolveAllowedWritePath(candidate)).resolves.toBeNull();
+        }
+
+        const aliasDir = inRoot('alias-dir');
+        const aliasFile = inRoot('alias-dir/0b7c1a.pdf');
+        const siblingFile = inRoot('sibling-dir/0b7c1a.pdf');
+        mocks.statSync.mockImplementation((target: string) => {
+            if (target === inRoot('pinned-revisions') || target === aliasDir) {
+                return {
+                    dev: 1n,
+                    ino: 42n,
+                };
+            }
+            if (target === aliasFile) {
+                return {
+                    dev: 1n,
+                    ino: 44n,
+                };
+            }
+            if (target === inRoot('sibling-dir') || target === siblingFile) {
+                return {
+                    dev: 1n,
+                    ino: 43n,
+                };
+            }
+            throw Object.assign(new Error('ENOENT'), {code: 'ENOENT'});
+        });
+
+        expect(isAllowedReadPath(aliasFile)).toBe(false);
+        expect(isAllowedWritePath(aliasFile)).toBe(false);
+        await expect(resolveAllowedReadPath(aliasFile)).resolves.toBeNull();
+        await expect(resolveAllowedWritePath(aliasFile)).resolves.toBeNull();
+        await expect(resolveAllowedReadPath(siblingFile)).resolves.toBe(siblingFile);
+        await expect(resolveAllowedWritePath(siblingFile)).resolves.toBe(siblingFile);
+    });
+
+    it('reports isReservedTempPath true for direct paths, case variants, directory aliases, and outside symlinks into pinned-revisions', () => {
+        const pinned = inRoot('pinned-revisions/0b7c1a.pdf');
+        const upperPinned = inRoot('PINNED-REVISIONS/0b7c1a.pdf');
+        const aliasDir = inRoot('alias-dir');
+        const aliasFile = inRoot('alias-dir/0b7c1a.pdf');
+        const outsideLink = resolve('/outside/opened-pin-link.pdf');
+        const outsideAliasDir = resolve('/outside/pin-dir-link');
+        const outsideAliasNew = resolve('/outside/pin-dir-link/new.pdf');
+        const outsideNormal = resolve('/outside/normal.pdf');
+        const sibling = inRoot('pinned-revisions-other/document.pdf');
+
+        mocks.statSync.mockImplementation((target: string) => {
+            if (target === inRoot('pinned-revisions') || target === aliasDir) {
+                return {dev: 1n, ino: 42n};
+            }
+            if (target === aliasFile) {
+                return {dev: 1n, ino: 44n};
+            }
+            throw Object.assign(new Error('ENOENT'), {code: 'ENOENT'});
+        });
+        mocks.realpathSync.mockImplementation((target: string) => {
+            if (target === outsideLink) {
+                return pinned;
+            }
+            if (target === outsideAliasDir) {
+                return inRoot('pinned-revisions');
+            }
+            return target;
+        });
+
+        expect(isReservedTempPath(pinned)).toBe(true);
+        expect(isReservedTempPath(upperPinned)).toBe(true);
+        expect(isReservedTempPath(inRoot('PINNED-REVISIONS'))).toBe(true);
+        expect(isReservedTempPath(aliasFile)).toBe(true);
+        expect(isReservedTempPath(outsideLink)).toBe(true);
+        expect(isReservedTempPath(outsideAliasNew)).toBe(true);
+        expect(isReservedTempPath(sibling)).toBe(false);
+        expect(isReservedTempPath(outsideNormal)).toBe(false);
     });
 });

@@ -1,5 +1,6 @@
 import { getErrorMessage } from '@electron/utils/error';
 import {
+    basename,
     dirname,
     isAbsolute,
     relative,
@@ -11,14 +12,19 @@ import {
     existsSync,
     lstatSync,
     realpathSync,
+    statSync,
 } from 'fs';
-import { getManagedAppTempRoots } from '@electron/utils/appTempDir';
+import {
+    getManagedAppTempRoots,
+    PINNED_REVISIONS_DIR_NAME,
+} from '@electron/utils/appTempDir';
 
 interface IPathOps {
+    basename(path: string): string;
     dirname(path: string): string;
     isAbsolute(path: string): boolean;
     relative(from: string, to: string): string;
-    resolve(path: string): string;
+    resolve(...paths: string[]): string;
     sep: string;
 }
 
@@ -43,6 +49,7 @@ export function getManagedTempPathAccessDecision(
 }
 
 const defaultPathOps: IPathOps = {
+    basename,
     dirname,
     isAbsolute,
     relative,
@@ -51,6 +58,7 @@ const defaultPathOps: IPathOps = {
 };
 
 const windowsPathOps: IPathOps = {
+    basename: win32.basename,
     dirname: win32.dirname,
     isAbsolute: win32.isAbsolute,
     relative: win32.relative,
@@ -129,6 +137,173 @@ function isSamePath(left: string, right: string) {
 
 function isPathSameAsAnyBaseDir(baseDirs: string[], candidatePath: string) {
     return baseDirs.some(baseDir => isSamePath(baseDir, candidatePath));
+}
+
+function isReservedTempPathByName(tempBaseDirs: string[], candidatePath: string) {
+    const reservedName = PINNED_REVISIONS_DIR_NAME.toLowerCase();
+    for (const baseDir of tempBaseDirs) {
+        const ops = getPathOps(baseDir, candidatePath);
+        const relativePath = ops.relative(
+            normalizePathForComparison(baseDir, ops),
+            normalizePathForComparison(candidatePath, ops),
+        );
+        if (
+            relativePath !== ''
+            && relativePath !== '.'
+            && relativePath !== '..'
+            && !relativePath.startsWith(`..${ops.sep}`)
+            && !ops.isAbsolute(relativePath)
+        ) {
+            const firstSegment = relativePath.split(ops.sep)[0];
+            if (firstSegment && firstSegment.toLowerCase() === reservedName) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+interface IReservedDirIdentity {
+    dev: bigint;
+    ino: bigint;
+}
+
+function readDirectoryIdentity(targetPath: string): IReservedDirIdentity | null {
+    try {
+        const stats = statSync(targetPath, {bigint: true});
+        if (typeof stats?.dev === 'bigint' && typeof stats?.ino === 'bigint' && stats.ino !== 0n) {
+            return {
+                dev: stats.dev,
+                ino: stats.ino,
+            };
+        }
+    } catch {
+        // Missing or unreadable paths do not reveal a reserved directory identity.
+    }
+    return null;
+}
+
+function hasReservedTempDirIdentity(tempBaseDirs: string[], candidatePath: string) {
+    const reservedIdentities: IReservedDirIdentity[] = [];
+    for (const baseDir of tempBaseDirs) {
+        const identity = readDirectoryIdentity(`${baseDir}${getPathOps(baseDir).sep}${PINNED_REVISIONS_DIR_NAME}`);
+        if (identity) {
+            reservedIdentities.push(identity);
+        }
+    }
+    if (reservedIdentities.length === 0) {
+        return false;
+    }
+
+    const ops = getPathOps(candidatePath);
+    let current = ops.resolve(stripWindowsExtendedLengthPrefix(candidatePath));
+    for (;;) {
+        const identity = readDirectoryIdentity(current);
+        if (identity && reservedIdentities.some(reserved => reserved.dev === identity.dev && reserved.ino === identity.ino)) {
+            return true;
+        }
+        if (isPathSameAsAnyBaseDir(tempBaseDirs, current)) {
+            return false;
+        }
+        const parent = ops.dirname(current);
+        if (parent === current) {
+            return false;
+        }
+        current = parent;
+    }
+}
+
+/**
+ * A pinned document revision belongs to the window that pinned it, and the document store checks that on every read;
+ * a path check here cannot, so it refuses the whole folder to every generic read and write, across case spellings and
+ * filesystem aliases pointing to the same reserved directory.
+ */
+function isReservedTempPathInBaseDirs(tempBaseDirs: string[], candidatePath: string) {
+    return isReservedTempPathByName(tempBaseDirs, candidatePath) || hasReservedTempDirIdentity(tempBaseDirs, candidatePath);
+}
+
+function resolveKernelPathPrefixSync(rawPath: string): string | null {
+    if (!rawPath || rawPath.trim() === '') {
+        return null;
+    }
+
+    const ops = getPathOps(rawPath);
+    const unprefixed = stripWindowsExtendedLengthPrefix(rawPath);
+    const realpathNative = typeof realpathSync.native === 'function'
+        ? realpathSync.native
+        : realpathSync;
+    const remainder: string[] = [];
+    let prefix = unprefixed;
+
+    for (;;) {
+        try {
+            const resolvedPrefix = realpathNative(prefix);
+            return remainder.length === 0
+                ? resolvedPrefix
+                : ops.resolve(resolvedPrefix, ...remainder.toReversed());
+        } catch {
+            const segment = ops.basename(prefix);
+            if (segment !== '') {
+                remainder.push(segment);
+            }
+            const parent = ops.dirname(prefix);
+            if (parent === prefix) {
+                return null;
+            }
+            prefix = parent;
+        }
+    }
+}
+
+function hasReservedKernelPathSync(tempBaseDirs: string[], filePath: string) {
+    const kernelPath = resolveKernelPathPrefixSync(filePath);
+    if (kernelPath !== null && isReservedTempPathInBaseDirs(tempBaseDirs, kernelPath)) {
+        return true;
+    }
+    const trimmedPath = filePath.trim();
+    if (trimmedPath !== filePath) {
+        const trimmedKernelPath = resolveKernelPathPrefixSync(trimmedPath);
+        if (trimmedKernelPath !== null && isReservedTempPathInBaseDirs(tempBaseDirs, trimmedKernelPath)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** Whether `filePath` (directly, by case variant, or via symlinked file/parent directory) targets the reserved pin directory. */
+export function isReservedTempPath(filePath: string): boolean {
+    const absolutePath = normalizeCandidatePath(filePath);
+    if (!absolutePath) {
+        return false;
+    }
+
+    try {
+        const tempBaseDirs = getTempBaseDirsSync();
+        if (isReservedTempPathInBaseDirs(tempBaseDirs, absolutePath)) {
+            return true;
+        }
+        if (hasReservedKernelPathSync(tempBaseDirs, filePath)) {
+            return true;
+        }
+        const resolvedAbsolutePath = safeRealpathSync(absolutePath);
+        if (resolvedAbsolutePath !== absolutePath && isReservedTempPathInBaseDirs(tempBaseDirs, resolvedAbsolutePath)) {
+            return true;
+        }
+        if (filePath !== absolutePath) {
+            const resolvedRawPath = safeRealpathSync(filePath);
+            if (resolvedRawPath !== filePath && isReservedTempPathInBaseDirs(tempBaseDirs, resolvedRawPath)) {
+                return true;
+            }
+        }
+        const parentDir = getPathOps(absolutePath).dirname(absolutePath);
+        const resolvedParentDir = safeRealpathSync(parentDir);
+        if (resolvedParentDir !== parentDir && isReservedTempPathInBaseDirs(tempBaseDirs, resolvedParentDir)) {
+            return true;
+        }
+        return false;
+    } catch {
+        return false;
+    }
 }
 
 function safeRealpathSync(path: string) {
@@ -245,11 +420,18 @@ export function isAllowedWritePath(filePath: string) {
 
     try {
         const tempBaseDirs = getTempBaseDirsSync();
-        if (!isPathInsideAnyBaseDir(tempBaseDirs, absolutePath)) {
+        if (
+            !isPathInsideAnyBaseDir(tempBaseDirs, absolutePath)
+            || isReservedTempPathInBaseDirs(tempBaseDirs, absolutePath)
+        ) {
             return false;
         }
 
-        return !isSymlinkPathSync(absolutePath);
+        if (isSymlinkPathSync(absolutePath)) {
+            return false;
+        }
+
+        return !hasReservedKernelPathSync(tempBaseDirs, filePath);
     } catch {
         return false;
     }
@@ -263,7 +445,10 @@ export function isAllowedReadPath(filePath: string) {
 
     try {
         const tempBaseDirs = getTempBaseDirsSync();
-        if (!isPathInsideAnyBaseDir(tempBaseDirs, absolutePath)) {
+        if (
+            !isPathInsideAnyBaseDir(tempBaseDirs, absolutePath)
+            || isReservedTempPathInBaseDirs(tempBaseDirs, absolutePath)
+        ) {
             return false;
         }
 
@@ -271,7 +456,11 @@ export function isAllowedReadPath(filePath: string) {
             return false;
         }
 
-        return !isSymlinkPathSync(absolutePath);
+        if (isSymlinkPathSync(absolutePath)) {
+            return false;
+        }
+
+        return !hasReservedKernelPathSync(tempBaseDirs, filePath);
     } catch {
         return false;
     }
@@ -289,7 +478,10 @@ function resolveAllowedReadPathSync(filePath: string) {
     }
 
     const tempBaseDirs = getTempBaseDirsSync();
-    if (!isPathInsideAnyBaseDir(tempBaseDirs, absolutePath)) {
+    if (
+        !isPathInsideAnyBaseDir(tempBaseDirs, absolutePath)
+        || isReservedTempPathInBaseDirs(tempBaseDirs, absolutePath)
+    ) {
         return null;
     }
 
@@ -298,8 +490,14 @@ function resolveAllowedReadPathSync(filePath: string) {
             return null;
         }
 
+        if (hasReservedKernelPathSync(tempBaseDirs, filePath)) {
+            return null;
+        }
+
         const resolvedPath = safeRealpathSync(absolutePath);
-        return isPathInsideAnyBaseDir(tempBaseDirs, resolvedPath) ? resolvedPath : null;
+        return isPathInsideAnyBaseDir(tempBaseDirs, resolvedPath) && !isReservedTempPathInBaseDirs(tempBaseDirs, resolvedPath)
+            ? resolvedPath
+            : null;
     } catch {
         return null;
     }
@@ -316,16 +514,23 @@ function resolveAllowedWritePathSync(filePath: string) {
     }
 
     const tempBaseDirs = getTempBaseDirsSync();
-    if (!isPathInsideAnyBaseDir(tempBaseDirs, absolutePath)) {
+    if (
+        !isPathInsideAnyBaseDir(tempBaseDirs, absolutePath)
+        || isReservedTempPathInBaseDirs(tempBaseDirs, absolutePath)
+    ) {
         return null;
     }
 
     const resolvedTargetPath = resolveExistingTempPath(absolutePath, tempBaseDirs);
-    if (resolvedTargetPath === false) {
+    if (resolvedTargetPath === false || (resolvedTargetPath !== null && isReservedTempPathInBaseDirs(tempBaseDirs, resolvedTargetPath))) {
         return null;
     }
     if (resolvedTargetPath === null) {
         // The target may not exist yet. Validate the parent directory path.
+    }
+
+    if (hasReservedKernelPathSync(tempBaseDirs, filePath)) {
+        return null;
     }
 
     try {
@@ -333,7 +538,8 @@ function resolveAllowedWritePathSync(filePath: string) {
         const parentDir = ops.dirname(absolutePath);
         const resolvedParentDir = safeRealpathSync(parentDir);
         const isTempDirRoot = isPathSameAsAnyBaseDir(tempBaseDirs, resolvedParentDir);
-        if (!isPathInsideAnyBaseDir(tempBaseDirs, resolvedParentDir) && !isTempDirRoot) {
+        if ((!isPathInsideAnyBaseDir(tempBaseDirs, resolvedParentDir) && !isTempDirRoot)
+            || isReservedTempPathInBaseDirs(tempBaseDirs, resolvedParentDir)) {
             return null;
         }
     } catch {

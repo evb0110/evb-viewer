@@ -253,6 +253,7 @@ const FEATURE_RESULTS: Readonly<Record<string, unknown>> = {
     }],
     'djvu.cleanupTemp': undefined,
     'documentWorkingCopy.retainDocumentRevisions': undefined,
+    'documentWorkingCopy.releasePinnedDocumentRevision': undefined,
 };
 
 function createAsyncDefault(path: string) {
@@ -282,6 +283,10 @@ function createAsyncDefault(path: string) {
     }
     if (path.endsWith('.registerFilesForOpen')) {
         return vi.fn(async () => []);
+    }
+    // Like desktop, a pin names its own immutable ref beside the document.
+    if (path === 'documentWorkingCopy.pinDocumentRevision') {
+        return vi.fn(async (ref: string) => `${ref}.pinned.pdf`);
     }
     if (path.endsWith('.getDocumentRevision')) {
         return vi.fn(async () => ({

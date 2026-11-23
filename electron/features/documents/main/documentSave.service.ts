@@ -31,6 +31,7 @@ import {
     saveOpenDocument,
 } from '@electron/file-access/documentStore';
 import { allowOpenPath } from '@electron/file-access/openPathCapabilities';
+import { isReservedTempPath } from '@electron/utils/pathValidator';
 import { te } from '@electron/te';
 import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
 import { rewritePdfWithQpdf } from '@electron/pdf/pdfAppendBase';
@@ -101,6 +102,9 @@ export async function savePdfAs(
     if (!targetPath) {
         return null;
     }
+    if (isReservedTempPath(targetPath)) {
+        throw new Error('Invalid file path: cannot save into reserved application directory');
+    }
 
     await enqueueWorkingCopyMutation(entry.ref, async () => {
         await assertQueuedWorkingCopyMutationPreconditions(entry.ref, expectedDocumentRevisionToken);
@@ -164,6 +168,9 @@ export async function savePdfDialog(
     if (!targetPath) {
         return null;
     }
+    if (isReservedTempPath(targetPath)) {
+        throw new Error('Invalid file path: cannot save into reserved application directory');
+    }
 
     allowDjvuWritePath(targetPath, context.sender);
 
@@ -189,6 +196,9 @@ export async function saveDocxAs(
     });
     if (!targetPath) {
         return null;
+    }
+    if (isReservedTempPath(targetPath)) {
+        throw new Error('Invalid file path: cannot save into reserved application directory');
     }
 
     allowDocxWritePath(targetPath, context.sender);

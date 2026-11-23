@@ -15,6 +15,7 @@ import {
     rename,
     rm,
     stat,
+    symlink,
     utimes,
     writeFile,
 } from 'node:fs/promises';
@@ -41,6 +42,7 @@ const diagnosticLog = vi.hoisted(() => ({warn: vi.fn(), error: vi.fn(), info: vi
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => diagnosticLog}));
 
 let tempRoot = '';
+const originalAppStateDir = process.env.EVB_APP_STATE_DIR;
 
 /**
  * FAT32 under Windows numbers a file by where its directory entry lies: a rename gives the same file a new id and
@@ -54,15 +56,28 @@ const fat32 = vi.hoisted(() => ({
     renumber: <T>(_path: unknown, stats: T) => stats,
 }));
 
+/** Runs around each look at a file's metadata, by path or through a handle opened at that path. */
+const fileChecks = vi.hoisted(() => ({
+    before: undefined as undefined | ((path: unknown) => Promise<void>),
+    after: undefined as undefined | ((path: unknown) => Promise<void>),
+}));
+
 vi.mock('node:fs/promises', async (importOriginal) => {
     const original = await importOriginal<typeof fsPromises>();
+    const checked = async <T>(path: unknown, look: () => Promise<T>) => {
+        await fileChecks.before?.(path);
+        const stats = await look();
+        await fileChecks.after?.(path);
+        return stats;
+    };
     const open = (async (path, flags, mode) => {
         const handle = await original.open(path, flags, mode);
         const stat = handle.stat.bind(handle);
-        handle.stat = (async (options?: {bigint?: boolean}) => fat32.renumber(path, await stat(options))) as typeof handle.stat;
+        handle.stat = (async (options?: {bigint?: boolean}) => checked(path, async () => fat32.renumber(path, await stat(options)))) as typeof handle.stat;
         return handle;
     }) as typeof original.open;
-    return {...original, open: vi.fn(open)};
+    const stat = ((path, options) => checked(path, () => original.stat(path, options))) as typeof original.stat;
+    return {...original, open: vi.fn(open), stat};
 });
 
 vi.mock('node:fs', async (importOriginal) => {
@@ -95,18 +110,37 @@ vi.mock('electron', () => ({
     webContents: {fromId: vi.fn(() => undefined)},
 }));
 vi.mock('@electron/features/scan-cleanup/public/generatedOutputs', () => ({touchScanCleanupGeneratedOutput: vi.fn(async () => undefined)}));
+/** A native writer that a test names without one being built: the writes it covers end before the tool would run. */
+const nativeWriter = vi.hoisted(() => ({path: undefined as string | undefined}));
+vi.mock('@electron/features/page-ops/public', async (importOriginal) => {
+    const original = await importOriginal<typeof import('@electron/features/page-ops/public')>();
+    return {...original, resolveNativePageOpsPath: () => nativeWriter.path ?? original.resolveNativePageOpsPath()};
+});
 
 const store = await import('@electron/file-access/documentStore');
 const checkpoints = await import('@electron/workspaceCheckpointStore');
 const {findKeptOriginal} = await import('@electron/file-access/keptOriginalNotices');
-const {registerMainOperation, runWithMainOperationCancellationSignal} = await import('@electron/operation-lifecycle/mainOperationLifecycle');
+const {cancelMainOperationsForOwner, registerMainOperation, runWithMainOperationCancellationSignal} = await import('@electron/operation-lifecycle/mainOperationLifecycle');
 const {allowOpenPath, removeAllowedOpenPath} = await import('@electron/file-access/openPathCapabilities');
-const {handleFileReadRange} = await import('@electron/features/documents/main/documentFileReadHandlers');
+const {handleFileReadRange, withContentReadLease} = await import('@electron/features/documents/main/documentFileReadHandlers');
+const {handleNativePdfMutationsApplyToWorkingCopy} = await import('@electron/features/documents/main/nativePdfMutationSaveHandlers');
+const {getAppTempDirPath} = await import('@electron/utils/appTempDir');
+const {markUnprovenNativeTermination} = await import('@contracts/nativeErrors');
+const {normalizePdfNativeMutationSet} = await import('@contracts/nativePdfMutations');
 const {clearWorkingCopyQuarantinesForTests, quarantineWorkingCopy} = await import('@electron/file-access/workingCopyQuarantine');
 const {resolveNativePageOpsPath} = await import('@electron/features/page-ops/public/nativePageOpsPath');
+const {
+    isAllowedReadPath,
+    isAllowedWritePath,
+    resetPathValidatorCachesForTests,
+    resolveAllowedReadPath,
+    resolveAllowedWritePath,
+} = await import('@electron/utils/pathValidator');
 
 const ORIGINAL = new TextEncoder().encode('%PDF-1.7\noriginal bytes\n%%EOF\n');
 const EDITED = new TextEncoder().encode('%PDF-1.7\nedited bytes\n%%EOF\n');
+/** Other bytes of `ORIGINAL`'s length, such as another program's edit. */
+const SAME_SIZE_OTHER = new TextEncoder().encode('%PDF-1.7\nORIGINAL BYTES\n%%EOF\n');
 
 async function writeTemp(name: string, bytes: Uint8Array) {
     const path = join(tempRoot, name);
@@ -167,6 +201,14 @@ beforeEach(async () => {
 
 afterEach(async () => {
     vi.restoreAllMocks();
+    fileChecks.before = undefined;
+    fileChecks.after = undefined;
+    nativeWriter.path = undefined;
+    if (originalAppStateDir === undefined) {
+        delete process.env.EVB_APP_STATE_DIR;
+    } else {
+        process.env.EVB_APP_STATE_DIR = originalAppStateDir;
+    }
     clearWorkingCopyQuarantinesForTests();
     await store.setDocumentStoreRootForTests(null);
     await rm(tempRoot, {recursive: true, force: true});
@@ -1014,4 +1056,398 @@ it('#1609 explains at undo time that opened bytes could not be retained, while S
     expect(await readFile(pdf)).toEqual(Buffer.from(EDITED));
     await expect(store.restoreOpenDocumentRevision(entry, opened, store.documentRevisionToken(entry)))
         .rejects.toThrow(/opened.*(?:retain|keep|available)|(?:retain|keep).*opened/iu);
+});
+
+describe('pinned document revisions', () => {
+    const APPENDED = new TextEncoder().encode('1 0 obj\n<< /Appended true >>\nendobj\n%%EOF\n');
+    const REDONE = new TextEncoder().encode('1 0 obj\n<< /Other append >>\nendobj\n%%EOF\n');
+    const pinsDirectory = () => join(tempRoot, 'pinned-revisions');
+    const pinnedCopies = () => readdir(pinsDirectory()).catch((error: unknown) => {
+        if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+            return [];
+        }
+        throw error;
+    });
+    const readPin = (ref: string, owner = 7) => store.runWithWorkingCopyReadBacking(ref, path => readFile(path), {ownerWebContentsId: owner});
+    const append = (entry: Awaited<ReturnType<typeof store.openDocumentFromFile>>, bytes: Uint8Array) =>
+        store.appendToDocument(entry, async (_input, output) => fsPromises.appendFile(output, bytes), 'write');
+
+    it('pins the PDF as opened without copying it, and copies it only for a reader', async () => {
+        const {entry} = await openPdf();
+
+        const pinned = await store.pinOpenDocumentRevision(entry.ref, '1' as never, 7);
+
+        expect(dirname(pinned)).toBe(pinsDirectory());
+        expect(await readdir(pinsDirectory())).toEqual([]);
+        expect(entry.doc.state().current).toBeNull();
+        expect(store.getPinnedRevisionStateForTests(pinned)).toBe('pinned');
+        expect(await readPin(pinned)).toEqual(Buffer.from(ORIGINAL));
+        expect(store.getPinnedRevisionStateForTests(pinned)).toBe('materialized');
+    });
+
+    it('keeps the opened bytes when a Save replaces the PDF', async () => {
+        const {pdf, entry} = await openPdf();
+        const pinned = await store.pinOpenDocumentRevision(entry.ref, '1' as never, 7);
+
+        expect(await store.saveOpenDocument(entry, '1' as never, {commit: {kind: 'rewrite', source: await writeTemp('edited.pdf', EDITED)}}))
+            .toMatchObject({status: 'saved'});
+
+        expect(await readFile(pdf)).toEqual(Buffer.from(EDITED));
+        expect(await readPin(pinned)).toEqual(Buffer.from(ORIGINAL));
+    });
+
+    it('keeps a pinned revision whose file an undo cuts and a later append overwrites', async () => {
+        const {entry} = await openPdf();
+        await append(entry, APPENDED);
+        const appendedToken = store.documentRevisionToken(entry);
+        const pinned = await store.pinOpenDocumentRevision(entry.ref, appendedToken, 7);
+        expect(await readdir(pinsDirectory())).toEqual([]);
+
+        await store.restoreOpenDocumentRevision(entry, '1' as never, appendedToken);
+        await append(entry, REDONE);
+
+        expect(await readAll(entry)).toEqual(new Uint8Array([...ORIGINAL, ...REDONE]));
+        expect(await readPin(pinned)).toEqual(Buffer.from([...ORIGINAL, ...APPENDED]));
+    });
+
+    it('never gives a reader of a pin the file a native tool appends to', async () => {
+        const {entry} = await openPdf();
+        await append(entry, APPENDED);
+        const pinned = await store.pinOpenDocumentRevision(entry.ref, store.documentRevisionToken(entry), 7);
+
+        const target = await store.prepareDocumentAppend(entry, true);
+        await fsPromises.appendFile(target, REDONE);
+        const readPath = await store.runWithWorkingCopyReadBacking(pinned, path => Promise.resolve(path), {ownerWebContentsId: 7});
+
+        expect(readPath).not.toBe(target);
+        expect(await readFile(readPath)).toEqual(Buffer.from([...ORIGINAL, ...APPENDED]));
+        await store.discardDocumentAppend(entry);
+    });
+
+    it('marks a pin of a PDF another program changed unavailable without blocking the Save As that rescues the edits', async () => {
+        const {pdf, entry} = await openPdf();
+        const pinned = await store.pinOpenDocumentRevision(entry.ref, '1' as never, 7);
+        const replacement = await writeTemp('replacement.pdf', new TextEncoder().encode('%PDF-1.7\nchanged elsewhere\n%%EOF\n'));
+        await rename(replacement, pdf);
+
+        await expect(store.prepareDocumentAppend(entry, true)).resolves.toEqual(expect.any(String));
+
+        expect(store.getPinnedRevisionStateForTests(pinned)).toBe('unavailable');
+        await expect(readPin(pinned)).rejects.toMatchObject({code: 'SOURCE_BACKING_UNAVAILABLE'});
+        expect(await readdir(pinsDirectory())).toEqual([]);
+    });
+
+    it('refuses to pin a revision that is no longer current', async () => {
+        const {entry} = await openPdf();
+        await store.commitDocumentMutation(entry, '1' as never, {kind: 'rewrite', source: await writeTemp('edited.pdf', EDITED)}, 'write');
+
+        await expect(store.pinOpenDocumentRevision(entry.ref, '1' as never, 7)).rejects.toMatchObject({code: 'STALE_REVISION'});
+        expect(await pinnedCopies()).toEqual([]);
+    });
+
+    it('lets only the window that pinned a revision read or release it, through a tab move', async () => {
+        const {entry} = await openPdf();
+        const pinned = await store.pinOpenDocumentRevision(entry.ref, '1' as never, 7);
+        await expect(store.pinOpenDocumentRevision(entry.ref, '1' as never, 8)).rejects.toThrow('not managed by this owner');
+        const registration = store.grantWorkingCopyTransferAccess(entry.ref, 7, 9);
+        expect(registration).not.toBe(false);
+
+        await expect(readPin(pinned, 9)).rejects.toThrow('not managed by this owner');
+        expect(await store.releasePinnedDocumentRevision(pinned, 9)).toBe(false);
+        expect(await readPin(pinned, 7)).toEqual(Buffer.from(ORIGINAL));
+        expect(await store.releasePinnedDocumentRevision(pinned, 7)).toBe(true);
+
+        expect(existsSync(pinned)).toBe(false);
+        await expect(readPin(pinned, 7)).rejects.toThrow('missing or was released');
+        expect(store.commitWorkingCopyTransferAccess(entry.ref, 7, 9, registration as number)).toBe(true);
+    });
+
+    it.each([
+        ['the document closes', (entry: Awaited<ReturnType<typeof store.openDocumentFromFile>>) => store.discardOpenDocument(entry)],
+        ['its window goes away', () => store.releasePinnedDocumentRevisionsForSender(7)],
+        ['the app quits', () => store.clearAllWorkingCopies()],
+    ])('ends a pin and its copy when %s', async (_when, end) => {
+        const {entry} = await openPdf();
+        const pinned = await store.pinOpenDocumentRevision(entry.ref, '1' as never, 7);
+        await readPin(pinned);
+        expect(existsSync(pinned)).toBe(true);
+
+        await end(entry);
+
+        expect(existsSync(pinned)).toBe(false);
+        expect(store.getPinnedRevisionStateForTests(pinned)).toBeNull();
+    });
+
+    it('removes the copies an earlier run left when the next run starts', async () => {
+        await mkdir(pinsDirectory(), {recursive: true});
+        const stale = join(pinsDirectory(), 'stale.pdf');
+        await writeFile(stale, ORIGINAL);
+        await restart();
+
+        await store.collectStaleDocuments();
+
+        expect(existsSync(stale)).toBe(false);
+    });
+
+    it('keeps a copy whose reader did not provably stop, even when the pin ended during the read, until the next start', async () => {
+        const {entry} = await openPdf();
+        const pinned = await store.pinOpenDocumentRevision(entry.ref, '1' as never, 7);
+
+        const reading = withContentReadLease(pinned, () => store.runWithWorkingCopyReadBacking(pinned, async () => {
+            await store.releasePinnedDocumentRevision(pinned, 7);
+            throw markUnprovenNativeTermination(new Error('The reader outlived its kill'), 'its process group survived');
+        }, {ownerWebContentsId: 7}));
+
+        await expect(reading).rejects.toThrow('The reader outlived its kill');
+        expect(store.getPinnedRevisionStateForTests(pinned)).toBeNull();
+        expect(existsSync(pinned)).toBe(true);
+        await restart();
+        await store.collectStaleDocuments();
+        expect(existsSync(pinned)).toBe(false);
+    });
+
+    it('records no pin for a window that went away while the pin was being made', async () => {
+        const {pdf, entry} = await openPdf();
+        const reached = gate();
+        const held = gate();
+        fileChecks.before = async (path) => {
+            if (path !== pdf) return;
+            reached.resolve();
+            await held.promise;
+        };
+        const pinning = store.pinOpenDocumentRevision(entry.ref, '1' as never, 7);
+        await reached.promise;
+        fileChecks.before = undefined;
+
+        // What the window's end does (see `registerDocumentsSenderCleanup`).
+        cancelMainOperationsForOwner(7, 'Renderer destroyed', 'destroyed');
+        await store.releasePinnedDocumentRevisionsForSender(7);
+        held.resolve();
+
+        await expect(pinning).rejects.toThrow('Renderer destroyed');
+        await store.commitDocumentMutation(entry, '1' as never, {kind: 'rewrite', source: await writeTemp('edited.pdf', EDITED)}, 'write');
+        expect(await pinnedCopies()).toEqual([]);
+    });
+
+    it('refuses to pin revision 1 when a Save built it from a PDF another program changed', async () => {
+        const {pdf, entry} = await openPdf();
+        await rename(await writeTemp('replacement.pdf', SAME_SIZE_OTHER), pdf);
+        await store.prepareDocumentAppend(entry, true);
+        await store.discardDocumentAppend(entry);
+        expect(store.documentRevisionToken(entry)).toBe('1');
+
+        await expect(store.pinOpenDocumentRevision(entry.ref, '1' as never, 7)).rejects.toMatchObject({code: 'SOURCE_BACKING_CHANGED'});
+    });
+
+    it('copies the PDF as opened even while its path names other bytes of the same size during the copy', async () => {
+        const {pdf, entry} = await openPdf();
+        const pinned = await store.pinOpenDocumentRevision(entry.ref, '1' as never, 7);
+        const other = await writeTemp('other.pdf', SAME_SIZE_OTHER);
+        const aside = join(tempRoot, 'aside.pdf');
+        let checks = 0;
+        let swapBlockedOnWindows = false;
+        // Another program points the path at other bytes right after the first check and back right before the last.
+        // On Windows, the open read handle in `copyAdmittedFile` itself blocks renaming over the file (`EPERM`/`EBUSY`).
+        fileChecks.after = async (path) => {
+            if (path !== pdf || ++checks !== 1) return;
+            await link(pdf, aside);
+            try {
+                await rename(other, pdf);
+            } catch (error) {
+                const code = (error as NodeJS.ErrnoException).code;
+                if (process.platform === 'win32' && (code === 'EPERM' || code === 'EBUSY')) {
+                    swapBlockedOnWindows = true;
+                    await rm(aside, {force: true});
+                    return;
+                }
+                throw error;
+            }
+        };
+        fileChecks.before = async (path) => {
+            if (path !== pdf || checks !== 1) return;
+            checks += 1;
+            if (!swapBlockedOnWindows) {
+                await rename(aside, pdf);
+            }
+        };
+
+        const read = await readPin(pinned);
+
+        expect(checks).toBeGreaterThan(1);
+        expect(read).toEqual(Buffer.from(ORIGINAL));
+    });
+
+    it('refuses every window a generic read of a pin, which only the pin-aware reader may open', async () => {
+        process.env.EVB_APP_STATE_DIR = tempRoot;
+        await store.setDocumentStoreRootForTests(join(getAppTempDirPath(), 'document-store'));
+        const {entry} = await openPdf();
+        const pinned = await store.pinOpenDocumentRevision(entry.ref, '1' as never, 7);
+        expect(await readPin(pinned)).toEqual(Buffer.from(ORIGINAL));
+
+        await expect(handleFileReadRange({senderId: 8}, pinned, 0, 8)).rejects.toThrow('reads only allowed');
+        await expect(handleFileReadRange({senderId: 7}, pinned, 0, 8)).rejects.toThrow('reads only allowed');
+    });
+
+    it('tells a Save that the PDF as opened is gone, as its own refusal, when a text box restores its original appearance', async () => {
+        process.env.EVB_APP_STATE_DIR = tempRoot;
+        nativeWriter.path = join(tempRoot, 'evb-pdf-page-ops');
+        const {pdf, entry} = await openPdf();
+        const pinned = await store.pinOpenDocumentRevision(entry.ref, '1' as never, 7);
+        await rename(await writeTemp('replacement.pdf', SAME_SIZE_OTHER), pdf);
+        const textBox = {
+            stableKey: 'original-box',
+            annotationId: '5 0 R',
+            pageIndex: 0,
+            text: 'Original',
+            rect: [10, 40, 130, 70],
+            rotation: 0,
+            fontSize: 12,
+            color: [0, 0, 0],
+            originalAppearance: {sourceAnnotationId: '5 0 R'},
+        };
+        const mutations = normalizePdfNativeMutationSet({originalAppearanceSource: pinned, textBoxes: [textBox]}, 'restore');
+
+        const result = await handleNativePdfMutationsApplyToWorkingCopy({senderId: 7}, entry.ref, mutations, 'D:20261123000000Z', {
+            expectedDocumentRevisionToken: '1' as never,
+        });
+
+        expect(result).toMatchObject({applied: false, reason: 'source-unavailable'});
+    });
+
+    it('reports source-unavailable when the original is deleted while a destination-backed pin is active', async () => {
+        process.env.EVB_APP_STATE_DIR = tempRoot;
+        nativeWriter.path = join(tempRoot, 'evb-pdf-page-ops');
+        const {pdf, entry} = await openPdf();
+        const pinned = await store.pinOpenDocumentRevision(entry.ref, '1' as never, 7);
+        await rm(pdf);
+        const textBox = {
+            stableKey: 'original-box',
+            annotationId: '5 0 R',
+            pageIndex: 0,
+            text: 'Original',
+            rect: [10, 40, 130, 70],
+            rotation: 0,
+            fontSize: 12,
+            color: [0, 0, 0],
+            originalAppearance: {sourceAnnotationId: '5 0 R'},
+        };
+        const mutations = normalizePdfNativeMutationSet({originalAppearanceSource: pinned, textBoxes: [textBox]}, 'restore');
+
+        const result = await handleNativePdfMutationsApplyToWorkingCopy({senderId: 7}, entry.ref, mutations, 'D:20261123000000Z', {
+            expectedDocumentRevisionToken: '1' as never,
+        });
+
+        expect(result).toMatchObject({applied: false, reason: 'source-unavailable'});
+    });
+
+    it('refuses generic validators and range reads on real-filesystem case spellings and symlink aliases of pinned-revisions', async () => {
+        process.env.EVB_APP_STATE_DIR = tempRoot;
+        resetPathValidatorCachesForTests();
+        const appTempRoot = getAppTempDirPath();
+        await store.setDocumentStoreRootForTests(join(appTempRoot, 'document-store'));
+        const {entry} = await openPdf();
+        const pinned = await store.pinOpenDocumentRevision(entry.ref, '1' as never, 7);
+        try {
+            expect(await readPin(pinned)).toEqual(Buffer.from(ORIGINAL));
+
+            const pinnedDir = dirname(pinned);
+            const pinBaseRoot = dirname(pinnedDir);
+            const regularSibling = join(appTempRoot, 'regular.pdf');
+            await writeFile(regularSibling, ORIGINAL);
+            expect(isAllowedReadPath(regularSibling)).toBe(true);
+            expect(isAllowedWritePath(regularSibling)).toBe(true);
+            await expect(resolveAllowedReadPath(regularSibling)).resolves.toBeTruthy();
+            await expect(resolveAllowedWritePath(regularSibling)).resolves.toBe(regularSibling);
+
+            const upperPinned = join(pinBaseRoot, 'PINNED-REVISIONS', basename(pinned));
+            const upperNew = join(pinBaseRoot, 'PINNED-REVISIONS', 'new.pdf');
+            const pinnedStat = await stat(pinned, {bigint: true});
+            const upperStat = await stat(upperPinned, {bigint: true}).catch(() => null);
+            if (upperStat) {
+                expect(upperStat.dev).toBe(pinnedStat.dev);
+                expect(upperStat.ino).toBe(pinnedStat.ino);
+            }
+
+            for (const candidate of [
+                upperPinned,
+                upperNew,
+            ]) {
+                expect(isAllowedReadPath(candidate)).toBe(false);
+                expect(isAllowedWritePath(candidate)).toBe(false);
+                await expect(resolveAllowedReadPath(candidate)).resolves.toBeNull();
+                await expect(resolveAllowedWritePath(candidate)).resolves.toBeNull();
+            }
+            await expect(handleFileReadRange({senderId: 8}, upperPinned, 0, 8)).rejects.toThrow('reads only allowed');
+
+            if (process.platform !== 'win32') {
+                const aliasDir = join(pinBaseRoot, 'pin-alias-dir');
+                await symlink(pinnedDir, aliasDir);
+                for (const candidate of [
+                    join(aliasDir, basename(pinned)),
+                    join(aliasDir, 'new.pdf'),
+                ]) {
+                    expect(isAllowedReadPath(candidate)).toBe(false);
+                    expect(isAllowedWritePath(candidate)).toBe(false);
+                    await expect(resolveAllowedReadPath(candidate)).resolves.toBeNull();
+                    await expect(resolveAllowedWritePath(candidate)).resolves.toBeNull();
+                }
+            }
+        } finally {
+            resetPathValidatorCachesForTests();
+        }
+    });
+
+    it('blocks another window from opening, granting, reading, or saving over a materialized pin', async () => {
+        process.env.EVB_APP_STATE_DIR = tempRoot;
+        resetPathValidatorCachesForTests();
+        const appTempRoot = getAppTempDirPath();
+        await store.setDocumentStoreRootForTests(join(appTempRoot, 'document-store'));
+        const {entry} = await openPdf(7);
+        const pinned = await store.pinOpenDocumentRevision(entry.ref, '1' as never, 7);
+        try {
+            expect(await readPin(pinned, 7)).toEqual(Buffer.from(ORIGINAL));
+
+            const {
+                allowOpenPath,
+                requireOpenPath,
+            } = await import('@electron/file-access/openPathCapabilities');
+            const {openInputPaths} = await import('@electron/features/documents/main/openInputPaths.service');
+            const {
+                resolveExistingReadableDocumentOrImagePath,
+                resolveExistingReadablePdfPath,
+            } = await import('@electron/features/documents/main/documentFilePathResolution');
+            const {isAllowedOriginalSavePath} = await import('@electron/file-access/isAllowedOriginalSavePath');
+            const {savePdfAs} = await import('@electron/features/documents/main/documentSave.service');
+
+            const candidates: string[] = [pinned];
+            if (process.platform !== 'win32') {
+                const outsideLink = join(tempRoot, 'window8-pin-open-link.pdf');
+                await symlink(pinned, outsideLink);
+                candidates.push(outsideLink);
+            }
+
+            for (const candidate of candidates) {
+                expect(allowOpenPath(candidate, 8)).toBeNull();
+                expect(() => requireOpenPath(candidate, 8)).toThrow('Path not allowed');
+                await expect(openInputPaths([candidate], {}, 8)).rejects.toThrow();
+                await expect(resolveExistingReadablePdfPath(candidate, 8)).rejects.toThrow('reads only allowed');
+                await expect(resolveExistingReadableDocumentOrImagePath(candidate, 8)).rejects.toThrow('reads only allowed');
+                expect(isAllowedOriginalSavePath(candidate)).toBe(false);
+                await expect(savePdfAs(
+                    {
+                        parentWindow: null,
+                        sender: {id: 7} as never,
+                        senderId: 7,
+                    },
+                    entry.ref,
+                    undefined,
+                    async () => candidate,
+                )).rejects.toThrow('reserved application directory');
+            }
+
+            expect(await readFile(pinned)).toEqual(Buffer.from(ORIGINAL));
+        } finally {
+            resetPathValidatorCachesForTests();
+        }
+    });
 });
