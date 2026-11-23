@@ -797,11 +797,11 @@ export class BrowserDocumentStore {
         const entry = await this.requireEntry(ref);
         const doc = this.requireDoc(entry);
         const instance = entry.instance;
-        this.expectedRevision(entry, token);
+        this.expectedRevision(entry, token, {allowStagedBase: true});
         try {
             return await doc.run(async () => {
                 if (!this.isActiveEntry(entry, doc, instance)) this.throwStale(entry, token);
-                this.expectedRevision(entry, token);
+                this.expectedRevision(entry, token, {allowStagedBase: true});
                 if (await doc.ensureCurrent(true) === null) throw new BrowserDocumentSourceChangedError(entry.ref);
                 if (!this.isActiveEntry(entry, doc, instance)) this.throwStale(entry, token);
                 await doc.applyOwnCurrentFile();
