@@ -722,3 +722,32 @@ it.each([
         viewer.remove();
     }
 });
+
+describe('note marker moves', () => {
+    it('moves a note to a page corner where its writer saves the icon', () => {
+        const {session} = mountAnnotationSession();
+        const note = session.annotationEditorSurface.createNoteAt(0, {
+            left: 0.5,
+            top: 0.5,
+            width: 0.0016,
+            height: 0.0016,
+        });
+        const comment = session.annotationApplication.value.listCommentSummaries()
+            .find(entry => entry.appAnnotationId === note.identity.id);
+        expect(comment).toBeDefined();
+
+        expect(session.commentCrud.moveAnnotationMarker(comment!, {
+            left: 0.002,
+            top: 0.001,
+            width: 0.0016,
+            height: 0.0016,
+        })).toBe(true);
+
+        const moved = session.annotationApplication.value.store.list().find(entity => entity.identity.id === note.identity.id);
+        if (moved?.kind !== 'note') throw new Error('note missing');
+        // The 600 x 800 pt page keeps the 20 pt icon's centre 10 pt inside each edge.
+        expect((moved.position.left + moved.position.width / 2) * 600).toBeCloseTo(10, 9);
+        expect((moved.position.top + moved.position.height / 2) * 800).toBeCloseTo(10, 9);
+        expect(moved.position.width * 600).toBeCloseTo(20, 9);
+    });
+});

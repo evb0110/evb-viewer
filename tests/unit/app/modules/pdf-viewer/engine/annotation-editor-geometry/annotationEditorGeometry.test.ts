@@ -387,6 +387,23 @@ describe('annotation display geometry', () => {
         expect(delta.y).toBeCloseTo(-0.1);
     });
 
+    it('stops a rect moved against the far edge inside the page in float64', () => {
+        // A 20 pt icon at x = 29 pt on a 612 pt page: 1 - right puts its edge at 1.0000000000000002.
+        const icon = {
+            left: 29 / 612,
+            top: 29 / 612,
+            width: 20 / 612,
+            height: 20 / 612,
+        };
+        const delta = clampAnnotationMoveDelta([icon], {
+            x: 2,
+            y: 2,
+        });
+        expect(icon.left + delta.x + icon.width).toBeLessThanOrEqual(1);
+        expect(icon.top + delta.y + icon.height).toBeLessThanOrEqual(1);
+        expect(icon.left + delta.x + icon.width).toBeCloseTo(1, 12);
+    });
+
     it.each([
         90,
         180,

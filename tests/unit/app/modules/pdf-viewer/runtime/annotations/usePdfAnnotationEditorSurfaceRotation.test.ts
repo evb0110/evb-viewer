@@ -27,6 +27,11 @@ import type {
     IAnnotationMarkerRect,
     TAnnotationTool,
 } from '@app/types/annotations';
+import { useAnnotationPointerGesture } from '@app/modules/pdf-viewer/annotations/editor/useAnnotationPointerGesture';
+import { textNoteIconRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/textNoteIconRect';
+import { nativeNoteGeometryProjection } from '@app/modules/pdf-viewer/annotations/persistence/nativeNoteGeometryProjection';
+import { createComment } from '@tests/unit/app/services/pdf-save/createComment';
+import type { TPageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/pageRotation';
 
 const rect: IAnnotationMarkerRect = {
     left: 0.1,
@@ -470,6 +475,175 @@ describe('usePdfAnnotationEditorSurface rotation', () => {
             rotation: 180,
             rotationDelta: 90,
         })).toBe(false);
+    });
+
+    afterEach(() => {
+        for (const scope of activeScopes) scope.stop();
+        activeScopes.clear();
+    });
+});
+
+describe('usePdfAnnotationEditorSurface note icon', () => {
+    // A non-square page with an offset origin, so swapped axes and the view origin both show.
+    const pageView = [
+        10,
+        20,
+        610,
+        1020,
+    ];
+    const rotations: TPageRotation[] = [
+        0,
+        90,
+        180,
+        270,
+    ];
+    const marker = (x: number, y: number): IAnnotationMarkerRect => ({
+        left: x - 0.0008,
+        top: y - 0.0008,
+        width: 0.0016,
+        height: 0.0016,
+    });
+    const center = (position: IAnnotationMarkerRect) => ({
+        x: position.left + position.width / 2,
+        y: position.top + position.height / 2,
+    });
+    // The page as displayed with its /Rotate, in points.
+    const displayedSize = (rotation: TPageRotation) => rotation === 90 || rotation === 270
+        ? {width: 1000, height: 600}
+        : {width: 600, height: 1000};
+
+    function createNoteHarness(rotation: TPageRotation, view: number[] = pageView) {
+        let geometry: {pageView: number[]; rotation: TPageRotation} | null = {pageView: view, rotation};
+        const harness = createSurfaceHarness({getPageGeometry: () => geometry});
+        const scope = effectScope();
+        activeScopes.add(scope);
+        const gesture = scope.run(() => useAnnotationPointerGesture({surface: harness.surface, pageIndex: 0}))!;
+        const notePosition = (id: string) => {
+            const entity = harness.surface.entitiesByPage.value.get(0)?.find(candidate => candidate.identity.id === id);
+            if (entity?.kind !== 'note') throw new Error('note missing');
+            return entity.position;
+        };
+        const setGeometryKnown = (known: boolean) => {
+            geometry = known ? {pageView: view, rotation} : null;
+        };
+        return {...harness, gesture, notePosition, setGeometryKnown};
+    }
+
+    it.each(rotations)('places a corner note where the writer saves its 20 pt icon on a %i degree page', (rotation) => {
+        const {surface, notePosition} = createNoteHarness(rotation);
+        const page = displayedSize(rotation);
+        const topLeft = surface.createNoteAt(0, marker(0.003, 0.002));
+        const bottomRight = surface.createNoteAt(0, marker(0.998, 0.999));
+        const middle = surface.createNoteAt(0, marker(0.5, 0.25));
+
+        expect(notePosition(topLeft.identity.id).width * page.width).toBeCloseTo(20, 9);
+        expect(notePosition(topLeft.identity.id).height * page.height).toBeCloseTo(20, 9);
+        expect(center(notePosition(topLeft.identity.id)).x * page.width).toBeCloseTo(10, 9);
+        expect(center(notePosition(topLeft.identity.id)).y * page.height).toBeCloseTo(10, 9);
+        expect((1 - center(notePosition(bottomRight.identity.id)).x) * page.width).toBeCloseTo(10, 9);
+        expect((1 - center(notePosition(bottomRight.identity.id)).y) * page.height).toBeCloseTo(10, 9);
+        // Away from an edge the icon keeps the marker's centre.
+        expect(center(notePosition(middle.identity.id)).x).toBeCloseTo(0.5, 12);
+        expect(center(notePosition(middle.identity.id)).y).toBeCloseTo(0.25, 12);
+    });
+
+    it.each(rotations)('keeps a dragged or nudged note icon inside a %i degree page', (rotation) => {
+        const {surface, gesture, notePosition} = createNoteHarness(rotation);
+        const page = displayedSize(rotation);
+        const note = surface.createNoteAt(0, marker(0.5, 0.5));
+        const pointer = {clientX: 0, clientY: 0, pointerId: 1};
+
+        surface.select([note.identity.id]);
+        expect(gesture.beginMove(note.identity.id, {x: 0.5, y: 0.5}, pointer)).toBe(true);
+        gesture.update({x: -3, y: 4}, {...pointer, clientX: 500, clientY: 500});
+        const dragged = gesture.previewRect.value!;
+        expect(center(dragged).x * page.width).toBeCloseTo(10, 9);
+        expect((1 - center(dragged).y) * page.height).toBeCloseTo(10, 9);
+        gesture.cancel();
+
+        // A diagonal nudge keeps its direction, so push each axis to its edge on its own.
+        surface.nudgeSelectionByPdfPoints(-5_000, 0, pageView, rotation);
+        surface.nudgeSelectionByPdfPoints(0, -5_000, pageView, rotation);
+        const nudged = notePosition(note.identity.id);
+        expect(center(nudged).x * page.width).toBeCloseTo(10, 9);
+        expect(center(nudged).y * page.height).toBeCloseTo(10, 9);
+        // What the writer would save for the nudged note is where the note already is.
+        expect(textNoteIconRect(nudged, pageView, rotation)).toEqual(nudged);
+    });
+
+    it('keeps a note dragged to the right edge of a letter page within the bounds its save accepts', () => {
+        const letter = [0, 0, 612, 792];
+        const {surface, gesture, notePosition} = createNoteHarness(0, letter);
+        // The imported /Text note at /Rect [29 300 49 320].
+        const note = surface.createNoteAt(0, {
+            left: 29 / 612,
+            top: (792 - 320) / 792,
+            width: 20 / 612,
+            height: 20 / 792,
+        });
+        const pointer = {clientX: 0, clientY: 0, pointerId: 1};
+
+        surface.select([note.identity.id]);
+        expect(gesture.beginMove(note.identity.id, {x: 0.5, y: 0.5}, pointer)).toBe(true);
+        const completion = gesture.finish({x: 5, y: 0.5}, {...pointer, clientX: 900});
+        surface.commitGesture(completion!.gesture!, {position: completion!.rect});
+        const position = notePosition(note.identity.id);
+
+        expect(position.left + position.width).toBeLessThanOrEqual(1);
+        expect((1 - center(position).x) * 612).toBeCloseTo(10, 9);
+        expect(nativeNoteGeometryProjection([createComment({markerRect: position})]).value).toHaveLength(1);
+    });
+
+    it.each(rotations)('stops an imported 10 pt note where the writer saves it on a %i degree page', (rotation) => {
+        const {surface, gesture, notePosition, setGeometryKnown} = createNoteHarness(rotation);
+        const page = displayedSize(rotation);
+        const tenPoint = (x: number, y: number): IAnnotationMarkerRect => ({
+            left: x - 5 / page.width,
+            top: y - 5 / page.height,
+            width: 10 / page.width,
+            height: 10 / page.height,
+        });
+        // Imported before the page geometry is known, so each keeps its 10 pt rect.
+        setGeometryKnown(false);
+        const dragged = surface.createNoteAt(0, tenPoint(0.5, 0.5));
+        const nudged = surface.createNoteAt(0, tenPoint(0.5, 0.25));
+        setGeometryKnown(true);
+        expect(notePosition(dragged.identity.id).width * page.width).toBeCloseTo(10, 9);
+        const pointer = {clientX: 0, clientY: 0, pointerId: 1};
+
+        surface.select([dragged.identity.id]);
+        expect(gesture.beginMove(dragged.identity.id, {x: 0.5, y: 0.5}, pointer)).toBe(true);
+        gesture.update({x: -3, y: 0.5}, {...pointer, clientX: 500});
+        // The preview already stops where the note will be saved.
+        expect(center(gesture.previewRect.value!).x * page.width).toBeCloseTo(10, 9);
+        const completion = gesture.finish({x: -3, y: 0.5}, {...pointer, clientX: 500});
+        surface.commitGesture(completion!.gesture!, {position: completion!.rect});
+        expect(center(notePosition(dragged.identity.id)).x * page.width).toBeCloseTo(10, 9);
+        expect(center(notePosition(dragged.identity.id)).y).toBeCloseTo(0.5, 12);
+
+        surface.select([nudged.identity.id]);
+        surface.nudgeSelectionByPdfPoints(0, -5_000, pageView, rotation);
+        expect(center(notePosition(nudged.identity.id)).y * page.height).toBeCloseTo(10, 9);
+        expect(textNoteIconRect(notePosition(nudged.identity.id), pageView, rotation)).toEqual(notePosition(nudged.identity.id));
+    });
+
+    it.each([
+        [[0, 0, 15, 792], 0],
+        [[0, 0, 612, 15], 90],
+        [[0, 0, 19.99, 19.99], 180],
+    ] as const)('keeps the marker where the writer refuses a note on a page under 20 pt (%j at %i degrees)', (tinyView, rotation) => {
+        const {surface} = createSurfaceHarness({getPageGeometry: () => ({pageView: [...tinyView], rotation})});
+        const position = marker(0.5, 0.5);
+
+        expect(textNoteIconRect(position, tinyView, rotation)).toBeNull();
+        expect(surface.createNoteAt(0, position).position).toEqual(position);
+    });
+
+    it('keeps the marker until the page geometry is known', () => {
+        const {surface} = createSurfaceHarness();
+        const position = marker(0.001, 0.001);
+
+        expect(surface.createNoteAt(0, position).position).toEqual(position);
     });
 
     afterEach(() => {

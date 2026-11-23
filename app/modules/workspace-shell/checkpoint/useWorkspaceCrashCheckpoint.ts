@@ -29,8 +29,8 @@ interface IUseWorkspaceCrashCheckpointOptions {
 }
 
 /**
- * Writes the window's tabs, panes and views shortly after they change. A document's unsaved work is not part of it:
- * the document commits its drafts itself when an edit is accepted.
+ * Writes the window's tabs, panes and views: at once when the documents it presents change, shortly after a view
+ * change. A document's unsaved work is not part of it: the document commits its drafts itself when an edit is accepted.
  */
 export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpointOptions) => {
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -49,15 +49,17 @@ export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpoin
         inFlight = (async () => {
             // Deferred once so that inFlight is assigned before the body can complete and clear it.
             await Promise.resolve();
-            let firstError: unknown;
+            // Only the last write decides the outcome: a later checkpoint replaces an earlier one that failed.
+            let failure: {error: unknown} | null = null;
             try {
                 for (let next: IWorkspaceCheckpoint | null = pendingLatest ?? checkpoint; next && !disposed && options.enabled.value; next = pendingLatest) {
                     pendingLatest = null;
+                    failure = null;
                     await Promise.resolve(getWindowTabsCapability().saveWorkspaceCheckpoint?.(next)).catch((error: unknown) => {
-                        firstError ??= error;
+                        failure = {error};
                     });
                 }
-                if (firstError !== undefined) throw firstError;
+                if (failure) throw (failure as {error: unknown}).error;
             } finally {
                 inFlight = null;
                 pendingLatest = null;
@@ -78,28 +80,37 @@ export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpoin
         await persistCheckpoint(buildWorkspaceCheckpoint(options));
     }
 
+    function persistInBackground() {
+        guardAsync(persistCheckpointNow(), {
+            category: 'background-diagnostic',
+            scope: 'workspace-checkpoint',
+            message: 'Failed to capture crash recovery checkpoint',
+        });
+    }
+
     function scheduleCheckpoint() {
         if (timer) {
             clearTimeout(timer);
         }
         timer = setTimeout(() => {
             timer = null;
-            guardAsync(persistCheckpointNow(), {
-                category: 'background-diagnostic',
-                scope: 'workspace-checkpoint',
-                message: 'Failed to capture crash recovery checkpoint',
-            });
+            persistInBackground();
         }, debounceMs);
     }
 
+    // Watch a cheap change signature instead of the serialized checkpoint:
+    // the full checkpoint is built only when it is written.
+    const signature = computed(() => options.enabled.value && !options.isStartupOpenClaimPending.value
+        ? buildWorkspaceCheckpointChangeSignature(options)
+        : null);
     const stop = watch(
-        // Watch a cheap change signature instead of the serialized checkpoint:
-        // the full checkpoint is built only inside the debounced persist.
-        () => options.enabled.value && !options.isStartupOpenClaimPending.value
-            ? buildWorkspaceCheckpointChangeSignature(options).workspace
-            : null,
-        signature => {
-            if (signature !== null) scheduleCheckpoint();
+        [() => signature.value?.workspace ?? null, () => signature.value?.structure ?? null],
+        ([workspace, structure], previous) => {
+            if (workspace === null) return;
+            // A document opened, closed, moved or saved is written at once, so a crash right after it
+            // still relaunches with that tab. View state such as page and zoom waits for the debounce.
+            if (structure !== previous?.[1]) persistInBackground();
+            else scheduleCheckpoint();
         },
         {immediate: true},
     );

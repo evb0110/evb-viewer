@@ -31,6 +31,7 @@ import {
     rotatedAnnotationBounds,
     transformShapeToRect,
 } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
+import { textNotePosition } from '@app/modules/pdf-viewer/engine/annotation-geometry/textNoteIconRect';
 import {createEpochMs} from '@contracts/timestamps';
 import { requirePageIndex } from '@contracts/pageNumbers';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -932,7 +933,13 @@ export const usePdfAnnotationEditorSurface = (
                 updated = store().updateTextBox(annotationId, patch);
                 break;
             case 'note':
-                updated = store().updateNote(annotationId, patch);
+                // A moved note holds the icon its writer saves, so it does not move again on Save.
+                updated = store().updateNote(annotationId, patch.position
+                    ? {
+                        ...patch,
+                        position: textNotePosition(patch.position, options.getPageGeometry?.(entity.pageIndex)),
+                    }
+                    : patch);
                 break;
             case 'text-markup':
                 updated = store().updateTextMarkup(annotationId, patch);
@@ -986,7 +993,8 @@ export const usePdfAnnotationEditorSurface = (
             pageIndex: requirePageIndex(pageIndex),
             ...baseEntityFields(annotationAuthor()),
             contents: '',
-            position,
+            // The icon the writer will save, so a note placed at a page edge does not move on Save.
+            position: textNotePosition(position, options.getPageGeometry?.(pageIndex)),
             color: options.settings.value?.noteColor ?? '#f59e0b',
             open: false,
             ...restOverrides,
