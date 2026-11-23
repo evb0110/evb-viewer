@@ -18,12 +18,16 @@ const REVISION_FILE_PATTERN = /^r\d+\.[A-Za-z0-9]{1,16}$/u;
 const DRAFTS_FILE_PATTERN = /^drafts-[A-Za-z0-9-]{1,64}\.json$/u;
 const COPY_BYTES = 4 * 1024 * 1024;
 
+export type TForeignRevisionState = 'staged' | 'committed';
+
 /** The bytes `[0, length)` of `file`. `witness` names them once something established it: a content witness, or the witness of the destination they were copied from. */
 export interface IRevision {
     id: number;
     file: string;
     length: number;
     witness?: string | undefined;
+    /** Revision 1 copied from an externally modified destination: `'staged'` until published or archived for undo, then `'committed'`. */
+    foreign?: TForeignRevisionState | undefined;
 }
 
 /**
@@ -72,6 +76,7 @@ export interface IManifest {
 
 export interface IDocumentState {
     id: string;
+    byteRevision: number;
     current: IRevision | null;
     history: readonly THistoryRevision[];
     destination: string | null;
@@ -81,6 +86,12 @@ export interface IDocumentState {
     dirty: boolean;
     /** Its unsaved work is in a revision file this computer cannot read; see `DamagedDocumentError`. */
     damaged: boolean;
+}
+
+export interface IDraftRevisionGuard {
+    byteRevision?: number;
+    baseline?: string | null;
+    foreignStaged?: boolean;
 }
 
 /** Bytes to publish: exactly `[0, length)` of `file`, which lives at the store-relative `path`; `witness`, what is known of them. */
@@ -178,10 +189,11 @@ export function decodeJson(bytes: Uint8Array): unknown {
 
 const isCount = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 const isOptionalString = (value: unknown) => value === undefined || typeof value === 'string';
+const isOptionalForeign = (value: unknown): value is TForeignRevisionState | undefined => value === undefined || value === 'staged' || value === 'committed';
 
 function isRevision(value: unknown): value is IRevision {
     return isRecord(value) && isCount(value.id) && typeof value.file === 'string' && REVISION_FILE_PATTERN.test(value.file)
-        && isCount(value.length) && isOptionalString(value.witness);
+        && isCount(value.length) && isOptionalString(value.witness) && isOptionalForeign(value.foreign);
 }
 
 const isDestinationRevision = (value: unknown) => isRecord(value) && value.id === 1 && typeof value.witness === 'string' && !('file' in value);
@@ -230,6 +242,8 @@ export class DocumentDirectory {
     private retained: ReadonlySet<number> = new Set();
     /** Why every call is refused until the directory is opened again; see `commit`. */
     private refusal: Error | null = null;
+    /** Monotonic epoch bumped only when the current bytes or baseline identity actually changes. */
+    private byteRevision = 0;
 
     private constructor(
         readonly id: string,
@@ -250,11 +264,11 @@ export class DocumentDirectory {
         if ('destination' in init) {
             const baseline = await store.publication.witness(init.destination);
             if (baseline === null) throw new Error('The destination has no readable content');
-            await doc.commit({ ...manifest, destination: init.destination, baseline });
+            await doc.commit({ ...manifest, destination: init.destination, baseline }, null, undefined, true);
         } else {
             const name = `r1.${init.ext}`;
             const { file, length, witness } = await doc.createRevisionFile(name, init.source, init.imported === true);
-            await doc.commit({ ...manifest, current: { id: 1, file: name, length, witness }, baseline: witness }, file);
+            await doc.commit({ ...manifest, current: { id: 1, file: name, length, witness }, baseline: witness }, file, undefined, true);
         }
         return doc;
     }
@@ -287,7 +301,7 @@ export class DocumentDirectory {
             if (current) await port.remove(doc.path(current.file)).catch(() => undefined);
             throw error;
         }
-        await doc.commit({ ...manifest, history: [] }, file, value);
+        await doc.commit({ ...manifest, history: [] }, file, value, true);
         return doc;
     }
 
@@ -341,6 +355,7 @@ export class DocumentDirectory {
         const { manifest } = this;
         return {
             id: this.id,
+            byteRevision: this.byteRevision,
             current: manifest.current ?? null,
             history: manifest.history,
             destination: manifest.destination ?? null,
@@ -413,10 +428,16 @@ export class DocumentDirectory {
     /**
      * Stores unsaved state for revision `expected`; `undefined` deletes it. Nothing is copied: without bytes of its own
      * the drafts apply to the destination the baseline names, and a Save meets a destination changed since as a conflict.
+     * Captures `byteRevision`, `baseline` and `foreignStaged` synchronously (or from `guard` captured before an async
+     * pre-step) so an unchanged `null -> 1` materialization and backing-file moves are accepted while any byte change,
+     * rewrite+undo, foreign-bytes staging, or baseline replacement (`saveAs`) is rejected as `stale-revision`.
      */
-    setDrafts(expected: number | null, drafts: unknown) {
+    setDrafts(expected: number | null, drafts: unknown, guard?: IDraftRevisionGuard) {
+        const capturedByteRevision = guard?.byteRevision ?? this.byteRevision;
+        const capturedBaseline = guard?.baseline !== undefined ? guard.baseline : (this.manifest.baseline ?? null);
+        const capturedForeignStaged = guard?.foreignStaged ?? (this.manifest.current?.foreign === 'staged');
         return this.run(async (): Promise<TDraftResult> => {
-            const stale = this.staleRevision(expected);
+            const stale = this.staleDraftRevision(expected, capturedByteRevision, capturedBaseline, capturedForeignStaged);
             if (stale) return stale;
             const after = await this.writeDrafts({ replace: drafts });
             await this.commit({ ...this.manifest, drafts: after.name }, this.file, after.value);
@@ -511,6 +532,31 @@ export class DocumentDirectory {
         return (current?.id ?? null) === expected ? null : { status: 'stale-revision', current };
     }
 
+    private staleDraftRevision(
+        expected: number | null,
+        capturedByteRevision: number,
+        capturedBaseline: string | null,
+        capturedForeignStaged: boolean,
+    ): TStaleRevision | null {
+        const { current, baseline, destination } = this.manifest;
+        const stale: TStaleRevision = { status: 'stale-revision', current: current ?? null };
+        if (capturedForeignStaged || current?.foreign === 'staged' || this.byteRevision !== capturedByteRevision) return stale;
+        if ((current?.id ?? null) === expected) {
+            if (expected === null && !sameWitness(baseline, capturedBaseline)) return stale;
+            return null;
+        }
+        if (
+            expected === null
+            && destination !== undefined
+            && current?.id === 1
+            && sameWitness(current.witness, capturedBaseline)
+            && sameWitness(baseline, capturedBaseline)
+        ) {
+            return null;
+        }
+        return stale;
+    }
+
     /**
      * A rewrite or move supplies all the new bytes: on a document without bytes of its own nothing is copied in, the
      * destination's bytes stay revision 1 for undo, and the baseline still guards the publication. An append needs
@@ -580,7 +626,8 @@ export class DocumentDirectory {
     /** The history a change leaves: what the caller retains, and the revision the change replaces. */
     private historyAfter(history: readonly THistoryRevision[]): THistoryRevision[] {
         const { current, baseline } = this.manifest;
-        const replaced: THistoryRevision | undefined = current ?? (baseline === undefined ? undefined : { id: 1, witness: baseline });
+        const archived: IRevision | undefined = current?.foreign === 'staged' ? { ...current, foreign: 'committed' } : current;
+        const replaced: THistoryRevision | undefined = archived ?? (baseline === undefined ? undefined : { id: 1, witness: baseline });
         return [...history.filter(revision => this.retained.has(revision.id) && revision.id !== replaced?.id), ...replaced ? [replaced] : []];
     }
 
@@ -615,7 +662,13 @@ export class DocumentDirectory {
         const name = `r1.${manifest.ext}`;
         const created = await this.createFromDestination(name, asItIs);
         if (!created) return null;
-        const current = { id: 1, file: name, length: created.length, witness: created.witness };
+        const current: IRevision = {
+            id: 1,
+            file: name,
+            length: created.length,
+            witness: created.witness,
+            ...(created.witness === undefined ? { foreign: 'staged' as const } : {}),
+        };
         await this.commit({ ...manifest, current }, created.file);
         return current;
     }
@@ -663,7 +716,15 @@ export class DocumentDirectory {
             if (await settle(record, record.baseline) === undefined) left.push(record);
         }
         const witness = pending && await settle(pending, manifest.baseline);
-        const adopted = pending && witness && sameWitness(witness, pending.witness) ? { destination: pending.destination, baseline: witness } : {};
+        const adopted = pending && witness && sameWitness(witness, pending.witness)
+            ? {
+                destination: pending.destination,
+                baseline: witness,
+                ...(manifest.current?.foreign === 'staged' && sameWitness(manifest.current.witness, pending.witness)
+                    ? { current: { ...manifest.current, foreign: 'committed' as const } }
+                    : {}),
+            }
+            : {};
         const next = { ...manifest, ...adopted, pendingPublish: witness === undefined ? pending : undefined, unsettled: left.length > 0 ? left : undefined };
         if (JSON.stringify(next) !== JSON.stringify(manifest)) await this.commit(next);
     }
@@ -677,7 +738,7 @@ export class DocumentDirectory {
      * since it may not be durable; or the old one, closing a new `file`. A disk that shows neither leaves the
      * directory refusing everything until it is opened again.
      */
-    async commit(next: IManifest, file: IStoreFile | null = this.file, drafts: unknown = this.drafts) {
+    async commit(next: IManifest, file: IStoreFile | null = this.file, drafts: unknown = this.drafts, initial = false) {
         const { port } = this.store;
         const before = this.manifest;
         const text = JSON.stringify(next);
@@ -695,6 +756,7 @@ export class DocumentDirectory {
         }
         this.manifest = next;
         this.drafts = next.drafts === undefined ? undefined : drafts;
+        if (!initial) this.recordRevisionChange(before, next);
         if (file !== this.file) {
             await this.file?.close().catch(() => undefined);
             this.file = file;
@@ -703,6 +765,31 @@ export class DocumentDirectory {
         const named = namedFiles(next);
         for (const name of namedFiles(before)) {
             if (!named.has(name)) await port.remove(this.path(name)).catch(() => undefined);
+        }
+    }
+
+    /**
+     * Updates the single-owner byte-revision epoch when `manifest` moves from `before` to `next`.
+     * Unchanged materialization, backing-file moves (`moveToCopy`), history retention, drafts writes and `pendingPublish`
+     * bookkeeping leave `byteRevision` unchanged; any real change to current bytes, foreign state or unmaterialized
+     * baseline identity advances it.
+     */
+    private recordRevisionChange(before: IManifest, next: IManifest) {
+        const unchangedMaterialization = before.current === undefined
+            && next.current?.id === 1
+            && next.current.foreign === undefined
+            && next.current.witness !== undefined
+            && sameWitness(next.current.witness, before.baseline)
+            && sameWitness(next.baseline, before.baseline);
+        if (unchangedMaterialization) return;
+        const currentChanged = before.current?.id !== next.current?.id
+            || before.current?.foreign !== next.current?.foreign;
+        const unmaterializedBaselineChanged = before.current === undefined
+            && next.current === undefined
+            && before.baseline !== next.baseline
+            && !sameWitness(before.baseline, next.baseline);
+        if (currentChanged || unmaterializedBaselineChanged) {
+            this.byteRevision += 1;
         }
     }
 
