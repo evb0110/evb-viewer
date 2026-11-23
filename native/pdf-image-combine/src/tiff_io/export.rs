@@ -15,12 +15,15 @@ use tiff::{
     ColorType as TiffColorType,
 };
 
+use super::{
+    ensure_unsigned_tiff_samples, orient_tiff_pixels, read_tiff_dpi_axes, read_tiff_orientation,
+    unsupported_tiff_sample_type,
+};
 #[cfg(not(target_family = "wasm"))]
-use super::estimate_tiff_frame_decode_bytes;
-use super::{orient_tiff_pixels, read_tiff_dpi_axes, read_tiff_orientation};
+use super::{estimate_tiff_frame_decode_bytes, FLATE_ENCODER_FIXED_OVERHEAD_BYTES};
 use crate::{
     image::assert_pixel_limit,
-    netpbm::{is_rgb_data_grayscale, read_netpbm_file},
+    netpbm::{is_rgb_data_grayscale, read_netpbm_file_admitted},
     open_validated_input_file, validate_output_path_non_blocking, Result, DEFAULT_DPI,
     DEFAULT_MAX_IN_FLIGHT_BYTES, DEFAULT_MAX_OPEN_INPUT_FDS,
 };
@@ -47,6 +50,15 @@ impl TiffExportSamples {
     fn byte_len(&self) -> u64 {
         match self {
             Self::Gray(pixels) | Self::Rgb(pixels) | Self::Rgba(pixels) => pixels.len() as u64,
+        }
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn samples_per_pixel(&self) -> u64 {
+        match self {
+            Self::Gray(_) => 1,
+            Self::Rgb(_) => 3,
+            Self::Rgba(_) => 4,
         }
     }
 
@@ -169,7 +181,8 @@ fn combine_validated_tiff_pages(
                 let file = open_validated_input_file(input_path, output_path)?;
                 #[cfg(not(target_family = "wasm"))]
                 fd_permit.release_transient_output_slot();
-                let (page, _reservation) = read_first_tiff_export_page(
+                #[cfg_attr(target_family = "wasm", allow(unused_mut))]
+                let (page, mut reservation) = read_first_tiff_export_page(
                     file,
                     max_pixels,
                     #[cfg(not(target_family = "wasm"))]
@@ -179,6 +192,20 @@ fn combine_validated_tiff_pages(
                 )?;
                 #[cfg(not(target_family = "wasm"))]
                 drop(fd_permit);
+                // `write_data` encodes from the retained samples; reserve its
+                // strip working set alongside them (oversized pages take
+                // exclusive admission) and hold the reservation until the
+                // write returns, including on error.
+                #[cfg(not(target_family = "wasm"))]
+                if let Some(reservation) = reservation.as_mut() {
+                    reservation.reserve_additional(
+                        estimate_tiff_export_encode_working_set_bytes(
+                            page.width,
+                            page.height,
+                            page.samples.samples_per_pixel(),
+                        ),
+                    )?;
+                }
                 #[cfg(target_family = "wasm")]
                 let _ = seq;
                 let dpi = dpi.map_or((page.dpi_x, page.dpi_y), |dpi| (dpi, dpi));
@@ -194,7 +221,7 @@ fn combine_validated_tiff_pages(
                     }
                 }?;
                 drop(page);
-                drop(_reservation);
+                drop(reservation);
             }
         }
         writer.flush()?;
@@ -242,8 +269,17 @@ fn read_first_tiff_export_page<'a>(
             None
         };
         #[cfg(target_family = "wasm")]
-        let reservation = None;
-        let page = read_first_netpbm_export_page(file, max_pixels)?;
+        let mut reservation: Option<crate::PageBytesReservation<'a>> = None;
+        let page = read_first_netpbm_export_page(file, max_pixels, |raster| {
+            // The file may have grown since its length was reserved.
+            #[cfg(not(target_family = "wasm"))]
+            if let Some(guard) = reservation.as_mut() {
+                guard.grow_to(raster)?;
+            }
+            #[cfg(target_family = "wasm")]
+            let _ = (raster, &mut reservation);
+            Ok(())
+        })?;
         #[cfg(not(target_family = "wasm"))]
         if let Some(guard) = reservation.as_mut() {
             guard.shrink_to(page.samples.retained_bytes());
@@ -257,6 +293,21 @@ fn read_first_tiff_export_page<'a>(
     let orientation = read_tiff_orientation(&mut decoder);
     let (dpi_x, dpi_y) = read_tiff_dpi_axes(&mut decoder).unwrap_or((DEFAULT_DPI, DEFAULT_DPI));
     let color_type = decoder.colortype()?;
+    // Reject sample types the exporter cannot write before decoding a raster.
+    match color_type {
+        TiffColorType::Gray(8)
+        | TiffColorType::GrayA(8)
+        | TiffColorType::RGB(8)
+        | TiffColorType::RGBA(8) => {
+            ensure_unsigned_tiff_samples(&mut decoder, "native TIFF fast path")?
+        }
+        _ => {
+            return Err(unsupported_tiff_sample_type(
+                color_type,
+                "native TIFF fast path",
+            ))
+        }
+    }
     let (width, height, samples, reservation) = decode_tiff_export_samples_budgeted(
         width,
         height,
@@ -329,6 +380,29 @@ where
     Ok((width, height, samples, reservation))
 }
 
+/// Rows per strip `tiff 0.11`'s `ImageEncoder` uses for non-PackBits
+/// compression: `ceil(1,000,000 / row_bytes)`.
+#[cfg(not(target_family = "wasm"))]
+const TIFF_ENCODER_TARGET_STRIP_BYTES: u64 = 1_000_000;
+
+/// Heap `ImageEncoder::write_data` holds beyond the retained samples while
+/// writing Deflate strips with the horizontal predictor: one strip-sized
+/// predictor buffer and a live `flate2` + `zlib-rs` encoder that streams its
+/// output straight to the file writer.
+#[cfg(not(target_family = "wasm"))]
+fn estimate_tiff_export_encode_working_set_bytes(
+    width: u32,
+    height: u32,
+    samples_per_pixel: u64,
+) -> u64 {
+    let row_bytes = u64::from(width).saturating_mul(samples_per_pixel).max(1);
+    let rows_per_strip = TIFF_ENCODER_TARGET_STRIP_BYTES.div_ceil(row_bytes);
+    let strip_bytes = rows_per_strip
+        .min(u64::from(height))
+        .saturating_mul(row_bytes);
+    strip_bytes.saturating_add(FLATE_ENCODER_FIXED_OVERHEAD_BYTES)
+}
+
 #[cfg(not(target_family = "wasm"))]
 fn estimate_tiff_export_decode_bytes(
     width: u32,
@@ -353,8 +427,12 @@ fn estimate_tiff_export_decode_bytes(
     }
 }
 
-fn read_first_netpbm_export_page(file: File, max_pixels: u64) -> Result<TiffExportPage> {
-    let netpbm = read_netpbm_file(file, max_pixels)?;
+fn read_first_netpbm_export_page(
+    file: File,
+    max_pixels: u64,
+    admit_raster: impl FnOnce(u64) -> Result<()>,
+) -> Result<TiffExportPage> {
+    let netpbm = read_netpbm_file_admitted(file, max_pixels, admit_raster)?;
     let pixel_count = usize::try_from(u64::from(netpbm.width) * u64::from(netpbm.height))
         .map_err(|_| "Netpbm dimensions exceed the native address space")?;
 
@@ -494,6 +572,71 @@ mod tests {
         );
         drop(rot_samples);
         drop(rot_reservation);
+    }
+
+    fn temp_path(label: &str) -> PathBuf {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "evb-tiff-export-{label}-{}-{nonce}",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn tiff_export_rejects_unsupported_sample_types_before_decoding() {
+        let path = temp_path("gray64.tiff");
+        {
+            let mut encoder = TiffEncoder::new(File::create(&path).unwrap()).unwrap();
+            encoder
+                .write_image::<colortype::Gray64>(4, 4, &[7u64; 16])
+                .unwrap();
+        }
+        let budget = crate::PipelineBudget::new(2, 16 * 1024 * 1024);
+        let result =
+            read_first_tiff_export_page(File::open(&path).unwrap(), u64::MAX, Some((&budget, 0)));
+        std::fs::remove_file(&path).unwrap();
+        let error = match result {
+            Ok(_) => panic!("Gray64 TIFF was accepted for export"),
+            Err(error) => error,
+        };
+        assert!(
+            error.to_string().contains("Only 8-bit TIFF samples"),
+            "unexpected error: {error}"
+        );
+        assert_eq!(budget.metrics().peak_in_flight_bytes, 0);
+    }
+
+    #[test]
+    fn tiff_export_reserves_the_strip_encoder_next_to_retained_samples() {
+        const SIDE: u32 = 64;
+        let samples = u64::from(SIDE) * u64::from(SIDE);
+        let input = temp_path("page.pgm");
+        let output = temp_path("export.tiff");
+        let mut pgm = format!("P5\n{SIDE} {SIDE}\n255\n").into_bytes();
+        pgm.extend((0..samples).map(|index| (index * 7) as u8));
+        std::fs::write(&input, pgm).unwrap();
+
+        // The 64 KiB cap is below the ~420 KiB encoder working set, so the
+        // page proceeds through exclusive oversized admission.
+        let metrics = combine_tiff_pages_with_limits(
+            std::slice::from_ref(&input),
+            &output,
+            u64::MAX,
+            4,
+            None,
+            2,
+            64 * 1024,
+        );
+        std::fs::remove_file(&input).unwrap();
+        let _ = std::fs::remove_file(&output);
+        let metrics = metrics.unwrap();
+        let working_set = estimate_tiff_export_encode_working_set_bytes(SIDE, SIDE, 1);
+        // One 64-row strip of predictor output plus the live Deflate encoder.
+        assert_eq!(working_set, samples + FLATE_ENCODER_FIXED_OVERHEAD_BYTES);
+        assert_eq!(metrics.peak_in_flight_bytes, samples + working_set);
     }
 
     #[test]

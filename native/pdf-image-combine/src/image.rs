@@ -33,6 +33,12 @@ use crate::{
     },
     too_large_error, ImageProcessing, PdfBuildOptions, PdfPageSize, Result, DEFAULT_DPI,
 };
+#[cfg(not(target_family = "wasm"))]
+use crate::{
+    jpeg::preflight_jpeg_metadata,
+    netpbm::probe_pbm_p4_header,
+    tiff_io::{estimate_bilevel_encode_peak_bytes, estimate_up_filtered_flate_working_set_bytes},
+};
 
 const JPEG_GUARDRAIL_QUALITY_FLOOR: u8 = 75;
 const JPEG_GUARDRAIL_PPI_CAP: f64 = 300.0;
@@ -88,7 +94,11 @@ pub(crate) fn estimate_image_bytes_decode_bytes(
     max_pixels: u64,
 ) -> u64 {
     match extension.to_ascii_lowercase().as_str() {
-        "jpg" | "jpeg" => parse_jpeg_metadata(bytes)
+        // The preflight sums APP2 ICC chunk lengths without copying them, so
+        // the reservation covers the chunk copies and assembled profile that
+        // `parse_jpeg_metadata` allocates during preparation. JPEGs without
+        // ICC data keep their decode-only estimate.
+        "jpg" | "jpeg" => preflight_jpeg_metadata(bytes)
             .ok()
             .filter(|meta| {
                 u64::from(meta.width).saturating_mul(u64::from(meta.height)) <= max_pixels
@@ -97,6 +107,7 @@ pub(crate) fn estimate_image_bytes_decode_bytes(
                 u64::from(meta.width)
                     .saturating_mul(u64::from(meta.height))
                     .saturating_mul(u64::from(meta.components))
+                    .saturating_add(meta.icc_profile_working_bytes())
             }),
         "jp2" => parse_jpx_metadata(bytes)
             .ok()
@@ -151,13 +162,54 @@ pub(crate) fn estimate_image_bytes_decode_bytes(
                 }
             }
         }),
+        // The raster is borrowed from the reserved source bytes.
         "pgm" | "ppm" => parse_netpbm(bytes, max_pixels).ok().map_or(0, |netpbm| {
-            u64::from(netpbm.width)
-                .saturating_mul(u64::from(netpbm.height))
-                .saturating_mul(u64::from(netpbm.channels))
+            estimate_netpbm_page_encode_bytes(
+                netpbm.width,
+                netpbm.height,
+                netpbm.channels,
+                compression,
+            )
         }),
+        // `parse_pbm_p4` copies the bitmap before `BilevelStream::encode`.
+        "pbm" => estimate_pbm_bytes_encode_bytes(bytes, max_pixels),
         _ => 0,
     }
+}
+
+/// Peak heap, beyond the source raster, while one Netpbm raster becomes a PDF
+/// image stream: the shared Flate working set for automatic pages, the JPEG
+/// candidate for JPEG pages, and both when a Flate fallback is compared.
+#[cfg(not(target_family = "wasm"))]
+pub(crate) fn estimate_netpbm_page_encode_bytes(
+    width: u32,
+    height: u32,
+    channels: u8,
+    compression: PdfImageCompression,
+) -> u64 {
+    let bytes_per_row = u64::from(width).saturating_mul(u64::from(channels));
+    let raster_bytes = bytes_per_row.saturating_mul(u64::from(height));
+    let flate = estimate_up_filtered_flate_working_set_bytes(bytes_per_row, u64::from(height));
+    match compression {
+        PdfImageCompression::Auto => flate,
+        PdfImageCompression::Jpeg { .. } => raster_bytes,
+        PdfImageCompression::JpegWithFlateFallback { .. } => raster_bytes.saturating_add(flate),
+    }
+}
+
+/// Heap for a byte-backed PBM P4 page or mask: the bitmap copy made by
+/// `parse_pbm_p4` plus the shared bilevel encoding peak. Reads only the
+/// header.
+#[cfg(not(target_family = "wasm"))]
+pub(crate) fn estimate_pbm_bytes_encode_bytes(bytes: &[u8], max_pixels: u64) -> u64 {
+    probe_pbm_p4_header(bytes, max_pixels)
+        .ok()
+        .map_or(0, |header| {
+            (header.data_size as u64).saturating_add(estimate_bilevel_encode_peak_bytes(
+                header.width,
+                header.height,
+            ))
+        })
 }
 
 pub(crate) fn visit_image_pages_from_file(

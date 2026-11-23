@@ -163,6 +163,24 @@ const FLATE_BACKEND_STATE_BYTES: u64 = 384 * 1024;
 const FLATE_ENCODER_FIXED_OVERHEAD_BYTES: u64 =
     FLATE_WRITER_STAGING_BYTES + FLATE_BACKEND_STATE_BYTES;
 
+/// Peak heap `deflate_up_filtered_slices` holds beyond its source raster
+/// while encoding `rows` rows of `bytes_per_row` bytes: the filter-row scratch
+/// buffer (`bytes_per_row + 1`), the live `flate2` + `zlib-rs` encoder
+/// (`FLATE_ENCODER_FIXED_OVERHEAD_BYTES`), and the output `Vec<u8>`, which
+/// grows by doubling up to twice the worst-case stream before `finish()` and
+/// `shrink_to_fit()`.
+#[cfg(not(target_family = "wasm"))]
+pub(crate) fn estimate_up_filtered_flate_working_set_bytes(bytes_per_row: u64, rows: u64) -> u64 {
+    // Each row carries one predictor byte.
+    let flate_input_bytes = bytes_per_row.saturating_mul(rows).saturating_add(rows);
+    let encoded_upper =
+        flate_input_bytes.saturating_add(flate_worst_case_overhead(flate_input_bytes));
+    bytes_per_row
+        .saturating_add(1)
+        .saturating_add(FLATE_ENCODER_FIXED_OVERHEAD_BYTES)
+        .saturating_add(encoded_upper.saturating_mul(2))
+}
+
 #[cfg(not(target_family = "wasm"))]
 fn flate_worst_case_overhead(raw_bytes: u64) -> u64 {
     // RFC 1950 zlib header/trailer (6 bytes) + RFC 1951 stored-block framing
@@ -351,22 +369,14 @@ pub(crate) fn estimate_tiff_pdf_frame_peak_bytes(
             } else {
                 3u64
             };
-            let raw_bytes = u64::from(oriented_width)
-                .saturating_mul(u64::from(oriented_height))
-                .saturating_mul(colors);
-            // `deflate_up_filtered_slices` allocates `Vec::with_capacity(bytes_per_row + 1)`,
-            // `flate2` + `zlib-rs` allocates `FLATE_ENCODER_FIXED_OVERHEAD_BYTES`
-            // (32 KiB writer staging + 384 KiB deflate backend state), and the
-            // output `Vec<u8>` grows via power-of-two doubling up to
-            // `2 * encoded_upper` before `finish()` + `shrink_to_fit()`.
-            let filter_row_scratch = u64::from(oriented_width)
-                .saturating_mul(colors)
-                .saturating_add(1);
-            let peak_flate_vec_capacity = encoded_upper.saturating_mul(2);
-            let encode_peak = raw_bytes
-                .saturating_add(filter_row_scratch)
-                .saturating_add(FLATE_ENCODER_FIXED_OVERHEAD_BYTES)
-                .saturating_add(peak_flate_vec_capacity);
+            let bytes_per_row = u64::from(oriented_width).saturating_mul(colors);
+            let raw_bytes = bytes_per_row.saturating_mul(u64::from(oriented_height));
+            // The oriented raster stays live while it is Flate-encoded.
+            let encode_peak =
+                raw_bytes.saturating_add(estimate_up_filtered_flate_working_set_bytes(
+                    bytes_per_row,
+                    u64::from(oriented_height),
+                ));
             decode_bytes.max(encode_peak)
         }
         _ => decode_bytes,
@@ -460,6 +470,7 @@ fn visit_tiff_pdf_pages_from_reader<R: Read + Seek>(
         let (dpi_x, dpi_y) = read_tiff_dpi_axes(&mut decoder)
             .unwrap_or_else(|| default_dpi.map_or((DEFAULT_DPI, DEFAULT_DPI), |dpi| (dpi, dpi)));
         let color_type = decoder.colortype()?;
+        ensure_tiff_pdf_sample_type(&mut decoder, color_type)?;
         #[cfg(not(target_family = "wasm"))]
         let (mut standalone_reservation, page_base_bytes) = {
             let estimated =
@@ -538,6 +549,53 @@ fn visit_tiff_pdf_pages_from_reader<R: Read + Seek>(
     }
 
     Ok(page_count)
+}
+
+/// Rejects frames the PDF builder cannot write before their raster is decoded:
+/// only 1-bit bilevel frames and unsigned 8-bit gray or RGB samples are
+/// supported.
+fn ensure_tiff_pdf_sample_type<R: Read + Seek>(
+    decoder: &mut Decoder<R>,
+    color_type: TiffColorType,
+) -> Result<()> {
+    match color_type {
+        TiffColorType::Gray(1) => Ok(()),
+        TiffColorType::Gray(8) | TiffColorType::RGB(8) => {
+            ensure_unsigned_tiff_samples(decoder, "native PDF fast path")
+        }
+        _ => Err(unsupported_tiff_sample_type(
+            color_type,
+            "native PDF fast path",
+        )),
+    }
+}
+
+pub(super) fn unsupported_tiff_sample_type(
+    color_type: TiffColorType,
+    consumer: &str,
+) -> Box<dyn std::error::Error> {
+    if color_type.bit_depth() != 8 {
+        format!("Only 8-bit TIFF samples are supported by the {consumer}: {color_type:?}").into()
+    } else {
+        format!("Unsupported TIFF color type for {consumer}: {color_type:?}").into()
+    }
+}
+
+/// SampleFormat 1 (unsigned integer) is the TIFF default; the 8-bit paths
+/// need `DecodingResult::U8`, which signed or floating samples do not decode to.
+pub(super) fn ensure_unsigned_tiff_samples<R: Read + Seek>(
+    decoder: &mut Decoder<R>,
+    consumer: &str,
+) -> Result<()> {
+    let formats = decoder
+        .find_tag_unsigned_vec::<u16>(Tag::SampleFormat)?
+        .unwrap_or_default();
+    if formats.iter().any(|format| *format != 1) {
+        return Err(
+            format!("Only unsigned 8-bit TIFF samples are supported by the {consumer}").into(),
+        );
+    }
+    Ok(())
 }
 
 fn build_tiff_pdf_page(

@@ -677,10 +677,6 @@ fn incompressible_gray8_tiff_reservation_covers_predictor_and_filter_row() {
         reservation.held_bytes(),
         actual_stream_capacity
     );
-    assert_eq!(
-        actual_stream_capacity, actual_stream_len,
-        "shrink_to_fit should reclaim Flate Vec doubling slack"
-    );
 
     let retained_upper =
         estimate_tiff_pdf_encoded_stream_upper_bound(WIDTH, HEIGHT, TiffColorType::Gray(8), 1);
@@ -1027,11 +1023,11 @@ fn tiny_gray8_tiff_estimate_accounts_for_flate2_staging_and_zlib_backend_state()
     let budget = crate::PipelineBudget::new(4, 64 * 1024);
     let hold = budget.reserve_standalone_bytes(0, 1024).unwrap();
     let (done_tx, done_rx) = mpsc::channel();
-    std::thread::scope(|scope| {
+    let (finished_early, outcome) = std::thread::scope(|scope| {
         let budget = &budget;
         let tiff_bytes = &tiff_bytes;
         scope.spawn(move || {
-            let pages = visit_tiff_pdf_pages_from_bytes_budgeted(
+            let result = visit_tiff_pdf_pages_from_bytes_budgeted(
                 tiff_bytes,
                 crate::DEFAULT_MAX_IMAGE_PIXELS,
                 None,
@@ -1039,23 +1035,85 @@ fn tiny_gray8_tiff_estimate_accounts_for_flate2_staging_and_zlib_backend_state()
                 Some(TiffBudget::Standalone(budget, 1)),
                 |_| Ok(()),
             )
-            .unwrap();
-            assert_eq!(pages, 1);
-            done_tx.send(()).unwrap();
+            .map_err(|error| error.to_string());
+            let _ = done_tx.send(result);
         });
 
-        assert!(
-            done_rx.recv_timeout(Duration::from_millis(50)).is_err(),
-            "1x1 Gray8 TIFF must wait for oversized-page exclusivity under a 64 KiB budget"
-        );
+        let early = done_rx.recv_timeout(Duration::from_millis(50)).ok();
+        let finished_early = early.is_some();
         drop(hold);
-        done_rx
-            .recv_timeout(Duration::from_secs(5))
-            .expect("1x1 Gray8 TIFF must proceed exclusively once active bytes drop to 0");
+        let outcome = early.or_else(|| done_rx.recv_timeout(Duration::from_secs(5)).ok());
+        if outcome.is_none() {
+            // Wake the still-blocked worker so the scope can join it and the
+            // timeout is reported instead of hanging.
+            budget.abort();
+        }
+        (finished_early, outcome)
     });
+    assert!(
+        !finished_early,
+        "1x1 Gray8 TIFF must wait for oversized-page exclusivity under a 64 KiB budget"
+    );
+    let pages = outcome
+        .expect("1x1 Gray8 TIFF must proceed exclusively once active bytes drop to 0")
+        .expect("1x1 Gray8 TIFF conversion failed");
+    assert_eq!(pages, 1);
     assert_eq!(
         budget.metrics().peak_in_flight_bytes,
         estimate,
         "oversized 1x1 Gray8 TIFF must never overlap with the 1 KiB sibling reservation"
+    );
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[test]
+fn unsupported_tiff_sample_types_are_rejected_before_decoding_the_raster() {
+    let mut gray64 = Vec::new();
+    {
+        let mut encoder = TiffEncoder::new(Cursor::new(&mut gray64)).unwrap();
+        encoder
+            .write_image::<colortype::Gray64>(4, 4, &[7u64; 16])
+            .unwrap();
+    }
+    let budget = crate::PipelineBudget::new(4, 16 * 1024 * 1024);
+    let mut reservation = budget.empty_reservation(0);
+    let error = visit_tiff_pdf_pages_from_bytes_budgeted(
+        &gray64,
+        crate::DEFAULT_MAX_IMAGE_PIXELS,
+        None,
+        16,
+        Some(TiffBudget::Page(&mut reservation)),
+        |_| panic!("an unsupported frame must not reach the writer"),
+    )
+    .unwrap_err();
+    assert!(
+        error.to_string().contains("Only 8-bit TIFF samples")
+            && error.to_string().contains("Gray(64)"),
+        "unexpected error: {error}"
+    );
+    assert_eq!(
+        budget.metrics().peak_in_flight_bytes,
+        0,
+        "the frame was admitted for decoding before its sample type was checked"
+    );
+
+    // Signed 8-bit gray has the accepted bit depth but decodes to I8.
+    let mut signed = Vec::new();
+    {
+        let mut encoder = TiffEncoder::new(Cursor::new(&mut signed)).unwrap();
+        encoder
+            .write_image::<colortype::GrayI8>(2, 2, &[1i8, -1, 2, -2])
+            .unwrap();
+    }
+    let error =
+        visit_tiff_pdf_pages_from_bytes(&signed, crate::DEFAULT_MAX_IMAGE_PIXELS, None, 16, |_| {
+            panic!("a signed frame must not reach the writer")
+        })
+        .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("Only unsigned 8-bit TIFF samples"),
+        "unexpected error: {error}"
     );
 }

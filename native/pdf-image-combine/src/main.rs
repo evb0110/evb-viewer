@@ -365,34 +365,6 @@ impl Iterator for CompactManifestJsonlIterator {
         if self.finished {
             return None;
         }
-        if self.page_number >= self.max_pages {
-            self.finished = true;
-            return match read_compact_manifest_line(&mut self.reader) {
-                Ok(CompactManifestLine::End) => None,
-                Ok(CompactManifestLine::Value(line)) => {
-                    if line.iter().any(|byte| !byte.is_ascii_whitespace()) {
-                        Some(Err(NativeError::new(
-                            NativeErrorCode::TooLarge,
-                            format!(
-                                "Compact image manifest exceeds the {}-page admission ceiling",
-                                self.max_pages
-                            ),
-                        )
-                        .into()))
-                    } else {
-                        None
-                    }
-                }
-                Ok(CompactManifestLine::TooLong) => Some(Err(NativeError::new(
-                    NativeErrorCode::TooLarge,
-                    format!(
-                        "Compact image manifest record exceeds the {MAX_COMPACT_MANIFEST_LINE_BYTES}-byte admission ceiling"
-                    ),
-                )
-                .into())),
-                Err(error) => Some(Err(error.into())),
-            };
-        }
         loop {
             let line = match read_compact_manifest_line(&mut self.reader) {
                 Ok(CompactManifestLine::End) => {
@@ -437,6 +409,19 @@ impl Iterator for CompactManifestJsonlIterator {
             let trimmed = line.trim_end_matches(['\r', '\n']);
             if trimmed.trim().is_empty() {
                 continue;
+            }
+            // Keep scanning past blank lines after the ceiling so any extra
+            // record is rejected rather than silently dropped.
+            if self.page_number >= self.max_pages {
+                self.finished = true;
+                return Some(Err(NativeError::new(
+                    NativeErrorCode::TooLarge,
+                    format!(
+                        "Compact image manifest exceeds the {}-page admission ceiling",
+                        self.max_pages
+                    ),
+                )
+                .into()));
             }
             self.page_number += 1;
             let parsed = parse_compact_manifest_line(trimmed, self.line_number, self.page_number);
@@ -1032,6 +1017,70 @@ mod tests {
         assert_eq!(native.code, NativeErrorCode::TooLarge);
         assert!(native.message.contains("1-page admission ceiling"));
         std::fs::remove_file(path).unwrap();
+    }
+
+    fn collect_jsonl_records(
+        body: &str,
+        max_pages: usize,
+        page_count: usize,
+    ) -> Vec<Result<PageSpec<PathBuf>>> {
+        let path = temp_manifest_path("jsonl-records");
+        std::fs::write(&path, body).unwrap();
+        let iterator = CompactManifestJsonlIterator {
+            reader: BufReader::new(File::open(&path).unwrap()),
+            max_pages,
+            page_count,
+            page_number: 0,
+            line_number: 1,
+            finished: false,
+        };
+        let records = iterator.collect();
+        std::fs::remove_file(path).unwrap();
+        records
+    }
+
+    #[test]
+    fn jsonl_manifest_rejects_a_record_after_blank_lines_past_the_page_ceiling() {
+        let records = collect_jsonl_records(
+            "image\t72\t72\t/tmp/one.ppm\n\n   \r\nimage\t72\t72\t/tmp/two.ppm\n",
+            1,
+            1,
+        );
+        assert_eq!(records.len(), 2);
+        assert!(records[0].is_ok());
+        let Err(error) = &records[1] else {
+            panic!("extra record past the ceiling was accepted");
+        };
+        let native = error.downcast_ref::<NativeError>().unwrap();
+        assert_eq!(native.code, NativeErrorCode::TooLarge);
+        assert!(native.message.contains("1-page admission ceiling"));
+
+        // Trailing blank lines after the last allowed record stay valid.
+        let records = collect_jsonl_records("image\t72\t72\t/tmp/one.ppm\n\n\n", 1, 1);
+        assert_eq!(records.len(), 1);
+        assert!(records[0].is_ok());
+    }
+
+    #[test]
+    fn jsonl_manifest_rejects_a_page_count_mismatch_at_the_page_ceiling() {
+        // The header declared one page; a second record that still fits the
+        // two-page ceiling must fail the EOF page-count check.
+        let records = collect_jsonl_records(
+            "image\t72\t72\t/tmp/one.ppm\nimage\t72\t72\t/tmp/two.ppm\n\n",
+            2,
+            1,
+        );
+        assert_eq!(records.len(), 3);
+        assert!(records[0].is_ok() && records[1].is_ok());
+        let Err(error) = &records[2] else {
+            panic!("page-count mismatch was accepted");
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("declared 1 pages but contained 2"),
+            "unexpected error: {error}"
+        );
     }
 
     #[test]

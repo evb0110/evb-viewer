@@ -50,11 +50,6 @@ use evb_native_support::output::ValidatedInputFiles;
 use evb_native_support::{output::AtomicOutput, NativeError, NativeErrorCode};
 use evb_raster_io::{decode_png_gray, write_png, write_png_with_dpi, DecodeLimits, PixelBuffer};
 
-#[cfg(not(target_family = "wasm"))]
-use crate::{
-    image::estimate_image_bytes_decode_bytes,
-    tiff_io::{estimate_bilevel_encode_peak_bytes, probe_tiff_pdf_peak_bytes_from_bytes},
-};
 use crate::{
     image::{
         assert_pixel_limit, read_file, read_image_page_from_bytes,
@@ -63,8 +58,8 @@ use crate::{
         visit_image_pages_from_loaded_file_bytes, PdfImageCompression,
     },
     netpbm::{
-        is_rgb_data_grayscale, parse_netpbm, parse_pbm_p4, read_netpbm_file, read_pbm_p4_file,
-        OwnedNetpbm, PbmP4Image,
+        is_rgb_data_grayscale, parse_netpbm, parse_pbm_p4, read_netpbm_file,
+        read_netpbm_file_admitted, read_pbm_p4_file_admitted, OwnedNetpbm, PbmP4Image,
     },
     pdf::{
         write_pdf_to_writer, AffineMaskedLayeredPdfPage, BilevelStream, ImagePage, ImagePayload,
@@ -74,6 +69,17 @@ use crate::{
     tiff_io::{
         combine_tiff_pages, combine_tiff_pages_with_limits,
         visit_tiff_pdf_pages_from_file_budgeted, TiffBudget,
+    },
+};
+#[cfg(not(target_family = "wasm"))]
+use crate::{
+    image::{
+        estimate_image_bytes_decode_bytes, estimate_netpbm_page_encode_bytes,
+        estimate_pbm_bytes_encode_bytes,
+    },
+    tiff_io::{
+        estimate_bilevel_encode_peak_bytes, estimate_up_filtered_flate_working_set_bytes,
+        probe_tiff_pdf_peak_bytes_from_bytes,
     },
 };
 
@@ -867,12 +873,16 @@ impl LoadKind {
     }
 }
 
+/// Receives a Netpbm raster's checked size before the raster is allocated.
+type RasterAdmission<'r> = &'r mut dyn FnMut(u64) -> Result<()>;
+
 fn load_open_file_source(
     label: PathBuf,
     file: File,
     kind: LoadKind,
     options: &PdfBuildOptions,
     tiff_budget: Option<TiffBudget<'_, '_>>,
+    admit_raster: RasterAdmission<'_>,
 ) -> Result<LoadedSource<'static>> {
     #[cfg(test)]
     if label.file_name().and_then(|name| name.to_str()) == Some("__test_force_worker_panic__.pgm") {
@@ -884,7 +894,7 @@ fn load_open_file_source(
             auto_unprocessed,
         } => {
             if black_and_white {
-                let image = read_netpbm_file(file, options.max_pixels)?;
+                let image = read_netpbm_file_admitted(file, options.max_pixels, admit_raster)?;
                 return Ok(LoadedSource::Netpbm { label, image });
             }
             if auto_unprocessed && path_has_extension(&label, &["tif", "tiff"]) {
@@ -911,11 +921,12 @@ fn load_open_file_source(
                 });
             }
             if path_has_extension(&label, &["pbm"]) {
-                let image = read_pbm_p4_file(file, options.max_bilevel_pixels)?;
+                let image =
+                    read_pbm_p4_file_admitted(file, options.max_bilevel_pixels, admit_raster)?;
                 return Ok(LoadedSource::Pbm { label, image });
             }
             if path_has_extension(&label, &["pgm", "ppm"]) {
-                let image = read_netpbm_file(file, options.max_pixels)?;
+                let image = read_netpbm_file_admitted(file, options.max_pixels, admit_raster)?;
                 return Ok(LoadedSource::Netpbm { label, image });
             }
             let data = read_file(file)?;
@@ -928,11 +939,11 @@ fn load_open_file_source(
                 let data = read_file(file)?;
                 return Ok(LoadedSource::FileBytes { label, data });
             }
-            let image = read_pbm_p4_file(file, options.max_bilevel_pixels)?;
+            let image = read_pbm_p4_file_admitted(file, options.max_bilevel_pixels, admit_raster)?;
             Ok(LoadedSource::Pbm { label, image })
         }
         LoadKind::SoftAlpha => {
-            let image = read_netpbm_file(file, options.max_pixels)?;
+            let image = read_netpbm_file_admitted(file, options.max_pixels, admit_raster)?;
             Ok(LoadedSource::Netpbm { label, image })
         }
     }
@@ -966,7 +977,9 @@ fn load_input_source<'a>(
                 let tiff_budget = reservation.map(TiffBudget::Page);
                 #[cfg(target_family = "wasm")]
                 let tiff_budget = None;
-                return load_open_file_source(label, file, kind, options, tiff_budget);
+                return load_open_file_source(label, file, kind, options, tiff_budget, &mut |_| {
+                    Ok(())
+                });
             }
             #[cfg(not(target_family = "wasm"))]
             let base_held = if let Some(reservation) = reservation.as_deref_mut() {
@@ -977,7 +990,15 @@ fn load_input_source<'a>(
             } else {
                 None
             };
-            let loaded = load_open_file_source(label, file, kind, options, None)?;
+            let loaded = load_open_file_source(label, file, kind, options, None, &mut |raster| {
+                #[cfg(not(target_family = "wasm"))]
+                if let (Some(base), Some(reservation)) = (base_held, reservation.as_deref_mut()) {
+                    reservation.grow_to(base.saturating_add(raster))?;
+                }
+                #[cfg(target_family = "wasm")]
+                let _ = raster;
+                Ok(())
+            })?;
             #[cfg(not(target_family = "wasm"))]
             if let (Some(base), Some(reservation)) = (base_held, reservation) {
                 let target = base.saturating_add(loaded.byte_len());
@@ -1190,7 +1211,7 @@ fn load_single_path_source(
             .map(|(_, _, reservation)| TiffBudget::Page(reservation));
         #[cfg(target_family = "wasm")]
         let tiff_budget = None;
-        load_open_file_source(path, file, kind, options, tiff_budget)?
+        load_open_file_source(path, file, kind, options, tiff_budget, &mut |_| Ok(()))?
     } else {
         #[cfg(not(target_family = "wasm"))]
         let base_held = if let Some((_, _, reservation)) = load_budget.as_mut() {
@@ -1201,7 +1222,15 @@ fn load_single_path_source(
         } else {
             None
         };
-        let loaded = load_open_file_source(path, file, kind, options, None)?;
+        let loaded = load_open_file_source(path, file, kind, options, None, &mut |raster| {
+            #[cfg(not(target_family = "wasm"))]
+            if let (Some(base), Some((_, _, reservation))) = (base_held, load_budget.as_mut()) {
+                reservation.grow_to(base.saturating_add(raster))?;
+            }
+            #[cfg(target_family = "wasm")]
+            let _ = raster;
+            Ok(())
+        })?;
         #[cfg(not(target_family = "wasm"))]
         if let (Some(base), Some((_, _, reservation))) = (base_held, load_budget.as_mut()) {
             let target = base.saturating_add(loaded.byte_len());
@@ -1303,7 +1332,14 @@ fn estimate_image_spec_decode_bytes(
         LoadedSource::Pbm { image, .. } => {
             estimate_bilevel_encode_peak_bytes(image.width, image.height)
         }
-        LoadedSource::Netpbm { image: owned, .. } => owned.pixels.len() as u64,
+        // The loaded raster is already reserved; admit the encoder that runs
+        // while it is still live.
+        LoadedSource::Netpbm { image: owned, .. } => estimate_netpbm_page_encode_bytes(
+            owned.width,
+            owned.height,
+            owned.channels,
+            compression,
+        ),
         LoadedSource::FileBytes { label, data } => {
             let label_str = label.to_string_lossy();
             if image.visits_every_frame() && name_has_extension(&label_str, &["tif", "tiff"]) {
@@ -1331,43 +1367,55 @@ fn estimate_image_spec_decode_bytes(
                 .rsplit_once('.')
                 .map(|(_, extension)| extension)
                 .unwrap_or("");
+            // Borrowed JPEG and JPEG 2000 bytes, and PNG bytes read for the
+            // automatic Flate path, are copied into an owned buffer first.
+            let copies_source = ["jpg", "jpeg", "jp2"]
+                .iter()
+                .any(|candidate| ext.eq_ignore_ascii_case(candidate))
+                || (ext.eq_ignore_ascii_case("png")
+                    && matches!(compression, PdfImageCompression::Auto));
+            let source_copy_bytes = if copies_source { data.len() as u64 } else { 0 };
             estimate_image_bytes_decode_bytes(ext, data, compression, options.max_pixels)
+                .saturating_add(source_copy_bytes)
         }
     }
 }
 
 #[cfg(not(target_family = "wasm"))]
 fn estimate_mask_decode_bytes(source: &LoadedSource<'_>, max_pixels: u64) -> u64 {
-    match source {
+    let (extension, data) = match source {
         LoadedSource::Pbm { image, .. } => {
-            estimate_bilevel_encode_peak_bytes(image.width, image.height)
+            return estimate_bilevel_encode_peak_bytes(image.width, image.height);
         }
-        LoadedSource::Netpbm { .. } | LoadedSource::DecodedExactImage { .. } => 0,
-        LoadedSource::FileBytes { label, data } => {
-            if path_has_extension(label, &["png"]) {
-                estimate_png_mask_decode_bytes(data, max_pixels)
-            } else if name_has_extension(&label.to_string_lossy(), &["jb2e"]) {
-                (data.len() as u64).saturating_mul(8)
-            } else {
-                0
-            }
-        }
-        LoadedSource::Bytes { file_name, data } => {
-            let ext = file_name
+        LoadedSource::Netpbm { .. } | LoadedSource::DecodedExactImage { .. } => return 0,
+        LoadedSource::FileBytes { label, data } => (
+            label
+                .extension()
+                .and_then(|value| value.to_str())
+                .unwrap_or(""),
+            data.as_slice(),
+        ),
+        LoadedSource::Bytes { file_name, data } => (
+            file_name
                 .rsplit_once('.')
                 .map(|(_, extension)| extension)
-                .unwrap_or("");
-            if ext.eq_ignore_ascii_case("png") {
-                estimate_png_mask_decode_bytes(data, max_pixels)
-            } else if ext.eq_ignore_ascii_case("jb2e") {
-                (data.len() as u64).saturating_mul(8)
-            } else {
-                0
-            }
-        }
+                .unwrap_or(""),
+            *data,
+        ),
+    };
+    if extension.eq_ignore_ascii_case("png") {
+        estimate_png_mask_decode_bytes(data, max_pixels)
+    } else if extension.eq_ignore_ascii_case("jb2e") {
+        (data.len() as u64).saturating_mul(8)
+    } else {
+        // `read_loaded_mask_bitmap` parses every other byte-backed mask as PBM
+        // P4, copying the bitmap before encoding it.
+        estimate_pbm_bytes_encode_bytes(data, max_pixels)
     }
 }
 
+/// A PNG mask decodes to 1 Bpp gray, packs into a bitmap while the gray
+/// buffer is live, then encodes the bitmap through `BilevelStream::encode`.
 #[cfg(not(target_family = "wasm"))]
 fn estimate_png_mask_decode_bytes(bytes: &[u8], max_pixels: u64) -> u64 {
     evb_raster_io::read_png_metadata(
@@ -1380,32 +1428,42 @@ fn estimate_png_mask_decode_bytes(bytes: &[u8], max_pixels: u64) -> u64 {
     )
     .ok()
     .map_or(0, |meta| {
-        u64::from(meta.width).saturating_mul(u64::from(meta.height))
+        let gray_bytes = u64::from(meta.width).saturating_mul(u64::from(meta.height));
+        let bitmap_bytes = u64::from(meta.width)
+            .div_ceil(8)
+            .saturating_mul(u64::from(meta.height));
+        gray_bytes
+            .saturating_add(bitmap_bytes)
+            .saturating_add(estimate_bilevel_encode_peak_bytes(meta.width, meta.height))
     })
 }
 
+/// `read_loaded_soft_mask` keeps the alpha raster live while it copies a
+/// byte-backed raster, converts RGB to luma, and Flate-encodes the result.
 #[cfg(not(target_family = "wasm"))]
 fn estimate_soft_mask_decode_bytes(source: &LoadedSource<'_>, max_pixels: u64) -> u64 {
-    match source {
-        LoadedSource::Netpbm { image, .. } => u64::from(image.width)
-            .saturating_mul(u64::from(image.height))
-            .saturating_mul(u64::from(image.channels)),
-        LoadedSource::FileBytes { data, .. } => {
-            parse_netpbm(data, max_pixels).ok().map_or(0, |parsed| {
-                u64::from(parsed.width)
-                    .saturating_mul(u64::from(parsed.height))
-                    .saturating_mul(u64::from(parsed.channels))
-            })
-        }
-        LoadedSource::Bytes { data, .. } => {
-            parse_netpbm(data, max_pixels).ok().map_or(0, |parsed| {
-                u64::from(parsed.width)
-                    .saturating_mul(u64::from(parsed.height))
-                    .saturating_mul(u64::from(parsed.channels))
-            })
-        }
-        LoadedSource::Pbm { .. } | LoadedSource::DecodedExactImage { .. } => 0,
-    }
+    let (width, height, channels, copied) = match source {
+        LoadedSource::Netpbm { image, .. } => (image.width, image.height, image.channels, false),
+        LoadedSource::FileBytes { data, .. } => match parse_netpbm(data, max_pixels) {
+            Ok(parsed) => (parsed.width, parsed.height, parsed.channels, true),
+            Err(_) => return 0,
+        },
+        LoadedSource::Bytes { data, .. } => match parse_netpbm(data, max_pixels) {
+            Ok(parsed) => (parsed.width, parsed.height, parsed.channels, true),
+            Err(_) => return 0,
+        },
+        LoadedSource::Pbm { .. } | LoadedSource::DecodedExactImage { .. } => return 0,
+    };
+    let pixels = u64::from(width).saturating_mul(u64::from(height));
+    let copy_bytes = if copied {
+        pixels.saturating_mul(u64::from(channels))
+    } else {
+        0
+    };
+    let luma_bytes = if channels == 3 { pixels } else { 0 };
+    copy_bytes.saturating_add(luma_bytes).saturating_add(
+        estimate_up_filtered_flate_working_set_bytes(u64::from(width), u64::from(height)),
+    )
 }
 
 fn prepare_input_page_spec(
@@ -1638,7 +1696,20 @@ struct BudgetState {
     peak_concurrent_decodes: usize,
     active_prepares: usize,
     peak_concurrent_prepares: usize,
+    /// Test-only rendezvous: the first workers entering preparation wait
+    /// (bounded) until this many are inside together, then the gate opens.
+    #[cfg(test)]
+    prepare_rendezvous: usize,
 }
+
+#[cfg(all(test, not(target_family = "wasm")))]
+thread_local! {
+    /// Rendezvous size for budgets the current test thread creates.
+    static TEST_PREPARE_RENDEZVOUS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(all(test, not(target_family = "wasm")))]
+const TEST_PREPARE_RENDEZVOUS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 #[cfg(not(target_family = "wasm"))]
 impl BudgetState {
@@ -1678,6 +1749,8 @@ impl PipelineBudget {
                 peak_concurrent_decodes: 0,
                 active_prepares: 0,
                 peak_concurrent_prepares: 0,
+                #[cfg(test)]
+                prepare_rendezvous: TEST_PREPARE_RENDEZVOUS.with(std::cell::Cell::get),
             }),
             changed: Condvar::new(),
         }
@@ -1901,6 +1974,26 @@ impl PipelineBudget {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         state.active_prepares = state.active_prepares.saturating_add(1);
         state.peak_concurrent_prepares = state.peak_concurrent_prepares.max(state.active_prepares);
+        #[cfg(test)]
+        if state.prepare_rendezvous > 0 {
+            // Serialized admission never brings a second worker in, so the
+            // wait times out and the peak stays 1; concurrent admission
+            // opens the gate as soon as enough workers arrive.
+            let deadline = std::time::Instant::now() + TEST_PREPARE_RENDEZVOUS_TIMEOUT;
+            while state.prepare_rendezvous > state.active_prepares {
+                let now = std::time::Instant::now();
+                if now >= deadline {
+                    break;
+                }
+                state = self
+                    .changed
+                    .wait_timeout(state, deadline - now)
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .0;
+            }
+            state.prepare_rendezvous = 0;
+            self.changed.notify_all();
+        }
         PrepareConcurrencyGuard { budget: self }
     }
 
@@ -1974,15 +2067,18 @@ impl PageBytesReservation<'_> {
         self.budget.reserve_page_bytes(self.seq, additional, self)
     }
 
-    fn reconcile_to(&mut self, target_bytes: u64) -> Result<()> {
-        if target_bytes < self.held_bytes {
-            self.shrink_to(target_bytes);
-            Ok(())
-        } else if target_bytes > self.held_bytes {
+    /// Grows the reservation to `target_bytes`; never shrinks it.
+    pub(crate) fn grow_to(&mut self, target_bytes: u64) -> Result<()> {
+        if target_bytes > self.held_bytes {
             self.reserve_additional(target_bytes - self.held_bytes)
         } else {
             Ok(())
         }
+    }
+
+    fn reconcile_to(&mut self, target_bytes: u64) -> Result<()> {
+        self.shrink_to(target_bytes);
+        self.grow_to(target_bytes)
     }
 
     pub(crate) fn shrink_to(&mut self, target_bytes: u64) {
@@ -4033,11 +4129,13 @@ mod tests {
             })
         };
 
+        // Each tiny automatic PPM page reserves its raster plus the ~416 KiB
+        // live Flate encoder, so a 2 MiB cap admits about four pages at once.
         let single_options = PdfBuildOptions {
             max_pages: page_count,
             worker_threads: 1,
             max_open_input_fds: 4,
-            max_in_flight_bytes: 64 * 1024,
+            max_in_flight_bytes: 2 * 1024 * 1024,
             ..PdfBuildOptions::default()
         };
         let (single_pdf, _) = write_pdf_paths_impl(
@@ -4053,7 +4151,7 @@ mod tests {
             max_pages: page_count,
             worker_threads: 4,
             max_open_input_fds: 4,
-            max_in_flight_bytes: 64 * 1024,
+            max_in_flight_bytes: 2 * 1024 * 1024,
             ..PdfBuildOptions::default()
         };
         let mut progress = Vec::new();
@@ -4662,7 +4760,9 @@ mod tests {
         }
         let pdf_out = dir.join("single-worker.pdf");
         let tiff_out = dir.join("exported.tiff");
-        let cap = 16 * 1024u64;
+        // Fits one tile's raster plus its ~416 KiB live Flate encoder (PDF)
+        // or Deflate strip encoder (TIFF export).
+        let cap = 1024 * 1024u64;
 
         // 1. Single-worker path PDF honors byte and FD admission.
         let (_, single_metrics) = write_pdf_paths_impl(
@@ -4758,8 +4858,8 @@ mod tests {
         // 4. Multi-worker PDF with an oversized single page amidst small pages
         // makes exclusive forward progress without deadlocking.
         let big_ppm = dir.join("oversized.ppm");
-        let mut big = b"P6\n64 64\n255\n".to_vec();
-        big.resize(big.len() + 64 * 64 * 3, 0x55);
+        let mut big = b"P6\n256 256\n255\n".to_vec();
+        big.resize(big.len() + 256 * 256 * 3, 0x55);
         std::fs::write(&big_ppm, big).unwrap();
         let mixed_paths = [
             paths[0].clone(),
@@ -4801,20 +4901,22 @@ mod tests {
             &PdfBuildOptions {
                 worker_threads: 4,
                 max_open_input_fds: 2,
-                max_in_flight_bytes: 8 * 1024,
+                max_in_flight_bytes: 900 * 1024,
                 ..PdfBuildOptions::default()
             },
             |_| {},
         )
         .unwrap();
         assert_eq!(expected_pdf, actual_pdf);
-        // Oversized page is 64*64*3*2 = 24,576 bytes (loaded + decode) and ran
-        // exclusively without overlapping the ~1,536-byte sibling pages.
-        assert!(
-            mixed_metrics.peak_in_flight_bytes >= 64 * 64 * 3 * 2
-                && mixed_metrics.peak_in_flight_bytes <= 64 * 64 * 3 * 2 + 64,
-            "unexpected peak_in_flight_bytes={}",
-            mixed_metrics.peak_in_flight_bytes
+        // Two ~428 KiB tiles fit the 900 KiB cap together; the 256x256 page
+        // (loaded raster + Flate working set, ~1 MiB) does not, so it ran
+        // exclusively and its reservation alone is the peak.
+        let oversized_peak = 256 * 256 * 3
+            + estimate_netpbm_page_encode_bytes(256, 256, 3, PdfImageCompression::Auto);
+        assert!(oversized_peak > 900 * 1024);
+        assert_eq!(
+            mixed_metrics.peak_in_flight_bytes, oversized_peak,
+            "oversized page overlapped a sibling page"
         );
 
         std::fs::remove_dir_all(dir).unwrap();
@@ -5123,9 +5225,10 @@ mod tests {
             compressed_tiff.len()
         );
 
-        // Cap (3 MiB) fits one ~2.25 MiB decode+encode peak (including Flate
-        // Vec doubling capacity) at a time, NOT two (~4.5 MiB).
-        let cap = 3 * 1024 * 1024u64;
+        // Cap (4 MiB) fits one page at a time, NOT two: an exact page's
+        // ~2.7 MiB decode+encode peak (including Flate Vec doubling capacity),
+        // or a layered page's ~3.1 MiB peak with its PBM mask encoder.
+        let cap = 4 * 1024 * 1024u64;
 
         // Test both ordinary names and leading-dot names (`.tif`) where
         // `Path::extension()` returns `None`.
@@ -5350,7 +5453,10 @@ mod tests {
             |_| {},
         )
         .unwrap();
-        let (parallel_pdf, metrics) = write_pdf_impl(
+        // Hold the first two workers at preparation entry until both are
+        // inside, so the peak no longer depends on thread scheduling.
+        TEST_PREPARE_RENDEZVOUS.with(|gate| gate.set(2));
+        let parallel = write_pdf_impl(
             Vec::new(),
             make_specs(),
             &PdfBuildOptions {
@@ -5359,14 +5465,210 @@ mod tests {
                 ..PdfBuildOptions::default()
             },
             |_| {},
-        )
-        .unwrap();
+        );
+        TEST_PREPARE_RENDEZVOUS.with(|gate| gate.set(0));
+        let (parallel_pdf, metrics) = parallel.unwrap();
 
         assert_eq!(single_pdf, parallel_pdf);
         assert!(
             metrics.peak_concurrent_prepares >= 2,
             "byte-backed ExactlyOne TIFFs serialized behind admission turn: peak_concurrent_prepares={}",
             metrics.peak_concurrent_prepares
+        );
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    #[test]
+    fn jpeg_icc_profile_assembly_is_reserved_before_preparation_and_plain_jpegs_are_unchanged() {
+        let profile = vec![0x5au8; 48 * 1024];
+        let icc_jpeg = jpeg_with_icc(&[0x40], jpeg_encoder::ColorType::Luma, &profile);
+        let mut plain_jpeg = Vec::new();
+        jpeg_encoder::Encoder::new(&mut plain_jpeg, 90)
+            .encode(&[0x40], 1, 1, jpeg_encoder::ColorType::Luma)
+            .unwrap();
+        let peak = |file_name: &str, data: &[u8]| {
+            write_pdf_impl(
+                Vec::new(),
+                [image_page(
+                    file_name,
+                    data,
+                    Some(PAGE),
+                    FramePolicy::ExactlyOne,
+                )],
+                &PdfBuildOptions::default(),
+                |_| {},
+            )
+            .unwrap()
+            .1
+            .peak_in_flight_bytes
+        };
+
+        // Source bytes, their owned copy, the 1x1 gray decode, and the ICC
+        // chunk copies plus assembled profile.
+        assert_eq!(
+            peak("icc.jpg", &icc_jpeg),
+            2 * icc_jpeg.len() as u64 + 1 + 2 * profile.len() as u64
+        );
+        // Without ICC data nothing beyond the decode estimate is reserved.
+        assert_eq!(
+            peak("plain.jpg", &plain_jpeg),
+            2 * plain_jpeg.len() as u64 + 1
+        );
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    #[test]
+    fn netpbm_pages_byte_backed_pbm_masks_and_soft_masks_reserve_their_encoders() {
+        use crate::tiff_io::estimate_up_filtered_flate_working_set_bytes;
+
+        let options = PdfBuildOptions::default();
+        let peak = |spec: PdfPageSpec<'_>| {
+            write_pdf_impl(Vec::new(), [spec], &options, |_| {})
+                .unwrap()
+                .1
+                .peak_in_flight_bytes
+        };
+
+        // 1. An automatic PGM page from an open file keeps its loaded raster
+        //    live while the Flate encoder, filter row, and output grow.
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "evb-combine-netpbm-admission-{}-{nonce}.pgm",
+            std::process::id()
+        ));
+        std::fs::write(&path, b"P5\n4 2\n255\n\x10\x20\x30\x40\x50\x60\x70\x80").unwrap();
+        let file_peak = peak(PageSpec::Image {
+            page_size: None,
+            placement: None,
+            rotation_degrees: 0,
+            image: ImageSpec {
+                source: InputSource::File {
+                    label: path.clone(),
+                    file: File::open(&path).unwrap(),
+                },
+                compression: ImageCompression::Auto,
+                processing: ImageProcessing::None,
+                size_guardrail: None,
+            },
+            frames: FramePolicy::All,
+        });
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(
+            file_peak,
+            8 + estimate_up_filtered_flate_working_set_bytes(4, 2)
+        );
+
+        // 2. A byte-backed PBM mask copies its bitmap and then encodes it.
+        let mask = b"P4\n8 1\n\xc0";
+        let mask_peak = peak(PageSpec::Mask {
+            page_size: PAGE,
+            foreground_mask: InputSource::Bytes {
+                file_name: "mask.pbm",
+                data: mask,
+            },
+        });
+        assert_eq!(
+            mask_peak,
+            mask.len() as u64 + 1 + estimate_bilevel_encode_peak_bytes(8, 1)
+        );
+
+        // 3. A byte-backed RGB soft mask copies its raster, converts it to
+        //    luma, and Flate-encodes it next to a Flate-encoded background.
+        let background = b"P5\n1 1\n255\n\xff";
+        let alpha = b"P6\n2 1\n255\n\x00\x00\x00\x00\xff\x00";
+        let soft_peak = peak(PageSpec::SoftLayered {
+            page_size: PAGE,
+            background: ImageSpec {
+                source: InputSource::Bytes {
+                    file_name: "background.pgm",
+                    data: background,
+                },
+                compression: ImageCompression::Auto,
+                processing: ImageProcessing::None,
+                size_guardrail: None,
+            },
+            foreground_alpha: InputSource::Bytes {
+                file_name: "alpha.ppm",
+                data: alpha,
+            },
+            foreground_color: None,
+        });
+        assert_eq!(
+            soft_peak,
+            (background.len() + alpha.len()) as u64
+                + estimate_up_filtered_flate_working_set_bytes(1, 1)
+                + 6
+                + 2
+                + estimate_up_filtered_flate_working_set_bytes(2, 1)
+        );
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    #[test]
+    fn positioned_netpbm_file_sources_check_truncation_from_their_start() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let prefix = vec![b'#'; 32];
+        let header = b"P5\n2 2\n255\n";
+        let write_positioned = |label: &str, raster: &[u8]| {
+            let path = std::env::temp_dir().join(format!(
+                "evb-combine-positioned-{label}-{}-{nonce}.pgm",
+                std::process::id()
+            ));
+            let mut bytes = prefix.clone();
+            bytes.extend_from_slice(header);
+            bytes.extend_from_slice(raster);
+            std::fs::write(&path, bytes).unwrap();
+            let mut file = File::open(&path).unwrap();
+            std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(prefix.len() as u64)).unwrap();
+            (path, file)
+        };
+        let build = |path: &Path, file: File| {
+            write_pdf(
+                Vec::new(),
+                [PageSpec::Image {
+                    page_size: None,
+                    placement: None,
+                    rotation_degrees: 0,
+                    image: ImageSpec {
+                        source: InputSource::File {
+                            label: path.to_path_buf(),
+                            file,
+                        },
+                        compression: ImageCompression::Auto,
+                        processing: ImageProcessing::None,
+                        size_guardrail: None,
+                    },
+                    frames: FramePolicy::All,
+                }],
+                &PdfBuildOptions::default(),
+                |_| {},
+            )
+        };
+
+        let (valid_path, valid_file) = write_positioned("valid", &[1, 2, 3, 4]);
+        let valid = build(&valid_path, valid_file);
+        std::fs::remove_file(&valid_path).unwrap();
+        let pdf = valid.unwrap();
+        assert!(contains_bytes(&pdf, b"/Width 2"));
+
+        // Two raster bytes are missing; the 32-byte prefix would hide that
+        // if the bound were measured from the start of the file.
+        let (truncated_path, truncated_file) = write_positioned("truncated", &[1, 2]);
+        let truncated = build(&truncated_path, truncated_file);
+        std::fs::remove_file(&truncated_path).unwrap();
+        let error = match truncated {
+            Ok(_) => panic!("truncated positioned PGM was accepted"),
+            Err(error) => error,
+        };
+        assert!(
+            error.to_string().contains("Truncated Netpbm payload"),
+            "unexpected error: {error}"
         );
     }
 

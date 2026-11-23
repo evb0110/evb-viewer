@@ -21,7 +21,78 @@ pub(crate) struct JpegMetadata {
     pub(crate) icc_profile: Option<Vec<u8>>,
 }
 
+/// Largest ICC profile `assemble_icc_profile` keeps; larger profiles are
+/// rejected after their chunks are collected.
+const MAX_JPEG_ICC_PROFILE_BYTES: usize = 16 * 1024 * 1024;
+
+/// Frame facts and the total APP2 ICC chunk payload length, read without
+/// copying any ICC bytes, so admission can reserve profile assembly before
+/// the full metadata parse runs.
+#[cfg(not(target_family = "wasm"))]
+#[derive(Debug)]
+pub(crate) struct JpegPreflight {
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) components: u8,
+    pub(crate) icc_chunk_bytes: u64,
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl JpegPreflight {
+    /// Heap `parse_jpeg_metadata` allocates for the ICC profile: one copy of
+    /// every chunk, plus the assembled profile when it is within the limit.
+    pub(crate) fn icc_profile_working_bytes(&self) -> u64 {
+        let assembled = if self.icc_chunk_bytes <= MAX_JPEG_ICC_PROFILE_BYTES as u64 {
+            self.icc_chunk_bytes
+        } else {
+            0
+        };
+        self.icc_chunk_bytes.saturating_add(assembled)
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+pub(crate) fn preflight_jpeg_metadata(bytes: &[u8]) -> Result<JpegPreflight> {
+    let mut icc_chunk_bytes = 0u64;
+    let frame = walk_jpeg_metadata(bytes, |_, _, chunk| {
+        icc_chunk_bytes = icc_chunk_bytes.saturating_add(chunk.len() as u64);
+    })?;
+    Ok(JpegPreflight {
+        width: frame.width,
+        height: frame.height,
+        components: frame.components,
+        icc_chunk_bytes,
+    })
+}
+
 pub(crate) fn parse_jpeg_metadata(bytes: &[u8]) -> Result<JpegMetadata> {
+    let mut icc_chunks: Vec<(u8, u8, Vec<u8>)> = Vec::new();
+    let frame = walk_jpeg_metadata(bytes, |sequence, total, chunk| {
+        icc_chunks.push((sequence, total, chunk.to_vec()));
+    })?;
+    let icc_profile = assemble_icc_profile(icc_chunks)?;
+    Ok(JpegMetadata {
+        width: frame.width,
+        height: frame.height,
+        components: frame.components,
+        dpi: frame.dpi,
+        icc_profile,
+    })
+}
+
+struct JpegFrame {
+    width: u32,
+    height: u32,
+    components: u8,
+    dpi: Option<(u32, u32)>,
+}
+
+/// Validates the JPEG marker structure and hands each well-formed APP2 ICC
+/// chunk (`sequence`, `total`, payload) to `on_icc_chunk` without copying it.
+fn walk_jpeg_metadata(
+    bytes: &[u8],
+    mut on_icc_chunk: impl FnMut(u8, u8, &[u8]),
+) -> Result<JpegFrame> {
     if bytes.len() < 4 || bytes[0] != 0xFF || bytes[1] != 0xD8 {
         return Err("Invalid JPEG payload".into());
     }
@@ -32,7 +103,6 @@ pub(crate) fn parse_jpeg_metadata(bytes: &[u8]) -> Result<JpegMetadata> {
     let mut frame_component_ids = None;
     let mut saw_scan = false;
     let mut pending_marker = None;
-    let mut icc_chunks: Vec<(u8, u8, Vec<u8>)> = Vec::new();
 
     loop {
         let marker = match pending_marker.take() {
@@ -87,7 +157,7 @@ pub(crate) fn parse_jpeg_metadata(bytes: &[u8]) -> Result<JpegMetadata> {
                 let sequence = payload[12];
                 let total = payload[13];
                 if sequence > 0 && total > 0 && sequence <= total {
-                    icc_chunks.push((sequence, total, payload[14..].to_vec()));
+                    on_icc_chunk(sequence, total, &payload[14..]);
                 }
             }
         }
@@ -143,13 +213,11 @@ pub(crate) fn parse_jpeg_metadata(bytes: &[u8]) -> Result<JpegMetadata> {
     if !matches!(components, 1 | 3) {
         return Err(format!("Unsupported JPEG component count: {components}").into());
     }
-    let icc_profile = assemble_icc_profile(icc_chunks)?;
-    Ok(JpegMetadata {
+    Ok(JpegFrame {
         width,
         height,
         components,
         dpi,
-        icc_profile,
     })
 }
 
@@ -186,7 +254,7 @@ fn assemble_icc_profile(mut chunks: Vec<(u8, u8, Vec<u8>)>) -> Result<Option<Vec
         .iter()
         .try_fold(0usize, |total, chunk| total.checked_add(chunk.2.len()))
         .ok_or("JPEG ICC profile is too large")?;
-    if total_len > 16 * 1024 * 1024 {
+    if total_len > MAX_JPEG_ICC_PROFILE_BYTES {
         return Err("JPEG ICC profile exceeds the 16 MiB safety limit".into());
     }
     let mut profile = Vec::with_capacity(total_len);

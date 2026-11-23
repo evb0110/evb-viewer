@@ -2,7 +2,7 @@ use crate::{image::assert_pixel_limit, Result};
 use serde::Serialize;
 use std::{
     fs::File,
-    io::{BufRead, BufReader, Read},
+    io::{BufRead, BufReader, Read, Seek},
     path::Path,
 };
 
@@ -159,10 +159,30 @@ fn netpbm_payload_size(header: NetpbmHeader) -> Result<usize> {
 }
 
 pub(crate) fn read_netpbm_file(file: File, max_pixels: u64) -> Result<OwnedNetpbm> {
-    read_netpbm_file_inner(file, max_pixels, false)
+    read_netpbm_file_admitted(file, max_pixels, |_| Ok(()))
 }
 
-fn read_netpbm_file_inner(file: File, max_pixels: u64, allow_pbm: bool) -> Result<OwnedNetpbm> {
+/// Reads a PGM or PPM file. `admit_raster` receives the checked raster size
+/// after the header and truncation checks and before the raster is allocated,
+/// so a caller can reserve it even if the file grew after an earlier size
+/// estimate.
+pub(crate) fn read_netpbm_file_admitted(
+    file: File,
+    max_pixels: u64,
+    admit_raster: impl FnOnce(u64) -> Result<()>,
+) -> Result<OwnedNetpbm> {
+    read_netpbm_file_inner(file, max_pixels, false, admit_raster)
+}
+
+fn read_netpbm_file_inner(
+    mut file: File,
+    max_pixels: u64,
+    allow_pbm: bool,
+    admit_raster: impl FnOnce(u64) -> Result<()>,
+) -> Result<OwnedNetpbm> {
+    // A caller-supplied handle may already be positioned past the start of the
+    // file, so the header and raster are bounded from that position.
+    let start_position = file.stream_position()?;
     let mut reader = CountingReader::new(file);
     let header = read_netpbm_header(&mut reader, max_pixels)?;
     if allow_pbm {
@@ -173,9 +193,10 @@ fn read_netpbm_file_inner(file: File, max_pixels: u64, allow_pbm: bool) -> Resul
         return Err("Expected a PGM P5 or PPM P6 payload".into());
     }
     let payload_size = netpbm_payload_size(header)?;
-    let required_bytes = reader
-        .bytes_read()
-        .checked_add(u64::try_from(payload_size).map_err(|_| "Invalid Netpbm payload size")?)
+    let payload_bytes = u64::try_from(payload_size).map_err(|_| "Invalid Netpbm payload size")?;
+    let required_bytes = start_position
+        .checked_add(reader.bytes_read())
+        .and_then(|header_end| header_end.checked_add(payload_bytes))
         .ok_or("Invalid Netpbm payload size")?;
     let file_len = reader.inner.get_ref().metadata()?.len();
     if file_len < required_bytes {
@@ -186,6 +207,7 @@ fn read_netpbm_file_inner(file: File, max_pixels: u64, allow_pbm: bool) -> Resul
         };
         return Err(message.into());
     }
+    admit_raster(payload_bytes)?;
     let mut pixels = vec![0u8; payload_size];
     reader.read_exact_counted(&mut pixels)?;
     Ok(OwnedNetpbm {
@@ -197,8 +219,13 @@ fn read_netpbm_file_inner(file: File, max_pixels: u64, allow_pbm: bool) -> Resul
     })
 }
 
-pub(crate) fn read_pbm_p4_file(file: File, max_pixels: u64) -> Result<PbmP4Image> {
-    let image = read_netpbm_file_inner(file, max_pixels, true)?;
+/// Reads a PBM P4 file; `admit_raster` works as in [`read_netpbm_file_admitted`].
+pub(crate) fn read_pbm_p4_file_admitted(
+    file: File,
+    max_pixels: u64,
+    admit_raster: impl FnOnce(u64) -> Result<()>,
+) -> Result<PbmP4Image> {
+    let image = read_netpbm_file_inner(file, max_pixels, true, admit_raster)?;
     if image.magic != *b"P4" {
         return Err("Unsupported PBM format".into());
     }
@@ -321,7 +348,17 @@ pub(crate) struct NetpbmData<'a> {
     pub(crate) pixels: &'a [u8],
 }
 
-pub fn parse_pbm_p4(data: &[u8], max_pixels: u64) -> Result<PbmP4Image> {
+/// A PBM P4 header and the payload extent it declares inside a byte buffer.
+pub(crate) struct PbmP4Header {
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) row_stride: usize,
+    pub(crate) data_offset: usize,
+    pub(crate) data_size: usize,
+}
+
+/// Parses and limit-checks a PBM P4 header without touching the raster.
+pub(crate) fn probe_pbm_p4_header(data: &[u8], max_pixels: u64) -> Result<PbmP4Header> {
     if data.len() < 4 {
         return Err("PBM P4 payload is too short".into());
     }
@@ -345,18 +382,30 @@ pub fn parse_pbm_p4(data: &[u8], max_pixels: u64) -> Result<PbmP4Image> {
     let data_size = row_stride
         .checked_mul(height as usize)
         .ok_or("Invalid PBM P4 payload size")?;
-    let data_end = offset
-        .checked_add(data_size)
+    Ok(PbmP4Header {
+        width,
+        height,
+        row_stride,
+        data_offset: offset,
+        data_size,
+    })
+}
+
+pub fn parse_pbm_p4(data: &[u8], max_pixels: u64) -> Result<PbmP4Image> {
+    let header = probe_pbm_p4_header(data, max_pixels)?;
+    let data_end = header
+        .data_offset
+        .checked_add(header.data_size)
         .ok_or("Invalid PBM P4 payload size")?;
     let bitmap = data
-        .get(offset..data_end)
+        .get(header.data_offset..data_end)
         .ok_or("Truncated PBM P4 payload")?
         .to_vec();
 
     Ok(PbmP4Image {
-        width,
-        height,
-        row_stride,
+        width: header.width,
+        height: header.height,
+        row_stride: header.row_stride,
         bitmap,
     })
 }
@@ -551,7 +600,8 @@ mod tests {
             ));
             std::fs::write(&path, header).unwrap();
             let error = if extension == "pbm" {
-                read_pbm_p4_file(std::fs::File::open(&path).unwrap(), 10).unwrap_err()
+                read_pbm_p4_file_admitted(std::fs::File::open(&path).unwrap(), 10, |_| Ok(()))
+                    .unwrap_err()
             } else {
                 read_netpbm_file(std::fs::File::open(&path).unwrap(), 10).unwrap_err()
             };
@@ -582,6 +632,36 @@ mod tests {
             error.to_string().contains("Truncated"),
             "unexpected error: {error}"
         );
+    }
+
+    #[test]
+    fn raster_admission_sees_the_checked_size_before_the_raster_is_read() {
+        for (extension, bytes, raster) in [
+            (
+                "pgm",
+                b"P5\n3 2\n255\n\x01\x02\x03\x04\x05\x06".as_slice(),
+                6u64,
+            ),
+            ("pbm", b"P4\n9 2\n\x80\x00\xff\x80".as_slice(), 4u64),
+        ] {
+            let path = std::env::temp_dir().join(format!(
+                "evb-pdf-image-combine-admission-{}.{extension}",
+                std::process::id()
+            ));
+            std::fs::write(&path, bytes).unwrap();
+            let refuse = |size: u64| -> Result<()> {
+                assert_eq!(size, raster);
+                Err("raster admission refused".into())
+            };
+            let file = std::fs::File::open(&path).unwrap();
+            let error = if extension == "pbm" {
+                read_pbm_p4_file_admitted(file, 100, refuse).unwrap_err()
+            } else {
+                read_netpbm_file_admitted(file, 100, refuse).unwrap_err()
+            };
+            std::fs::remove_file(path).unwrap();
+            assert_eq!(error.to_string(), "raster admission refused");
+        }
     }
 
     #[test]
