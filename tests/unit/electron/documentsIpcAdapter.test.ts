@@ -362,6 +362,21 @@ describe('documents direct ipc', () => {
         operation.complete();
         fallbackOperation.complete();
     });
+
+    it('keeps DOCUMENTS_DIRECT_INVOKE_CHANNELS aligned with registerDocumentsDirectIpc', async () => {
+        const registeredInvokeChannels: string[] = [];
+        const {registerDocumentsDirectIpc} = await import('@electron/features/documents/documentsMainBindings');
+        const {DOCUMENTS_DIRECT_INVOKE_CHANNELS} = await import('@electron/platform-ipc/featureRegistrationDescriptors');
+
+        registerDocumentsDirectIpc(
+            {handle: (channel: string) => {
+                registeredInvokeChannels.push(channel);
+            }} as never,
+            {on: vi.fn()},
+        );
+
+        expect([...registeredInvokeChannels].sort()).toEqual([...DOCUMENTS_DIRECT_INVOKE_CHANNELS].sort());
+    });
 });
 
 vi.mock('@electron/features/page-ops/public/nativePageOpsPath', () => ({resolveNativePageOpsPath: () => null}));

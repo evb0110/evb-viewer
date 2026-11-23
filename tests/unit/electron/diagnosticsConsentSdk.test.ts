@@ -9,6 +9,7 @@ import {
 const sdk = vi.hoisted(() => ({
     captureException: vi.fn(),
     client: null as {getOptions: () => {enabled?: boolean}} | null,
+    getClient: vi.fn(),
     init: vi.fn(),
     options: null as null | {
         enabled?: boolean;
@@ -27,7 +28,10 @@ vi.mock('electron', () => ({app: {
 }}));
 vi.mock('@sentry/core', () => ({
     captureException: sdk.captureException,
-    getClient: () => sdk.client,
+    getClient: () => {
+        sdk.getClient();
+        return sdk.client;
+    },
 }));
 vi.mock('@sentry/electron/main', () => ({
     IPCMode: {Classic: 1},
@@ -51,6 +55,7 @@ describe('main diagnostics consent', () => {
     beforeEach(() => {
         vi.resetModules();
         sdk.client = null;
+        sdk.getClient.mockClear();
         sdk.init.mockClear();
         sdk.captureException.mockClear();
         sdk.options = null;
@@ -71,6 +76,8 @@ describe('main diagnostics consent', () => {
         await vi.dynamicImportSettled();
 
         expect(sdk.init).not.toHaveBeenCalled();
+        expect(sdk.getClient).not.toHaveBeenCalled();
+        expect(sdk.captureException).not.toHaveBeenCalled();
     });
 
     it('loads the SDK once consent is granted and stops sending when it is revoked', async () => {
@@ -121,7 +128,7 @@ describe('main diagnostics consent', () => {
 
         resolveLoad();
         await load;
-        await Promise.resolve();
+        await vi.dynamicImportSettled();
 
         expect(sdk.captureException).toHaveBeenCalledOnce();
         expect(sdk.captureException.mock.calls[0]?.[1]).toMatchObject({event_id: receipt.eventId});
@@ -146,6 +153,44 @@ describe('main diagnostics consent', () => {
         await Promise.resolve();
 
         expect(sdk.captureException).not.toHaveBeenCalled();
+    });
+
+    it('flushes queued main failures when granted state settles with load=null and skips @sentry/core with empty DSN', async () => {
+        vi.stubGlobal('__EVB_SENTRY_DSN__', '');
+        const diagnosticsNoDsn = await import('@electron/features/diagnostics/sentry');
+        const {
+            captureMainFailure,
+            registerMainFailureCaptureSender,
+            setMainFailureCaptureState,
+        } = await import('@electron/utils/captureMainFailure');
+
+        diagnosticsNoDsn.setMainDiagnosticsPreference('granted');
+        captureMainFailure({
+            code: 'MAIN_EMPTY_DSN',
+            message: 'Should not load @sentry/core when DSN is empty',
+        });
+        await vi.dynamicImportSettled();
+        expect(sdk.init).not.toHaveBeenCalled();
+        expect(sdk.captureException).not.toHaveBeenCalled();
+
+        let resolveLoad!: () => void;
+        const load = new Promise<void>((resolve) => {
+            resolveLoad = resolve;
+        });
+        const sender = vi.fn();
+        setMainFailureCaptureState('granted', load, {managedBySdk: true});
+        captureMainFailure({
+            code: 'MAIN_QUEUED_FLUSH',
+            message: 'Queued before second grant call',
+        });
+        registerMainFailureCaptureSender(sender);
+        setMainFailureCaptureState('granted', null, {managedBySdk: true});
+        expect(sender).toHaveBeenCalledOnce();
+
+        resolveLoad();
+        await load;
+        await Promise.resolve();
+        expect(sender).toHaveBeenCalledOnce();
     });
 });
 

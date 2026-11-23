@@ -85,7 +85,7 @@ const MAIN_BUNDLE_CHECK: IBundleCheck = {
     file: 'main.js',
     requiredSymbols: [],
 };
-const REQUIRED_INITIAL_MAIN_SYMBOLS = [
+const REQUIRED_DEFERRED_UPDATER_SYMBOLS = [
     'MacUpdater',
     'NsisUpdater',
     'AppImageUpdater',
@@ -111,6 +111,13 @@ const BASE_BUILD_OUTPUT_FILES = [
 ];
 const MAIN_FORBIDDEN_EAGER_INPUT_SUBSTRINGS = [
     '/node_modules/@anthropic-ai/claude-agent-sdk/',
+    '/node_modules/@sentry/core/',
+    '/node_modules/electron-updater/',
+    '/electron/features/agent/mcpServer.ts',
+    '/electron/features/documents/documentsMainBindings.ts',
+    '/electron/features/djvu/',
+    '/electron/features/ocr/',
+    '/electron/features/search/',
     '/packages/i18n-app/messages/de.ts',
     '/packages/i18n-app/messages/es.ts',
     '/packages/i18n-app/messages/fr.ts',
@@ -473,18 +480,26 @@ describe('Electron bundle static integrity', () => {
             }
         });
 
-        it('retains updater implementations in the initial main closure', async () => {
+        it('retains updater implementations in deferred main outputs instead of initial boot closure', async () => {
             const initialBundleText = (await Promise.all(
                 [...mainBundleFixture.initialMainOutputClosure]
                     .map(outputPath => readFile(join(REPO_ROOT, outputPath), 'utf8')),
             )).join('\n');
-            for (const symbol of REQUIRED_INITIAL_MAIN_SYMBOLS) {
-                expect(initialBundleText, `initial main closure is missing "${symbol}"`)
+            const deferredOutputPaths = Object.keys(mainBundleFixture.outputs)
+                .filter(outputPath => !mainBundleFixture.initialMainOutputClosure.has(outputPath));
+            const deferredBundleText = (await Promise.all(
+                deferredOutputPaths
+                    .map(outputPath => readFile(join(REPO_ROOT, outputPath), 'utf8')),
+            )).join('\n');
+            for (const symbol of REQUIRED_DEFERRED_UPDATER_SYMBOLS) {
+                expect(initialBundleText, `initial main closure must defer "${symbol}"`)
+                    .not.toContain(symbol);
+                expect(deferredBundleText, `deferred main outputs are missing "${symbol}"`)
                     .toContain(symbol);
             }
         });
 
-        it('defers the assistant SDK and non-English locales', () => {
+        it('defers heavy non-boot modules, diagnostics SDK, assistant/MCP, and non-English locales', () => {
             const initialInputs = collectOutputInputs(
                 mainBundleFixture.outputs,
                 mainBundleFixture.initialMainOutputClosure,

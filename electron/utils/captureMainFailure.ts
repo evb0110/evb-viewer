@@ -1,4 +1,3 @@
-import { captureException } from '@sentry/core';
 import { randomUUID } from 'node:crypto';
 import type {
     FailureReceipt,
@@ -13,17 +12,50 @@ export interface IMainFailureInput {
     severity?: FailureSeverity;
 }
 
+export type TMainFailureCaptureSender = (
+    error: Error,
+    hint: {
+        event_id: string;
+        captureContext: {
+            level: FailureSeverity;
+            tags: {diagnostic_code: string};
+            fingerprint: string[];
+        };
+    },
+) => unknown;
+
 let preference: 'unknown' | 'denied' | 'granted' = 'unknown';
 let pendingLoad: Promise<void> | null = null;
+let managedBySdk = false;
+let captureSender: TMainFailureCaptureSender | null = null;
+let fallbackSenderLoad: Promise<TMainFailureCaptureSender | null> | null = null;
 let pendingCaptures: Array<{
     input: IMainFailureInput;
     eventId: string
 }> = [];
 
-function send(input: IMainFailureInput, eventId: string) {
+function loadFallbackCaptureSender() {
+    fallbackSenderLoad ??= import('@sentry/core').then(
+        core => {
+            captureSender ??= core.captureException;
+            return captureSender;
+        },
+        () => {
+            fallbackSenderLoad = null;
+            return null;
+        },
+    );
+    return fallbackSenderLoad;
+}
+
+export function registerMainFailureCaptureSender(sender: TMainFailureCaptureSender | null) {
+    captureSender = sender;
+}
+
+function dispatchCapture(sender: TMainFailureCaptureSender, input: IMainFailureInput, eventId: string) {
     const severity = input.severity ?? 'error';
     const error = input.cause instanceof Error ? input.cause : new Error(input.message);
-    captureException(error, {
+    sender(error, {
         event_id: eventId,
         captureContext: {
             level: severity,
@@ -36,31 +68,66 @@ function send(input: IMainFailureInput, eventId: string) {
     });
 }
 
-export function setMainFailureCaptureState(value: 'unknown' | 'denied' | 'granted', load: Promise<void> | null) {
+function send(input: IMainFailureInput, eventId: string) {
+    if (captureSender !== null) {
+        dispatchCapture(captureSender, input, eventId);
+        return;
+    }
+    if (managedBySdk) {
+        return;
+    }
+    void loadFallbackCaptureSender().then(sender => {
+        if (sender !== null && preference === 'granted') {
+            dispatchCapture(sender, input, eventId);
+        }
+    });
+}
+
+function flushPendingCaptures() {
+    const captures = pendingCaptures;
+    pendingCaptures = [];
+    for (const capture of captures) {
+        send(capture.input, capture.eventId);
+    }
+}
+
+export function setMainFailureCaptureState(
+    value: 'unknown' | 'denied' | 'granted',
+    load: Promise<void> | null,
+    options?: {managedBySdk?: boolean},
+) {
     preference = value;
     pendingLoad = load;
+    managedBySdk = options?.managedBySdk === true;
     if (value !== 'granted') {
         pendingCaptures = [];
         return;
     }
-    if (load !== null) {
-        void load.then(() => {
-            if (pendingLoad !== load || preference !== 'granted') {
-                return;
-            }
-            pendingLoad = null;
-            const captures = pendingCaptures;
-            pendingCaptures = [];
-            for (const capture of captures) {
-                send(capture.input, capture.eventId);
-            }
-        }, () => {
-            if (pendingLoad === load) {
-                pendingLoad = null;
-                pendingCaptures = [];
-            }
-        });
+    if (!managedBySdk && captureSender === null) {
+        void loadFallbackCaptureSender();
     }
+    if (load === null) {
+        if (pendingCaptures.length > 0) {
+            if (managedBySdk && captureSender === null) {
+                pendingCaptures = [];
+            } else {
+                flushPendingCaptures();
+            }
+        }
+        return;
+    }
+    void load.then(() => {
+        if (pendingLoad !== load || preference !== 'granted') {
+            return;
+        }
+        pendingLoad = null;
+        flushPendingCaptures();
+    }, () => {
+        if (pendingLoad === load) {
+            pendingLoad = null;
+            pendingCaptures = [];
+        }
+    });
 }
 
 /**

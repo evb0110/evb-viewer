@@ -161,7 +161,7 @@ export function createPdfPageResources() {
                 // the same container keeps its old pixels meanwhile.
                 ...(current.shown && current.shown.container !== container ? {shown: null, layers: 'none' as const, text: null} : {}),
             });
-            logPdfRenderTrace('renderer-single-page-begin', {pageNumber, requestId: job.requestId, targetScale: job.targetScale});
+            logPdfRenderTrace('renderer-single-page-begin', () => ({pageNumber, requestId: job.requestId, targetScale: job.targetScale}));
             return true;
         },
         publish(pageNumber: TPageNumber, job: IPdfRasterJob, receipt: IPdfPublicationReceipt) {
@@ -185,7 +185,7 @@ export function createPdfPageResources() {
                 layers: retain ? 'ready' : receipt.layers === 'hydrating' ? 'hydrating' : 'canvas-only',
                 text: retain ? current.text : null,
             });
-            logPdfRenderTrace('renderer-canvas-mounted', {pageNumber, requestId: job.requestId, intent: receipt.quality.intent});
+            logPdfRenderTrace('renderer-canvas-mounted', () => ({pageNumber, requestId: job.requestId, intent: receipt.quality.intent}));
             return true;
         },
         beginHydration(pageNumber: TPageNumber): IPdfLayerHydration {
@@ -218,7 +218,7 @@ export function createPdfPageResources() {
             }
             const layers = outcome === 'ready' && !current.text ? 'canvas-only' : outcome;
             update(pageNumber, {hydration: null, layers});
-            logPdfRenderTrace('renderer-layer-hydration-settled', {pageNumber, outcome: layers});
+            logPdfRenderTrace('renderer-layer-hydration-settled', () => ({pageNumber, outcome: layers}));
             return true;
         },
         requestTextFirst(pageNumber: TPageNumber, requested: boolean) {
