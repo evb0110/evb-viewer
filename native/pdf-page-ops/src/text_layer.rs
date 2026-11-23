@@ -5,10 +5,211 @@ use lopdf::{
     content::{Content, Operation as ContentOperation},
     dictionary, DecompressError, Error as LopdfError,
 };
+use sha2::{Digest, Sha256};
 use std::{collections::VecDeque, rc::Rc};
 
 const MAX_TEXT_CONTENT_BYTES: usize = 64 * 1024 * 1024;
 const MAX_OBJECT_GRAPH_DEPTH: usize = 128;
+const MAX_DEDUP_FONT_STREAM_BYTES: usize = 16 * 1024 * 1024;
+/// Caps total object-graph visits while fingerprinting a font so an acyclic
+/// diamond DAG in an untrusted `/EVBOcr_*` font cannot cause exponential work.
+const MAX_FONT_GRAPH_NODES: usize = 4_096;
+
+/// Reuses identical OCR font object graphs (such as Tesseract's glyphless
+/// `pdf.ttf` Type0/CIDFontType2/FontDescriptor/FontFile2/ToUnicode subgraph)
+/// and their parsed 65,536-entry `ToUnicode` maps across pages and streaming
+/// incremental batches.
+#[derive(Default)]
+pub(crate) struct OcrFontCache {
+    pub(crate) shared_fonts: HashMap<[u8; 32], ObjectId>,
+    parsed_fonts: HashMap<[u8; 32], Rc<TextFont>>,
+}
+
+/// Computes a canonical SHA-256 fingerprint of a font object graph, resolving
+/// indirect references through `document` and reading unread base streams
+/// through `structural` when inspecting an earlier incremental revision.
+pub(crate) fn font_graph_fingerprint(
+    document: &Document,
+    structural: Option<StructuralSource<'_>>,
+    object: &Object,
+) -> Option<[u8; 32]> {
+    let mut hasher = Sha256::new();
+    let mut active = HashSet::new();
+    let mut visited = 0usize;
+    hash_font_object(
+        document,
+        structural,
+        object,
+        None,
+        &mut active,
+        &mut visited,
+        0,
+        &mut hasher,
+    )?;
+    Some(hasher.finalize().into())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn hash_font_dict(
+    document: &Document,
+    structural: Option<StructuralSource<'_>>,
+    dict: &Dictionary,
+    skip_length: bool,
+    active: &mut HashSet<ObjectId>,
+    visited: &mut usize,
+    depth: usize,
+    hasher: &mut Sha256,
+) -> Option<()> {
+    let mut entries: Vec<(&[u8], &Object)> = dict
+        .iter()
+        .filter(|(key, _)| !(skip_length && key.as_slice() == b"Length"))
+        .map(|(key, value)| (key.as_slice(), value))
+        .collect();
+    entries.sort_unstable_by_key(|(key, _)| *key);
+    hasher.update((entries.len() as u64).to_le_bytes());
+    for (key, value) in entries {
+        hasher.update((key.len() as u64).to_le_bytes());
+        hasher.update(key);
+        hash_font_object(
+            document,
+            structural,
+            value,
+            None,
+            active,
+            visited,
+            depth + 1,
+            hasher,
+        )?;
+    }
+    Some(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn hash_font_object(
+    document: &Document,
+    structural: Option<StructuralSource<'_>>,
+    object: &Object,
+    object_id: Option<ObjectId>,
+    active: &mut HashSet<ObjectId>,
+    visited: &mut usize,
+    depth: usize,
+    hasher: &mut Sha256,
+) -> Option<()> {
+    if depth > MAX_OBJECT_GRAPH_DEPTH || *visited >= MAX_FONT_GRAPH_NODES {
+        return None;
+    }
+    *visited += 1;
+    match object {
+        Object::Reference(id) => {
+            if !active.insert(*id) {
+                return None;
+            }
+            let target = document.objects.get(id)?;
+            let result = hash_font_object(
+                document,
+                structural,
+                target,
+                Some(*id),
+                active,
+                visited,
+                depth + 1,
+                hasher,
+            );
+            active.remove(id);
+            result
+        }
+        Object::Null => {
+            hasher.update([0u8]);
+            Some(())
+        }
+        Object::Boolean(value) => {
+            hasher.update([1u8, u8::from(*value)]);
+            Some(())
+        }
+        Object::Integer(value) => {
+            hasher.update([2u8]);
+            hasher.update(value.to_le_bytes());
+            Some(())
+        }
+        Object::Real(value) => {
+            if !value.is_finite() {
+                return None;
+            }
+            hasher.update([3u8]);
+            // Canonicalize -0.0 to +0.0.
+            let bits = if *value == 0.0 {
+                0.0f32.to_bits()
+            } else {
+                value.to_bits()
+            };
+            hasher.update(bits.to_le_bytes());
+            Some(())
+        }
+        Object::Name(bytes) => {
+            hasher.update([4u8]);
+            hasher.update((bytes.len() as u64).to_le_bytes());
+            hasher.update(bytes);
+            Some(())
+        }
+        Object::String(bytes, _) => {
+            hasher.update([5u8]);
+            hasher.update((bytes.len() as u64).to_le_bytes());
+            hasher.update(bytes);
+            Some(())
+        }
+        Object::Array(items) => {
+            hasher.update([6u8]);
+            hasher.update((items.len() as u64).to_le_bytes());
+            for item in items {
+                hash_font_object(
+                    document,
+                    structural,
+                    item,
+                    None,
+                    active,
+                    visited,
+                    depth + 1,
+                    hasher,
+                )?;
+            }
+            Some(())
+        }
+        Object::Dictionary(dict) => {
+            hasher.update([7u8]);
+            hash_font_dict(
+                document, structural, dict, false, active, visited, depth, hasher,
+            )
+        }
+        Object::Stream(stream) => {
+            hasher.update([8u8]);
+            hash_font_dict(
+                document,
+                structural,
+                &stream.dict,
+                true,
+                active,
+                visited,
+                depth,
+                hasher,
+            )?;
+            if is_unread_base_stream(document, stream) {
+                let id = object_id?;
+                let raw = structural?
+                    .raw_stream(id, MAX_DEDUP_FONT_STREAM_BYTES)
+                    .ok()?;
+                hasher.update((raw.len() as u64).to_le_bytes());
+                hasher.update(&raw);
+            } else {
+                if stream.content.len() > MAX_DEDUP_FONT_STREAM_BYTES {
+                    return None;
+                }
+                hasher.update((stream.content.len() as u64).to_le_bytes());
+                hasher.update(&stream.content);
+            }
+            Some(())
+        }
+    }
+}
 fn resolved_array<'a>(document: &'a Document, object: &'a Object) -> Option<&'a Vec<Object>> {
     document.resolved(object).ok()?.as_array().ok()
 }
@@ -347,6 +548,7 @@ struct TextFont {
 /// fails to parse is not kept, so every use reports the same error.
 fn parsed_font(
     parsed: &mut HashMap<Vec<u8>, Rc<TextFont>>,
+    font_cache: &mut Option<&mut OcrFontCache>,
     document: &Document,
     name: &[u8],
     font: &Object,
@@ -354,12 +556,24 @@ fn parsed_font(
     if let Some(font) = parsed.get(name) {
         return Ok(Rc::clone(font));
     }
-    let font = Rc::new(TextFont {
+    let fingerprint = font_cache
+        .as_deref()
+        .and_then(|_| font_graph_fingerprint(document, None, font));
+    if let (Some(cache), Some(hash)) = (font_cache.as_deref(), fingerprint) {
+        if let Some(cached) = cache.parsed_fonts.get(&hash) {
+            parsed.insert(name.to_vec(), Rc::clone(cached));
+            return Ok(Rc::clone(cached));
+        }
+    }
+    let parsed_value = Rc::new(TextFont {
         metrics: parse_font_metrics(document, font)?,
         unicode: UnicodeMap::from_font(document, font),
     });
-    parsed.insert(name.to_vec(), Rc::clone(&font));
-    Ok(font)
+    if let (Some(cache), Some(hash)) = (font_cache.as_deref_mut(), fingerprint) {
+        cache.parsed_fonts.insert(hash, Rc::clone(&parsed_value));
+    }
+    parsed.insert(name.to_vec(), Rc::clone(&parsed_value));
+    Ok(parsed_value)
 }
 
 fn dictionary_number(document: &Document, dictionary: &Dictionary, key: &[u8]) -> Option<f64> {
@@ -1067,6 +1281,15 @@ pub(crate) fn text_operations(
     page_id: ObjectId,
     filter: Option<(TextMatrix, PdfRect)>,
 ) -> Result<(Vec<ContentOperation>, HashSet<Vec<u8>>)> {
+    text_operations_with_font_cache(source, page_id, filter, None)
+}
+
+fn text_operations_with_font_cache(
+    source: &Document,
+    page_id: ObjectId,
+    filter: Option<(TextMatrix, PdfRect)>,
+    mut font_cache: Option<&mut OcrFontCache>,
+) -> Result<(Vec<ContentOperation>, HashSet<Vec<u8>>)> {
     let bytes = crate::page_content_with_limit(source, page_id, MAX_TEXT_CONTENT_BYTES)
         .map_err(|error| match error {
             LopdfError::Decompress(DecompressError::MemoryLimitExceeded { limit }) => {
@@ -1245,11 +1468,19 @@ pub(crate) fn text_operations(
                                 String::from_utf8_lossy(name)
                             )
                         })?;
-                        text.font = Some(parsed_font(&mut parsed_fonts, source, name, font)?);
+                        text.font = Some(parsed_font(
+                            &mut parsed_fonts,
+                            &mut font_cache,
+                            source,
+                            name,
+                            font,
+                        )?);
                         text.font_size = size;
                     } else if let Some(source_fonts) = &source_fonts {
                         if let Some(font) = source_fonts.get(name) {
-                            if let Ok(font) = parsed_font(&mut parsed_fonts, source, name, font) {
+                            if let Ok(font) =
+                                parsed_font(&mut parsed_fonts, &mut font_cache, source, name, font)
+                            {
                                 text.font = Some(font);
                             }
                         }
@@ -1490,11 +1721,43 @@ pub(crate) fn append_text_layer(
     marker: Option<(&[u8], &[u8])>,
     copied: &mut HashMap<ObjectId, ObjectId>,
 ) -> Result<Option<String>> {
+    append_text_layer_with_font_cache(
+        target,
+        source,
+        target_page_id,
+        source_page_id,
+        matrix,
+        filter_to_output_page,
+        normalize_greek_micro_sign,
+        marker,
+        copied,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn append_text_layer_with_font_cache(
+    target: &mut Document,
+    source: &Document,
+    target_page_id: ObjectId,
+    source_page_id: ObjectId,
+    matrix: [f64; 6],
+    filter_to_output_page: bool,
+    normalize_greek_micro_sign: bool,
+    marker: Option<(&[u8], &[u8])>,
+    copied: &mut HashMap<ObjectId, ObjectId>,
+    mut font_cache: Option<&mut OcrFontCache>,
+) -> Result<Option<String>> {
     let filter = filter_to_output_page
         .then(|| resolve_page_view(target, target_page_id))
         .transpose()?
         .map(|target_view| (TextMatrix::from_values(matrix), target_view));
-    let (mut operations, used_fonts) = match text_operations(source, source_page_id, filter) {
+    let (mut operations, used_fonts) = match text_operations_with_font_cache(
+        source,
+        source_page_id,
+        filter,
+        font_cache.as_deref_mut(),
+    ) {
         Ok(result) => result,
         Err(error) if filter_to_output_page => return Ok(Some(error.to_string())),
         Err(error) => return Err(error),
@@ -1526,6 +1789,7 @@ pub(crate) fn append_text_layer(
         .unwrap_or_default();
     let mut renamed = HashMap::new();
     let mut staged_copied = copied.clone();
+    let mut staged_shared_fonts: HashMap<[u8; 32], ObjectId> = HashMap::new();
     for source_name in used_fonts {
         let Some(source_font) = source_fonts.get(&source_name) else {
             let reason = format!(
@@ -1538,20 +1802,48 @@ pub(crate) fn append_text_layer(
             return Err(reason.into());
         };
         let target_name = unique_font_name(&target_fonts, &source_name);
-        let cloned = match clone_object_graph(
-            source,
-            target,
-            source_font,
-            &mut staged_copied,
-            (&[], &|_| Ok(None)),
-            &|_, _| Ok(()),
-            0,
-        ) {
-            Ok(cloned) => cloned,
-            Err(error) if filter_to_output_page => return Ok(Some(error.to_string())),
-            Err(error) => return Err(error),
+        let fingerprint = font_cache
+            .as_deref()
+            .and_then(|_| font_graph_fingerprint(source, None, source_font));
+        let cached_font_id = fingerprint.and_then(|hash| {
+            staged_shared_fonts
+                .get(&hash)
+                .copied()
+                .or_else(|| font_cache.as_deref()?.shared_fonts.get(&hash).copied())
+        });
+        let font_entry = if let Some(existing_id) = cached_font_id {
+            Object::Reference(existing_id)
+        } else {
+            let cloned = match clone_object_graph(
+                source,
+                target,
+                source_font,
+                &mut staged_copied,
+                (&[], &|_| Ok(None)),
+                &|_, _| Ok(()),
+                0,
+            ) {
+                Ok(cloned) => cloned,
+                Err(error) if filter_to_output_page => return Ok(Some(error.to_string())),
+                Err(error) => return Err(error),
+            };
+            if let Some(hash) = fingerprint {
+                match cloned {
+                    Object::Reference(id) => {
+                        staged_shared_fonts.insert(hash, id);
+                        Object::Reference(id)
+                    }
+                    direct => {
+                        let id = target.add_object(direct);
+                        staged_shared_fonts.insert(hash, id);
+                        Object::Reference(id)
+                    }
+                }
+            } else {
+                cloned
+            }
         };
-        target_fonts.set(target_name.clone(), cloned);
+        target_fonts.set(target_name.clone(), font_entry);
         renamed.insert(source_name, target_name);
     }
     for operation in &mut operations {
@@ -1598,6 +1890,9 @@ pub(crate) fn append_text_layer(
     }
     stream.compress()?;
     *copied = staged_copied;
+    if let Some(cache) = font_cache {
+        cache.shared_fonts.extend(staged_shared_fonts);
+    }
     Ok(None)
 }
 

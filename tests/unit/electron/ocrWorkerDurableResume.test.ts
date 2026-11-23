@@ -177,4 +177,60 @@ describe('real OCR worker durable page checkpoints', () => {
             3,
         ]));
     }, 90_000);
+
+    it('streams searchable-PDF instructions page by page and removes temp artifacts on abort', async () => {
+        const {mkdtemp} = await import('node:fs/promises');
+        const {tmpdir} = await import('node:os');
+        const tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-stream-finalize-'));
+        try {
+            const {writeSearchablePdf} = await import('@electron/features/ocr/pipeline/writeSearchablePdf');
+            const controller = new AbortController();
+            let yieldedPages = 0;
+
+            async function* streamingCheckpoints() {
+                for (let pageNumber = 1; pageNumber <= 4; pageNumber += 1) {
+                    yieldedPages += 1;
+                    if (pageNumber === 3) {
+                        controller.abort(new Error('Finalization canceled mid-stream'));
+                    }
+                    yield {
+                        pdfPath: join(tempDir, `page-${pageNumber}.pdf`),
+                        page: {
+                            pageNumber,
+                            languages: ['eng'],
+                            text: `streamed page ${pageNumber}`,
+                            wordEdits: [],
+                            wordGeometry: {
+                                rasterWidthPx: 100,
+                                rasterHeightPx: 100,
+                                words: [{
+                                    text: 'streamed',
+                                    x: 10,
+                                    y: 10,
+                                    width: 40,
+                                    height: 12,
+                                }],
+                            },
+                            diagnostics: [],
+                        },
+                    };
+                }
+            }
+
+            await expect(writeSearchablePdf({
+                pdfPageOpsBinary: 'evb-pdf-page-ops',
+                qpdfBinary: 'qpdf',
+                sourcePdfPath: join(tempDir, 'source.pdf'),
+                pages: streamingCheckpoints(),
+                tempDir,
+                sessionId: 'stream-abort-test',
+                signal: controller.signal,
+            })).rejects.toThrow('Finalization canceled mid-stream');
+
+            expect(yieldedPages).toBe(3);
+            expect(await readdir(tempDir)).toEqual([]);
+        } finally {
+            await rm(tempDir, {recursive: true, force: true});
+        }
+    });
 });

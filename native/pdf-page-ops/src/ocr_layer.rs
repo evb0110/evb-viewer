@@ -18,6 +18,11 @@ use std::path::{Path, PathBuf};
 /// Tesseract writes one small page per raster. The bound keeps a damaged or
 /// unexpected sidecar from being loaded eagerly.
 pub(crate) const MAX_OCR_SOURCE_PDF_BYTES: u64 = 16 * 1024 * 1024;
+/// Desktop streaming finalization writes at most this many pages per
+/// incremental batch onto the single staged output file so memory stays bounded
+/// on multi-hundred-page documents while sharing one deduplicated OCR font.
+const OCR_STREAMING_BATCH_PAGES: usize = 64;
+const MAX_SEED_FONT_PROBE_PAGES: usize = 16;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -812,12 +817,102 @@ fn load_ocr_source(path: &Path) -> Result<Document> {
     checked_ocr_source(load_pdf_path(path))
 }
 
+/// Seeds `font_cache.shared_fonts` from any `/EVBOcr_*` font already embedded
+/// in earlier incremental revisions (probing at most `MAX_SEED_FONT_PROBE_PAGES`
+/// pages across the immediate boundary and a bounded stride before the chunk),
+/// so both contiguous and non-contiguous (`missing-only`) chunked appends reuse
+/// the exact same `pdf.ttf` font object instead of embedding duplicate copies.
+fn seed_ocr_font_cache<S>(
+    incremental: &IncrementalDocument,
+    structural: Option<StructuralSource<'_>>,
+    resolver: &PageTreeResolver,
+    pages: &[OcrTextLayerPage<S>],
+    font_cache: &mut OcrFontCache,
+) {
+    if !font_cache.shared_fonts.is_empty() {
+        return;
+    }
+    let page_count = resolver.page_count();
+    let mut probe_pages = Vec::with_capacity(MAX_SEED_FONT_PROBE_PAGES);
+    let push_probe = |probe_pages: &mut Vec<u32>, page_number: u32| {
+        if page_number >= 1
+            && page_number <= page_count
+            && !probe_pages.contains(&page_number)
+            && probe_pages.len() < MAX_SEED_FONT_PROBE_PAGES
+        {
+            probe_pages.push(page_number);
+        }
+    };
+    push_probe(&mut probe_pages, 1);
+    if let Some(first) = pages.first() {
+        if first.page_number > 1 {
+            push_probe(&mut probe_pages, first.page_number - 1);
+        }
+        push_probe(&mut probe_pages, first.page_number);
+    }
+    if let Some(last) = pages.last() {
+        push_probe(&mut probe_pages, last.page_number);
+    }
+    if let Some(first) = pages.first() {
+        let before = first.page_number.saturating_sub(1);
+        if before > 1 {
+            // Probe nearest preceding pages first, then evenly spaced strides across 2..before.
+            for offset in 2..=5u32 {
+                if first.page_number > offset {
+                    push_probe(&mut probe_pages, first.page_number - offset);
+                }
+            }
+            let remaining = MAX_SEED_FONT_PROBE_PAGES.saturating_sub(probe_pages.len());
+            if remaining > 0 {
+                let stride = (before / (remaining as u32 + 1)).max(1);
+                let mut candidate = 2u32;
+                while candidate < before && probe_pages.len() < MAX_SEED_FONT_PROBE_PAGES {
+                    push_probe(&mut probe_pages, candidate);
+                    candidate = candidate.saturating_add(stride);
+                }
+            }
+        }
+    }
+    for page_number in probe_pages {
+        let Ok(page_id) = resolver.page_id(&incremental.previous_document, page_number) else {
+            continue;
+        };
+        let Ok(fonts) = page_fonts(&incremental.previous_document, page_id) else {
+            continue;
+        };
+        let mut seeded_on_page = false;
+        for (name, font) in fonts {
+            if !name.starts_with(b"EVBOcr_") {
+                continue;
+            }
+            let Ok(font_id) = font.as_reference() else {
+                continue;
+            };
+            if let Some(fingerprint) = font_graph_fingerprint(
+                &incremental.previous_document,
+                structural,
+                &Object::Reference(font_id),
+            ) {
+                font_cache
+                    .shared_fonts
+                    .entry(fingerprint)
+                    .or_insert(font_id);
+                seeded_on_page = true;
+            }
+        }
+        if seeded_on_page {
+            break;
+        }
+    }
+}
+
 /// Writes every instruction's page into the incremental revision. `load_source`
 /// returns the Tesseract page PDF an instruction names, by path or by index.
 fn apply_ocr_text_layer<S>(
     incremental: &mut IncrementalDocument,
     structural: Option<StructuralSource<'_>>,
-    instructions: &OcrTextLayerFile<S>,
+    pages: &[OcrTextLayerPage<S>],
+    font_cache: &mut OcrFontCache,
     mut load_source: impl FnMut(&S) -> Result<Document>,
 ) -> Result<()> {
     assert_plaintext_base(
@@ -825,7 +920,8 @@ fn apply_ocr_text_layer<S>(
         "Encrypted PDFs are not supported by native page ops",
     )?;
     let resolver = PageTreeResolver::new(&incremental.previous_document)?;
-    for page in &instructions.pages {
+    seed_ocr_font_cache(incremental, structural, &resolver, pages, font_cache);
+    for page in pages {
         let mut source = load_source(&page.source)?;
         let source_resolver = PageTreeResolver::new(&source)?;
         if source_resolver.page_count() != 1 {
@@ -856,6 +952,7 @@ fn apply_ocr_text_layer<S>(
             page_id,
             matrix,
             page.normalize_greek_micro_sign,
+            font_cache,
         )?;
     }
     incremental.new_document.version = incremental.get_prev_documents().version.clone();
@@ -864,7 +961,9 @@ fn apply_ocr_text_layer<S>(
 
 /// Appends the text layer `instructions` describe to the PDF at
 /// `input_path`, whose pages it reads through the file's index, and replaces
-/// `output_path` with the result once it is verified.
+/// `output_path` with the result once it is verified. Large documents stream in
+/// bounded batches onto the single staged output file so memory stays bounded
+/// while sharing one deduplicated OCR font across every batch.
 pub(crate) fn write_ocr_text_layer_path(
     input_path: &Path,
     output_path: &Path,
@@ -873,33 +972,66 @@ pub(crate) fn write_ocr_text_layer_path(
     // The staged copy must hold the revision the layer was built on.
     let source_witness = evb_native_support::output::PathRevisionWitness::capture(input_path)
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
+    let mut batches = instructions.pages.chunks(OCR_STREAMING_BATCH_PAGES);
+    let first_batch = batches
+        .next()
+        .ok_or("ocr-text-layer requires at least one page")?;
+    let mut font_cache = OcrFontCache::default();
     let (file, len) = open_source_file(input_path)?;
-    let (mut incremental, _) = ocr_text_layer_base(file, len, instructions, |path: &PathBuf| {
-        load_ocr_source(path)
-    })?;
-    let revision_bytes = build_incremental_revision(&mut incremental)?;
-    let expected_object_ids = collect_incremental_append_object_ids(&incremental);
+    let (mut first_incremental, _) =
+        ocr_text_layer_base(file, len, first_batch, &mut font_cache, |path: &PathBuf| {
+            load_ocr_source(path)
+        })?;
+    let first_revision_bytes = build_incremental_revision(&mut first_incremental)?;
+    let first_expected_object_ids = collect_incremental_append_object_ids(&first_incremental);
+    let mut first_pending = Some((
+        first_incremental,
+        first_revision_bytes,
+        first_expected_object_ids,
+    ));
     with_staged_incremental_output_for_revision(
         input_path,
         output_path,
         Some(&source_witness),
         |staged_output_path| {
-            write_incremental_revision(
-                staged_output_path,
-                &incremental,
-                &revision_bytes,
-                &expected_object_ids,
-            )
+            if let Some((incremental, revision_bytes, expected_object_ids)) = first_pending.take() {
+                write_incremental_revision(
+                    staged_output_path,
+                    &incremental,
+                    &revision_bytes,
+                    &expected_object_ids,
+                )?;
+            }
+            for batch in batches {
+                let (staged_file, staged_len) = open_source_file(staged_output_path)?;
+                let (mut incremental, _) = ocr_text_layer_base(
+                    staged_file,
+                    staged_len,
+                    batch,
+                    &mut font_cache,
+                    |path: &PathBuf| load_ocr_source(path),
+                )?;
+                let revision_bytes = build_incremental_revision(&mut incremental)?;
+                let expected_object_ids = collect_incremental_append_object_ids(&incremental);
+                write_incremental_revision(
+                    staged_output_path,
+                    &incremental,
+                    &revision_bytes,
+                    &expected_object_ids,
+                )?;
+            }
+            Ok(())
         },
     )
 }
 
-/// The append base `source` holds, with the text layer `instructions` write
+/// The append base `source` holds, with the text layer `pages` write
 /// into it, and the document's page count.
 fn ocr_text_layer_base<S: ByteSource, P>(
     source: S,
     len: u64,
-    instructions: &OcrTextLayerFile<P>,
+    pages: &[OcrTextLayerPage<P>],
+    font_cache: &mut OcrFontCache,
     load_source: impl FnMut(&P) -> Result<Document>,
 ) -> Result<(IncrementalDocument, u32)> {
     let mut source = SourcePdf::open_append_base(source, len)
@@ -910,7 +1042,8 @@ fn ocr_text_layer_base<S: ByteSource, P>(
     apply_ocr_text_layer(
         &mut incremental,
         Some(&source as StructuralSource),
-        instructions,
+        pages,
+        font_cache,
         load_source,
     )?;
     Ok((incremental, page_count))
@@ -931,8 +1064,13 @@ pub(crate) fn ocr_text_layer_to_source<S: ByteSource>(
     let instructions: OcrTextLayerFile<usize> =
         parse_json_sidecar_bytes(instructions, "OCR text-layer instructions")?;
     validate_ocr_text_layer(&instructions)?;
-    let (mut incremental, page_count) =
-        ocr_text_layer_base(source, len, &instructions, |&index| {
+    let mut font_cache = OcrFontCache::default();
+    let (mut incremental, page_count) = ocr_text_layer_base(
+        source,
+        len,
+        &instructions.pages,
+        &mut font_cache,
+        |&index| {
             let bytes = page_pdf(index)?;
             if bytes.is_empty() || bytes.len() as u64 > MAX_OCR_SOURCE_PDF_BYTES {
                 return Err(ocr_source_length_error(
@@ -941,7 +1079,8 @@ pub(crate) fn ocr_text_layer_to_source<S: ByteSource>(
                 ));
             }
             checked_ocr_source(load_pdf_bytes(&bytes))
-        })?;
+        },
+    )?;
     let revision = appended_revision_bytes(&mut incremental)?;
     validate_incremental_append_bytes(
         &write(&revision)?,
@@ -1643,5 +1782,347 @@ BT\n/F 34 Tf\n1 0 0 1 1000 2863 Tm\n<017F0069> Tj\nET\nQ\n% EVB_VIEWER_OCR_LAYER
         let with_unknown =
             source.replacen("\"pageNumber\": 1,", "\"pageNumber\": 1, \"extra\": 1,", 1);
         assert!(serde_json::from_str::<OcrTextVisibilityReport>(&with_unknown).is_err());
+    }
+
+    fn blank_target_pdf(page_count: usize) -> Vec<u8> {
+        let mut doc = Document::with_version("1.5");
+        let pages_id = doc.new_object_id();
+        let page_ids: Vec<ObjectId> = (0..page_count)
+            .map(|_| {
+                doc.add_object(dictionary! {
+                    "Type" => "Page",
+                    "Parent" => pages_id,
+                    "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+                    "Resources" => dictionary! {},
+                })
+            })
+            .collect();
+        doc.set_object(
+            pages_id,
+            dictionary! {
+                "Type" => "Pages",
+                "Kids" => page_ids.into_iter().map(Object::Reference).collect::<Vec<_>>(),
+                "Count" => page_count as i64,
+            },
+        );
+        let catalog_id = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+        doc.trailer.set("Root", catalog_id);
+        let mut bytes = Vec::new();
+        doc.save_to(&mut bytes).unwrap();
+        bytes
+    }
+
+    fn glyphless_tesseract_page_pdf(
+        word: &str,
+        font_program: &[u8],
+        default_width: i64,
+    ) -> Vec<u8> {
+        let mut doc = Document::with_version("1.5");
+        let pages_id = doc.new_object_id();
+        let mut font_file2 = Stream::new(
+            dictionary! { "Length1" => font_program.len() as i64 },
+            font_program.to_vec(),
+        );
+        font_file2.compress().unwrap();
+        let font_file2_id = doc.add_object(font_file2);
+        let descriptor_id = doc.add_object(dictionary! {
+            "Type" => "FontDescriptor",
+            "FontName" => "GlyphLessFont",
+            "Flags" => 5,
+            "FontBBox" => vec![0.into(), (-200).into(), 1000.into(), 800.into()],
+            "ItalicAngle" => 0,
+            "Ascent" => 800,
+            "Descent" => -200,
+            "CapHeight" => 700,
+            "StemV" => 80,
+            "FontFile2" => font_file2_id,
+        });
+        let cid_font_id = doc.add_object(dictionary! {
+            "Type" => "Font",
+            "Subtype" => "CIDFontType2",
+            "BaseFont" => "GlyphLessFont",
+            "CIDSystemInfo" => dictionary! {
+                "Registry" => Object::string_literal("Adobe"),
+                "Ordering" => Object::string_literal("Identity"),
+                "Supplement" => 0,
+            },
+            "FontDescriptor" => descriptor_id,
+            "DW" => default_width,
+            "CIDToGIDMap" => "Identity",
+        });
+        let mut cmap = Stream::new(
+            dictionary! {},
+            b"/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n1 beginbfrange\n<0000> <FFFF> <0000>\nendbfrange\nendcmap\nend\nend\n".to_vec(),
+        );
+        cmap.compress().unwrap();
+        let cmap_id = doc.add_object(cmap);
+        let type0_id = doc.add_object(dictionary! {
+            "Type" => "Font",
+            "Subtype" => "Type0",
+            "BaseFont" => "GlyphLessFont",
+            "Encoding" => "Identity-H",
+            "DescendantFonts" => vec![cid_font_id.into()],
+            "ToUnicode" => cmap_id,
+        });
+        let hex: String = word
+            .encode_utf16()
+            .map(|unit| format!("{unit:04X}"))
+            .collect();
+        let content_id = doc.add_object(Stream::new(
+            dictionary! {},
+            format!("BT /f-0-0 12 Tf 3 Tr 1 0 0 1 20 700 Tm 100 Tz [<{hex}>] TJ ET").into_bytes(),
+        ));
+        let page_id = doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+            "Resources" => dictionary! {
+                "Font" => dictionary! { "f-0-0" => type0_id },
+            },
+            "Contents" => content_id,
+        });
+        doc.set_object(
+            pages_id,
+            dictionary! { "Type" => "Pages", "Kids" => vec![Object::Reference(page_id)], "Count" => 1 },
+        );
+        let catalog_id = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+        doc.trailer.set("Root", catalog_id);
+        let mut bytes = Vec::new();
+        doc.save_to(&mut bytes).unwrap();
+        bytes
+    }
+
+    fn count_font_objects(doc: &Document) -> (usize, usize, usize) {
+        let mut type0 = 0;
+        let mut font_file2 = 0;
+        let mut to_unicode = 0;
+        for object in doc.objects.values() {
+            if let Ok(dict) = object.as_dict() {
+                if dict.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"Type0") {
+                    type0 += 1;
+                }
+                if dict.has(b"FontFile2") {
+                    font_file2 += 1;
+                }
+                if dict.has(b"ToUnicode") {
+                    to_unicode += 1;
+                }
+            }
+        }
+        (type0, font_file2, to_unicode)
+    }
+
+    #[test]
+    fn ocr_text_layer_deduplicates_pdf_ttf_across_pages_and_chunked_revisions() {
+        let base = blank_target_pdf(6);
+        let font_bytes = b"synthetic-pdf-ttf-glyphless-program-payload".repeat(64);
+        let page_pdfs: Vec<Vec<u8>> = (1..=6)
+            .map(|page| glyphless_tesseract_page_pdf(&format!("Page{page}"), &font_bytes, 500))
+            .collect();
+
+        // Append pages 1..=3 in chunk 1, then pages 4..=6 in chunk 2 (mirroring browser chunked appends).
+        let mut combined = base.clone();
+        let chunk1_instructions = r#"{"pages":[{"pageNumber":1,"source":0},{"pageNumber":2,"source":1},{"pageNumber":3,"source":2}]}"#;
+        let chunk1_base = combined.clone();
+        ocr_text_layer_to_source(
+            chunk1_base.as_slice(),
+            chunk1_base.len() as u64,
+            chunk1_instructions.as_bytes(),
+            |index| Ok(page_pdfs[index].clone()),
+            |revision| {
+                combined.extend_from_slice(revision);
+                Ok(revision.to_vec())
+            },
+        )
+        .unwrap();
+
+        let chunk2_instructions = r#"{"pages":[{"pageNumber":4,"source":0},{"pageNumber":5,"source":1},{"pageNumber":6,"source":2}]}"#;
+        let chunk2_base = combined.clone();
+        ocr_text_layer_to_source(
+            chunk2_base.as_slice(),
+            chunk2_base.len() as u64,
+            chunk2_instructions.as_bytes(),
+            |index| Ok(page_pdfs[index + 3].clone()),
+            |revision| {
+                combined.extend_from_slice(revision);
+                Ok(revision.to_vec())
+            },
+        )
+        .unwrap();
+
+        let saved = Document::load_mem(&combined).unwrap();
+        assert_eq!(count_font_objects(&saved), (1, 1, 1));
+        // Every page must reference the exact same shared Type0 font object.
+        let pages = saved.get_pages();
+        let font_ids: HashSet<ObjectId> = (1..=6u32)
+            .map(|page_number| {
+                let fonts = page_fonts(&saved, pages[&page_number]).unwrap();
+                fonts
+                    .values()
+                    .find_map(|font| font.as_reference().ok())
+                    .unwrap()
+            })
+            .collect();
+        assert_eq!(font_ids.len(), 1);
+
+        let report: serde_json::Value = serde_json::from_slice(
+            &ocr_text_visibility_from_source(
+                combined.as_slice(),
+                combined.len() as u64,
+                &[1, 2, 3, 4, 5, 6],
+                true,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        for page_number in 1..=6usize {
+            assert_eq!(
+                report["pages"][page_number - 1]["evbOcrLines"][0]["text"],
+                format!("Page{page_number}")
+            );
+        }
+    }
+
+    #[test]
+    fn ocr_text_layer_keeps_distinct_fonts_separate_and_streams_multi_batch_desktop_output() {
+        let base = blank_target_pdf(2);
+        let font_a = b"font-program-A".repeat(32);
+        let font_b = b"font-program-B".repeat(32);
+        let page1 = glyphless_tesseract_page_pdf("Alpha", &font_a, 500);
+        let page2 = glyphless_tesseract_page_pdf("Beta", &font_b, 500);
+        let mut combined = base.clone();
+        let instructions = r#"{"pages":[{"pageNumber":1,"source":0},{"pageNumber":2,"source":1}]}"#;
+        ocr_text_layer_to_source(
+            base.as_slice(),
+            base.len() as u64,
+            instructions.as_bytes(),
+            |index| {
+                Ok(if index == 0 {
+                    page1.clone()
+                } else {
+                    page2.clone()
+                })
+            },
+            |revision| {
+                combined.extend_from_slice(revision);
+                Ok(revision.to_vec())
+            },
+        )
+        .unwrap();
+        let saved = Document::load_mem(&combined).unwrap();
+        assert_eq!(count_font_objects(&saved), (2, 2, 2));
+
+        // Verify desktop write_ocr_text_layer_path streams cleanly across > OCR_STREAMING_BATCH_PAGES.
+        let batch_pages = OCR_STREAMING_BATCH_PAGES + 4;
+        let temp_dir = std::env::temp_dir().join(format!(
+            "evb-ocr-dedup-batch-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&temp_dir).unwrap();
+        let input_path = temp_dir.join("input.pdf");
+        let output_path = temp_dir.join("output.pdf");
+        fs::write(&input_path, blank_target_pdf(batch_pages)).unwrap();
+        let mut page_instructions = Vec::with_capacity(batch_pages);
+        for page_number in 1..=batch_pages {
+            let source_path = temp_dir.join(format!("p-{page_number}.pdf"));
+            fs::write(
+                &source_path,
+                glyphless_tesseract_page_pdf(&format!("BatchPage{page_number}"), &font_a, 500),
+            )
+            .unwrap();
+            page_instructions.push(OcrTextLayerPage {
+                page_number: page_number as u32,
+                source: source_path,
+                preprocess_inverse: None,
+                normalize_greek_micro_sign: false,
+                word_edits: Vec::new(),
+                word_geometry: None,
+            });
+        }
+        write_ocr_text_layer_path(
+            &input_path,
+            &output_path,
+            &OcrTextLayerFile {
+                pages: page_instructions,
+            },
+        )
+        .unwrap();
+        let streamed = Document::load(&output_path).unwrap();
+        assert_eq!(count_font_objects(&streamed), (1, 1, 1));
+        let streamed_bytes = fs::read(&output_path).unwrap();
+        let report: serde_json::Value = serde_json::from_slice(
+            &ocr_text_visibility_from_source(
+                streamed_bytes.as_slice(),
+                streamed_bytes.len() as u64,
+                &[1, OCR_STREAMING_BATCH_PAGES as u32, batch_pages as u32],
+                true,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(report["pages"][0]["evbOcrLines"][0]["text"], "BatchPage1");
+        assert_eq!(
+            report["pages"][1]["evbOcrLines"][0]["text"],
+            format!("BatchPage{OCR_STREAMING_BATCH_PAGES}")
+        );
+        assert_eq!(
+            report["pages"][2]["evbOcrLines"][0]["text"],
+            format!("BatchPage{batch_pages}")
+        );
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn ocr_font_fingerprint_bounds_diamond_dag_visits_and_dedups_non_contiguous_chunks() {
+        // Construct a 20-level binary diamond DAG (2^20 paths across 21 objects).
+        // Without a total visit cap this would perform millions of redundant hashes.
+        let mut dag_doc = Document::with_version("1.5");
+        let mut child_id = dag_doc.add_object(Object::Integer(1));
+        for _ in 0..20 {
+            child_id = dag_doc.add_object(Object::Array(vec![
+                Object::Reference(child_id),
+                Object::Reference(child_id),
+            ]));
+        }
+        assert!(
+            font_graph_fingerprint(&dag_doc, None, &Object::Reference(child_id)).is_none(),
+            "diamond DAG exceeding the font graph node visit budget must bail out cleanly"
+        );
+
+        // Non-contiguous chunks (e.g., `missing-only` skipping pages 1, 2, 4, 5):
+        // chunk 1 writes page 3; chunk 2 writes page 6 and must reuse page 3's font.
+        let base = blank_target_pdf(6);
+        let font_bytes = b"non-contiguous-pdf-ttf-payload".repeat(48);
+        let page3 = glyphless_tesseract_page_pdf("Third", &font_bytes, 500);
+        let page6 = glyphless_tesseract_page_pdf("Sixth", &font_bytes, 500);
+        let mut combined = base.clone();
+        ocr_text_layer_to_source(
+            base.as_slice(),
+            base.len() as u64,
+            br#"{"pages":[{"pageNumber":3,"source":0}]}"#,
+            |_| Ok(page3.clone()),
+            |revision| {
+                combined.extend_from_slice(revision);
+                Ok(revision.to_vec())
+            },
+        )
+        .unwrap();
+        let after_chunk1 = combined.clone();
+        ocr_text_layer_to_source(
+            after_chunk1.as_slice(),
+            after_chunk1.len() as u64,
+            br#"{"pages":[{"pageNumber":6,"source":0}]}"#,
+            |_| Ok(page6.clone()),
+            |revision| {
+                combined.extend_from_slice(revision);
+                Ok(revision.to_vec())
+            },
+        )
+        .unwrap();
+        let saved = Document::load_mem(&combined).unwrap();
+        assert_eq!(count_font_objects(&saved), (1, 1, 1));
     }
 }

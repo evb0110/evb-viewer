@@ -429,10 +429,11 @@ pub(crate) fn replace_page_ocr_text(
     page_id: ObjectId,
     matrix: [f64; 6],
     normalize_greek_micro_sign: bool,
+    font_cache: &mut OcrFontCache,
 ) -> Result<()> {
     strip_previous_ocr_text(incremental, structural, page_id)?;
     let streams = incremental.new_document.get_page_contents(page_id).len();
-    append_text_layer(
+    append_text_layer_with_font_cache(
         &mut incremental.new_document,
         source,
         page_id,
@@ -442,6 +443,7 @@ pub(crate) fn replace_page_ocr_text(
         normalize_greek_micro_sign,
         Some((EVB_OCR_LAYER_BEGIN, EVB_OCR_LAYER_END)),
         &mut HashMap::new(),
+        Some(font_cache),
     )?;
     let mut contents = incremental.new_document.get_page_contents(page_id);
     // A source without text adds no layer, and the page keeps its order.

@@ -378,16 +378,30 @@ export async function recognizeOcrPages<TImage>(input: IRecognizeOcrPagesInput<T
     };
 }
 
-/** The writer's instructions for recognized pages, in page order; `source` indexes their page PDFs. */
-export function buildOcrTextLayerInstructions(
-    pages: readonly Omit<IOcrRecognizedPage, 'pdf'>[],
-): IOcrTextLayerInstructions['pages'] {
-    return pages.map((page, source) => ({
+/** Lean recognized-page fields needed to emit one text-layer writer instruction. */
+export type TOcrTextLayerPageRecord = Pick<
+    IOcrRecognizedPage,
+    'pageNumber' | 'languages' | 'wordEdits' | 'wordGeometry' | 'preprocessInverse'
+>;
+
+/** One writer instruction for a recognized page, parameterized by its `source` locator (index or file path). */
+export function buildOcrTextLayerPageInstruction<TSource>(
+    page: TOcrTextLayerPageRecord,
+    source: TSource,
+) {
+    return {
         pageNumber: page.pageNumber,
         source,
         wordGeometry: page.wordGeometry,
         ...(shouldNormalizeGreekMicroSign(page.languages) ? {normalizeGreekMicroSign: true} : {}),
         ...(page.wordEdits.length > 0 ? {wordEdits: page.wordEdits} : {}),
         ...(page.preprocessInverse ? {preprocessInverse: page.preprocessInverse} : {}),
-    }));
+    };
+}
+
+/** The writer's instructions for recognized pages, in page order; `source` indexes their page PDFs. */
+export function buildOcrTextLayerInstructions(
+    pages: readonly TOcrTextLayerPageRecord[],
+): IOcrTextLayerInstructions['pages'] {
+    return pages.map((page, source) => buildOcrTextLayerPageInstruction(page, source));
 }
