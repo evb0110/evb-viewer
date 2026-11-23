@@ -2,7 +2,10 @@ import {
     parseDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
-import type { TOpenFileResult } from '@contracts/electronApiDocuments';
+import type {
+    IDocumentDirectOpenRequest,
+    TOpenFileResult,
+} from '@contracts/electronApiDocuments';
 import { normalizeNonEmptyStringPaths } from '@contracts/shared';
 import {
     browserDocumentStore,
@@ -43,7 +46,10 @@ import {SerializableError} from '@contracts/serializableError';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {getErrorMessage} from '@app/utils/error';
 
-async function touchRecentFileForOpen(ref: TDocumentRef) {
+async function touchRecentFileForOpen(ref: TDocumentRef, request: IDocumentDirectOpenRequest) {
+    if (request.recordRecent === false) {
+        return;
+    }
     await browserDocumentStore.touchRecentFile(ref);
 }
 
@@ -192,7 +198,7 @@ export async function createBrowserWorkingCopyFromBytes(options: {
 export async function openDocumentPaths(
     paths: string[],
     progressOptions?: IBrowserBatchOpenProgressOptions,
-    password?: string,
+    request: IDocumentDirectOpenRequest = {},
 ) {
     const startedAt = Date.now();
     const normalizedPaths = normalizeNonEmptyStringPaths(paths).map((path) => {
@@ -218,7 +224,7 @@ export async function openDocumentPaths(
 
     if (djvuPaths.length > 0) {
         if (normalizedPaths.length === 1 && djvuPaths.length === 1) {
-            await touchRecentFileForOpen(firstPath);
+            await touchRecentFileForOpen(firstPath, request);
             emitBatchOpenProgress(progressOptions, 1, 1, startedAt);
             return {
                 kind: 'djvu',
@@ -234,9 +240,9 @@ export async function openDocumentPaths(
         const workingPath = await browserDocumentStore.cloneAsWorkingCopy(sourcePath);
         let published = false;
         try {
-            const decryption = await decryptBrowserWorkingCopy(workingPath, password, {fileName: firstFileName});
+            const decryption = await decryptBrowserWorkingCopy(workingPath, request.password, {fileName: firstFileName});
             if (decryption.outcome === 'needs-password') {
-                await touchRecentFileForOpen(sourcePath);
+                await touchRecentFileForOpen(sourcePath, request);
                 return {
                     kind: 'pdf-needs-password',
                     originalPath: sourcePath,
@@ -248,7 +254,7 @@ export async function openDocumentPaths(
                     originalPath: sourcePath,
                 } satisfies TOpenFileResult;
             }
-            await touchRecentFileForOpen(sourcePath);
+            await touchRecentFileForOpen(sourcePath, request);
             browserDocumentStore.unload(sourcePath);
             emitBatchOpenProgress(progressOptions, 1, 1, startedAt);
             published = true;
@@ -276,7 +282,7 @@ export async function openDocumentPaths(
         retention: 'durable',
     });
     const workingPath = await browserDocumentStore.cloneAsWorkingCopy(originalPath);
-    await touchRecentFileForOpen(originalPath);
+    await touchRecentFileForOpen(originalPath, request);
     browserDocumentStore.unload(originalPath);
 
     return {

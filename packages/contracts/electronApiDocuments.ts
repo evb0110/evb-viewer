@@ -539,11 +539,21 @@ export interface IDocumentsMenuCapability {
     onMenuClearRecentFiles: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
 }
 
+export interface IDocumentDirectOpenRequest {
+    password?: string;
+    /**
+     * Whether this open counts as the reader opening the file now. False when
+     * a session restore reopens a tab it already held, so Recent Files keeps
+     * when the reader last opened it. Omitted means true.
+     */
+    recordRecent?: boolean;
+}
+
 export interface IDocumentsFileCapability {
     openDocumentDialog: () => Promise<TOpenFileResult | null>;
     openCombineDialog: () => Promise<TOpenFileResult | null>;
     openImageDialog: () => Promise<string | null>;
-    openDocumentDirect: (path: TDocumentRef, password?: string) => Promise<TOpenFileResult | null>;
+    openDocumentDirect: (path: TDocumentRef, request?: IDocumentDirectOpenRequest) => Promise<TOpenFileResult | null>;
     openDocumentDirectBatch: (
         paths: TDocumentRef[],
         requestId?: TRequestId,

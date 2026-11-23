@@ -597,3 +597,64 @@ describe('routing a document while the tab it picked is still mounting', () => {
         ]);
     });
 });
+
+describe('a document assigned to a hidden tab', () => {
+    it('opens as the reader\'s open when the reader chose it, and as a restore when the session held it', async () => {
+        const tabs = ref<ITab[]>([{id: 'tab-restored'}]);
+        const activeTabId = ref<string | null>('tab-restored');
+        const documentSessions = useWorkspaceDocumentSessions({
+            activeTabId,
+            tabs,
+        });
+        const routing = useAppShellWorkspaceRouting({
+            activePaneId: ref('pane-1'),
+            activeTabId,
+            documentSessions,
+            // Aggressive tab memory: a tab not in front mounts no workspace.
+            tabLifecycleById: ref({'tab-background': {
+                tabId: 'tab-background',
+                temperature: 'cold',
+                viewerResidency: 'hibernated',
+                isReclaimCandidate: true,
+                shouldMountHost: false,
+            }}),
+            createTab: () => {
+                const tab = {id: 'tab-background'};
+                tabs.value = [
+                    ...tabs.value,
+                    tab,
+                ];
+                return tab;
+            },
+            getTabById: tabId => tabs.value.find(tab => tab.id === tabId) ?? null,
+            removeTabFromState: (tabId) => {
+                tabs.value = tabs.value.filter(tab => tab.id !== tabId);
+            },
+            resolveTabForAction: () => null,
+            handleCloseTab: vi.fn(),
+            moveTabToNewWindow: vi.fn(),
+            moveTabToWindow: vi.fn(),
+            mergeWindowInto: vi.fn(),
+        });
+        documentSessions.assignDocument('tab-restored', {
+            fileName: 'restored.pdf',
+            originalPath: requireDocumentRef('/docs/restored.pdf'),
+            isDirty: false,
+            isDjvu: false,
+        });
+
+        const chosenPath = requireDocumentRef('/docs/chosen.pdf');
+        await expect(routing.handleOpenInNewTab(chosenPath, undefined, {activate: false})).resolves.toBe(true);
+
+        const chosen = documentSessions.getSession('tab-background')!;
+        expect(chosen.snapshot.value.identity.originalPath).toBe(chosenPath);
+        expect(chosen.isDeferredReaderOpen()).toBe(true);
+        expect(documentSessions.getSession('tab-restored')!.isDeferredReaderOpen()).toBe(false);
+        // Once its tab claims the open, a later reload of that tab is a restore.
+        chosen.claimOpen({
+            kind: 'restore',
+            target: describeDocumentTarget(chosenPath),
+        });
+        expect(chosen.isDeferredReaderOpen()).toBe(false);
+    });
+});

@@ -83,6 +83,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
                 originalPath: target,
                 isDjvu: described.isDjvu === true,
                 isDirty: false,
+                deferredReaderOpen: true,
             });
             return true;
         }

@@ -298,15 +298,44 @@ describe('createDocumentOpenFlow', () => {
         expect(mocks.documentOpen.openDocumentDirect).toHaveBeenNthCalledWith(
             2,
             protectedPath,
-            'wrong-password',
+            {password: 'wrong-password'},
         );
         expect(mocks.documentOpen.openDocumentDirect).toHaveBeenNthCalledWith(
             3,
             protectedPath,
-            'correct-password',
+            {password: 'correct-password'},
         );
         expect(state.originalPath.value).toBe(protectedPath);
         expect(state.wasEncrypted.value).toBe(true);
+    });
+
+    it('asks the platform to keep Recent Files unchanged for a restore, through its password retry', async () => {
+        const {openFlow} = createOpenFlowHarness();
+        const prompt = useDocumentPasswordPrompt();
+        const protectedPath = requireDocumentRef('/documents/restored-protected.pdf');
+        mocks.documentOpen.openDocumentDirect
+            .mockResolvedValueOnce({
+                kind: 'pdf-needs-password',
+                originalPath: protectedPath,
+            })
+            .mockResolvedValueOnce({
+                kind: 'pdf',
+                originalPath: protectedPath,
+                workingPath: requireDocumentRef('/tmp/restored-protected-working.pdf'),
+                wasEncrypted: true,
+            });
+
+        const opening = openFlow.openFileDirect(protectedPath, {recordRecent: false});
+        await vi.waitFor(() => {
+            expect(prompt.open.value).toBe(true);
+        });
+        prompt.submitPassword('correct-password');
+
+        await expect(opening).resolves.toMatchObject({status: 'opened'});
+        expect(mocks.documentOpen.openDocumentDirect.mock.calls).toEqual([
+            [protectedPath, {recordRecent: false}],
+            [protectedPath, {password: 'correct-password', recordRecent: false}],
+        ]);
     });
 
     it('cancels a password open without retaining or persisting the password', async () => {

@@ -186,7 +186,7 @@ describe('browser working-copy decryption', () => {
             });
             const pickedPath = await browserDocumentStore.registerFile(await handle.getFile(), {...PDF_SOURCE_OPTIONS, saveHandle: handle});
             wasmRun.mockResolvedValueOnce({data: DECRYPTED_PDF, pageCount: 1});
-            const opened = await openDocumentPaths([pickedPath], undefined, 'correct-password');
+            const opened = await openDocumentPaths([pickedPath], undefined, {password: 'correct-password'});
             if (opened?.kind !== 'pdf') throw new Error('Expected an opened PDF');
             return {workingPath: opened.workingPath, doc: (await browserDocumentStore.requireEntry(opened.workingPath)).doc!};
         };
@@ -195,7 +195,7 @@ describe('browser working-copy decryption', () => {
             pageCount: 1,
         });
 
-        const result = await openDocumentPaths([sourcePath], undefined, 'correct-password');
+        const result = await openDocumentPaths([sourcePath], undefined, {password: 'correct-password'});
         if (result?.kind !== 'pdf') throw new Error('Expected an opened PDF');
 
         expect(result).toMatchObject({wasEncrypted: true});
@@ -386,6 +386,46 @@ describe('browser working-copy decryption', () => {
         const failedWorkingPath = remove.mock.calls[0]![0];
         expect(failedWorkingPath).not.toBe(sourcePath);
         await expect(browserDocumentStore.requireEntry(failedWorkingPath)).rejects.toThrow();
+    });
+
+    it('keeps a restored document\'s Recent Files time and place, while a reader\'s open moves it to now', async () => {
+        const {
+            browserDocumentStore,
+            openDocumentPaths,
+        } = await loadService();
+        const root = await mkdtemp(join(process.env.TMPDIR ?? tmpdir(), 'restored-recent-'));
+        onTestFinished(() => rm(root, {recursive: true, force: true}));
+        vi.spyOn(browserDocumentStore, 'stores').mockResolvedValue({
+            durable: {port: createNodeStorePort(root), publication: browserPublication},
+            memory: {port: createMemoryStorePort(), publication: browserPublication},
+        });
+        vi.useFakeTimers({toFake: ['Date']});
+        onTestFinished(() => {
+            vi.useRealTimers();
+        });
+        const djvuSource = {
+            mimeType: 'image/vnd.djvu',
+            kind: 'source',
+            saveKind: 'generic',
+        } as const;
+        const older = await browserDocumentStore.createStoredDocument('older.djvu', Uint8Array.of(1), djvuSource);
+        const newer = await browserDocumentStore.createStoredDocument('newer.djvu', Uint8Array.of(2), djvuSource);
+        const threeDaysAgo = Date.UTC(2026, 10, 20, 9);
+        const twoDaysAgo = Date.UTC(2026, 10, 21, 9);
+        const now = Date.UTC(2026, 10, 23, 9);
+        const listed = () => browserDocumentStore.getRecentFiles().map(file => [file.originalPath, file.timestamp]);
+        vi.setSystemTime(threeDaysAgo);
+        await openDocumentPaths([older]);
+        vi.setSystemTime(twoDaysAgo);
+        await openDocumentPaths([newer]);
+        expect(listed()).toEqual([[newer, twoDaysAgo], [older, threeDaysAgo]]);
+
+        vi.setSystemTime(now);
+        await expect(openDocumentPaths([older], undefined, {recordRecent: false})).resolves.toMatchObject({kind: 'djvu'});
+        expect(listed()).toEqual([[newer, twoDaysAgo], [older, threeDaysAgo]]);
+
+        await openDocumentPaths([older]);
+        expect(listed()).toEqual([[older, now], [newer, twoDaysAgo]]);
     });
 
     it('opens a memory-only PDF when exposed IndexedDB refuses access without touching Recent Files', async () => {
