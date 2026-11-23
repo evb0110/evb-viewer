@@ -1158,11 +1158,10 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             if (!plan.isSelectiveReload || options.zoomMode.value === 'fit-width') {
                 scale.computeFitWidthScale(options.viewerContainer.value, {page: currentPage.value});
             }
+            // The scale reads the restored zoom at once. The relayout it asks
+            // for settles in the flush awaited below, superseded while this
+            // reload still owes its own placement.
             restoreReloadZoom();
-            await nextTick();
-            if (!transition.isCurrent()) {
-                return;
-            }
             setupPagePlaceholders();
             // Placeholder projection is a render boundary. Let Vue install
             // the authoritative page containers before handing raster demand
@@ -1174,10 +1173,13 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             }
             placeReloadAnchor(plan.isReload);
             if (isPreservedSelectiveReload) {
+                // In paged mode, mapping the reading page to another page at
+                // the same scroll offset swaps the mounted `.page_container`;
+                // wait for Vue to mount it before measuring DOM visibility.
                 await nextTick();
-            }
-            if (!transition.isCurrent()) {
-                return;
+                if (!transition.isCurrent()) {
+                    return;
+                }
             }
             commitVisibleRange(
                 projectViewportVisibleRange(options.viewerContainer.value, numPages.value),
