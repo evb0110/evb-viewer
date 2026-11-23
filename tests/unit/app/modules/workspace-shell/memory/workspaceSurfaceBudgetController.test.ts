@@ -15,17 +15,17 @@ describe('workspace surface budget controller', () => {
     it.each([
         [
             'medium',
-            'healthy',
+            'none',
             true,
         ],
         [
             'high',
-            'guarded',
+            'none',
             true,
         ],
         [
             'low',
-            'healthy',
+            'none',
             false,
         ],
         [
@@ -36,16 +36,6 @@ describe('workspace surface budget controller', () => {
         [
             'medium',
             'critical',
-            false,
-        ],
-        [
-            'medium',
-            'emergency',
-            false,
-        ],
-        [
-            'medium',
-            'post-crash-safe-mode',
             false,
         ],
     ] as const)('plans inactive DjVu residency for %s tier under %s pressure', (
@@ -250,6 +240,49 @@ describe('workspace surface budget controller', () => {
         });
     });
 
+    it('evicts to a lowered byte cap and admits up to a raised one', () => {
+        const controller = createWorkspaceSurfaceBudgetController(1_000);
+        const evicted: string[] = [];
+        controller.reserve({
+            scopeId: 'thumb',
+            category: 'pdf-thumbnail-canvas',
+            bytes: 400,
+            priority: 0,
+            evict: () => evicted.push('thumb'),
+        });
+        controller.reserve({
+            scopeId: 'nearby',
+            category: 'pdf-page-canvas',
+            bytes: 400,
+            priority: 50,
+            evict: () => evicted.push('nearby'),
+        });
+
+        controller.setBudget({
+            maxBytes: 500,
+            pressureLevel: 'none',
+        });
+
+        expect(evicted).toEqual(['thumb']);
+        expect(controller.getSnapshot()).toMatchObject({
+            maxBytes: 500,
+            effectiveMaxBytes: 500,
+            reservedBytes: 400,
+        });
+
+        controller.setBudget({
+            maxBytes: 2_000,
+            pressureLevel: 'none',
+        });
+
+        expect(controller.tryReserve({
+            scopeId: 'next',
+            category: 'pdf-page-canvas',
+            bytes: 1_500,
+        })).not.toBeNull();
+        expect(evicted).toEqual(['thumb']);
+    });
+
     it('promotes a completed lease without reallocating it or allowing later demotion', () => {
         const controller = createWorkspaceSurfaceBudgetController(1_000);
         const evicted: string[] = [];
@@ -347,12 +380,13 @@ describe('workspace surface budget controller', () => {
             bytes: 200,
             canEvict: () => false,
         });
-        expect(pending.resize(700)).toBe(false);
+        // A required lease is refused only for what it alone would hold.
+        expect(pending.resize(1_100)).toBe(false);
         expect(pending.bytes).toBe(200);
         expect(budget.getSnapshot().reservedBytes).toBe(600);
-        expect(pending.resize(600)).toBe(true);
-        expect(pending.bytes).toBe(600);
-        expect(budget.getSnapshot().reservedBytes).toBe(1_000);
+        expect(pending.resize(700)).toBe(true);
+        expect(pending.bytes).toBe(700);
+        expect(budget.getSnapshot().reservedBytes).toBe(1_100);
         expect(pending.resize(100)).toBe(true);
         pending.release();
         expect(pending.resize(300)).toBe(false);
@@ -361,6 +395,25 @@ describe('workspace surface budget controller', () => {
             reservedBytes: 0,
             leaseCount: 0,
         });
+    });
+
+    it('grows a provisional lease only into room that exists or can be reclaimed', () => {
+        const budget = createWorkspaceSurfaceBudgetController(1_000);
+        budget.reserve({
+            scopeId: 'visible',
+            category: 'pdf-page-canvas',
+            bytes: 400,
+            canEvict: () => false,
+        });
+        const provisional = budget.tryReserve({
+            scopeId: 'nearby',
+            category: 'pdf-page-canvas',
+            bytes: 200,
+        });
+
+        expect(provisional?.resize(700)).toBe(false);
+        expect(provisional?.resize(600)).toBe(true);
+        expect(budget.getSnapshot().reservedBytes).toBe(1_000);
     });
 
 });

@@ -93,7 +93,6 @@ export {
     type IWorkspaceSurfaceBudgetController,
     type IWorkspaceSurfaceLease,
     type IWorkspaceSurfaceBudgetSnapshot,
-    type TWorkspaceResourcePressureLevel,
 } from '@app/modules/document-viewer/runtime/workspaceSurfaceBudgetController';
 export { normalizeClientRect } from '@app/modules/document-viewer/region-geometry/normalizeClientRect';
 export {

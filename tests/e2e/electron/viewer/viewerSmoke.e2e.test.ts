@@ -463,7 +463,7 @@ interface IThumbnailPaintProbeWindow extends Window {
         pressureLevel: string;
         reservedBytes: number;
     };
-    __setWorkspaceSurfacePressureForE2E?: (level: 'healthy' | 'critical') => void;
+    __setWorkspaceSurfacePressureForE2E?: (level: 'none' | 'critical') => void;
     __thumbnailPaintProbe?: IThumbnailPaintProbe;
 }
 
@@ -5564,7 +5564,7 @@ describe('Electron E2E - Viewer Smoke', () => {
                 return {snapshot};
             } finally {
                 window.clearInterval(pressureTimer);
-                probeWindow.__setWorkspaceSurfacePressureForE2E('healthy');
+                probeWindow.__setWorkspaceSurfacePressureForE2E('none');
             }
         });
         const pressureSnapshot = pressureResult.snapshot;
@@ -8620,7 +8620,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
                     reservedBytes: number;
                     reservedBytesByCategory: Record<string, number>;
                 };
-                __setWorkspaceSurfacePressureForE2E?: (level: 'healthy' | 'critical') => void;
+                __setWorkspaceSurfacePressureForE2E?: (level: 'none' | 'critical') => void;
             };
             interface IContinuityFrame {
                 imageCount: number;
@@ -8717,7 +8717,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             window.clearInterval(pressureTimer);
             active = false;
             const snapshot = probeWindow.__getWorkspaceSurfaceBudgetForE2E?.() ?? null;
-            probeWindow.__setWorkspaceSurfacePressureForE2E('healthy');
+            probeWindow.__setWorkspaceSurfacePressureForE2E('none');
             return {
                 frames,
                 layout,

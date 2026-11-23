@@ -61,7 +61,7 @@ interface IWorkspaceSurfaceBudgetSnapshotForE2E {
 interface IWorkspaceSurfacePressureWindow extends Window {
     __getWorkspaceSurfaceBudgetForE2E?: () => IWorkspaceSurfaceBudgetSnapshotForE2E;
     __setWorkspaceSurfacePressureForE2E?: (
-        level: 'healthy' | 'moderate',
+        level: 'none' | 'moderate',
     ) => void;
 }
 
@@ -932,7 +932,7 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
                     tabActivated,
                 };
             } finally {
-                setPressure('healthy');
+                setPressure('none');
             }
         });
         await activateTab(session, 1);

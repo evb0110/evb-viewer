@@ -1,4 +1,5 @@
 import {
+    MOBILE_RASTER_BUDGET_MAX_BYTES,
     resolvePerformanceProfile,
     type IPerformanceProfile,
     type IPerformanceProfileEnvironment,
@@ -97,6 +98,9 @@ export function resolveWorkspaceMemoryBudget(
     const base = BASE_BUDGETS[deviceTier];
     const totalMemoryBytes = resolveTotalMemoryBytes(options);
     const maxWarmViewers = resolvePressureAdjustedWarmViewers(base.maxWarmViewers, pressureLevel);
+    const maxRasterSurfaceBytes = totalMemoryBytes === null
+        ? Math.min(base.maxEstimatedWorkspaceBytes, RASTER_BUDGET_MAX_BYTES)
+        : clamp(totalMemoryBytes * 0.06, RASTER_BUDGET_MIN_BYTES, RASTER_BUDGET_MAX_BYTES);
 
     return {
         deviceTier,
@@ -105,9 +109,9 @@ export function resolveWorkspaceMemoryBudget(
         targetWarmViewers: maxWarmViewers,
         maxCachedPdfPagesPerViewer: performanceProfile.maxCachedPdfPages,
         maxEstimatedWorkspaceBytes: base.maxEstimatedWorkspaceBytes,
-        maxRasterSurfaceBytes: totalMemoryBytes === null
-            ? Math.min(base.maxEstimatedWorkspaceBytes, RASTER_BUDGET_MAX_BYTES)
-            : clamp(totalMemoryBytes * 0.06, RASTER_BUDGET_MIN_BYTES, RASTER_BUDGET_MAX_BYTES),
+        maxRasterSurfaceBytes: performanceProfile.mobile
+            ? Math.min(maxRasterSurfaceBytes, MOBILE_RASTER_BUDGET_MAX_BYTES)
+            : maxRasterSurfaceBytes,
         systemFreeReserveBytes: totalMemoryBytes === null
             ? SYSTEM_FREE_RESERVE_MIN_BYTES
             : clamp(totalMemoryBytes * 0.15, SYSTEM_FREE_RESERVE_MIN_BYTES, SYSTEM_FREE_RESERVE_MAX_BYTES),

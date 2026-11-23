@@ -16,7 +16,7 @@ describe('usePdfViewerPropModel', () => {
 
         expect(model.src.value).toBeNull();
         expect(model.sourcePdfData.value).toBeNull();
-        expect(model.bufferPages.value).toBe(1);
+        expect(model.bufferPages.value).toBe(2);
         expect(model.isAnySaving.value).toBe(false);
         expect(model.zoom.value).toBe(1);
         expect(model.dragMode.value).toBe(false);

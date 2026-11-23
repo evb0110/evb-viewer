@@ -21,6 +21,8 @@ import {
     runCoordinatedPdfPageOperation,
 } from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
 import { createWorkspaceSurfaceBudgetController } from '@app/modules/document-viewer/runtime/workspaceSurfaceBudgetController';
+import { resolveWorkspaceMemoryBudget } from '@app/modules/document-viewer/runtime/workspaceMemoryBudget';
+import { resolveWorkspaceResourcePressureLevel } from '@app/modules/workspace-shell/memory/resolveWorkspaceResourcePressureLevel';
 import {
     createPdfRenderSupervisor,
     type IPdfRenderSupervisorEvent,
@@ -1536,6 +1538,115 @@ describe('PdfPageRasterScheduler', () => {
             leaseCount: 0,
         });
         await scheduler.dispose();
+    });
+
+    it('commits two visible pages with appearance resources on a 4 GiB host under critical pressure', async () => {
+        const GIB = 1024 ** 3;
+        const MIB = 1024 ** 2;
+        const host = resolveWorkspaceMemoryBudget({environment: {
+            totalMemoryBytes: 4 * GIB,
+            hardwareConcurrency: 4,
+        }});
+        const budget = createWorkspaceSurfaceBudgetController(host.maxRasterSurfaceBytes);
+        budget.setPressureLevel(resolveWorkspaceResourcePressureLevel({
+            memoryInfo: {
+                availableBytes: 400 * MIB,
+                freeBytes: 400 * MIB,
+                totalBytes: 4 * GIB,
+            },
+            systemFreeReserveBytes: host.systemFreeReserveBytes,
+        }));
+        expect(budget.getSnapshot().effectiveMaxBytes / MIB).toBeCloseTo(122.88, 2);
+        const replacement = Promise.withResolvers<undefined>();
+        const painted = new Map<number, number>();
+        const scheduler = createPdfPageRasterScheduler({
+            documentFence,
+            maxConcurrency: 2,
+            surfaceBudget: budget,
+            leasePage: async pageNumber => ({
+                page: cast<IPdfPage>({pageNumber}),
+                release() {},
+            }),
+        });
+        const target: IPdfRasterRenderTarget<{
+            pageNumber: number;
+            generation: number
+        }> = {
+            id: 'pressured-visible-pages',
+            async prepare(demand, _page, _signal, _settlement, reserveAdditionalBytes) {
+                reserveAdditionalBytes(MIB);
+                if (demand.consumerGeneration === 2) await replacement.promise;
+                return {
+                    pageNumber: demand.pageNumber,
+                    generation: demand.consumerGeneration,
+                };
+            },
+            start: () => createTask(),
+            commit(prepared) {painted.set(prepared.pageNumber, prepared.generation); return true;},
+            discard() {},
+            release(pageNumber, reason) {
+                if (reason === 'surface-budget-eviction') painted.delete(pageNumber);
+            },
+        };
+        const visible = (pages: ReadonlyArray<[number, number]>) => scheduler.setDemand({
+            sourceId: 'viewport',
+            input: pages.map(([
+                page,
+                generation,
+            ]) => ({
+                ...createDemand(page, 'viewport-visible', generation),
+                estimatedPixels: 16 * MIB,
+            })),
+            policy: {
+                expand: input => input,
+                compareWithinLane: (left, right) => left.ordinal - right.ordinal,
+            },
+            target,
+        });
+        try {
+            visible([
+                [
+                    1,
+                    1,
+                ],
+                [
+                    2,
+                    1,
+                ],
+            ]);
+            await vi.waitFor(() => expect([...painted]).toEqual([
+                [
+                    1,
+                    1,
+                ],
+                [
+                    2,
+                    1,
+                ],
+            ]));
+            expect(budget.getSnapshot().reservedBytes).toBe(2 * 65 * MIB);
+
+            visible([
+                [
+                    1,
+                    2,
+                ],
+                [
+                    2,
+                    1,
+                ],
+            ]);
+            await vi.waitFor(() => expect(budget.getSnapshot().reservedBytes).toBe(3 * 65 * MIB));
+            expect(painted.get(1)).toBe(1);
+
+            replacement.resolve(undefined);
+            await vi.waitFor(() => expect(painted.get(1)).toBe(2));
+            await vi.waitFor(() => expect(budget.getSnapshot().reservedBytes).toBe(2 * 65 * MIB));
+            expect(painted.get(2)).toBe(1);
+        } finally {
+            replacement.resolve(undefined);
+            await scheduler.dispose();
+        }
     });
 
     it('refuses encoded appearance batches beyond the shared lease while retaining committed paint', async () => {

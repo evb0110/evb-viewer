@@ -6,38 +6,29 @@ import {
 import { resolveWorkspaceResourcePressureLevel } from '@app/modules/workspace-shell/memory/resolveWorkspaceResourcePressureLevel';
 
 describe('workspace memory pressure', () => {
-    const sample = (availableBytes: number, reservedBytes = 0) => resolveWorkspaceResourcePressureLevel({
+    const sample = (availableBytes: number) => resolveWorkspaceResourcePressureLevel({
         memoryInfo: {
             availableBytes,
             totalBytes: 8_000,
             freeBytes: availableBytes,
         },
-        surfaces: {
-            maxBytes: 1_000,
-            reservedBytes,
-        },
         systemFreeReserveBytes: 1_000,
     });
 
-    it('resolves the degradation ladder from host headroom and reservations', () => {
-        expect(sample(2_000)).toBe('healthy');
-        expect(sample(900)).toBe('guarded');
-        expect(sample(700)).toBe('moderate');
-        expect(sample(400)).toBe('critical');
-        expect(sample(200)).toBe('emergency');
-        expect(sample(2_000, 1_250)).toBe('emergency');
+    it('resolves three levels from host headroom against the free-memory reserve', () => {
+        expect(sample(2_000)).toBe('none');
+        expect(sample(1_000)).toBe('none');
+        expect(sample(999)).toBe('moderate');
+        expect(sample(501)).toBe('moderate');
+        expect(sample(500)).toBe('critical');
+        expect(sample(0)).toBe('critical');
     });
 
-    it('honors crash-safe mode independently of sampled memory', () => {
+    it('reports no pressure when the host does not report memory', () => {
         expect(resolveWorkspaceResourcePressureLevel({
             memoryInfo: null,
-            surfaces: {
-                maxBytes: 1_000,
-                reservedBytes: 0,
-            },
             systemFreeReserveBytes: 1_000,
-            postCrashSafeMode: true,
-        })).toBe('post-crash-safe-mode');
+        })).toBe('none');
     });
 
     it('uses reclaimable host memory instead of raw free pages', () => {
@@ -47,11 +38,7 @@ describe('workspace memory pressure', () => {
                 totalBytes: 8_000,
                 freeBytes: 100,
             },
-            surfaces: {
-                maxBytes: 1_000,
-                reservedBytes: 0,
-            },
             systemFreeReserveBytes: 1_000,
-        })).toBe('healthy');
+        })).toBe('none');
     });
 });
