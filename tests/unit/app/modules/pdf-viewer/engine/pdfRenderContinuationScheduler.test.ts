@@ -67,10 +67,13 @@ describe('PDF render continuation scheduler', () => {
         vi.unstubAllGlobals();
     });
 
-    it('runs recursive foreground slices in separate 16 ms timer quanta', () => {
+    it('runs recursive foreground slices via immediate macrotasks without a 16 ms timer stall', async () => {
         vi.useFakeTimers();
-        const postTask = vi.fn();
-        vi.stubGlobal('scheduler', { postTask });
+        const yieldCalls: Array<() => void> = [];
+        const yieldMock = vi.fn(() => new Promise<void>((resolve) => {
+            yieldCalls.push(resolve);
+        }));
+        vi.stubGlobal('scheduler', { yield: yieldMock });
         const scheduler = createPdfRenderContinuationScheduler();
         const continuation = vi.fn();
         const scheduleSlice = () => scheduler.schedule({
@@ -86,15 +89,207 @@ describe('PDF render continuation scheduler', () => {
 
         scheduleSlice();
 
-        expect(postTask).not.toHaveBeenCalled();
-        vi.advanceTimersByTime(15);
+        expect(yieldMock).toHaveBeenCalledTimes(1);
         expect(continuation).not.toHaveBeenCalled();
-        vi.advanceTimersByTime(1);
-        expect(continuation).toHaveBeenCalledOnce();
-        vi.advanceTimersByTime(15);
-        expect(continuation).toHaveBeenCalledOnce();
-        vi.advanceTimersByTime(1);
+
+        yieldCalls.shift()?.();
+        await Promise.resolve();
+        expect(continuation).toHaveBeenCalledTimes(1);
+        expect(yieldMock).toHaveBeenCalledTimes(2);
+
+        yieldCalls.shift()?.();
+        await Promise.resolve();
         expect(continuation).toHaveBeenCalledTimes(2);
+        // Never waited on a 16 ms timer quantum.
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('uses MessageChannel macrotask yielding when scheduler.yield is unavailable and stays asynchronous to microtasks', async () => {
+        vi.stubGlobal('scheduler', undefined);
+        const scheduler = createPdfRenderContinuationScheduler();
+        const events: string[] = [];
+
+        scheduler.schedule({
+            key: 'viewer:mc',
+            priority: 'visible',
+            continueRender: () => {
+                events.push('slice-1');
+                scheduler.schedule({
+                    key: 'viewer:mc',
+                    priority: 'visible',
+                    continueRender: () => {
+                        events.push('slice-2');
+                    },
+                });
+            },
+        });
+
+        // Must yield to a macrotask, never execute synchronously or in a microtask.
+        await Promise.resolve();
+        expect(events).toEqual([]);
+
+        await vi.waitFor(() => expect(events).toEqual([
+            'slice-1',
+            'slice-2',
+        ]));
+    });
+
+    it('falls back to a 0 ms timer when neither scheduler.yield nor MessageChannel exists', () => {
+        vi.useFakeTimers();
+        vi.stubGlobal('scheduler', undefined);
+        vi.stubGlobal('MessageChannel', undefined);
+        const scheduler = createPdfRenderContinuationScheduler();
+        const continuation = vi.fn();
+
+        scheduler.schedule({
+            key: 'viewer:fallback',
+            priority: 'visible',
+            continueRender: continuation,
+        });
+
+        expect(continuation).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(0);
+        expect(continuation).toHaveBeenCalledOnce();
+    });
+
+    it('preserves abort and higher-priority preemption across immediate macrotask yields', async () => {
+        const yieldCalls: Array<() => void> = [];
+        vi.stubGlobal('scheduler', {
+            yield: () => new Promise<void>((resolve) => {
+                yieldCalls.push(resolve);
+            }),
+        });
+        const scheduler = createPdfRenderContinuationScheduler();
+        const events: string[] = [];
+        const abortController = new AbortController();
+
+        scheduler.schedule({
+            key: 'visible:1',
+            priority: 'visible',
+            signal: abortController.signal,
+            continueRender: () => events.push('aborted-visible'),
+        });
+        scheduler.schedule({
+            key: 'visible:2',
+            priority: 'visible',
+            continueRender: () => events.push('visible-2'),
+        });
+        scheduler.schedule({
+            key: 'nav:9',
+            priority: 'navigation-target',
+            continueRender: () => events.push('navigation-target'),
+        });
+        abortController.abort();
+
+        yieldCalls.shift()?.();
+        await Promise.resolve();
+        expect(events).toEqual(['navigation-target']);
+
+        yieldCalls.shift()?.();
+        await Promise.resolve();
+        expect(events).toEqual([
+            'navigation-target',
+            'visible-2',
+        ]);
+    });
+
+    it('isolates synchronous callback throws under scheduler.yield and keeps draining queued work', async () => {
+        const yieldCalls: Array<() => void> = [];
+        vi.stubGlobal('scheduler', {
+            yield: () => new Promise<void>((resolve) => {
+                yieldCalls.push(resolve);
+            }),
+        });
+        const scheduler = createPdfRenderContinuationScheduler();
+        const second = vi.fn();
+
+        scheduler.schedule({
+            key: 'visible:throwing',
+            priority: 'visible',
+            continueRender: () => {
+                throw new Error('continuation boom');
+            },
+        });
+        scheduler.schedule({
+            key: 'visible:next',
+            priority: 'visible',
+            continueRender: second,
+        });
+
+        yieldCalls.shift()?.();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(yieldCalls).toHaveLength(1);
+
+        yieldCalls.shift()?.();
+        await Promise.resolve();
+        expect(second).toHaveBeenCalledOnce();
+    });
+
+    it('closes MessageChannel ports when pending tasks drain and on clear()', async () => {
+        vi.stubGlobal('scheduler', undefined);
+        const createdChannels: Array<{
+            port1: {
+                close: ReturnType<typeof vi.fn>;
+                onmessage: (() => void) | null;
+            };
+            port2: {
+                close: ReturnType<typeof vi.fn>;
+                postMessage: ReturnType<typeof vi.fn>;
+            };
+        }> = [];
+        class TrackingMessageChannel {
+            port1: {
+                close: ReturnType<typeof vi.fn>;
+                onmessage: (() => void) | null;
+            };
+            port2: {
+                close: ReturnType<typeof vi.fn>;
+                postMessage: ReturnType<typeof vi.fn>;
+            };
+            constructor() {
+                this.port1 = {
+                    close: vi.fn(),
+                    onmessage: null,
+                };
+                this.port2 = {
+                    close: vi.fn(),
+                    postMessage: vi.fn(() => {
+                        queueMicrotask(() => {
+                            this.port1.onmessage?.();
+                        });
+                    }),
+                };
+                createdChannels.push(this);
+            }
+        }
+        vi.stubGlobal('MessageChannel', TrackingMessageChannel);
+
+        const scheduler = createPdfRenderContinuationScheduler();
+        const ran = vi.fn();
+        scheduler.schedule({
+            key: 'visible:drain',
+            priority: 'visible',
+            continueRender: ran,
+        });
+        await vi.waitFor(() => expect(ran).toHaveBeenCalledOnce());
+        expect(createdChannels).toHaveLength(1);
+        expect(createdChannels[0]!.port1.close).toHaveBeenCalledOnce();
+        expect(createdChannels[0]!.port2.close).toHaveBeenCalledOnce();
+
+        // Scheduling again creates a fresh channel and clear() closes it immediately.
+        const cancelled = vi.fn();
+        scheduler.schedule({
+            key: 'visible:clear',
+            priority: 'visible',
+            continueRender: cancelled,
+        });
+        scheduler.clear();
+        expect(createdChannels).toHaveLength(2);
+        expect(createdChannels[1]!.port1.close).toHaveBeenCalledOnce();
+        expect(createdChannels[1]!.port2.close).toHaveBeenCalledOnce();
+        await Promise.resolve();
+        expect(cancelled).not.toHaveBeenCalled();
     });
 
     it('serializes paints and runs navigation from a host task before queued background work', () => {

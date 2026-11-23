@@ -7,6 +7,7 @@ import {
 } from 'vitest';
 import { computed } from 'vue';
 import { usePdfViewerMouseInteractions } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerMouseInteractions';
+import { pdfViewportScrollActivity } from '@app/modules/pdf-viewer/runtime/composables/pdf/pdfViewportScrollActivity';
 
 function createMouseEvent(target: EventTarget | null = null) {
     const event = new Event('contextmenu') as MouseEvent;
@@ -133,5 +134,49 @@ describe('usePdfViewerMouseInteractions', () => {
 
         expect(event.preventDefault).toHaveBeenCalledOnce();
         expect(handleDragStart).not.toHaveBeenCalled();
+    });
+
+    it('flushes viewport scroll settlement when selectstart fires on a Text node', () => {
+        class NodeStub {
+            parentElement: ElementStub | null = null;
+        }
+        class ElementStub extends NodeStub {
+            isConnected = true;
+            constructor(private readonly viewport: HTMLElement | null = null) {
+                super();
+            }
+            closest(selector: string) {
+                return selector === '.pdfViewer' ? this.viewport : null;
+            }
+        }
+        vi.stubGlobal('Node', NodeStub);
+        vi.stubGlobal('Element', ElementStub);
+        const viewport = new ElementStub() as unknown as HTMLElement;
+        const parentSpan = new ElementStub(viewport);
+        const textNode = new NodeStub();
+        textNode.parentElement = parentSpan;
+
+        pdfViewportScrollActivity.reset();
+        pdfViewportScrollActivity.markMotion(viewport);
+        expect(pdfViewportScrollActivity.isMotionActive(viewport)).toBe(true);
+
+        const interactions = usePdfViewerMouseInteractions({
+            isSnipActive: () => false,
+            isViewerPanDragModeActive: computed(() => false),
+            cancelPendingSearchScroll: vi.fn(),
+            handleDragStart: vi.fn(),
+            handleDragMove: vi.fn(),
+            stopDrag: vi.fn(),
+            handleViewerClickAnnotation: vi.fn(),
+            handleViewerDblClickAnnotation: vi.fn(),
+            handleViewerContextMenuAnnotation: vi.fn(),
+        });
+
+        try {
+            interactions.handleSelectStart(createMouseEvent(textNode as unknown as EventTarget));
+            expect(pdfViewportScrollActivity.isMotionActive(viewport)).toBe(false);
+        } finally {
+            pdfViewportScrollActivity.reset();
+        }
     });
 });
