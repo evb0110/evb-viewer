@@ -8,6 +8,9 @@ use crate::{flate::deflate_up_filtered_slices, netpbm::PbmP4Image, PdfBilevelDec
 
 /// The largest byte offset representable in a classic 10-digit PDF
 /// cross-reference table entry (`0000000000`..=`9999999999`, ~9.31 GiB).
+/// Automatic PDF 1.5+ cross-reference streams past this offset remain deferred
+/// until vendored `pdfjs-dist` fixes 32-bit shift truncation on >4 GiB xref
+/// stream offsets (GitHub issue #1734).
 const MAX_CLASSIC_XREF_OFFSET: u64 = 9_999_999_999;
 
 fn classic_xref_limit_error(offset: Option<u64>) -> Box<dyn std::error::Error> {
@@ -53,6 +56,23 @@ pub(crate) struct ImagePage {
     pub(crate) payload: ImagePayload,
 }
 
+#[cfg(not(target_family = "wasm"))]
+impl ImagePage {
+    pub(crate) fn payload_bytes(&self) -> u64 {
+        let stream_bytes = match &self.payload {
+            ImagePayload::RawFlate { data, .. }
+            | ImagePayload::Jpeg { data }
+            | ImagePayload::Jpx { data } => data.capacity().max(data.len()) as u64,
+            ImagePayload::Bilevel(stream) => stream.payload_bytes(),
+        };
+        let icc_bytes = self
+            .icc_profile
+            .as_ref()
+            .map_or(0, |profile| profile.capacity().max(profile.len()) as u64);
+        stream_bytes.saturating_add(icc_bytes)
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct PdfPageSize {
     pub width_points: f64,
@@ -87,11 +107,31 @@ pub struct LayeredPdfImage {
     pub payload: LayeredImagePayload,
 }
 
+#[cfg(not(target_family = "wasm"))]
+impl LayeredPdfImage {
+    pub(crate) fn payload_bytes(&self) -> u64 {
+        match &self.payload {
+            LayeredImagePayload::RawFlate { data, .. }
+            | LayeredImagePayload::Jpeg { data }
+            | LayeredImagePayload::Jpx { data } => data.capacity().max(data.len()) as u64,
+        }
+    }
+}
+
 pub struct LayeredPdfPage {
     pub page_size: PdfPageSize,
     pub background: LayeredPdfImage,
     pub foreground_mask: BilevelStream,
     pub foreground_color: Option<[u8; 3]>,
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl LayeredPdfPage {
+    pub(crate) fn payload_bytes(&self) -> u64 {
+        self.background
+            .payload_bytes()
+            .saturating_add(self.foreground_mask.payload_bytes())
+    }
 }
 
 pub struct SoftMaskStream {
@@ -102,6 +142,11 @@ pub struct SoftMaskStream {
 }
 
 impl SoftMaskStream {
+    #[cfg(not(target_family = "wasm"))]
+    pub(crate) fn payload_bytes(&self) -> u64 {
+        self.data.capacity().max(self.data.len()) as u64
+    }
+
     pub(crate) fn encode(width: u32, height: u32, pixels: &[u8]) -> Result<Self> {
         let expected = width as usize * height as usize;
         if width == 0 || height == 0 || pixels.len() != expected {
@@ -125,6 +170,15 @@ pub struct SoftLayeredPdfPage {
     pub foreground_color: Option<[u8; 3]>,
 }
 
+#[cfg(not(target_family = "wasm"))]
+impl SoftLayeredPdfPage {
+    pub(crate) fn payload_bytes(&self) -> u64 {
+        self.background
+            .payload_bytes()
+            .saturating_add(self.foreground_alpha.payload_bytes())
+    }
+}
+
 pub struct AffineMaskedLayeredPdfPage {
     pub page_size: PdfPageSize,
     pub background: LayeredPdfImage,
@@ -136,9 +190,26 @@ pub struct AffineMaskedLayeredPdfPage {
     pub foreground_matrix: [f64; 6],
 }
 
+#[cfg(not(target_family = "wasm"))]
+impl AffineMaskedLayeredPdfPage {
+    pub(crate) fn payload_bytes(&self) -> u64 {
+        self.background
+            .payload_bytes()
+            .saturating_add(self.foreground.payload_bytes())
+            .saturating_add(self.foreground_mask.payload_bytes())
+    }
+}
+
 pub struct MaskPdfPage {
     pub page_size: PdfPageSize,
     pub foreground_mask: BilevelStream,
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl MaskPdfPage {
+    pub(crate) fn payload_bytes(&self) -> u64 {
+        self.foreground_mask.payload_bytes()
+    }
 }
 
 /// A validated bilevel bitmap already reduced to the single PDF stream that
@@ -152,6 +223,11 @@ pub struct BilevelStream {
 }
 
 impl BilevelStream {
+    #[cfg(not(target_family = "wasm"))]
+    pub(crate) fn payload_bytes(&self) -> u64 {
+        self.payload.capacity_bytes()
+    }
+
     pub(crate) fn encode(mask: &PbmP4Image) -> Result<Self> {
         validate_image_mask(mask)?;
         Ok(Self {
@@ -1003,7 +1079,9 @@ fn validate_image_mask(mask: &PbmP4Image) -> Result<()> {
 fn deflate_bytes(data: &[u8]) -> Result<Vec<u8>> {
     let mut encoder = ZlibEncoder::new(Vec::new(), Compression::best());
     encoder.write_all(data)?;
-    Ok(encoder.finish()?)
+    let mut compressed = encoder.finish()?;
+    compressed.shrink_to_fit();
+    Ok(compressed)
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -1029,6 +1107,25 @@ impl BilevelPayload {
             | Self::Flate(data) => data,
         }
     }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn capacity_bytes(&self) -> u64 {
+        match self {
+            Self::PdfJbig2 { data, .. }
+            | Self::Jbig2(data)
+            | Self::CcittG4(data)
+            | Self::Flate(data) => data.capacity().max(data.len()) as u64,
+        }
+    }
+
+    fn shrink_to_fit(&mut self) {
+        match self {
+            Self::PdfJbig2 { data, .. }
+            | Self::Jbig2(data)
+            | Self::CcittG4(data)
+            | Self::Flate(data) => data.shrink_to_fit(),
+        }
+    }
 }
 
 fn encode_mask_payload(mask: &PbmP4Image) -> Result<BilevelPayload> {
@@ -1052,9 +1149,9 @@ fn encode_mask_payload(mask: &PbmP4Image) -> Result<BilevelPayload> {
     // Strict comparisons give equal-length candidates a stable priority:
     // Flate, then Group 4, then JBIG2.
     let fallback = encode_fallback_bilevel_payload(mask)?;
-    match jbig2 {
-        Ok(data) if data.len() < fallback.data().len() => Ok(BilevelPayload::Jbig2(data)),
-        Ok(_) => Ok(fallback),
+    let mut chosen = match jbig2 {
+        Ok(data) if data.len() < fallback.data().len() => BilevelPayload::Jbig2(data),
+        Ok(_) => fallback,
         Err(error) => {
             // Keep the verified source stencil and select the smallest remaining
             // lossless payload; a JBIG2 failure is not a reason to discard valid
@@ -1062,9 +1159,11 @@ fn encode_mask_payload(mask: &PbmP4Image) -> Result<BilevelPayload> {
             eprintln!(
                 "warning: verified JBIG2 encoding failed for {width}x{height} bilevel image; falling back: {error}"
             );
-            Ok(fallback)
+            fallback
         }
-    }
+    };
+    chosen.shrink_to_fit();
+    Ok(chosen)
 }
 
 fn encode_fallback_bilevel_payload(mask: &PbmP4Image) -> Result<BilevelPayload> {

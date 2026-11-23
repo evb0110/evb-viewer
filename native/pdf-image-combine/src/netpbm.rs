@@ -37,6 +37,10 @@ impl<R: Read> CountingReader<R> {
         }
     }
 
+    fn bytes_read(&self) -> u64 {
+        self.offset
+    }
+
     fn read_byte(&mut self) -> Result<Option<u8>> {
         let mut byte = [0u8; 1];
         if self.inner.read(&mut byte)? == 0 {
@@ -169,6 +173,19 @@ fn read_netpbm_file_inner(file: File, max_pixels: u64, allow_pbm: bool) -> Resul
         return Err("Expected a PGM P5 or PPM P6 payload".into());
     }
     let payload_size = netpbm_payload_size(header)?;
+    let required_bytes = reader
+        .bytes_read()
+        .checked_add(u64::try_from(payload_size).map_err(|_| "Invalid Netpbm payload size")?)
+        .ok_or("Invalid Netpbm payload size")?;
+    let file_len = reader.inner.get_ref().metadata()?.len();
+    if file_len < required_bytes {
+        let message = if allow_pbm {
+            "Truncated PBM P4 payload"
+        } else {
+            "Truncated Netpbm payload"
+        };
+        return Err(message.into());
+    }
     let mut pixels = vec![0u8; payload_size];
     reader.read_exact_counted(&mut pixels)?;
     Ok(OwnedNetpbm {
@@ -541,6 +558,30 @@ mod tests {
             std::fs::remove_file(path).unwrap();
             assert!(error.to_string().contains("11x1"));
         }
+    }
+
+    #[test]
+    fn rejects_truncated_pgm_file_before_allocating_declared_raster() {
+        // 100_000 x 100_000 grayscale declares a 10 GB raster (within
+        // max_pixels) in a tiny header-only file; on 32-bit targets use
+        // 32_768 x 32_768 (1 GiB) so `netpbm_payload_size` reaches the
+        // metadata check rather than overflowing `usize`.
+        #[cfg(target_pointer_width = "64")]
+        let (dim, header) = (100_000u64, b"P5\n100000 100000\n255\n".as_slice());
+        #[cfg(not(target_pointer_width = "64"))]
+        let (dim, header) = (32_768u64, b"P5\n32768 32768\n255\n".as_slice());
+        let path = std::env::temp_dir().join(format!(
+            "evb-pdf-image-combine-truncated-pgm-{}.pgm",
+            std::process::id()
+        ));
+        std::fs::write(&path, header).unwrap();
+        let result = read_netpbm_file(std::fs::File::open(&path).unwrap(), dim * dim);
+        let _ = std::fs::remove_file(&path);
+        let error = result.unwrap_err();
+        assert!(
+            error.to_string().contains("Truncated"),
+            "unexpected error: {error}"
+        );
     }
 
     #[test]

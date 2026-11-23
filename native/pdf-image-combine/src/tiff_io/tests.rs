@@ -610,3 +610,452 @@ fn assert_no_sibling_temporary(output_path: &Path) {
         .collect();
     assert!(leftovers.is_empty(), "temporary output was not cleaned");
 }
+
+#[cfg(not(target_family = "wasm"))]
+#[test]
+fn incompressible_gray8_tiff_reservation_covers_predictor_and_filter_row() {
+    const WIDTH: u32 = 512;
+    const HEIGHT: u32 = 512;
+    let decoded_bytes = u64::from(WIDTH) * u64::from(HEIGHT);
+    let filter_row_bytes = u64::from(WIDTH) + 1;
+
+    let mut state = 0x51a7_3c19u32;
+    let mut pixels = Vec::with_capacity(decoded_bytes as usize);
+    for _ in 0..decoded_bytes {
+        state ^= state << 13;
+        state ^= state >> 17;
+        state ^= state << 5;
+        pixels.push((state & 0xff) as u8);
+    }
+
+    let tiff_bytes = tiff_with_axes::<colortype::Gray8>(&pixels, WIDTH, HEIGHT, 1);
+
+    let budget = crate::PipelineBudget::new(4, 16 * 1024 * 1024);
+    let mut reservation = budget.empty_reservation(0);
+    let mut actual_stream_len = 0u64;
+    let mut actual_stream_capacity = 0u64;
+    let pages = visit_tiff_pdf_pages_from_bytes_budgeted(
+        &tiff_bytes,
+        crate::DEFAULT_MAX_IMAGE_PIXELS,
+        None,
+        16,
+        Some(TiffBudget::Page(&mut reservation)),
+        |page| {
+            match &page.payload {
+                ImagePayload::RawFlate { data, .. } => {
+                    actual_stream_len = data.len() as u64;
+                    actual_stream_capacity = data.capacity() as u64;
+                }
+                _ => panic!("expected RawFlate payload for Gray8 TIFF"),
+            }
+            assert_eq!(page.payload_bytes(), actual_stream_capacity);
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert_eq!(pages, 1);
+    // Incompressible 512x512 Gray8 with 1-byte Up-filter predictor per row
+    // produces a Flate stream > 262,144 + 512 = 262,656 bytes.
+    assert!(
+        actual_stream_len > decoded_bytes + u64::from(HEIGHT),
+        "expected incompressible Gray8 stream > {}, got {actual_stream_len}",
+        decoded_bytes + u64::from(HEIGHT)
+    );
+
+    // Growing `Vec` capacity during Flate encoding doubles past 256 KiB to
+    // >= 524,480 bytes before `shrink_to_fit()` reclaims the slack.
+    let peak_encoder_capacity = actual_stream_len.next_power_of_two().max(524_480);
+    let actual_peak = decoded_bytes + filter_row_bytes + peak_encoder_capacity;
+    let initial_reservation = budget.metrics().peak_in_flight_bytes;
+    assert!(
+        initial_reservation >= actual_peak,
+        "initial reservation {initial_reservation} < decoded ({decoded_bytes}) + filter_row ({filter_row_bytes}) + peak_encoder_capacity ({peak_encoder_capacity}) = {actual_peak}"
+    );
+    assert!(
+        reservation.held_bytes() >= actual_stream_capacity,
+        "retained reservation {} < actual stream capacity {}",
+        reservation.held_bytes(),
+        actual_stream_capacity
+    );
+    assert_eq!(
+        actual_stream_capacity, actual_stream_len,
+        "shrink_to_fit should reclaim Flate Vec doubling slack"
+    );
+
+    let retained_upper =
+        estimate_tiff_pdf_encoded_stream_upper_bound(WIDTH, HEIGHT, TiffColorType::Gray(8), 1);
+    assert!(
+        retained_upper >= actual_stream_capacity,
+        "retained stream upper bound {retained_upper} < actual stream capacity {actual_stream_capacity}"
+    );
+
+    // Multi-frame probe must also add the full retained first-frame stream
+    // upper bound (not peak/2) to the second frame's peak.
+    let mut two_frame_tiff = Vec::new();
+    {
+        let mut encoder = TiffEncoder::new(Cursor::new(&mut two_frame_tiff)).unwrap();
+        encoder
+            .write_image::<colortype::Gray8>(WIDTH, HEIGHT, &pixels)
+            .unwrap();
+        encoder
+            .write_image::<colortype::Gray8>(WIDTH, HEIGHT, &pixels)
+            .unwrap();
+    }
+    let probed_two_frame_peak =
+        probe_tiff_pdf_peak_bytes_from_bytes(&two_frame_tiff, crate::DEFAULT_MAX_IMAGE_PIXELS, 16);
+    let single_frame_peak =
+        estimate_tiff_pdf_frame_peak_bytes(WIDTH, HEIGHT, TiffColorType::Gray(8), 1);
+    assert!(
+        probed_two_frame_peak >= actual_stream_capacity + single_frame_peak,
+        "two-frame probe {probed_two_frame_peak} < retained ({actual_stream_capacity}) + second_peak ({single_frame_peak})"
+    );
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn build_uncompressed_bilevel_tiff(
+    width: u32,
+    height: u32,
+    orientation: u16,
+    packed_bitmap: &[u8],
+) -> Vec<u8> {
+    let strip_offset = 8u32;
+    let strip_len = packed_bitmap.len() as u32;
+    let ifd_offset = strip_offset + strip_len;
+    let mut tiff_bytes = Vec::with_capacity(ifd_offset as usize + 126);
+    tiff_bytes.extend_from_slice(b"II");
+    tiff_bytes.extend_from_slice(&42u16.to_le_bytes());
+    tiff_bytes.extend_from_slice(&ifd_offset.to_le_bytes());
+    tiff_bytes.extend_from_slice(packed_bitmap);
+
+    let entries: [(u16, u16, u32, u32); 10] = [
+        (256, 4, 1, width),                  // ImageWidth
+        (257, 4, 1, height),                 // ImageLength
+        (258, 3, 1, 1),                      // BitsPerSample = 1
+        (259, 3, 1, 1),                      // Compression = None
+        (262, 3, 1, 1),                      // PhotometricInterpretation = BlackIsZero
+        (273, 4, 1, strip_offset),           // StripOffsets
+        (274, 3, 1, u32::from(orientation)), // Orientation
+        (277, 3, 1, 1),                      // SamplesPerPixel = 1
+        (278, 4, 1, height),                 // RowsPerStrip
+        (279, 4, 1, strip_len),              // StripByteCounts
+    ];
+    tiff_bytes.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+    for (tag, field_type, count, value) in entries {
+        tiff_bytes.extend_from_slice(&tag.to_le_bytes());
+        tiff_bytes.extend_from_slice(&field_type.to_le_bytes());
+        tiff_bytes.extend_from_slice(&count.to_le_bytes());
+        tiff_bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    tiff_bytes.extend_from_slice(&0u32.to_le_bytes());
+    tiff_bytes
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[test]
+fn rotated_bilevel_tiff_reservation_covers_swapped_stride_and_encoded_stream() {
+    const WIDTH: u32 = 8_192;
+    const HEIGHT: u32 = 1;
+    // Source 8192x1 packs into 1,024 bytes; rotated 1x8192 (orientation 6)
+    // packs into 8,192 bytes (1 byte/row * 8,192 rows) => 9,216 bytes coexisting.
+    let packed_row: Vec<u8> = (0..1_024usize)
+        .map(|index| ((index.wrapping_mul(73) ^ (index >> 2)) & 0xff) as u8)
+        .collect();
+    let tiff_bytes = build_uncompressed_bilevel_tiff(WIDTH, HEIGHT, 6, &packed_row);
+
+    let budget = crate::PipelineBudget::new(4, 16 * 1024 * 1024);
+    let mut reservation = budget.empty_reservation(0);
+    let mut encoded_stream_bytes = 0u64;
+    let pages = visit_tiff_pdf_pages_from_bytes_budgeted(
+        &tiff_bytes,
+        crate::DEFAULT_MAX_IMAGE_PIXELS,
+        None,
+        16,
+        Some(TiffBudget::Page(&mut reservation)),
+        |page| {
+            assert_eq!((page.width, page.height), (HEIGHT, WIDTH));
+            encoded_stream_bytes = page.payload_bytes();
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert_eq!(pages, 1);
+
+    let expected_min = 9_216u64 + encoded_stream_bytes;
+    let initial_reservation = budget.metrics().peak_in_flight_bytes;
+    assert!(
+        initial_reservation >= expected_min,
+        "rotated 8192x1 bilevel reservation {initial_reservation} < 9,216 + encoded_stream ({encoded_stream_bytes}) = {expected_min}"
+    );
+    assert_eq!(
+        reservation.held_bytes(),
+        encoded_stream_bytes,
+        "post-encode reservation must shrink to retained bilevel stream size"
+    );
+
+    let probed_peak =
+        probe_tiff_pdf_peak_bytes_from_bytes(&tiff_bytes, crate::DEFAULT_MAX_IMAGE_PIXELS, 16);
+    assert!(
+        probed_peak >= expected_min,
+        "probed rotated bilevel peak {probed_peak} < {expected_min}"
+    );
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[test]
+fn rotated_4x8192_bilevel_tiff_reservation_covers_encoding_candidates_peak() {
+    const WIDTH: u32 = 4;
+    const HEIGHT: u32 = 8_192;
+    // Source 4x8192 packs into 8,192 bytes (1 byte/row * 8,192 rows);
+    // orientation 6 rotates to 8,192x4 (4,096 bytes), where `encode_mask_payload`
+    // holds the oriented bitmap + JBIG2 + Flate + CCITT G4 candidates
+    // simultaneously (>= 21,868 bytes).
+    let mut state = 0x7f4a_7c15u32;
+    let packed_bitmap: Vec<u8> = (0..8_192usize)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            (state as u8) & 0xf0
+        })
+        .collect();
+    let tiff_bytes = build_uncompressed_bilevel_tiff(WIDTH, HEIGHT, 6, &packed_bitmap);
+
+    let budget = crate::PipelineBudget::new(4, 16 * 1024 * 1024);
+    let mut reservation = budget.empty_reservation(0);
+    let mut retained_bytes = 0u64;
+    let pages = visit_tiff_pdf_pages_from_bytes_budgeted(
+        &tiff_bytes,
+        crate::DEFAULT_MAX_IMAGE_PIXELS,
+        None,
+        16,
+        Some(TiffBudget::Page(&mut reservation)),
+        |page| {
+            assert_eq!((page.width, page.height), (HEIGHT, WIDTH));
+            retained_bytes = page.payload_bytes();
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert_eq!(pages, 1);
+
+    let initial_reservation = budget.metrics().peak_in_flight_bytes;
+    assert!(
+        initial_reservation >= 21_868,
+        "4x8192 orientation-6 bilevel reservation {initial_reservation} < 21,868 candidate coexistence peak"
+    );
+    assert_eq!(reservation.held_bytes(), retained_bytes);
+
+    let probed_peak =
+        probe_tiff_pdf_peak_bytes_from_bytes(&tiff_bytes, crate::DEFAULT_MAX_IMAGE_PIXELS, 16);
+    assert!(
+        probed_peak >= 21_868,
+        "probed 4x8192 orientation-6 bilevel peak {probed_peak} < 21,868"
+    );
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[test]
+fn rotated_2x8192_checkerboard_bilevel_tiff_covers_group4_transition_and_output_buffers() {
+    const WIDTH: u32 = 2;
+    const HEIGHT: u32 = 8_192;
+    // Alternating checkerboard in 2x8192 (orientation 6 -> 8192x2):
+    // row y=0..8192 alternates 0b1000_0000 and 0b0100_0000 so the rotated
+    // 8,192x2 rows alternate every pixel, forcing `fax::Encoder` to grow both
+    // `reference` and `current` `Vec<u32>` buffers to 8,192 * 4 = 32,768 bytes
+    // each (65,536 bytes) alongside a 16,384-byte `VecWriter` output buffer
+    // (81,920 bytes total for Group 4 alone).
+    let packed_bitmap: Vec<u8> = (0..HEIGHT as usize)
+        .map(|y| if y % 2 == 0 { 0b1000_0000 } else { 0b0100_0000 })
+        .collect();
+    let tiff_bytes = build_uncompressed_bilevel_tiff(WIDTH, HEIGHT, 6, &packed_bitmap);
+
+    // Measure the exact peak reservation through `visit_tiff_pdf_pages_from_bytes_budgeted`.
+    let group4_measured_peak = 32_768u64 * 2 + 16_384;
+    let budget = crate::PipelineBudget::new(4, 16 * 1024 * 1024);
+    let mut reservation = budget.empty_reservation(0);
+    let mut retained_bytes = 0u64;
+    let pages = visit_tiff_pdf_pages_from_bytes_budgeted(
+        &tiff_bytes,
+        crate::DEFAULT_MAX_IMAGE_PIXELS,
+        None,
+        16,
+        Some(TiffBudget::Page(&mut reservation)),
+        |page| {
+            assert_eq!((page.width, page.height), (HEIGHT, WIDTH));
+            retained_bytes = page.payload_bytes();
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert_eq!(pages, 1);
+
+    let initial_reservation = budget.metrics().peak_in_flight_bytes;
+    assert!(
+        initial_reservation >= group4_measured_peak,
+        "2x8192 orientation-6 checkerboard reservation {initial_reservation} < Group 4 measured peak {group4_measured_peak}"
+    );
+    assert_eq!(reservation.held_bytes(), retained_bytes);
+
+    // Also verify end-to-end `write_pdf_impl` in both `FramePolicy::All` and
+    // `FramePolicy::ExactlyOne` modes reserves >= Group 4 measured peak.
+    for frames in [crate::FramePolicy::All, crate::FramePolicy::ExactlyOne] {
+        let (pdf, metrics) = crate::write_pdf_impl(
+            Vec::new(),
+            [crate::PageSpec::Image {
+                page_size: None,
+                placement: None,
+                rotation_degrees: 0,
+                image: crate::ImageSpec {
+                    source: crate::InputSource::Bytes {
+                        file_name: "checkerboard-2x8192.tif",
+                        data: &tiff_bytes,
+                    },
+                    compression: crate::ImageCompression::Auto,
+                    processing: crate::ImageProcessing::None,
+                    size_guardrail: None,
+                },
+                frames,
+            }],
+            &crate::PdfBuildOptions {
+                worker_threads: 2,
+                max_in_flight_bytes: 16 * 1024 * 1024,
+                ..crate::PdfBuildOptions::default()
+            },
+            |_| {},
+        )
+        .unwrap();
+        assert!(String::from_utf8_lossy(&pdf).contains("/Width 8192 /Height 2"));
+        assert!(
+            metrics.peak_in_flight_bytes >= group4_measured_peak,
+            "frames={frames:?} peak_in_flight_bytes={} < Group 4 measured peak {group4_measured_peak}",
+            metrics.peak_in_flight_bytes
+        );
+    }
+
+    // Also verify a Group-4-dominant fixture (64x8192 orientation 6 -> 8192x64)
+    // where CCITT Group 4's transition + output buffers strictly exceed the
+    // Flate sub-phase peak (including the 416 KiB Flate encoder allowance),
+    // ensuring this test fails if Group 4 accounting is ever removed.
+    const G4_DOMINANT_WIDTH: u32 = 64;
+    const G4_DOMINANT_HEIGHT: u32 = 8_192;
+    let dst_bitmap_bytes = u64::from(G4_DOMINANT_HEIGHT)
+        .div_ceil(8)
+        .saturating_mul(u64::from(G4_DOMINANT_WIDTH));
+    let jbig2_retained_upper = dst_bitmap_bytes.saturating_mul(2).saturating_add(256);
+    let encoded_upper = estimate_tiff_pdf_encoded_stream_upper_bound(
+        G4_DOMINANT_WIDTH,
+        G4_DOMINANT_HEIGHT,
+        TiffColorType::Gray(1),
+        6,
+    );
+    let flate_subphase_peak = dst_bitmap_bytes
+        .saturating_add(jbig2_retained_upper)
+        .saturating_add(FLATE_ENCODER_FIXED_OVERHEAD_BYTES)
+        .saturating_add(encoded_upper.saturating_mul(2));
+    let g4_dominant_estimate = estimate_tiff_pdf_frame_peak_bytes(
+        G4_DOMINANT_WIDTH,
+        G4_DOMINANT_HEIGHT,
+        TiffColorType::Gray(1),
+        6,
+    );
+    assert!(
+        g4_dominant_estimate > flate_subphase_peak,
+        "64x8192 Group 4 estimate ({g4_dominant_estimate}) must strictly dominate Flate sub-phase peak ({flate_subphase_peak})"
+    );
+    let row_bytes = (G4_DOMINANT_WIDTH as usize).div_ceil(8);
+    let mut g4_dominant_bitmap = Vec::with_capacity(row_bytes * G4_DOMINANT_HEIGHT as usize);
+    for y in 0..G4_DOMINANT_HEIGHT as usize {
+        let byte = if y % 2 == 0 { 0xAA } else { 0x55 };
+        g4_dominant_bitmap.extend(std::iter::repeat_n(byte, row_bytes));
+    }
+    let g4_dominant_tiff = build_uncompressed_bilevel_tiff(
+        G4_DOMINANT_WIDTH,
+        G4_DOMINANT_HEIGHT,
+        6,
+        &g4_dominant_bitmap,
+    );
+    let g4_budget = crate::PipelineBudget::new(4, 16 * 1024 * 1024);
+    let mut g4_reservation = g4_budget.empty_reservation(0);
+    let g4_pages = visit_tiff_pdf_pages_from_bytes_budgeted(
+        &g4_dominant_tiff,
+        crate::DEFAULT_MAX_IMAGE_PIXELS,
+        None,
+        16,
+        Some(TiffBudget::Page(&mut g4_reservation)),
+        |page| {
+            assert_eq!(
+                (page.width, page.height),
+                (G4_DOMINANT_HEIGHT, G4_DOMINANT_WIDTH)
+            );
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert_eq!(g4_pages, 1);
+    assert!(
+        g4_budget.metrics().peak_in_flight_bytes == g4_dominant_estimate
+            && g4_budget.metrics().peak_in_flight_bytes > flate_subphase_peak,
+        "64x8192 Group 4 reservation {} must match Group 4 estimate ({g4_dominant_estimate}) and exceed Flate sub-phase peak ({flate_subphase_peak})",
+        g4_budget.metrics().peak_in_flight_bytes
+    );
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[test]
+fn tiny_gray8_tiff_estimate_accounts_for_flate2_staging_and_zlib_backend_state() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    const MEASURED_FLATE_ENCODER_FLOOR: u64 = 412_736;
+    let estimate = estimate_tiff_pdf_frame_peak_bytes(1, 1, TiffColorType::Gray(8), 1);
+    assert!(
+        estimate >= MEASURED_FLATE_ENCODER_FLOOR,
+        "1x1 Gray8 TIFF estimate {estimate} must cover flate2 staging + zlib-rs backend state (>= {MEASURED_FLATE_ENCODER_FLOOR})"
+    );
+
+    let tiff_bytes = tiff_with_axes::<colortype::Gray8>(&[0x42], 1, 1, 1);
+    let probed =
+        probe_tiff_pdf_peak_bytes_from_bytes(&tiff_bytes, crate::DEFAULT_MAX_IMAGE_PIXELS, 16);
+    assert!(
+        probed >= MEASURED_FLATE_ENCODER_FLOOR,
+        "1x1 Gray8 TIFF probed peak {probed} must cover flate2 staging + zlib-rs backend state (>= {MEASURED_FLATE_ENCODER_FLOOR})"
+    );
+
+    // Under a 64 KiB cap, a 1x1 Gray8 TIFF must trigger oversized-page
+    // exclusivity (blocking while another reservation is active rather than
+    // admitting concurrently).
+    let budget = crate::PipelineBudget::new(4, 64 * 1024);
+    let hold = budget.reserve_standalone_bytes(0, 1024).unwrap();
+    let (done_tx, done_rx) = mpsc::channel();
+    std::thread::scope(|scope| {
+        let budget = &budget;
+        let tiff_bytes = &tiff_bytes;
+        scope.spawn(move || {
+            let pages = visit_tiff_pdf_pages_from_bytes_budgeted(
+                tiff_bytes,
+                crate::DEFAULT_MAX_IMAGE_PIXELS,
+                None,
+                16,
+                Some(TiffBudget::Standalone(budget, 1)),
+                |_| Ok(()),
+            )
+            .unwrap();
+            assert_eq!(pages, 1);
+            done_tx.send(()).unwrap();
+        });
+
+        assert!(
+            done_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+            "1x1 Gray8 TIFF must wait for oversized-page exclusivity under a 64 KiB budget"
+        );
+        drop(hold);
+        done_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("1x1 Gray8 TIFF must proceed exclusively once active bytes drop to 0");
+    });
+    assert_eq!(
+        budget.metrics().peak_in_flight_bytes,
+        estimate,
+        "oversized 1x1 Gray8 TIFF must never overlap with the 1 KiB sibling reservation"
+    );
+}
