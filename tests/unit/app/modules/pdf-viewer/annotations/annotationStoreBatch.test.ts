@@ -106,13 +106,14 @@ describe('AnnotationStore batched notifications', () => {
         store.subscribe(allEntities => laterSnapshotIncludingDeleted = allEntities);
         expect(laterSnapshotIncludingDeleted).toEqual(originalDeletion);
 
-        const clone = laterSnapshotIncludingDeleted[0]!;
-        expect(clone.kind).toBe('note');
-        if (clone.kind !== 'note') {
+        const published = laterSnapshotIncludingDeleted[0]!;
+        expect(published.kind).toBe('note');
+        if (published.kind !== 'note') {
             throw new Error('Expected a note');
         }
-        clone.position.left = 0.9;
-        Object.assign(clone, {contents: 'reader-only change'});
+        expect(() => { published.position.left = 0.9; }).toThrow(TypeError);
+        expect(() => Object.assign(published, {contents: 'reader-only change'})).toThrow(TypeError);
+        expect(() => (laterSnapshotIncludingDeleted as AnnotationEntity[]).pop()).toThrow(TypeError);
         expect(store.get(created.identity.id)).toMatchObject({
             deleted: true,
             contents: 'persisted',
