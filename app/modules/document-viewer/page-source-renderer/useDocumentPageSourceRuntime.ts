@@ -52,10 +52,8 @@ import {
     type IDocumentNavigationTicket,
 } from '@app/modules/document-viewer/navigation/documentNavigationRequest';
 import type { IDocumentViewportSessionState } from '@app/modules/document-viewer/runtime/documentOpenSurfaceReducer';
-import {
-    workspaceSurfaceBudgetController,
-    type TWorkspaceResourcePressureLevel,
-} from '@app/modules/document-viewer/runtime/workspaceSurfaceBudgetController';
+import { workspaceSurfaceBudgetController } from '@app/modules/document-viewer/runtime/workspaceSurfaceBudgetController';
+import type { TMemoryPressureLevel } from '@app/utils/viewerResidencyPolicy';
 import { createRafCoalescedCallback } from '@app/utils/createRafCoalescedCallback';
 import {
     createColdOpenProvisionalDocumentPageMetrics,
@@ -290,12 +288,9 @@ export function resolveDocumentPageZoomAnchorLayoutsBounded(
 }
 export function shouldRetainInactiveDocumentPageSourceLease(
     retainWarmLease: boolean,
-    pressureLevel: TWorkspaceResourcePressureLevel,
+    pressureLevel: TMemoryPressureLevel,
 ) {
-    return retainWarmLease && [
-        'healthy',
-        'guarded',
-    ].includes(pressureLevel);
+    return retainWarmLease && pressureLevel === 'none';
 }
 export function resolveDocumentPageSourceReadyEdgeSemanticPage(
     viewportSession: Pick<

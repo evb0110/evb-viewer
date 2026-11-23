@@ -1,18 +1,11 @@
 import { resolveWorkspaceMemoryBudget } from '@app/modules/document-viewer/runtime/workspaceMemoryBudget';
+import type { TMemoryPressureLevel } from '@app/utils/viewerResidencyPolicy';
 
 export type TWorkspaceSurfaceCategory =
     | 'pdf-page-canvas'
     | 'pdf-annotation-canvas'
     | 'pdf-thumbnail-canvas'
     | 'djvu-preview';
-
-export type TWorkspaceResourcePressureLevel =
-    | 'healthy'
-    | 'guarded'
-    | 'moderate'
-    | 'critical'
-    | 'emergency'
-    | 'post-crash-safe-mode';
 
 export interface IWorkspaceSurfaceLease {
     readonly bytes: number;
@@ -29,7 +22,7 @@ export interface IWorkspaceSurfaceBudgetSnapshot {
     reservedBytes: number;
     reservedBytesByCategory: Readonly<Record<TWorkspaceSurfaceCategory, number>>;
     leaseCount: number;
-    pressureLevel: TWorkspaceResourcePressureLevel;
+    pressureLevel: TMemoryPressureLevel;
     effectiveMaxBytes: number;
 }
 
@@ -53,7 +46,8 @@ export interface IWorkspaceSurfaceBudgetController {
     releaseScope: (scopeId: string) => void;
     enforceBudget: () => boolean;
     getSnapshot: () => IWorkspaceSurfaceBudgetSnapshot;
-    setPressureLevel: (level: TWorkspaceResourcePressureLevel) => void;
+    setPressureLevel: (level: TMemoryPressureLevel) => void;
+    setBudget: (budget: {maxBytes: number; pressureLevel: TMemoryPressureLevel}) => void;
 }
 
 const SURFACE_CATEGORIES: readonly TWorkspaceSurfaceCategory[] = [
@@ -70,11 +64,12 @@ function normalizeSurfaceBytes(bytes: number) {
 export function createWorkspaceSurfaceBudgetController(
     configuredMaxBytes?: number,
 ): IWorkspaceSurfaceBudgetController {
-    // The module singleton is created at import time, before the platform bridge exists.
-    let resolvedMaxBytes = configuredMaxBytes;
+    // The module singleton is created at import time, before host memory is known;
+    // the workspace memory monitor replaces this default through setBudget.
+    let maxBytes = configuredMaxBytes;
     function getMaxBytes() {
-        resolvedMaxBytes ??= resolveWorkspaceMemoryBudget().maxRasterSurfaceBytes;
-        return resolvedMaxBytes;
+        maxBytes ??= resolveWorkspaceMemoryBudget().maxRasterSurfaceBytes;
+        return maxBytes;
     }
     interface ILeaseEntry {
         bytes: number;
@@ -86,16 +81,13 @@ export function createWorkspaceSurfaceBudgetController(
     }
     const leasesByScope = new Map<string, Set<ILeaseEntry>>();
     let reservedBytes = 0;
-    let pressureLevel: TWorkspaceResourcePressureLevel = 'healthy';
+    let pressureLevel: TMemoryPressureLevel = 'none';
     let nextSequence = 0;
 
-    const pressureBudgetScale: Record<TWorkspaceResourcePressureLevel, number> = {
-        healthy: 1,
-        guarded: 0.9,
+    const pressureBudgetScale: Record<TMemoryPressureLevel, number> = {
+        none: 1,
         moderate: 0.75,
         critical: 0.5,
-        emergency: 0.25,
-        'post-crash-safe-mode': 0.2,
     };
 
     function getEffectiveMaxBytes() {
@@ -140,14 +132,14 @@ export function createWorkspaceSurfaceBudgetController(
         }
     }
 
-    function reserve(options: {
-        scopeId: string;
-        category: TWorkspaceSurfaceCategory;
-        bytes: number;
-        evict?: (() => void) | undefined;
-        canEvict?: (() => boolean) | undefined;
-        priority?: number | undefined;
-    }): IWorkspaceSurfaceLease {
+    /**
+     * A lease keeps the admission rule it was created under. A required lease
+     * (`reserve`) is admitted over the cap, so its growth is bounded by its own
+     * size: the other required surfaces that hold the ledger above the cap are
+     * not its to evict. A provisional lease (`tryReserve`) grows only into room
+     * that exists or can be reclaimed.
+     */
+    function admit(options: Parameters<IWorkspaceSurfaceBudgetController['reserve']>[0], required: boolean): IWorkspaceSurfaceLease {
         const entry = {
             bytes: normalizeSurfaceBytes(options.bytes),
             category: options.category,
@@ -184,13 +176,16 @@ export function createWorkspaceSurfaceBudgetController(
                 if (released || !scopeLeases.has(entry)) return false;
                 const nextBytes = normalizeSurfaceBytes(bytes);
                 const increase = nextBytes - entry.bytes;
-                const reclaimable = getEvictionCandidates().filter(candidate => candidate.entry !== entry)
-                    .reduce((sum, candidate) => sum + candidate.entry.bytes, 0);
-                if (increase > 0 && reservedBytes + increase - reclaimable > getEffectiveMaxBytes()) return false;
+                const admittedBytes = required
+                    ? nextBytes
+                    : reservedBytes + increase - getEvictionCandidates()
+                        .filter(candidate => candidate.entry !== entry)
+                        .reduce((sum, candidate) => sum + candidate.entry.bytes, 0);
+                if (increase > 0 && admittedBytes > getEffectiveMaxBytes()) return false;
                 reservedBytes += increase;
                 entry.bytes = nextBytes;
                 evictToBudget();
-                return scopeLeases.has(entry) && (increase <= 0 || reservedBytes <= getEffectiveMaxBytes());
+                return scopeLeases.has(entry) && (required || increase <= 0 || reservedBytes <= getEffectiveMaxBytes());
             },
             release() {
                 if (released) {
@@ -243,13 +238,21 @@ export function createWorkspaceSurfaceBudgetController(
         };
     }
 
-    function setPressureLevel(level: TWorkspaceResourcePressureLevel) {
+    function setPressureLevel(level: TMemoryPressureLevel) {
         pressureLevel = level;
         evictToBudget();
     }
 
+    // One eviction pass against the final cap: applying the cap and the level
+    // separately would evict against whichever intermediate product is lower.
+    function setBudget(budget: {maxBytes: number; pressureLevel: TMemoryPressureLevel}) {
+        maxBytes = normalizeSurfaceBytes(budget.maxBytes);
+        pressureLevel = budget.pressureLevel;
+        evictToBudget();
+    }
+
     return {
-        reserve,
+        reserve: options => admit(options, true),
         tryReserve(options) {
             const requestedBytes = normalizeSurfaceBytes(options.bytes);
             const bytesToReclaim = Math.max(
@@ -268,7 +271,7 @@ export function createWorkspaceSurfaceBudgetController(
                     return null;
                 }
             }
-            const lease = reserve(options);
+            const lease = admit(options, false);
             if (reservedBytes <= getEffectiveMaxBytes()) {
                 return lease;
             }
@@ -282,6 +285,7 @@ export function createWorkspaceSurfaceBudgetController(
         },
         getSnapshot,
         setPressureLevel,
+        setBudget,
     };
 }
 

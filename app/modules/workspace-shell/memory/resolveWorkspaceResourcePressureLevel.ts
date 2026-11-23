@@ -1,40 +1,25 @@
 import type { ISystemMemoryInfo } from '@contracts/systemPlatformFeature';
-import type {
-    IWorkspaceSurfaceBudgetSnapshot,
-    TWorkspaceResourcePressureLevel,
-} from '@app/modules/document-viewer/public';
+import type { TMemoryPressureLevel } from '@app/modules/document-viewer/public';
 
 export interface IWorkspaceMemoryPressureSample {
     memoryInfo: ISystemMemoryInfo | null;
-    surfaces: Pick<IWorkspaceSurfaceBudgetSnapshot, 'maxBytes' | 'reservedBytes'>;
     systemFreeReserveBytes: number;
-    postCrashSafeMode?: boolean | undefined;
 }
 
+/**
+ * Pressure follows host memory only. The raster ledger's own fill level is not
+ * an input: shrinking the budget on a full ledger evicted surfaces, the emptier
+ * ledger then read as healthy, and the next sample refilled it.
+ */
 export function resolveWorkspaceResourcePressureLevel(
     sample: IWorkspaceMemoryPressureSample,
-): TWorkspaceResourcePressureLevel {
-    if (sample.postCrashSafeMode) {
-        return 'post-crash-safe-mode';
+): TMemoryPressureLevel {
+    if (!sample.memoryInfo || sample.systemFreeReserveBytes <= 0) {
+        return 'none';
     }
-    const reservationRatio = sample.surfaces.maxBytes > 0
-        ? sample.surfaces.reservedBytes / sample.surfaces.maxBytes
-        : 0;
-    const availableRatio = sample.memoryInfo && sample.systemFreeReserveBytes > 0
-        ? sample.memoryInfo.availableBytes / sample.systemFreeReserveBytes
-        : Number.POSITIVE_INFINITY;
-
-    if (availableRatio <= 0.25 || reservationRatio >= 1.2) {
-        return 'emergency';
-    }
-    if (availableRatio <= 0.5 || reservationRatio >= 1) {
+    const availableRatio = sample.memoryInfo.availableBytes / sample.systemFreeReserveBytes;
+    if (availableRatio <= 0.5) {
         return 'critical';
     }
-    if (availableRatio <= 0.75 || reservationRatio >= 0.9) {
-        return 'moderate';
-    }
-    if (availableRatio < 1 || reservationRatio >= 0.75) {
-        return 'guarded';
-    }
-    return 'healthy';
+    return availableRatio < 1 ? 'moderate' : 'none';
 }

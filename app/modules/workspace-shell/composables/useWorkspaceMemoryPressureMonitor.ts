@@ -3,29 +3,11 @@ import { getSystemCapability } from '@app/utils/getSystemCapability';
 import {
     resolveWorkspaceMemoryBudget,
     workspaceSurfaceBudgetController,
-    type TMemoryPressureLevel,
-    type TWorkspaceResourcePressureLevel,
 } from '@app/modules/document-viewer/public';
 import { resolveWorkspaceResourcePressureLevel } from '@app/modules/workspace-shell/memory/resolveWorkspaceResourcePressureLevel';
 import { resolvePerformanceProfile } from '@app/utils/performanceProfile';
 
 const MEMORY_SAMPLE_INTERVAL_MS = 2_000;
-
-export function resolveWorkspaceMemoryPressureLevel(
-    level: TWorkspaceResourcePressureLevel,
-): TMemoryPressureLevel {
-    switch (level) {
-        case 'healthy':
-            return 'none';
-        case 'guarded':
-        case 'moderate':
-            return 'moderate';
-        case 'critical':
-        case 'emergency':
-        case 'post-crash-safe-mode':
-            return 'critical';
-    }
-}
 
 /** Keeps the renderer raster ledger aligned with live host memory headroom. */
 export const useWorkspaceMemoryPressureMonitor = () => {
@@ -41,14 +23,16 @@ export const useWorkspaceMemoryPressureMonitor = () => {
         });
         const pressureLevel = resolveWorkspaceResourcePressureLevel({
             memoryInfo,
-            surfaces: workspaceSurfaceBudgetController.getSnapshot(),
             systemFreeReserveBytes: baseBudget.systemFreeReserveBytes,
         });
-        workspaceSurfaceBudgetController.setPressureLevel(pressureLevel);
+        workspaceSurfaceBudgetController.setBudget({
+            maxBytes: baseBudget.maxRasterSurfaceBytes,
+            pressureLevel,
+        });
         currentBudget.value = resolveWorkspaceMemoryBudget({
             environment,
             performanceProfile,
-            pressure: {level: resolveWorkspaceMemoryPressureLevel(pressureLevel)},
+            pressure: {level: pressureLevel},
         });
     };
 
