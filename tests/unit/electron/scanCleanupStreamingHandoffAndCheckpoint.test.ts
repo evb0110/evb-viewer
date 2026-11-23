@@ -3571,6 +3571,104 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         }
     });
 
+    it('preserves live and young-corrupt lock temp files while sweeping dead-PID, expired-corrupt, and non-lock temp files in rootRealPath', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-lock-tmp-race-'));
+        roots.push(root);
+        const ckptDir = join(root, 'ckpt');
+        await mkdir(ckptDir, {recursive: true});
+        const sourcePdfPath = join(root, 'source.pdf');
+        await writeFile(sourcePdfPath, '%PDF-1.7-lock-tmp-race');
+        const sourceSha256 = createHash('sha256').update('%PDF-1.7-lock-tmp-race').digest('hex');
+        const witness = computeScanCleanupCheckpointWitness({
+            sourceSha256,
+            request: {
+                sourcePdfPath,
+                outputPdfPath: join(root, 'out.pdf'),
+                options: baseOptions,
+            },
+            resolvedOptions: baseOptions,
+            pageScope: [1],
+            documentPageCount: 1,
+            documentCanvas: null,
+            losslessRun: false,
+        });
+
+        const liveDirLockTmp = join(ckptDir, '.checkpoint.lock.live-contender-uuid.tmp');
+        const liveReclaimLockTmp = join(ckptDir, '.checkpoint.reclaim-deadtoken123.live-contender-uuid.tmp');
+        const deadDirLockTmp = join(ckptDir, '.checkpoint.lock.dead-contender-uuid.tmp');
+        const deadReclaimLockTmp = join(ckptDir, '.checkpoint.reclaim-deadtoken456.dead-contender-uuid.tmp');
+        const youngCorruptLockTmp = join(ckptDir, '.checkpoint.lock.young-corrupt-uuid.tmp');
+        const oldCorruptLockTmp = join(ckptDir, '.checkpoint.lock.old-corrupt-uuid.tmp');
+        const youngEmptyReclaimTmp = join(ckptDir, '.checkpoint.reclaim-deadtoken789.young-empty-uuid.tmp');
+        const oldCorruptReclaimTmp = join(ckptDir, '.checkpoint.reclaim-deadtoken999.old-corrupt-uuid.tmp');
+        const strayNonLockTmp = join(ckptDir, 'stray-artifact.tmp');
+
+        const nowMs = Date.now();
+        await Promise.all([
+            writeFile(liveDirLockTmp, JSON.stringify({
+                pid: process.pid,
+                ownerId: 'live-contender-dir',
+                token: 'livetoken11111111111111111111111',
+                acquiredAtMs: nowMs,
+            })),
+            writeFile(liveReclaimLockTmp, JSON.stringify({
+                pid: process.pid,
+                ownerId: 'live-contender-reclaim',
+                token: 'livereclaim111111111111111111111',
+                acquiredAtMs: nowMs,
+            })),
+            writeFile(deadDirLockTmp, JSON.stringify({
+                pid: 999_999_999,
+                ownerId: 'dead-contender-dir',
+                token: 'deadtoken11111111111111111111111',
+                acquiredAtMs: nowMs - 10_000,
+            })),
+            writeFile(deadReclaimLockTmp, JSON.stringify({
+                pid: 999_999_999,
+                ownerId: 'dead-contender-reclaim',
+                token: 'deadreclaim111111111111111111111',
+                acquiredAtMs: nowMs - 10_000,
+            })),
+            writeFile(youngCorruptLockTmp, ''),
+            writeFile(oldCorruptLockTmp, '{corrupt'),
+            writeFile(youngEmptyReclaimTmp, ''),
+            writeFile(oldCorruptReclaimTmp, '{corrupt'),
+            writeFile(strayNonLockTmp, 'stray-temp-bytes'),
+        ]);
+
+        const expiredTime = new Date(nowMs - 15_000);
+        await Promise.all([
+            utimes(oldCorruptLockTmp, expiredTime, expiredTime),
+            utimes(oldCorruptReclaimTmp, expiredTime, expiredTime),
+        ]);
+
+        const handle = await openScanCleanupConversionCheckpoint({
+            checkpointDir: ckptDir,
+            sourcePdfPath,
+            witness,
+            documentPageCount: 1,
+            mode: 'batch',
+            ownerId: 'opener-owner',
+            log: () => undefined,
+        });
+        try {
+            // Live-PID and young empty/corrupt lock temp files MUST remain untouched.
+            expect(existsSync(liveDirLockTmp)).toBe(true);
+            expect(existsSync(liveReclaimLockTmp)).toBe(true);
+            expect(existsSync(youngCorruptLockTmp)).toBe(true);
+            expect(existsSync(youngEmptyReclaimTmp)).toBe(true);
+
+            // Dead-PID lock temp files, expired corrupt lock temp files, and non-lock stray .tmp files MUST be swept.
+            expect(existsSync(deadDirLockTmp)).toBe(false);
+            expect(existsSync(deadReclaimLockTmp)).toBe(false);
+            expect(existsSync(oldCorruptLockTmp)).toBe(false);
+            expect(existsSync(oldCorruptReclaimTmp)).toBe(false);
+            expect(existsSync(strayNonLockTmp)).toBe(false);
+        } finally {
+            await handle.close();
+        }
+    });
+
     it('reclaims checkpoints cleanly when a Worker is terminated during atomic lease creation or leaves a 0-byte owner-tagged lease file', async () => {
         const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-worker-mid-lease-'));
         roots.push(root);
