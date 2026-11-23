@@ -89,7 +89,11 @@ export function saveDocument(doc: DocumentDirectory, options: ISaveOptions) {
             return { status: 'conflict', ...kept };
         }
         // The current bytes are now the destination's: both carry its witness.
-        const revision = { ...current, witness: published.witness };
+        const revision = {
+            ...current,
+            witness: published.witness,
+            ...(current.foreign === 'staged' ? { foreign: 'committed' as const } : {}),
+        };
         await doc.commit({ ...doc.snapshot(), current: revision, destination, baseline: published.witness, pendingPublish: undefined });
         return { status: 'saved', revision, ...kept };
     });

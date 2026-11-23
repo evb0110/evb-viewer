@@ -610,8 +610,11 @@ export class BrowserDocumentStore {
     }
 
     private revisionIdOf(doc: DocumentDirectory, revision: TDocumentRevisionToken) {
-        const id = Number(revision.slice(revision.lastIndexOf(':') + 1));
-        return Number.isSafeInteger(id) && this.revisionToken(doc, id) === revision ? id : -1;
+        const match = /^drt1:browser:([^:]+):(\d+)(?::([fs]))?$/u.exec(revision);
+        if (!match || match[1] !== doc.id) return -1;
+        const id = Number(match[2]);
+        const foreign = match[3] === 'f' ? 'committed' : match[3] === 's' ? 'staged' : undefined;
+        return Number.isSafeInteger(id) && this.revisionToken(doc, id, foreign) === revision ? id : -1;
     }
 
     // In-place edits -----------------------------------------------------------------------------------------
@@ -1048,12 +1051,16 @@ export class BrowserDocumentStore {
 
     /** A store document's revision is its directory and the revision its manifest names; 1 is its destination's bytes. */
     public tokenOf(entry: IBrowserDocumentEntry) {
-        if (entry.doc) return this.revisionToken(entry.doc, entry.doc.state().current?.id ?? 1);
+        if (entry.doc) {
+            const current = entry.doc.state().current;
+            return this.revisionToken(entry.doc, current?.id ?? 1, current?.foreign);
+        }
         return requireDocumentRevisionToken(`drt1:browser:${browserDocumentRefId(entry.ref)}:f${entry.file?.lastModified ?? 0}-${entry.file?.size ?? 0}`);
     }
 
-    private revisionToken(doc: DocumentDirectory, revisionId: number) {
-        return requireDocumentRevisionToken(`drt1:browser:${doc.id}:${revisionId}`);
+    private revisionToken(doc: DocumentDirectory, revisionId: number, foreign?: 'staged' | 'committed') {
+        const suffix = foreign === 'committed' ? ':f' : foreign === 'staged' ? ':s' : '';
+        return requireDocumentRevisionToken(`drt1:browser:${doc.id}:${revisionId}${suffix}`);
     }
 
     private revisionInfo(entry: IBrowserDocumentEntry, documentRef = entry.ref): IDocumentRevisionInfo {
@@ -1079,7 +1086,10 @@ export class BrowserDocumentStore {
     private expectedRevision(entry: IBrowserDocumentEntry, token: TDocumentRevisionToken | null | undefined) {
         if (!token) {
             if (entry.kind === 'working') throw createMissingRevisionError({documentRef: entry.ref});
-        } else if (token !== this.tokenOf(entry)) {
+        } else if (
+            token !== this.tokenOf(entry)
+            && !(entry.doc?.state().current?.foreign === 'staged' && token === this.revisionToken(entry.doc, 1))
+        ) {
             this.throwStale(entry, token);
         }
         return entry.doc?.state().current?.id ?? null;

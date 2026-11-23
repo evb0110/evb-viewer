@@ -337,10 +337,17 @@ export async function setBrowserDocumentDrafts(drafts: IWorkspaceCheckpointAnnot
     }) : null;
     // Unwritten drafts are never acknowledged.
     if (entry === undefined || (entry === null && drafts.payload !== undefined)) return false;
-    if (!entry?.doc || entry.memoryOnly || (drafts.payload === undefined && entry.doc.state().drafts === undefined)) return true;
+    if (!entry?.doc || entry.memoryOnly) return true;
+    const doc = entry.doc;
     if (browserDocumentStore.tokenOf(entry) !== drafts.workingByteRevision) return false;
+    const state = doc.state();
+    if (state.current?.foreign === 'staged') return false;
+    const expectedRevisionId = state.current?.id ?? null;
+    const draftGuard = {byteRevision: state.byteRevision, baseline: state.baseline, foreignStaged: false};
+    if (drafts.payload === undefined && state.drafts === undefined) return true;
     if (drafts.payload !== undefined) await browserDocumentStore.nameEdited(entry);
-    const stored = await entry.doc.setDrafts(entry.doc.state().current?.id ?? null, drafts.payload === undefined ? undefined : drafts);
+    if (!browserDocumentStore.openEntries().includes(entry) || doc.state().current?.foreign === 'staged' || browserDocumentStore.tokenOf(entry) !== drafts.workingByteRevision) return false;
+    const stored = await doc.setDrafts(expectedRevisionId, drafts.payload === undefined ? undefined : drafts, draftGuard);
     if (stored.status === 'conflict') throw new Error('Drafts were not stored');
     return stored.status === 'stored';
 }

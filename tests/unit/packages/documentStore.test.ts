@@ -701,6 +701,10 @@ describe('save', () => {
         // Readers never meet bytes the person has not seen; a Save builds on them as they are now.
         expect(await doc.materialize()).toBeNull();
         expect(await doc.materialize(true)).toMatchObject({ id: 1, witness: undefined });
+        expect(await doc.setDrafts(null, { note: 'stale against foreign bytes' })).toEqual({
+            status: 'stale-revision',
+            current: expect.objectContaining({ id: 1, witness: undefined }),
+        });
         expect(await saveDocument(doc, { expected: 1, commit: append('+note') })).toEqual({ status: 'conflict' });
         expect(await readFile(destination, 'utf8')).toBe('foreign v2');
         const copy = path.join(workDir, 'copy.pdf');
@@ -942,4 +946,235 @@ it.each(['size', 'truncate'])('#1609 closes a fork copy when its %s fails', asyn
         await doc.close();
         await fault.kill();
     }
+});
+
+it('accepts drafts expecting null after an unchanged baseline materialization (including post-undo), and rejects mutations or queued foreign saveAs', async () => {
+    const unchangedPath = path.join(workDir, 'unchanged.pdf');
+    await writeFile(unchangedPath, 'v1');
+    const unchanged = await create(store(), { ext: 'pdf', destination: unchangedPath });
+    const initialGuard = { byteRevision: unchanged.state().byteRevision, baseline: unchanged.state().baseline, foreignStaged: unchanged.state().current?.foreign === 'staged' };
+    expect(unchanged.state().current).toBeNull();
+    expect(await unchanged.materialize()).toMatchObject({ id: 1, witness: initialGuard.baseline });
+    expect(await unchanged.setDrafts(null, { note: 'with guard' }, initialGuard)).toMatchObject({ status: 'stored', revision: { id: 1 } });
+    expect(await unchanged.setDrafts(null, { note: 'desktop symmetry' })).toMatchObject({ status: 'stored', revision: { id: 1 } });
+    expect(unchanged.state().drafts).toEqual({ note: 'desktop symmetry' });
+
+    // Any actual revision advance (or rewrite + undo returning to 1) must be rejected as stale.
+    expect(await unchanged.mutate(1, append('+v2'))).toMatchObject({ status: 'committed', revision: { id: 2 } });
+    expect(await unchanged.setDrafts(null, { note: 'stale rev2' }, initialGuard)).toMatchObject({ status: 'stale-revision', current: { id: 2 } });
+    expect(await unchanged.restore(2, 1)).toMatchObject({ status: 'committed', revision: { id: 1 } });
+    expect(await unchanged.setDrafts(null, { note: 'stale after undo' }, initialGuard)).toMatchObject({ status: 'stale-revision', current: { id: 1 } });
+    await unchanged.close();
+
+    // Post-undo valid draft captured at current === null must still succeed when unchanged baseline later materializes.
+    const postUndoPath = path.join(workDir, 'post-undo.pdf');
+    await writeFile(postUndoPath, 'v1');
+    const postUndo = await create(store(), { ext: 'pdf', destination: postUndoPath });
+    const beforeRewriteGuard = { byteRevision: postUndo.state().byteRevision, baseline: postUndo.state().baseline, foreignStaged: postUndo.state().current?.foreign === 'staged' };
+    expect(await postUndo.mutate(null, { kind: 'rewrite', source: new Blob(['v2']), drafts: 'clear' })).toMatchObject({ status: 'committed', revision: { id: 2 } });
+    expect(await postUndo.restore(2, 1)).toMatchObject({ status: 'committed', revision: null });
+    expect(postUndo.state().current).toBeNull();
+    expect(postUndo.state().byteRevision).toBeGreaterThan(beforeRewriteGuard.byteRevision);
+    // Stale draft captured before rewrite + undo is rejected even though current returned to null.
+    expect(await postUndo.setDrafts(null, { note: 'stale across rewrite+undo' }, beforeRewriteGuard)).toMatchObject({ status: 'stale-revision', current: null });
+    // Fresh draft captured after undo succeeds even when unchanged baseline materializes null -> 1.
+    const postUndoGuard = { byteRevision: postUndo.state().byteRevision, baseline: postUndo.state().baseline, foreignStaged: postUndo.state().current?.foreign === 'staged' };
+    expect(await postUndo.materialize()).toMatchObject({ id: 1, witness: postUndoGuard.baseline });
+    expect(await postUndo.setDrafts(null, { note: 'valid post-undo draft' }, postUndoGuard)).toMatchObject({ status: 'stored', revision: { id: 1 } });
+    expect(postUndo.state().drafts).toEqual({ note: 'valid post-undo draft' });
+    await postUndo.close();
+
+    // Queued saveAs over externally modified bytes ahead of a 2-arg setDrafts(null, drafts) must reject old-bytes drafts.
+    const replacedPath = path.join(workDir, 'replaced.pdf');
+    const copyPath = path.join(workDir, 'replaced-copy.pdf');
+    await writeFile(replacedPath, 'v1');
+    const replaced = await create(store(), { ext: 'pdf', destination: replacedPath });
+    const originalGuard = { byteRevision: replaced.state().byteRevision, baseline: replaced.state().baseline, foreignStaged: replaced.state().current?.foreign === 'staged' };
+    await writeFile(path.join(workDir, 'foreign-next.pdf'), 'foreign v2');
+    await rename(path.join(workDir, 'foreign-next.pdf'), replacedPath);
+    const queuedSaveAs = saveDocument(replaced, { expected: null, saveAs: copyPath });
+    expect(replaced.state().current).toBeNull();
+    expect(replaced.state().baseline).toBe(originalGuard.baseline);
+    const queuedTwoArgDraft = replaced.setDrafts(null, { note: 'stale queued 2-arg draft' });
+    expect(await queuedSaveAs).toMatchObject({ status: 'saved', revision: { id: 1, foreign: 'committed' } });
+    expect(await queuedTwoArgDraft).toMatchObject({ status: 'stale-revision', current: { id: 1, foreign: 'committed' } });
+    expect(replaced.state().drafts).toBeUndefined();
+    expect(await replaced.setDrafts(null, { note: 'stale after foreign saveAs' }, originalGuard)).toMatchObject({ status: 'stale-revision', current: { id: 1, foreign: 'committed' } });
+    await replaced.close();
+});
+
+it('keeps byteRevision stable across ownCurrentFile backing-file moves so queued drafts store cleanly', async () => {
+    const doc = await create(store(), { ext: 'pdf', source: new Blob(['base']) });
+    expect(await doc.mutate(1, append('+redo'))).toMatchObject({ status: 'committed', revision: { id: 2 } });
+    await doc.retain([1, 2]);
+    expect(await doc.restore(2, 1)).toMatchObject({ status: 'committed', revision: { id: 1 } });
+    const beforeMove = doc.state();
+    const move = doc.ownCurrentFile();
+    const draft = doc.setDrafts(1, { note: 'queued behind ownCurrentFile' }, {
+        byteRevision: beforeMove.byteRevision,
+        baseline: beforeMove.baseline,
+        foreignStaged: beforeMove.current?.foreign === 'staged',
+    });
+    expect(await move).toMatchObject({ id: 1 });
+    expect(doc.state().byteRevision).toBe(beforeMove.byteRevision);
+    expect(await draft).toMatchObject({ status: 'stored', revision: { id: 1 } });
+    expect(doc.state().drafts).toEqual({ note: 'queued behind ownCurrentFile' });
+    await doc.close();
+});
+
+it('persists foreign staged/committed revision state across reopen, resolvePending adoption, and undo after append rescue without affecting untitled undo-to-r1', async () => {
+    // 1. Foreign Save As: rejected during ensureCurrent(true), during staged pendingPublish, and after failed/conflicted publish; accepted once published and persisted across reopen.
+    const foreignPath = path.join(workDir, 'foreign-saveas.pdf');
+    const failCopy = path.join(workDir, 'foreign-fail-copy.pdf');
+    const okCopy = path.join(workDir, 'foreign-ok-copy.pdf');
+    await writeFile(foreignPath, 'v1');
+
+    let failMode: 'none' | 'conflict' | 'throw' | 'crash-after-stage-unadopted' | 'crash-after-stage-adopted' = 'none';
+    let pauseAfterStage: { started: PromiseWithResolvers<void>; release: PromiseWithResolvers<void> } | null = null;
+    const baseStore = store();
+    const customStore: IDocumentStore = {
+        port: baseStore.port,
+        publication: {
+            witness: (dest, content) => baseStore.publication.witness(dest, content),
+            source: dest => baseStore.publication.source(dest),
+            async publish(dest, source, expected, stage, reserve) {
+                if (failMode === 'conflict') {
+                    await stage('staged-witness-conflict');
+                    return { status: 'conflict' };
+                }
+                if (failMode === 'throw') {
+                    throw new Error('publish failed before stage');
+                }
+                if (failMode === 'crash-after-stage-unadopted') {
+                    await stage('unmatched-staged-witness');
+                    throw new Error('simulated crash before write');
+                }
+                if (failMode === 'crash-after-stage-adopted') {
+                    const published = await baseStore.publication.publish(dest, source, expected, stage, reserve);
+                    if (published.status !== 'published') return published;
+                    // Simulate crash after destination holds the published witness, before saveDocument acknowledges.
+                    throw new Error('simulated crash after publish');
+                }
+                if (pauseAfterStage) {
+                    const paused = pauseAfterStage;
+                    return baseStore.publication.publish(dest, source, expected, async (witness) => {
+                        await stage(witness);
+                        paused.started.resolve();
+                        await paused.release.promise;
+                    }, reserve);
+                }
+                return baseStore.publication.publish(dest, source, expected, stage, reserve);
+            },
+        },
+    };
+
+    const doc = await create(customStore, { ext: 'pdf', destination: foreignPath });
+    await writeFile(path.join(workDir, 'foreign-src.pdf'), 'foreign v2');
+    await rename(path.join(workDir, 'foreign-src.pdf'), foreignPath);
+
+    // Pause right after ensureCurrent(true) -> foreign: 'staged' persists across close & reopen.
+    expect(await doc.materialize(true)).toMatchObject({ id: 1, witness: undefined, foreign: 'staged' });
+    expect(doc.state().current?.foreign).toBe('staged');
+    expect(await doc.setDrafts(1, { note: 'rejected while foreign staged' })).toMatchObject({ status: 'stale-revision', current: { id: 1, foreign: 'staged' } });
+    const docId = doc.id;
+    await doc.close();
+
+    // S5(a): Reopen with no pendingPublish preserves foreign: 'staged' and keeps rejecting drafts.
+    const reopenedStaged = await openDocument(customStore, docId);
+    expect(reopenedStaged.state().current).toMatchObject({ id: 1, foreign: 'staged' });
+    expect(reopenedStaged.state().current?.witness).toBeUndefined();
+    expect(await reopenedStaged.setDrafts(1, { note: 'rejected after reopen while staged' })).toMatchObject({ status: 'stale-revision', current: { id: 1, foreign: 'staged' } });
+
+    // Failed/conflicted publish keeps foreign: 'staged' and keeps rejecting drafts.
+    failMode = 'conflict';
+    expect(await saveDocument(reopenedStaged, { expected: 1, saveAs: failCopy })).toEqual({ status: 'conflict' });
+    expect(reopenedStaged.state().current?.foreign).toBe('staged');
+    expect(await reopenedStaged.setDrafts(1, { note: 'rejected after conflict' })).toMatchObject({ status: 'stale-revision', current: { id: 1, foreign: 'staged' } });
+
+    failMode = 'throw';
+    await expect(saveDocument(reopenedStaged, { expected: 1, saveAs: failCopy })).rejects.toThrow('publish failed before stage');
+    expect(reopenedStaged.state().current?.foreign).toBe('staged');
+    expect(await reopenedStaged.setDrafts(1, { note: 'rejected after failed publish' })).toMatchObject({ status: 'stale-revision', current: { id: 1, foreign: 'staged' } });
+
+    // Pause inside publish() AFTER record() commits staged witness + pendingPublish: foreign: 'staged' stays set.
+    failMode = 'none';
+    pauseAfterStage = { started: Promise.withResolvers<void>(), release: Promise.withResolvers<void>() };
+    const saving = saveDocument(reopenedStaged, { expected: 1, saveAs: okCopy });
+    await pauseAfterStage.started.promise;
+    expect(reopenedStaged.snapshot().pendingPublish).toBeDefined();
+    expect(reopenedStaged.state().current?.foreign).toBe('staged');
+    const duringPending = reopenedStaged.setDrafts(1, { note: 'rejected during pendingPublish' });
+    pauseAfterStage.release.resolve();
+    expect(await saving).toMatchObject({ status: 'saved', revision: { id: 1, foreign: 'committed' } });
+    expect(await duringPending).toMatchObject({ status: 'stale-revision', current: { id: 1, foreign: 'committed' } });
+    expect(reopenedStaged.state().current?.foreign).toBe('committed');
+
+    // Post-publication fresh draft succeeds and persists foreign: 'committed' across reopen.
+    expect(await reopenedStaged.setDrafts(1, { note: 'valid post-publication draft' })).toMatchObject({ status: 'stored', revision: { id: 1, foreign: 'committed' } });
+    await reopenedStaged.close();
+    const reopenedCommitted = await openDocument(customStore, docId);
+    expect(reopenedCommitted.state().current).toMatchObject({ id: 1, foreign: 'committed' });
+    expect(reopenedCommitted.state().drafts).toEqual({ note: 'valid post-publication draft' });
+    await reopenedCommitted.close();
+
+    // S5(b) & S5(c): Un-adopted vs adopted pendingPublish on reopen through resolvePending().
+    const pendingPath = path.join(workDir, 'foreign-pending.pdf');
+    const pendingCopy = path.join(workDir, 'foreign-pending-copy.pdf');
+    await writeFile(pendingPath, 'v1');
+    const pendingDoc = await create(customStore, { ext: 'pdf', destination: pendingPath });
+    await writeFile(path.join(workDir, 'foreign-pending-src.pdf'), 'foreign v2');
+    await rename(path.join(workDir, 'foreign-pending-src.pdf'), pendingPath);
+    expect(await pendingDoc.materialize(true)).toMatchObject({ id: 1, witness: undefined, foreign: 'staged' });
+
+    failMode = 'crash-after-stage-unadopted';
+    await expect(saveDocument(pendingDoc, { expected: 1, saveAs: pendingCopy })).rejects.toThrow('simulated crash before write');
+    const pendingDocId = pendingDoc.id;
+    await pendingDoc.close();
+    const reopenedUnadopted = await openDocument(customStore, pendingDocId);
+    expect(reopenedUnadopted.snapshot().pendingPublish).toBeUndefined();
+    expect(reopenedUnadopted.state().current?.foreign).toBe('staged');
+    expect(await reopenedUnadopted.setDrafts(1, { note: 'rejected after unadopted pendingPublish' })).toMatchObject({ status: 'stale-revision', current: { id: 1, foreign: 'staged' } });
+
+    failMode = 'crash-after-stage-adopted';
+    await expect(saveDocument(reopenedUnadopted, { expected: 1, saveAs: pendingCopy })).rejects.toThrow('simulated crash after publish');
+    await reopenedUnadopted.close();
+    const reopenedAdopted = await openDocument(customStore, pendingDocId);
+    expect(reopenedAdopted.snapshot().pendingPublish).toBeUndefined();
+    expect(reopenedAdopted.state().destination).toBe(pendingCopy);
+    expect(reopenedAdopted.state().current?.foreign).toBe('committed');
+    expect(await reopenedAdopted.setDrafts(1, { note: 'accepted after adopted pendingPublish' })).toMatchObject({ status: 'stored', revision: { id: 1, foreign: 'committed' } });
+    await reopenedAdopted.close();
+
+    // S6: Mutating r2 on top of staged foreign r1 archives r1 with foreign: 'committed' so undo restores foreign: 'committed' across reopen.
+    const rescuePath = path.join(workDir, 'foreign-rescue.pdf');
+    const rescueCopy = path.join(workDir, 'foreign-rescue-copy.pdf');
+    await writeFile(rescuePath, 'v1');
+    const rescueDoc = await create(store(), { ext: 'pdf', destination: rescuePath });
+    await writeFile(path.join(workDir, 'foreign-rescue-src.pdf'), 'foreign v2');
+    await rename(path.join(workDir, 'foreign-rescue-src.pdf'), rescuePath);
+    expect(await rescueDoc.materialize(true)).toMatchObject({ id: 1, witness: undefined, foreign: 'staged' });
+    expect(await saveDocument(rescueDoc, { expected: 1, commit: append('+edit') })).toEqual({ status: 'conflict' });
+    await rescueDoc.retain([1, 2]);
+    expect(await saveDocument(rescueDoc, { expected: 2, saveAs: rescueCopy })).toMatchObject({ status: 'saved', revision: { id: 2 } });
+    expect(await rescueDoc.restore(2, 1)).toMatchObject({ status: 'committed', revision: { id: 1, foreign: 'committed' } });
+    expect(rescueDoc.state().current?.foreign).toBe('committed');
+    const rescueDocId = rescueDoc.id;
+    await rescueDoc.close();
+    const reopenedRescue = await openDocument(store(), rescueDocId);
+    expect(reopenedRescue.state().current).toMatchObject({ id: 1, foreign: 'committed' });
+    expect(await reopenedRescue.setDrafts(1, { note: 'valid draft on restored foreign r1' })).toMatchObject({ status: 'stored', revision: { id: 1, foreign: 'committed' } });
+    await reopenedRescue.close();
+
+    // 2. Untitled doc -> mutate to r2 -> Save As -> undo back to r1 must NOT set foreign and must still accept drafts.
+    const untitledCopy = path.join(workDir, 'untitled-saved.pdf');
+    const untitled = await create(store(), { ext: 'pdf', source: new Blob(['untitled r1']) });
+    expect(await untitled.mutate(1, append('+r2'))).toMatchObject({ status: 'committed', revision: { id: 2 } });
+    await untitled.retain([1, 2]);
+    expect(await saveDocument(untitled, { expected: 2, saveAs: untitledCopy })).toMatchObject({ status: 'saved', revision: { id: 2 } });
+    expect(await untitled.restore(2, 1)).toMatchObject({ status: 'committed', revision: { id: 1, witness: undefined } });
+    expect(untitled.state().destination).toBe(untitledCopy);
+    expect(untitled.state().current?.foreign).toBeUndefined();
+    expect(await untitled.setDrafts(1, { note: 'valid draft on undone untitled r1' })).toMatchObject({ status: 'stored', revision: { id: 1 } });
+    expect(untitled.state().drafts).toEqual({ note: 'valid draft on undone untitled r1' });
+    await untitled.close();
 });
