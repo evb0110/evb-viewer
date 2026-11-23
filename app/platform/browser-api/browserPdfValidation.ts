@@ -86,11 +86,14 @@ export async function analyzeBrowserPdfConformance(
     path: string,
     options: IPdfConformanceAnalysisOptions = {},
 ): Promise<IPdfConformanceProfile> {
-    const {token} = await browserDocumentStore.getDocumentRevision(path);
-    const source = await browserDocumentStore.readableBlob(path);
+    const {blob: source, token, byteRevision, instance} = await browserDocumentStore.readableRevision(path);
     const markerEvidence = options.purpose === 'save-restrictions' ? undefined : await scanPdfMarkerEvidenceInSlices(source);
     const facts = await readPdfStructuralFacts(source);
-    await browserDocumentStore.assertDocumentRevisionCurrent(path, token);
+    await browserDocumentStore.assertDocumentRevisionCurrent(path, token, {
+        strict: true,
+        expectedInstance: instance,
+        ...(byteRevision === undefined ? {} : {expectedByteRevision: byteRevision}),
+    });
     return createPdfConformanceProfile(facts, markerEvidence);
 }
 
@@ -105,7 +108,7 @@ function validationResult(isValid: boolean, errors: string[] = [], warnings: str
 
 async function validateQpdfInput(
     size: number,
-    readInput: () => Promise<Uint8Array>,
+    readInput: () => Promise<Uint8Array | Blob>,
     fileName: string,
     purpose?: IPdfPathValidationOptions['purpose'],
     readFallbackInput = readInput,
@@ -166,18 +169,15 @@ export async function validateBrowserPdfData(
     return validateQpdfInput(data.byteLength, () => Promise.resolve(data.slice()), options.fileName ?? 'document.pdf', undefined, () => Promise.resolve(data), options.signal);
 }
 
-export async function validateBrowserPdfPath(
-    path: string,
-    options?: IPdfPathValidationOptions,
-): Promise<IPdfValidationResult> {
-    const {size} = await browserDocumentStore.stat(path);
-    if (size <= BROWSER_QPDF_MAX_INPUT_BYTES) {
-        return validateQpdfInput(size, () => browserDocumentStore.read(path, {maxBytes: BROWSER_QPDF_MAX_INPUT_BYTES}), (await browserDocumentStore.requireEntry(path)).fileName, options?.purpose);
-    }
-    // Preserve range-based viewing and unchanged-ref saves above the whole-input engine ceiling.
+/**
+ * Above the whole-input engine ceiling only browser loadability is checked, preserving range-based viewing and
+ * unchanged-ref saves: PDF.js reads `source`, one revision's Blob, by range, so no larger document enters memory
+ * and the bytes checked are the bytes a caller publishes.
+ */
+export async function validateBrowserPdfLoadability(source: Blob): Promise<IPdfValidationResult> {
     try {
         await yieldToBrowser();
-        const pdfDocument = await loadBrowserPdfjsDocument(path);
+        const pdfDocument = await loadBrowserPdfjsDocument(source);
         await pdfDocument.loadingTask.destroy().catch((error: unknown) => {
             BrowserLogger.warn('pdf-validation', 'PDF.js teardown failed after a successful load', error);
         });
@@ -196,4 +196,23 @@ export async function validateBrowserPdfPath(
             warnings: [],
         };
     }
+}
+
+export async function validateBrowserPdfPath(
+    path: string,
+    options?: IPdfPathValidationOptions,
+): Promise<IPdfValidationResult> {
+    // The engine's worker, or PDF.js above its ceiling, reads the document's file by range; the window never holds
+    // it whole. Every check reads the same revision, the one `token` names, and a result for a revision the document
+    // no longer has is not its result.
+    const {blob: source, token, byteRevision, instance} = await browserDocumentStore.readableRevision(path);
+    const result = source.size <= BROWSER_QPDF_MAX_INPUT_BYTES
+        ? await validateQpdfInput(source.size, () => Promise.resolve(source), (await browserDocumentStore.requireEntry(path)).fileName, options?.purpose)
+        : await validateBrowserPdfLoadability(source);
+    await browserDocumentStore.assertDocumentRevisionCurrent(path, token, {
+        strict: true,
+        expectedInstance: instance,
+        ...(byteRevision === undefined ? {} : {expectedByteRevision: byteRevision}),
+    });
+    return result;
 }

@@ -15,98 +15,177 @@ pub fn dilate_gray(source: &GrayImage, radius_x: usize, radius_y: usize) -> Gray
     rectangular_gray(source, radius_x, radius_y, false)
 }
 
+const PARALLEL_PIXELS: usize = 65_536;
+/// Columns per vertical tile: one cache line of the row-major intermediate.
+const VERTICAL_TILE_COLUMNS: usize = 64;
+const MINIMUM_BAND_ROWS: usize = 64;
+
+/// Separable sliding-window extreme.
+///
+/// The horizontal pass writes the only full-page intermediate. The vertical
+/// pass works on disjoint output row bands: each band gathers 64-column tiles
+/// of its rows plus a `radius_y` halo into a small column-major scratch and
+/// slides the same monotonic-deque window down each column, so no full-page
+/// transpose is allocated. Min and max are exact, so the result does not
+/// depend on the band or tile split.
 fn rectangular_gray(
     source: &GrayImage,
     radius_x: usize,
     radius_y: usize,
     maximum: bool,
 ) -> GrayImage {
-    if source.width() == 0 || source.height() == 0 {
+    let width = source.width();
+    let height = source.height();
+    if width == 0 || height == 0 {
         return source.clone();
     }
-    if source.width().saturating_mul(source.height()) >= 65_536 {
-        let horizontal = sliding_gray_rows(source, radius_x, maximum);
-        let transposed = transpose_gray(&horizontal);
-        return transpose_gray(&sliding_gray_rows(&transposed, radius_y, maximum));
-    }
-    let mut horizontal = GrayImage::new(
-        source.width(),
-        source.height(),
-        if maximum { 0 } else { 255 },
-    );
-    for y in 0..source.height() {
+    let parallel = width.saturating_mul(height) >= PARALLEL_PIXELS;
+    // Every window already spans the whole clamped column at `height - 1`.
+    let radius_y = radius_y.min(height - 1);
+    let band_rows = if parallel {
+        height
+            .div_ceil(rayon::current_num_threads().saturating_mul(2))
+            // Each band re-reads `2 * radius_y` halo rows; at least four
+            // radii of own rows keep that overhead at or below half.
+            .max(radius_y.saturating_mul(4))
+            .max(MINIMUM_BAND_ROWS)
+            .min(height)
+    } else {
+        height
+    };
+    rectangular_gray_banded(source, radius_x, radius_y, maximum, band_rows, parallel)
+}
+
+fn rectangular_gray_banded(
+    source: &GrayImage,
+    radius_x: usize,
+    radius_y: usize,
+    maximum: bool,
+    band_rows: usize,
+    parallel: bool,
+) -> GrayImage {
+    let width = source.width();
+    let height = source.height();
+    let identity = if maximum { 0 } else { 255 };
+    let mut horizontal = GrayImage::new(width, height, identity);
+    let horizontal_row = |deque: &mut VecDeque<(usize, u8)>, (y, row): (usize, &mut [u8])| {
+        let source_row = source.row(y);
         sliding_gray_line(
-            source.width(),
+            width,
             radius_x,
             maximum,
-            |x| source.get(x, y),
-            |x, value| horizontal.set(x, y, value),
+            0..width,
+            deque,
+            |x| source_row[x],
+            |x, value| row[x] = value,
         );
+    };
+    if parallel {
+        horizontal
+            .data_mut()
+            .par_chunks_mut(width)
+            .enumerate()
+            .for_each_init(VecDeque::new, horizontal_row);
+    } else {
+        let mut deque = VecDeque::new();
+        horizontal
+            .data_mut()
+            .chunks_mut(width)
+            .enumerate()
+            .for_each(|item| horizontal_row(&mut deque, item));
     }
-    let mut output = GrayImage::new(
-        source.width(),
-        source.height(),
-        if maximum { 0 } else { 255 },
-    );
-    for x in 0..source.width() {
-        sliding_gray_line(
-            source.height(),
+
+    let mut output = GrayImage::new(width, height, identity);
+    let band_rows = band_rows.clamp(1, height);
+    let vertical_band = |scratch: &mut VerticalScratch, (band, rows): (usize, &mut [u8])| {
+        vertical_gray_band(
+            &horizontal,
+            band * band_rows,
+            rows,
             radius_y,
             maximum,
-            |y| horizontal.get(x, y),
-            |y, value| output.set(x, y, value),
+            scratch,
         );
+    };
+    if parallel {
+        output
+            .data_mut()
+            .par_chunks_mut(width * band_rows)
+            .enumerate()
+            .for_each_init(VerticalScratch::default, vertical_band);
+    } else {
+        let mut scratch = VerticalScratch::default();
+        output
+            .data_mut()
+            .chunks_mut(width * band_rows)
+            .enumerate()
+            .for_each(|item| vertical_band(&mut scratch, item));
     }
     output
 }
 
-fn sliding_gray_rows(source: &GrayImage, radius: usize, maximum: bool) -> GrayImage {
-    let mut output = GrayImage::new(
-        source.width(),
-        source.height(),
-        if maximum { 0 } else { 255 },
-    );
-    output
-        .data_mut()
-        .par_chunks_mut(source.width())
-        .enumerate()
-        .for_each(|(y, output_row)| {
-            let source_row = source.row(y);
-            sliding_gray_line(
-                source.width(),
-                radius,
-                maximum,
-                |x| source_row[x],
-                |x, value| output_row[x] = value,
-            );
-        });
-    output
+#[derive(Default)]
+struct VerticalScratch {
+    tile: Vec<u8>,
+    deque: VecDeque<(usize, u8)>,
 }
 
-fn transpose_gray(source: &GrayImage) -> GrayImage {
-    let mut output = GrayImage::new(source.height(), source.width(), 0);
-    output
-        .data_mut()
-        .par_chunks_mut(source.height())
-        .enumerate()
-        .for_each(|(source_x, output_row)| {
-            for (source_y, target) in output_row.iter_mut().enumerate() {
-                *target = source.row(source_y)[source_x];
+/// Writes output rows `first_y..first_y + rows.len() / width` from the
+/// horizontal intermediate, reading `radius_y` halo rows on both sides.
+fn vertical_gray_band(
+    horizontal: &GrayImage,
+    first_y: usize,
+    rows: &mut [u8],
+    radius_y: usize,
+    maximum: bool,
+    scratch: &mut VerticalScratch,
+) {
+    let width = horizontal.width();
+    let height = horizontal.height();
+    let end_y = first_y + rows.len() / width;
+    let halo_start = first_y.saturating_sub(radius_y);
+    let halo_end = end_y.saturating_add(radius_y).min(height);
+    let span = halo_end - halo_start;
+    let outputs = first_y - halo_start..end_y - halo_start;
+    for tile_x in (0..width).step_by(VERTICAL_TILE_COLUMNS) {
+        let tile_width = VERTICAL_TILE_COLUMNS.min(width - tile_x);
+        scratch.tile.resize(tile_width * span, 0);
+        for local_y in 0..span {
+            let source = &horizontal.row(halo_start + local_y)[tile_x..tile_x + tile_width];
+            for (column, &value) in source.iter().enumerate() {
+                scratch.tile[column * span + local_y] = value;
             }
-        });
-    output
+        }
+        for column in 0..tile_width {
+            let line = &scratch.tile[column * span..(column + 1) * span];
+            let x = tile_x + column;
+            sliding_gray_line(
+                span,
+                radius_y,
+                maximum,
+                outputs.clone(),
+                &mut scratch.deque,
+                |local_y| line[local_y],
+                |local_y, value| rows[(halo_start + local_y - first_y) * width + x] = value,
+            );
+        }
+    }
 }
 
+/// Slides a clamped `[position - radius, position + radius]` window over
+/// `0..length` and writes its extreme for each position in `outputs`.
 fn sliding_gray_line(
     length: usize,
     radius: usize,
     maximum: bool,
+    outputs: std::ops::Range<usize>,
+    deque: &mut VecDeque<(usize, u8)>,
     mut sample: impl FnMut(usize) -> u8,
     mut write: impl FnMut(usize, u8),
 ) {
-    let mut deque = VecDeque::<(usize, u8)>::new();
-    let mut next = 0usize;
-    for position in 0..length {
+    deque.clear();
+    let mut next = outputs.start.saturating_sub(radius);
+    for position in outputs {
         let last = position.saturating_add(radius).min(length - 1);
         while next <= last {
             let value = sample(next);
@@ -738,6 +817,130 @@ mod tests {
                     reference_rectangular_gray(&image, radius_x, radius_y, maximum),
                     "radius=({radius_x},{radius_y}) maximum={maximum}"
                 );
+            }
+        }
+    }
+
+    fn random_gray(width: usize, height: usize, padding: usize, state: &mut u64) -> GrayImage {
+        let mut image = GrayImage::with_stride(width, height, width + padding, 0);
+        for value in image.data_mut() {
+            *value = (next_random(state) >> 32) as u8;
+        }
+        image
+    }
+
+    #[test]
+    fn banded_grayscale_morphology_is_bit_exact_for_any_band_split() {
+        let mut state = 0x4241_4e44_4d4f_5250;
+        for (width, height, padding) in [(1, 9, 2), (9, 1, 0), (63, 65, 3), (129, 70, 1)] {
+            let image = random_gray(width, height, padding, &mut state);
+            for (radius_x, radius_y) in [(0, 0), (0, 5), (5, 0), (2, 17), (40, 1), (3, 200)] {
+                for maximum in [false, true] {
+                    let expected = reference_rectangular_gray(&image, radius_x, radius_y, maximum);
+                    for band_rows in [1, 2, 7, 64, height] {
+                        for parallel in [false, true] {
+                            assert_eq!(
+                                rectangular_gray_banded(
+                                    &image,
+                                    radius_x,
+                                    radius_y.min(height - 1),
+                                    maximum,
+                                    band_rows,
+                                    parallel,
+                                ),
+                                expected,
+                                "{width}x{height} radius=({radius_x},{radius_y}) \
+                                 maximum={maximum} band={band_rows} parallel={parallel}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn grayscale_morphology_is_bit_exact_across_the_parallel_threshold() {
+        let mut state = 0x5448_5245_5348_4f4c;
+        // 255x257 stays serial, 256x256 is the first parallel size.
+        for (width, height) in [(255, 257), (256, 256), (300, 230)] {
+            let image = random_gray(width, height, 3, &mut state);
+            for (radius_x, radius_y) in [(1, 1), (0, 12), (12, 0), (7, 130), (usize::MAX, 3)] {
+                for maximum in [false, true] {
+                    assert_eq!(
+                        rectangular_gray(&image, radius_x, radius_y, maximum),
+                        reference_rectangular_gray(&image, radius_x, radius_y, maximum),
+                        "{width}x{height} radius=({radius_x},{radius_y}) maximum={maximum}"
+                    );
+                }
+            }
+        }
+    }
+
+    fn reference_rectangular_binary(
+        source: &BinaryImage,
+        radius_x: usize,
+        radius_y: usize,
+        any: bool,
+    ) -> BinaryImage {
+        let (width, height) = (source.width(), source.height());
+        let mut output = BinaryImage::new(width, height);
+        for y in 0..height {
+            for x in 0..width {
+                let mut window = (y as isize - radius_y as isize..=y as isize + radius_y as isize)
+                    .flat_map(|sample_y| {
+                        (x as isize - radius_x as isize..=x as isize + radius_x as isize)
+                            .map(move |sample_x| (sample_x, sample_y))
+                    })
+                    .map(|(sample_x, sample_y)| {
+                        sample_x >= 0
+                            && sample_y >= 0
+                            && (sample_x as usize) < width
+                            && (sample_y as usize) < height
+                            && source.get(sample_x as usize, sample_y as usize)
+                    });
+                output.set(
+                    x,
+                    y,
+                    if any {
+                        window.any(|black| black)
+                    } else {
+                        window.all(|black| black)
+                    },
+                );
+            }
+        }
+        output
+    }
+
+    #[test]
+    fn binary_morphology_paths_match_brute_force_across_the_parallel_threshold() {
+        let mut state = 0x4249_4e4d_4f52_5048;
+        for (width, height) in [(1, 1), (33, 7), (255, 257), (256, 256)] {
+            let mut image = BinaryImage::new(width, height);
+            for y in 0..height {
+                for x in 0..width {
+                    image.set(x, y, next_random(&mut state) >> 62 != 0);
+                }
+            }
+            for (radius_x, radius_y) in [(0, 0), (1, 2), (3, 0), (0, 4)] {
+                for any in [false, true] {
+                    let expected = reference_rectangular_binary(&image, radius_x, radius_y, any);
+                    assert_eq!(
+                        rectangular_binary_words(&image, radius_x, radius_y, any),
+                        expected,
+                        "words {width}x{height} radius=({radius_x},{radius_y}) any={any}"
+                    );
+                    assert_eq!(
+                        rectangular_binary_scalar(&image, radius_x, radius_y, any),
+                        expected,
+                        "scalar {width}x{height} radius=({radius_x},{radius_y}) any={any}"
+                    );
+                    assert_eq!(
+                        rectangular_binary(&image, radius_x, radius_y, any),
+                        expected
+                    );
+                }
             }
         }
     }

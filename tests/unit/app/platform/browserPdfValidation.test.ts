@@ -1,14 +1,16 @@
-import {BROWSER_QPDF_MAX_INPUT_BYTES} from '@contracts/browserQpdfEngine';
 import type * as TBrowserQpdfEngineClient from '@app/platform/browser-api/browserQpdfEngineClient';
 import type * as TViMockOriginalModule from '@app/platform/browser-api/browserYield';
 
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
     it,
+    onTestFinished,
     vi,
 } from 'vitest';
 import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
@@ -29,9 +31,15 @@ const browserDocumentStoreMock = vi.hoisted(() => ({
     read: vi.fn(),
     readRange: vi.fn(),
     readableBlob: vi.fn(),
+    readableRevision: vi.fn(),
     getDocumentRevision: vi.fn(async () => ({token: 'revision-1'})),
-    assertDocumentRevisionCurrent: vi.fn(async () => undefined),
+    assertDocumentRevisionCurrent: vi.fn(async (_path: string, _token: string, _options?: unknown) => undefined),
 }));
+/** The store's pair of a Blob and its revision, from the two reads it pairs. */
+const readableRevisionOfMocks = async (path: string) => ({
+    blob: await browserDocumentStoreMock.readableBlob(path) as Blob,
+    token: (await browserDocumentStoreMock.getDocumentRevision()).token,
+});
 
 vi.mock('@app/platform/browserDocumentStore', () => ({browserDocumentStore: browserDocumentStoreMock}));
 vi.mock('@app/platform/browser-api/browserPdfjsDocumentInit', () => ({
@@ -101,6 +109,9 @@ describe('browserPdfValidation', () => {
         vi.unstubAllGlobals();
         browserDocumentStoreMock.stat.mockReset();
         browserDocumentStoreMock.read.mockReset();
+        browserDocumentStoreMock.readableBlob.mockReset();
+        browserDocumentStoreMock.readableRevision.mockReset();
+        browserDocumentStoreMock.readableRevision.mockImplementation(readableRevisionOfMocks);
         browserDocumentStoreMock.readRange.mockReset();
         browserDocumentStoreMock.readRange.mockImplementation(
             async (_path: string, _offset: number, length: number) => new Uint8Array(length),
@@ -343,8 +354,10 @@ describe('browserPdfValidation', () => {
             isValid: true,
             warnings: ['warning User $& file.pdf'],
         });
-        expect(qpdfRun).toHaveBeenCalledWith('page-count', expect.any(Uint8Array), {timeoutMs: 10_000});
-        expect(browserDocumentStoreMock.read).toHaveBeenCalledWith('browser://documents/input', {maxBytes: BROWSER_QPDF_MAX_INPUT_BYTES});
+        // The engine's worker reads the document's own file by range; the window never reads it whole.
+        expect(qpdfRun).toHaveBeenCalledWith('page-count', expect.any(Blob), {timeoutMs: 10_000});
+        expect(new Uint8Array(await (qpdfRun.mock.calls[0]![1] as Blob).arrayBuffer())).toEqual(Uint8Array.of(1));
+        expect(browserDocumentStoreMock.read).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -381,6 +394,61 @@ describe('browserPdfValidation', () => {
         });
     });
 
+    it('reports no result for a stored revision that changed while its full check timed out', async () => {
+        await stubPageOpsWasmFetch();
+        const {BrowserQpdfEngineTimeoutError} = await import('@app/platform/browser-api/browserQpdfEngineClient');
+        const {validateBrowserPdfPath} = await import('@app/platform/browser-api/browserPdfValidation');
+        // Revision 1 is damaged; revision 2, saved while qpdf ran on revision 1, is sound.
+        storeDocument(Uint8Array.of(1, 2, 3));
+        const stale = Object.assign(new Error('The document changed'), {code: 'stale-revision'});
+        const current = browserDocumentStoreMock.assertDocumentRevisionCurrent.getMockImplementation()!;
+        onTestFinished(() => void browserDocumentStoreMock.assertDocumentRevisionCurrent.mockImplementation(current));
+        qpdfRun.mockImplementationOnce(async () => {
+            storeDocument(await createPdfConformanceFixture('plain'));
+            browserDocumentStoreMock.assertDocumentRevisionCurrent.mockRejectedValue(stale);
+            throw new BrowserQpdfEngineTimeoutError(30_000);
+        });
+        await expect(validateBrowserPdfPath('browser://documents/input')).rejects.toBe(stale);
+        expect(browserDocumentStoreMock.readableBlob).toHaveBeenCalledOnce();
+        expect(new Uint8Array(await (runPageOpsInProcess.mock.calls[0]![1].source).arrayBuffer())).toEqual(Uint8Array.of(1, 2, 3));
+    });
+
+    it('reports no result for an edit validated while the document was undone to the revision before it', async () => {
+        await stubPageOpsWasmFetch();
+        const {validateBrowserPdfPath} = await import('@app/platform/browser-api/browserPdfValidation');
+        // Revision A is damaged; B, an edit of it, is sound. The edit lands before validation reads the document,
+        // and is undone while qpdf checks it.
+        const revisions = {A: Uint8Array.of(1, 2, 3), B: await createPdfConformanceFixture('plain')};
+        let current: keyof typeof revisions = 'A';
+        const stale = Object.assign(new Error('The document changed'), {code: 'stale-revision'});
+        storeDocument(revisions.A);
+        browserDocumentStoreMock.getDocumentRevision.mockImplementation(async () => ({token: current}));
+        browserDocumentStoreMock.readableBlob.mockImplementation(async () => {
+            current = 'B';
+            return new Blob([revisions[current] as BlobPart]);
+        });
+        browserDocumentStoreMock.readableRevision.mockImplementation(async () => {
+            current = 'B';
+            return {blob: new Blob([revisions[current] as BlobPart]), token: current};
+        });
+        browserDocumentStoreMock.assertDocumentRevisionCurrent.mockImplementation(async (_path, token) => {
+            if (token !== current) throw stale;
+        });
+        onTestFinished(() => {
+            browserDocumentStoreMock.getDocumentRevision.mockImplementation(async () => ({token: 'revision-1'}));
+            browserDocumentStoreMock.assertDocumentRevisionCurrent.mockImplementation(async () => undefined);
+        });
+        qpdfRun.mockImplementationOnce(async (_command: string, input: Blob) => {
+            const sound = new Uint8Array(await input.arrayBuffer()).byteLength === revisions.B.byteLength;
+            current = 'A';
+            return {exitCode: sound ? 0 : 2, stdout: '', stderr: sound ? '' : 'damaged', output: null};
+        });
+
+        // B's result is not A's: A is current again, and its check has not run.
+        await expect(validateBrowserPdfPath('browser://documents/input')).rejects.toBe(stale);
+        expect(qpdfRun).toHaveBeenCalledOnce();
+    });
+
     it('does not fall back on a page-count timeout or a worker reset', async () => {
         storeDocument(Uint8Array.of(1));
         const {BrowserQpdfEngineTimeoutError} = await import('@app/platform/browser-api/browserQpdfEngineClient');
@@ -396,7 +464,8 @@ describe('browserPdfValidation', () => {
 
     it('keeps the above-cap range route with an explicit diagnostic and refuses data before copying', async () => {
         const {BROWSER_QPDF_MAX_INPUT_BYTES} = await import('@contracts/browserQpdfEngine');
-        browserDocumentStoreMock.stat.mockResolvedValue({size: BROWSER_QPDF_MAX_INPUT_BYTES + 1});
+        const large = Object.defineProperty(new Blob(), 'size', {value: BROWSER_QPDF_MAX_INPUT_BYTES + 1});
+        browserDocumentStoreMock.readableBlob.mockResolvedValue(large);
         const destroy = vi.fn(async () => {});
         pdfjsMock.loadBrowserPdfjsDocument.mockResolvedValue({loadingTask: {destroy}});
         const {
@@ -411,7 +480,93 @@ describe('browserPdfValidation', () => {
         const data = Uint8Array.of(1);
         Object.defineProperty(data, 'byteLength', {value: BROWSER_QPDF_MAX_INPUT_BYTES + 1});
         await expect(validateBrowserPdfData(data)).rejects.toMatchObject({code: 'browser-byte-limit'});
+        // PDF.js reads the revision the result is for, by range.
+        expect(pdfjsMock.loadBrowserPdfjsDocument).toHaveBeenCalledExactlyOnceWith(large);
         expect(browserDocumentStoreMock.read).not.toHaveBeenCalled();
         expect(qpdfRun).not.toHaveBeenCalled();
+    });
+});
+
+/** A Blob whose slices a test can read synchronously, as `FileReaderSync` reads a Blob in a worker; Node has no such reader. */
+class SyncReadableBlob extends Blob {
+    public constructor(public readonly content: Uint8Array) {
+        super([content as BlobPart]);
+    }
+
+    public override slice(start = 0, end = this.size) {
+        return new SyncReadableBlob(this.content.subarray(start, end));
+    }
+}
+
+// The pinned qpdf engine in its worker: a Blob input is mounted read-only and read by range, and answers exactly as
+// the same bytes in the engine's memory file system do.
+describe('browser qpdf engine worker', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+        vi.doUnmock('https://viewer.test/wasm/evb-qpdf.mjs');
+    });
+
+    async function startEngine() {
+        vi.resetModules();
+        const moduleUrl = pathToFileURL(join(process.cwd(), 'public/wasm/evb-qpdf.mjs')).href;
+        vi.doMock('https://viewer.test/wasm/evb-qpdf.mjs', () => import(/* @vite-ignore */ moduleUrl));
+        let listener: ((event: MessageEvent<unknown>) => Promise<void>) | undefined;
+        const posted: unknown[] = [];
+        vi.stubGlobal('self', {
+            location: {href: 'https://viewer.test/workspace'},
+            addEventListener: (_type: string, handler: typeof listener) => {
+                listener = handler;
+            },
+            postMessage: (message: unknown) => posted.push(message),
+        });
+        const wasm = await readFile(join(process.cwd(), 'public/wasm/evb-qpdf.wasm'));
+        vi.stubGlobal('fetch', async () => new Response(Uint8Array.from(wasm), {headers: {'content-type': 'application/wasm'}}));
+        const reads: number[] = [];
+        vi.stubGlobal('FileReaderSync', class {
+            public readAsArrayBuffer(blob: Blob) {
+                if (!(blob instanceof SyncReadableBlob)) throw new TypeError('The engine read a Blob it was not given');
+                reads.push(blob.size);
+                return blob.content.slice().buffer;
+            }
+        });
+        await import('@app/platform/browser-api/browserQpdfEngine.worker');
+        let nextId = 1;
+        const run = async (command: string, input: Uint8Array | Blob) => {
+            await listener!({data: {id: nextId++, type: 'run', payload: {command, input}}} as MessageEvent<unknown>);
+            return posted.at(-1) as {ok: boolean; data: {exitCode: number; stdout: string; stderr: string; output: Uint8Array | null}};
+        };
+        return {run, reads};
+    }
+
+    it('checks and rewrites a mounted Blob read by bounded ranges, with the result its bytes give', async () => {
+        const pdf = new Uint8Array(await readFile(join(process.cwd(), 'tests/fixtures/optimize-typeset-photo.pdf')));
+        const {run, reads} = await startEngine();
+
+        const checkedBytes = await run('check', pdf.slice());
+        const checkedBlob = await run('check', new SyncReadableBlob(pdf));
+        expect(checkedBytes.ok && checkedBlob.ok).toBe(true);
+        expect(checkedBlob.data).toEqual(checkedBytes.data);
+        expect(checkedBlob.data.exitCode).toBe(0);
+
+        reads.length = 0;
+        const rewrittenBlob = await run('rewrite', new SyncReadableBlob(pdf));
+        const rewrittenBytes = await run('rewrite', pdf.slice());
+        expect(rewrittenBlob.data.exitCode).toBe(0);
+        expect(rewrittenBlob.data.output).toEqual(rewrittenBytes.data.output);
+        // The input was read in blocks, never whole, and about twice at most for a rewrite.
+        expect(Math.max(...reads)).toBeLessThanOrEqual(256 * 1024);
+        expect(Math.max(...reads)).toBeLessThan(pdf.byteLength);
+        expect(reads.reduce((total, size) => total + size, 0)).toBeLessThanOrEqual(3 * pdf.byteLength);
+    });
+
+    it('fails a damaged Blob as qpdf\'s own exit and runs the next command on a fresh mount', async () => {
+        const pdf = new Uint8Array(await readFile(join(process.cwd(), 'tests/fixtures/optimize-typeset-photo.pdf')));
+        const {run} = await startEngine();
+
+        const damaged = await run('check', new SyncReadableBlob(new TextEncoder().encode('not a PDF at all')));
+        expect(damaged.ok).toBe(true);
+        expect(damaged.data.exitCode).toBe(2);
+        expect(damaged.data.stderr).toContain('/work/input.pdf');
+        expect((await run('page-count', new SyncReadableBlob(pdf))).data).toMatchObject({exitCode: 0, stdout: expect.stringMatching(/^\d+\n?$/u)});
     });
 });

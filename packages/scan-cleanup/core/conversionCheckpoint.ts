@@ -944,6 +944,7 @@ async function sweepDeadReclaimLocks(
             || entry.isSymbolicLink()
             || !entry.isFile()
             || !entry.name.startsWith(CHECKPOINT_RECLAIM_LOCK_PREFIX)
+            || entry.name.endsWith(CHECKPOINT_TEMP_SUFFIX)
         ) {
             continue;
         }
@@ -2064,6 +2065,18 @@ export async function openScanCleanupConversionCheckpoint(input: {
                 continue;
             }
             if (entry.isFile() && entry.name.endsWith(CHECKPOINT_TEMP_SUFFIX)) {
+                const isLockTempFile = entry.name.startsWith(`${CHECKPOINT_DIR_LOCK_FILENAME}.`)
+                    || entry.name.startsWith(CHECKPOINT_RECLAIM_LOCK_PREFIX);
+                if (isLockTempFile) {
+                    const tempRead = await readRegularFileNoFollow(rootRealPath, rootRealPath, entry.name);
+                    if (tempRead === null) {
+                        continue;
+                    }
+                    const parsed = parseLockMetadata(tempRead.bytes);
+                    if (!isLockMetadataReclaimable(parsed, tempRead.mtimeMs)) {
+                        continue;
+                    }
+                }
                 await unlink(fullPath).catch(() => undefined);
                 continue;
             }

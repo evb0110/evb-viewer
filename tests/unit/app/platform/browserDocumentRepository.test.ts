@@ -15,8 +15,11 @@ import {
     browserPublication,
     rememberFileHandle,
 } from '@app/platform/browser/browserPublication';
+import { contentWitness } from '@document-store/contentWitness';
 import { openDocument } from '@document-store/documentDirectory';
 import { createNodeStorePort } from '@document-store/nodeStorePort';
+import { BROWSER_DOCUMENT_CHUNK_SIZE } from '@app/platform/browser/browserDocumentConstants';
+import { createMemoryStorePort } from '@app/platform/browser/browserStorePort';
 import { createFileSystemFileHandle } from '@tests/unit/app/platform/browserPlatformTestDoubles';
 
 const encode = (text: string) => new TextEncoder().encode(text);
@@ -189,6 +192,63 @@ it('refuses to acknowledge a Save when another program wrote the file right afte
     expect(decode(await repo.read(working))).toBe('base EVB B EVB D next save');
 });
 
+it('hashes the file a Save wrote while it holds the origin\'s publication lock, so no other Save writes the file meanwhile', async () => {
+    const {repo} = await repository();
+    const picked = pickedFile('locked.pdf', 'base');
+    const working = await repo.cloneAsWorkingCopy(await repo.registerFile(picked.file(), {saveHandle: picked.handle}));
+    const entry = await repo.requireEntry(working);
+    const publishLockHeld: boolean[] = [];
+    let written = false;
+    picked.disk.afterClose = () => {
+        written = true;
+    };
+    // Each range read of the written file asks the origin's locks first, while its read is still pending.
+    const getFile = picked.handle.getFile.bind(picked.handle);
+    picked.handle.getFile = async () => {
+        const file = await getFile();
+        if (!written) return file;
+        const slice = file.slice.bind(file);
+        return Object.assign(file, {
+            slice: (...range: Parameters<Blob['slice']>) => Object.assign(slice(...range), {
+                async arrayBuffer() {
+                    const {held = []} = await navigator.locks.query();
+                    publishLockHeld.push(held.some(lock => lock.name === 'evb-viewer:browser-publish'));
+                    return Blob.prototype.arrayBuffer.call(slice(...range));
+                },
+            }),
+        });
+    };
+
+    const lease = await stageText(repo, working, repo.tokenOf(entry), ' saved');
+    expect(await repo.save(working, repo.tokenOf(entry), {commit: lease})).toMatchObject({status: 'saved'});
+    expect(decode(picked.disk.bytes)).toBe('base saved');
+    expect(publishLockHeld).toEqual([true]);
+    // The witness recorded for the file is its content's, the same one the revision file itself hashes to.
+    expect(entry.doc!.snapshot().baseline).toContain(await contentWitness(picked.disk.bytes.byteLength, async (offset, length) => picked.disk.bytes.subarray(offset, offset + length)));
+});
+
+it('refuses a streamed document the full browser store cut short, rather than keeping what was left of the stream in memory', async () => {
+    const {repo, store} = await repository();
+    const memory = {port: createMemoryStorePort(), publication: browserPublication};
+    const open = store.port.open.bind(store.port);
+    // The browser's store fills up after the first batch reached it.
+    const full = {...store.port, open: async (path: string) => {
+        const file = await open(path);
+        let batches = 0;
+        return {...file, writeAt: async (offset: number, bytes: Uint8Array) => {
+            if (++batches > 1) throw new DOMException('The browser\'s storage is full', 'QuotaExceededError');
+            await file.writeAt(offset, bytes);
+        }};
+    }};
+    vi.spyOn(repo, 'stores').mockResolvedValue({durable: {port: full, publication: browserPublication}, memory});
+    const bytes = new Uint8Array(BROWSER_DOCUMENT_CHUNK_SIZE * 2 + 5).fill(7);
+    const stream = new Blob([bytes]).stream();
+
+    await expect(repo.createStoredDocument('streamed.pdf', stream, {mimeType: 'application/pdf'})).rejects.toThrow('A streamed document can be stored only once');
+    expect(await memory.port.list('documents')).toEqual([]);
+    expect(repo.openEntries()).toEqual([]);
+});
+
 it('leaves the document openable with its old bytes when replacing its content fails, and replaces it cleanly otherwise, a file or not', async () => {
     const {repo, store} = await repository();
     const {ref, doc} = await workingDocument(repo, 'old bytes');
@@ -234,6 +294,29 @@ it('#1609 reports a failed IndexedDB handle write while keeping the current sess
     expect(diagnostics).toContain('QuotaExceededError injected handle write');
 });
 
+
+it('pairs a readable Blob only with the revision whose bytes it holds, even across an edit undone while it was read', async () => {
+    const {repo} = await repository();
+    const {ref, entry, doc} = await workingDocument(repo, 'revision A');
+    const revisionA = repo.tokenOf(entry);
+    const blobText = async (blob: Blob) => decode(new Uint8Array(await blob.arrayBuffer()));
+    // An edit lands as the Blob is read, and is undone before the Blob is handed over.
+    const read = doc.read.bind(doc);
+    vi.spyOn(doc, 'read').mockImplementationOnce(async (offset, length) => {
+        await repo.write(ref, encode('revision B'), {expectedDocumentRevisionToken: revisionA});
+        const bytes = await read(offset, length);
+        await repo.restoreRevision(ref, revisionA, repo.tokenOf(entry));
+        return bytes;
+    });
+
+    await expect(repo.readableRevision(ref)).rejects.toMatchObject({code: 'STALE_REVISION'});
+    expect(repo.tokenOf(entry)).toBe(revisionA);
+    const {blob, token} = await repo.readableRevision(ref);
+    expect([await blobText(blob), token]).toEqual(['revision A', revisionA]);
+    // Read for a revision the document has left, it refuses too.
+    await repo.write(ref, encode('revision C'), {expectedDocumentRevisionToken: revisionA});
+    await expect(repo.readableRevision(ref, {token: revisionA})).rejects.toMatchObject({code: 'STALE_REVISION'});
+});
 
 it('#1609 explains browser undo refusal when Save could not retain the opened bytes', async () => {
     const {repo, store} = await repository();

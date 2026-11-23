@@ -4,7 +4,8 @@
 //! stdin and writes the document's search index; a last line
 //! `{"pageNumber":n,"overBudget":true}` says the producer stopped at page n
 //! because its text is over the budget. `search` matches a query against the
-//! index and `stat` reports its coverage. The index is a derived cache: a
+//! index, or with `--pages-from-stdin` a literal query against such lines
+//! while the index is still being built, and `stat` reports its coverage. The index is a derived cache: a
 //! missing or unreadable file, another document revision, or another format
 //! answers `{"stale":true}` so the caller rebuilds it from the document.
 
@@ -19,6 +20,7 @@ use std::io::{self, BufRead, BufReader, BufWriter, Cursor, Read, Seek, SeekFrom,
 use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::OnceLock;
+use unicode_normalization::char::canonical_combining_class;
 use unicode_normalization::{is_nfc_quick, IsNormalized, UnicodeNormalization};
 
 const MAGIC: &[u8; 8] = b"EVBSIDX4";
@@ -28,6 +30,9 @@ const HEADER_SIZE: usize = 32;
 const RECORD_SIZE: usize = 8;
 const FLAG_TRUNCATED: u32 = 1;
 const MAX_INDEX_BYTES: usize = 320 * 1024 * 1024;
+/// Search reads stored page text in chunks of about this size; a larger page
+/// is read whole.
+const READ_CHUNK_BYTES: usize = 4 * 1024 * 1024;
 /// Ceilings on the text budget a caller may ask `index` to hold.
 const MAX_PAGE_TEXT_BYTES: usize = 32 * 1024 * 1024;
 const MAX_TOTAL_TEXT_BYTES: usize = 256 * 1024 * 1024;
@@ -101,20 +106,56 @@ impl<R: Read + Seek> SearchIndex<R> {
         }
     }
 
-    fn page_text(&mut self, record: &PageRecord) -> Result<String, NativeError> {
-        self.data
-            .seek(SeekFrom::Start(record.offset as u64))
-            .map_err(|error| NativeError::new(NativeErrorCode::Io, error.to_string()))?;
-        let mut bytes = vec![0; record.byte_len];
-        self.data
-            .read_exact(&mut bytes)
-            .map_err(|error| NativeError::new(NativeErrorCode::Io, error.to_string()))?;
-        String::from_utf8(bytes).map_err(|_| {
-            NativeError::new(
-                NativeErrorCode::CorruptXref,
-                "Search index text is not UTF-8",
-            )
-        })
+    /// Visits the text of the given records, in increasing record order. Page
+    /// text is stored back to back, so consecutive selected records that fit
+    /// one bounded chunk are read with one seek and one read: a page at a time
+    /// took two system calls per page, thousands for one query on a long book.
+    /// Stopping a batch when a record index is skipped ensures a sparse page
+    /// filter never reads unselected pages in between.
+    fn visit_pages(
+        &mut self,
+        record_indices: &[usize],
+        mut visit: impl FnMut(usize, u32, &str) -> Result<bool, NativeError>,
+    ) -> Result<(), NativeError> {
+        let io_error = |error: io::Error| NativeError::new(NativeErrorCode::Io, error.to_string());
+        let mut buffer = Vec::new();
+        let mut next = 0;
+        while let Some(&first) = record_indices.get(next) {
+            let start = self.records[first].offset;
+            let mut previous = first;
+            let span = record_indices[next..]
+                .iter()
+                .take_while(|&&index| {
+                    let record = self.records[index];
+                    let batched = index == first
+                        || (index == previous + 1
+                            && record.offset + record.byte_len - start <= READ_CHUNK_BYTES);
+                    previous = index;
+                    batched
+                })
+                .count();
+            let last = self.records[record_indices[next + span - 1]];
+            buffer.resize(last.offset + last.byte_len - start, 0);
+            self.data
+                .seek(SeekFrom::Start(start as u64))
+                .map_err(io_error)?;
+            self.data.read_exact(&mut buffer).map_err(io_error)?;
+            for &index in &record_indices[next..next + span] {
+                let record = self.records[index];
+                let bytes = &buffer[record.offset - start..record.offset - start + record.byte_len];
+                let text = std::str::from_utf8(bytes).map_err(|_| {
+                    NativeError::new(
+                        NativeErrorCode::CorruptXref,
+                        "Search index text is not UTF-8",
+                    )
+                })?;
+                if !visit(index, record.page_number, text)? {
+                    return Ok(());
+                }
+            }
+            next += span;
+        }
+        Ok(())
     }
 }
 
@@ -467,12 +508,6 @@ impl NormalizedText {
         // ASCII between runs, and runs or groups the quick check passes, are
         // copied: one long s used to send a whole page through a fragment per
         // scalar.
-        let unchanged = |text: &str| {
-            is_nfc_quick(text.chars()) == IsNormalized::Yes
-                && text
-                    .chars()
-                    .all(|character| fold_search_ligature(character).is_none())
-        };
         let bytes = value.as_bytes();
         let mut copied = 0;
         while let Some(first) = bytes[copied..].iter().position(|byte| !byte.is_ascii()) {
@@ -482,7 +517,7 @@ impl NormalizedText {
                 .iter()
                 .position(u8::is_ascii)
                 .map_or(bytes.len(), |offset| first + offset);
-            if unchanged(&value[start..end]) {
+            if is_search_normalized(&value[start..end]) {
                 normalized.text.push_str(&value[copied..end]);
                 copied = end;
                 continue;
@@ -490,7 +525,7 @@ impl NormalizedText {
             normalized.text.push_str(&value[copied..start]);
             for group in groups.find_iter(&value[start..end]) {
                 let original = group.as_str();
-                if unchanged(original) {
+                if is_search_normalized(original) {
                     normalized.text.push_str(original);
                     continue;
                 }
@@ -535,14 +570,51 @@ impl NormalizedText {
     }
 }
 
+/// Scalars that are their own composition, combine with nothing before them
+/// and start a new combining sequence: Latin, Cyrillic, Hebrew and Arabic
+/// letters, kana, CJK ideographs and Hangul syllables, but not long s. Book
+/// text is nearly all of these, so most scalars skip the table lookups.
+fn is_stable_starter(character: char) -> bool {
+    matches!(
+        character,
+        '\0'..='\u{17e}'
+            | '\u{180}'..='\u{2ff}'
+            | '\u{400}'..='\u{482}'
+            | '\u{48a}'..='\u{52f}'
+            | '\u{5d0}'..='\u{5ea}'
+            | '\u{620}'..='\u{64a}'
+            | '\u{3041}'..='\u{3096}'
+            | '\u{30a1}'..='\u{30fa}'
+            | '\u{4e00}'..='\u{9fff}'
+            | '\u{ac00}'..='\u{d7a3}'
+    )
+}
+
+/// Whether `text` is already composed and free of search folds: the NFC
+/// quick check answering yes, with stable starters taking its ASCII path.
+fn is_search_normalized(text: &str) -> bool {
+    let mut last_class = 0;
+    for character in text.chars() {
+        if is_stable_starter(character) {
+            last_class = 0;
+            continue;
+        }
+        let class = canonical_combining_class(character);
+        if (class != 0 && last_class > class)
+            || fold_search_ligature(character).is_some()
+            || is_nfc_quick(std::iter::once(character)) != IsNormalized::Yes
+        {
+            return false;
+        }
+        last_class = class;
+    }
+    true
+}
+
 /// Most page text is already composed and free of ligatures, so matching can
 /// run on it directly and keep its offsets.
 fn needs_normalization(text: &str) -> bool {
-    !text.is_ascii()
-        && (is_nfc_quick(text.chars()) != IsNormalized::Yes
-            || text
-                .chars()
-                .any(|character| fold_search_ligature(character).is_some()))
+    !text.is_ascii() && !is_search_normalized(text)
 }
 
 fn contains_unsegmented_script(value: &str) -> bool {
@@ -690,20 +762,19 @@ fn search_index<R: Read + Seek>(
     let mut results = VecDeque::new();
     let mut truncated = false;
     let mut match_count = 0;
-    'pages: for record_index in 0..index.records.len() {
-        let record = index.records[record_index];
-        if options
-            .pages
-            .as_ref()
-            .is_some_and(|pages| !pages.contains(&record.page_number))
-        {
-            continue;
-        }
-        let text = index.page_text(&record)?;
-        let normalized = needs_normalization(&text).then(|| NormalizedText::new(&text));
+    let selected: Vec<usize> = (0..index.records.len())
+        .filter(|&record_index| {
+            options
+                .pages
+                .as_ref()
+                .is_none_or(|pages| pages.contains(&index.records[record_index].page_number))
+        })
+        .collect();
+    index.visit_pages(&selected, |record_index, _, text| {
+        let normalized = needs_normalization(text).then(|| NormalizedText::new(text));
         let haystack = normalized
             .as_ref()
-            .map_or(text.as_str(), |value| value.text.as_str());
+            .map_or(text, |value| value.text.as_str());
         let mut ascii = None;
         let (mut mapped_byte, mut mapped_utf16) = (0, 0);
         for (page_match_index, (start, end)) in matcher.matches(haystack).enumerate() {
@@ -717,7 +788,7 @@ fn search_index<R: Read + Seek>(
             }
             if options.result_offset.is_some() && results.len() >= options.limit {
                 truncated = true;
-                break 'pages;
+                return Ok(false);
             }
             let bytes = match &normalized {
                 Some(value) => value.original_byte_range(start, end),
@@ -740,26 +811,29 @@ fn search_index<R: Read + Seek>(
                 results.pop_front();
             }
         }
-    }
+        Ok(true)
+    })?;
     // Excerpts are built only for the matches kept: the last window used to
     // build one for every match in the document and discard all but `limit`.
-    let mut page: Option<(usize, String)> = None;
+    let mut kept_pages: Vec<usize> = results.iter().map(|result| result.0).collect();
+    kept_pages.dedup();
     let mut kept = Vec::with_capacity(results.len());
-    for (record_index, page_match_index, match_index, utf16, bytes) in results {
-        let record = index.records[record_index];
-        if page.as_ref().is_none_or(|(read, _)| *read != record_index) {
-            page = Some((record_index, index.page_text(&record)?));
+    let mut results = results.into_iter().peekable();
+    index.visit_pages(&kept_pages, |record_index, page_number, text| {
+        while let Some((_, page_match_index, match_index, utf16, bytes)) =
+            results.next_if(|result| result.0 == record_index)
+        {
+            kept.push(SearchMatch {
+                page_number,
+                page_match_index,
+                match_index,
+                start_offset: utf16.0,
+                end_offset: utf16.1,
+                excerpt: build_excerpt(text, bytes, utf16.0, options.context_chars),
+            });
         }
-        let text = page.as_ref().map_or("", |(_, text)| text.as_str());
-        kept.push(SearchMatch {
-            page_number: record.page_number,
-            page_match_index,
-            match_index,
-            start_offset: utf16.0,
-            end_offset: utf16.1,
-            excerpt: build_excerpt(text, bytes, utf16.0, options.context_chars),
-        });
-    }
+        Ok(true)
+    })?;
     Ok(SearchResponse {
         results: kept,
         truncated,
@@ -769,7 +843,7 @@ fn search_index<R: Read + Seek>(
 }
 
 fn usage() -> &'static str {
-    "Usage:\n  evb-pdf-search index --out <path> --document-revision <token> [--page-count <n>] [--max-page-text-bytes <n>] [--max-total-text-bytes <n>]  (page JSON lines on stdin)\n  evb-pdf-search search --index <path> --document-revision <token> --query <text> [--match-case] [--whole-word] [--regex] [--limit <n>] [--context <n>] [--pages <n,n,...>] [--result-offset <n|-1>]\n  evb-pdf-search stat --index <path> --document-revision <token>"
+    "Usage:\n  evb-pdf-search index --out <path> --document-revision <token> [--page-count <n>] [--max-page-text-bytes <n>] [--max-total-text-bytes <n>]  (page JSON lines on stdin)\n  evb-pdf-search search --index <path> --document-revision <token> --query <text> [--match-case] [--whole-word] [--regex] [--limit <n>] [--context <n>] [--pages <n,n,...>] [--result-offset <n|-1>]\n  evb-pdf-search search --pages-from-stdin --document-revision <token> --query <text> [search options except --regex]  (index page JSON lines on stdin)\n  evb-pdf-search stat --index <path> --document-revision <token>"
 }
 
 struct CliArgs {
@@ -783,7 +857,14 @@ impl CliArgs {
             if !name.starts_with("--") {
                 return Err(invalid_request(format!("Unexpected argument: {name}")));
             }
-            let value = if ["--match-case", "--whole-word", "--regex"].contains(&name.as_str()) {
+            let value = if [
+                "--match-case",
+                "--whole-word",
+                "--regex",
+                "--pages-from-stdin",
+            ]
+            .contains(&name.as_str())
+            {
                 String::new()
             } else {
                 args.next()
@@ -886,7 +967,14 @@ fn print_json(value: &impl Serialize) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn run_cli(mut args: impl Iterator<Item = String>) -> Result<(), Box<dyn Error>> {
+fn run_cli(args: impl Iterator<Item = String>) -> Result<(), Box<dyn Error>> {
+    run_cli_with_stdin(args, &mut io::stdin().lock())
+}
+
+fn run_cli_with_stdin(
+    mut args: impl Iterator<Item = String>,
+    mut stdin: impl BufRead,
+) -> Result<(), Box<dyn Error>> {
     let command = args
         .next()
         .ok_or_else(|| invalid_request(usage().to_string()))?;
@@ -908,9 +996,24 @@ fn run_cli(mut args: impl Iterator<Item = String>) -> Result<(), Box<dyn Error>>
                 total: args.byte_budget("--max-total-text-bytes", ceiling.total)?,
             };
             args.finish()?;
-            let index = read_index_input(&mut io::stdin().lock(), page_count, &revision, budget)?;
+            let index = read_index_input(&mut stdin, page_count, &revision, budget)?;
             write_index(&index, &revision, &out)?;
             print_json(&index.coverage())
+        }
+        "search" if args.flag("--pages-from-stdin") => {
+            let revision = args.required("--document-revision")?;
+            let options = parse_search_options(&mut args)?;
+            args.finish()?;
+            // Provisional matches answer literal queries only. A regex such as
+            // `[A-Z]+B|` matches empty at every position of a long run, and
+            // rescanning a growing document for it repeats that work.
+            if options.use_regex {
+                return Err(Box::new(invalid_request(
+                    "--pages-from-stdin does not search with --regex",
+                )));
+            }
+            let mut index = read_index_input(&mut stdin, None, &revision, TextBudget::default())?;
+            print_json(&search_index(&mut index, &options)?)
         }
         "search" | "stat" => {
             let index_path = PathBuf::from(args.required("--index")?);

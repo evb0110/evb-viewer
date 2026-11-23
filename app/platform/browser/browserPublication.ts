@@ -1,6 +1,5 @@
 import {
     contentOf,
-    contentWitness,
     sameWitness,
 } from '@document-store/contentWitness';
 import type {
@@ -9,6 +8,7 @@ import type {
 } from '@document-store/documentDirectory';
 import { isRecord } from '@contracts/runtimeGuards';
 import { fileHandleStore } from '@app/platform/browser/browserFileHandleStore';
+import { blobContentWitness } from '@app/platform/browser/browserStorePort';
 import { runBrowserLock } from '@app/platform/browser/runBrowserLock';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
@@ -22,6 +22,14 @@ const PUBLISH_LOCK = 'evb-viewer:browser-publish';
 export const handleDestination = (key: string) => `${HANDLE_PREFIX}${key}`;
 /** A destination with no readable file: Save downloads the bytes again under this name. */
 export const downloadDestination = (fileName: string) => `${DOWNLOAD_PREFIX}${fileName}`;
+
+/**
+ * Runs a write to a picked file under the origin's one publication lock. Save checks a file, writes it and hashes
+ * what it wrote under this lock, so a Save As to the same file from another document or window waits for it.
+ */
+export function runBrowserPublishLock<T>(operation: () => Promise<T>, signal?: AbortSignal) {
+    return runBrowserLock(PUBLISH_LOCK, operation, signal);
+}
 
 export function handleKeyOf(destination: string | null) {
     return destination?.startsWith(HANDLE_PREFIX) ? destination.slice(HANDLE_PREFIX.length) : null;
@@ -63,10 +71,6 @@ async function requireFileHandle(destination: string) {
     const handle = key === null ? null : await resolveFileHandle(key);
     if (!handle) throw new Error(`No file is known for ${destination}`);
     return handle;
-}
-
-function blobWitness(blob: Blob) {
-    return contentWitness(blob.size, async (offset, length) => new Uint8Array(await blob.slice(offset, offset + length).arrayBuffer()));
 }
 
 /** A picked file's metadata fact, its size and modification time, in the form desktop files use. Reading it reads no bytes. */
@@ -115,13 +119,13 @@ export const browserPublication: IPublicationPort = {
     async witness(destination, content) {
         if (handleKeyOf(destination) === null) return null;
         const file = await (await requireFileHandle(destination)).getFile();
-        return content ? `${fileFact(file)} ${await blobWitness(file)}` : fileFact(file);
+        return content ? `${fileFact(file)} ${await blobContentWitness(file)}` : fileFact(file);
     },
     async source(destination) {
         return (await requireFileHandle(destination)).getFile();
     },
     async publish(destination, source, expected, stage) {
-        const witness = contentOf(source.witness) ?? await contentWitness(source.length, (offset, length) => source.file.readAt(offset, length));
+        const witness = contentOf(source.witness) ?? await source.file.witness(source.length);
         const fileName = destinationFileName(destination);
         if (fileName !== null) {
             await stage(witness);
@@ -131,7 +135,7 @@ export const browserPublication: IPublicationPort = {
         const handle = await requireFileHandle(destination);
         // Two documents can name one file (it was opened twice). Every publication to a file takes one lock, so
         // the check sees what another document's save wrote.
-        return runBrowserLock(PUBLISH_LOCK, async () => {
+        return runBrowserPublishLock(async () => {
             if (expected !== null && !sameWitness(fileFact(await handle.getFile()), expected)) return {status: 'conflict'} as const;
             await stage(witness);
             const writable = await handle.createWritable();
@@ -143,8 +147,9 @@ export const browserPublication: IPublicationPort = {
             }
             await writable.close();
             // One snapshot of the file names what it holds now: another program may have written it since the close.
+            // The store worker hashes it while this lock is held, so no other publication writes the file meanwhile.
             const written = await handle.getFile();
-            const content = await blobWitness(written);
+            const content = await blobContentWitness(written);
             return content === witness ? {status: 'published', witness: `${fileFact(written)} ${content}`} as const : {status: 'conflict'} as const;
         });
     },

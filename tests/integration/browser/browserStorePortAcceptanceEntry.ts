@@ -1,6 +1,8 @@
 // fallow-ignore-file unused-file -- bundled by browserStorePortAcceptance.test.ts for every browser engine.
 
 import {createWorkerStorePort} from '@app/platform/browser/browserStorePort';
+import {opfsFileHandle} from '@app/platform/browser/opfsFileHandle';
+import {contentWitness} from '@document-store/contentWitness';
 import {
     createDocument,
     type IDocumentStore,
@@ -175,4 +177,44 @@ async function largeRead(mib: number) {
     };
 }
 
-Reflect.set(globalThis, '__evbStorePortAcceptance', {portBasics, coreRecovery, exclusive, largeRead});
+/**
+ * Hashing where the bytes are: a store file's witness and a Blob's come from the store worker, with no read
+ * crossing to this window, and equal the witness hashed here. A compute worker's own handle on a revision file
+ * reads it while the store worker holds it open, as `readableBlob` hands it over.
+ */
+async function witnessInWorker() {
+    const worker = new Worker('/opfs-store-worker.js', {type: 'module'});
+    const operations: string[] = [];
+    const post = worker.postMessage.bind(worker) as (message: unknown, options?: StructuredSerializeOptions) => void;
+    worker.postMessage = ((message: {op: string}, options?: StructuredSerializeOptions) => {
+        operations.push(message.op);
+        post(message, options);
+    }) as Worker['postMessage'];
+    const port = createWorkerStorePort(worker);
+    const bytes = Uint8Array.from({length: 5 * 1024 * 1024 + 17}, (_, index) => (index * 7) % 251);
+    await port.remove('acceptance-witness');
+    const file = await port.open('acceptance-witness/r1.pdf');
+    await file.writeAt(0, bytes);
+    await file.flush();
+    operations.length = 0;
+    const whole = await file.witness(bytes.byteLength);
+    const prefix = await file.witness(1000);
+    const handed = await (await opfsFileHandle('acceptance-witness/r1.pdf')).getFile();
+    const ofBlob = await port.witnessBlob(handed.slice(0, bytes.byteLength));
+    const crossed = [...operations];
+    const read = async (offset: number, length: number) => bytes.subarray(offset, offset + length);
+    const range = new Uint8Array(await handed.slice(4_000_000, 4_000_100).arrayBuffer());
+    const result = {
+        whole: whole === await contentWitness(bytes.byteLength, read),
+        prefix: prefix === await contentWitness(1000, read),
+        ofBlob: ofBlob === whole,
+        crossed,
+        handedRange: range.every((byte, index) => byte === bytes[4_000_000 + index]) && range.byteLength === 100,
+    };
+    await file.close();
+    await port.remove('acceptance-witness');
+    worker.terminate();
+    return result;
+}
+
+Reflect.set(globalThis, '__evbStorePortAcceptance', {portBasics, coreRecovery, exclusive, largeRead, witnessInWorker});

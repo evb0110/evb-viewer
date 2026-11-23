@@ -31,6 +31,7 @@ import type { BrowserDocumentStore } from '@app/platform/browserDocumentStore';
 import {BROWSER_MAX_FULL_READ_BYTES as BROWSER_FULL_READ_LIMIT} from '@app/platform/browser/browserDocumentConstants';
 import {BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES} from '@contracts/browserPdfCombineWorker';
 import {BROWSER_QPDF_MAX_INPUT_BYTES} from '@contracts/browserQpdfEngine';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {
     FakeLockManager,
     MemoryStorage,
@@ -90,6 +91,11 @@ function requireArrayBufferChunk(chunk: FileSystemWriteChunkType): ArrayBuffer {
     return chunk;
 }
 
+/** One chunk a file writer received: bytes the window read, or a Blob, such as a stored file, the browser streams from where it is. */
+async function writtenChunkBytes(chunk: FileSystemWriteChunkType) {
+    return chunk instanceof Blob ? new Uint8Array(await chunk.arrayBuffer()) : new Uint8Array(requireArrayBufferChunk(chunk));
+}
+
 function createFileSystemFileHandle(
     options: IFileSystemFileHandleFixtureOptions,
 ): FileSystemFileHandle & IFileSystemFileHandlePermissionMethods {
@@ -120,6 +126,22 @@ function createOversizedPdfFile(fileName: string, size: number): File {
         new Blob([new Uint8Array(Math.max(0, end - start))], {type: 'application/pdf'})
     ));
     return file;
+}
+
+/**
+ * `blob`, one revision's bytes, as a revision too large for qpdf: it reports a size above the engine's input limit,
+ * and its slices are its own bytes followed by zeros, so PDF.js reads it by range without the test allocating that.
+ */
+function aboveQpdfInputLimit(blob: Blob) {
+    const size = BROWSER_QPDF_MAX_INPUT_BYTES + 1;
+    const view = new Blob([blob], {type: blob.type});
+    Object.defineProperty(view, 'size', {configurable: true, value: size});
+    vi.spyOn(view, 'slice').mockImplementation((start = 0, end = size) => {
+        const length = Math.max(0, Math.min(end, size) - start);
+        const own = blob.slice(start, start + length);
+        return new Blob([own, new Uint8Array(length - own.size)]);
+    });
+    return view;
 }
 
 const qpdfRun = vi.hoisted(() => vi.fn());
@@ -361,6 +383,10 @@ async function loadBrowserDocumentsFileCapability(
     vi.spyOn(browserDocumentStore, 'stores').mockResolvedValue({
         durable: {port: createNodeStorePort(storeRoot), publication: browserPublication},
         memory: {port: createMemoryStorePort(), publication: browserPublication},
+    });
+    // Revision files the test left open are closed with it, not by collection, which Node refuses.
+    onTestFinished(async () => {
+        await Promise.all(browserDocumentStore.openEntries().map(entry => entry.doc?.close().catch(() => undefined)));
     });
 
     return {
@@ -772,28 +798,33 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         expect(fallbackResult?.kind).toBe('pdf');
     });
 
+    /**
+     * A stored document too large for qpdf, as `validatePdfPath` reads it: one revision's Blob, its file, whose
+     * slices `readSlice` serves. Whole reads of it, or of the store, fail the test.
+     */
+    function oversizedRevision(
+        browserDocumentStore: BrowserDocumentStore,
+        readSlice: (start: number, end: number) => Blob = (start, end) => new Blob([new Uint8Array(end - start)]),
+    ) {
+        const size = BROWSER_QPDF_MAX_INPUT_BYTES + 1;
+        const file = new File([], 'large.pdf', {type: 'application/pdf'});
+        Object.defineProperty(file, 'size', {configurable: true, value: size});
+        const slice = vi.spyOn(file, 'slice').mockImplementation((start = 0, end = size) => readSlice(start, Math.min(end, size)));
+        vi.spyOn(file, 'arrayBuffer').mockRejectedValue(new Error('whole browser reads are forbidden for this test'));
+        vi.spyOn(browserDocumentStore, 'readableRevision').mockResolvedValue({blob: file, token: requireDocumentRevisionToken('large-revision'), byteRevision: undefined, instance: Symbol('test-entry')});
+        vi.spyOn(browserDocumentStore, 'assertDocumentRevisionCurrent').mockResolvedValue(undefined);
+        const read = vi.spyOn(browserDocumentStore, 'read').mockRejectedValue(new Error('whole browser reads are forbidden for this test'));
+        const readRange = vi.spyOn(browserDocumentStore, 'readRange');
+        return {slice, read, readRange};
+    }
+
     it('validates oversized browser PDFs through range reads without a full read', async () => {
         const {
             capability,
             browserDocumentStore,
         } = await loadBrowserDocumentsFileCapability();
         const path = requireDocumentRef('browser://documents/source/large-validation.pdf');
-        const largeSize = BROWSER_QPDF_MAX_INPUT_BYTES + 1;
-        const statSpy = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
-            size: largeSize,
-            modifiedAt: 0,
-        });
-        const snapshotSpy = vi.spyOn(browserDocumentStore, 'getContentSnapshot').mockResolvedValue({
-            size: largeSize,
-            modifiedAt: 0,
-            contentSignature: 'large-validation',
-        });
-        const readSpy = vi.spyOn(browserDocumentStore, 'read').mockRejectedValue(
-            new Error('full browser reads are forbidden for this test'),
-        );
-        const readRangeSpy = vi.spyOn(browserDocumentStore, 'readRange').mockResolvedValue(
-            new Uint8Array(4 * 1024 * 1024),
-        );
+        const {slice, read, readRange} = oversizedRevision(browserDocumentStore);
         pdfjsModule.getDocument.mockReturnValue(createLoadedPdfTask());
 
         await expect(capability.validatePdfPath(path)).resolves.toEqual({
@@ -803,12 +834,9 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             warnings: [expect.stringContaining(`${Math.round(BROWSER_QPDF_MAX_INPUT_BYTES / (1024 * 1024))} MiB`)],
         });
 
-        expect(readSpy).not.toHaveBeenCalled();
-        expect(readRangeSpy).toHaveBeenCalledWith(path, 0, 4 * 1024 * 1024);
-        statSpy.mockRestore();
-        snapshotSpy.mockRestore();
-        readSpy.mockRestore();
-        readRangeSpy.mockRestore();
+        expect(read).not.toHaveBeenCalled();
+        expect(readRange).not.toHaveBeenCalled();
+        expect(slice).toHaveBeenCalledExactlyOnceWith(0, 4 * 1024 * 1024);
     });
 
     it('requests later PDF ranges through the public validator without reading the whole source', async () => {
@@ -818,22 +846,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         } = await loadBrowserDocumentsFileCapability();
         const path = requireDocumentRef('browser://documents/source/multi-range-validation.pdf');
         const chunkSize = 4 * 1024 * 1024;
-        const largeSize = BROWSER_QPDF_MAX_INPUT_BYTES + 1;
-        const statSpy = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
-            size: largeSize,
-            modifiedAt: 0,
-        });
-        const snapshotSpy = vi.spyOn(browserDocumentStore, 'getContentSnapshot').mockResolvedValue({
-            size: largeSize,
-            modifiedAt: 0,
-            contentSignature: 'multi-range-validation',
-        });
-        const readSpy = vi.spyOn(browserDocumentStore, 'read').mockRejectedValue(
-            new Error('whole browser reads are forbidden for this test'),
-        );
-        const readRangeSpy = vi.spyOn(browserDocumentStore, 'readRange').mockImplementation(
-            async (_path, _offset, length) => new Uint8Array(length),
-        );
+        const {slice, read, readRange} = oversizedRevision(browserDocumentStore);
         pdfjsModule.getDocument.mockImplementation((rawInit: unknown) => {
             const init = rawInit as {range: {
                 requestDataRange: (begin: number, end: number) => void;
@@ -857,14 +870,9 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             warnings: [expect.stringContaining(`${Math.round(BROWSER_QPDF_MAX_INPUT_BYTES / (1024 * 1024))} MiB`)],
         });
 
-        expect(readSpy).not.toHaveBeenCalled();
-        expect(readRangeSpy).toHaveBeenNthCalledWith(1, path, 0, chunkSize);
-        expect(readRangeSpy).toHaveBeenNthCalledWith(2, path, chunkSize, chunkSize);
-        expect(readRangeSpy).toHaveBeenCalledTimes(2);
-        statSpy.mockRestore();
-        snapshotSpy.mockRestore();
-        readSpy.mockRestore();
-        readRangeSpy.mockRestore();
+        expect(read).not.toHaveBeenCalled();
+        expect(readRange).not.toHaveBeenCalled();
+        expect(slice.mock.calls).toEqual([[0, chunkSize], [chunkSize, chunkSize * 2]]);
     });
 
     it('propagates a failed later PDF range through the public validator without a whole read', async () => {
@@ -874,28 +882,12 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         } = await loadBrowserDocumentsFileCapability();
         const path = requireDocumentRef('browser://documents/source/failed-range-validation.pdf');
         const chunkSize = 4 * 1024 * 1024;
-        const largeSize = BROWSER_QPDF_MAX_INPUT_BYTES + 1;
-        const statSpy = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
-            size: largeSize,
-            modifiedAt: 0,
-        });
-        const snapshotSpy = vi.spyOn(browserDocumentStore, 'getContentSnapshot').mockResolvedValue({
-            size: largeSize,
-            modifiedAt: 0,
-            contentSignature: 'failed-range-validation',
-        });
-        const readSpy = vi.spyOn(browserDocumentStore, 'read').mockRejectedValue(
-            new Error('whole browser reads are forbidden for this test'),
-        );
         const rangeFailure = new Error('second PDF range failed');
-        const readRangeSpy = vi.spyOn(browserDocumentStore, 'readRange').mockImplementation(
-            async (_path, offset, length) => {
-                if (offset === 0) {
-                    return new Uint8Array(length);
-                }
-                throw rangeFailure;
-            },
-        );
+        const {slice, read, readRange} = oversizedRevision(browserDocumentStore, (start, end) => {
+            const piece = new Blob([new Uint8Array(end - start)]);
+            if (start !== 0) vi.spyOn(piece, 'arrayBuffer').mockRejectedValue(rangeFailure);
+            return piece;
+        });
         pdfjsModule.getDocument.mockImplementation((rawInit: unknown) => {
             const init = rawInit as {range: {
                 requestDataRange: (begin: number, end: number) => void;
@@ -919,14 +911,9 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             warnings: [],
         });
 
-        expect(readSpy).not.toHaveBeenCalled();
-        expect(readRangeSpy).toHaveBeenNthCalledWith(1, path, 0, chunkSize);
-        expect(readRangeSpy).toHaveBeenNthCalledWith(2, path, chunkSize, chunkSize);
-        expect(readRangeSpy).toHaveBeenCalledTimes(2);
-        statSpy.mockRestore();
-        snapshotSpy.mockRestore();
-        readSpy.mockRestore();
-        readRangeSpy.mockRestore();
+        expect(read).not.toHaveBeenCalled();
+        expect(readRange).not.toHaveBeenCalled();
+        expect(slice.mock.calls).toEqual([[0, chunkSize], [chunkSize, chunkSize * 2]]);
     });
 
     it('emits browser batch-open progress while combining multiple inputs', async () => {
@@ -2077,11 +2064,12 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             };
         });
         if (outcome === 'automatic') {
-            const stat = store.stat.bind(store);
-            vi.spyOn(store, 'stat').mockImplementation(async path => ({
-                ...await stat(path),
-                ...(path === working ? {size: 64 * 1024 ** 2} : {}),
-            }));
+            // The working copy's revision reports the size that admits automatic optimization.
+            const readableRevision = store.readableRevision.bind(store);
+            vi.spyOn(store, 'readableRevision').mockImplementation(async (ref, expected) => {
+                const revision = await readableRevision(ref, expected);
+                return ref === working ? {...revision, blob: Object.defineProperty(revision.blob.slice(), 'size', {value: 64 * 1024 ** 2})} : revision;
+            });
             // Use an unchanged frontier here; receipt size intentionally pins the real stage.
         }
         const save = capability.savePdfAs(working, {
@@ -2174,7 +2162,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         });
         const revisionOptions = await getRevisionOptions(store, working);
         const {savePdfAsFromWorkingCopy} = await import('@app/platform/browser-api/browserSaveTargets');
-        if (outcome === 'queued-abort') locks.holdElsewhere('evb-viewer:browser-physical-save');
+        if (outcome === 'queued-abort') locks.holdElsewhere('evb-viewer:browser-publish');
 
         const publishing = savePdfAsFromWorkingCopy(working, {
             stagedOutput,
@@ -2192,7 +2180,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         if (outcome === 'queued-abort') {
             await Promise.resolve();
             controller.abort(new DOMException('Optimize canceled', 'AbortError'));
-            locks.releaseElsewhere('evb-viewer:browser-physical-save');
+            locks.releaseElsewhere('evb-viewer:browser-publish');
         }
 
         if (outcome === 'queued-abort' || outcome === 'writing-abort') {
@@ -2311,12 +2299,14 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
 
     it('streams oversized browser save-as to a picked file handle', async () => {
         const writes: Uint8Array[] = [];
+        const streamed: boolean[] = [];
         const savedBytes = new Uint8Array(BROWSER_FULL_READ_LIMIT + 1);
         const handle = createFileSystemFileHandle({
             name: 'exported-large.pdf',
             getFile: vi.fn(async () => new File([savedBytes], 'exported-large.pdf', { type: 'application/pdf' })),
             createWritable: vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (chunk: FileSystemWriteChunkType) => {
-                const chunkBytes = new Uint8Array(requireArrayBufferChunk(chunk));
+                streamed.push(chunk instanceof Blob);
+                const chunkBytes = await writtenChunkBytes(chunk);
                 const offset = writes.reduce((sum, current) => sum + current.byteLength, 0);
                 savedBytes.set(chunkBytes, offset);
                 writes.push(chunkBytes);
@@ -2354,7 +2344,9 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             size: BROWSER_MAX_FULL_READ_BYTES + 1,
             modifiedAt: expect.any(Number),
         });
-        expect(writes.length).toBeGreaterThan(1);
+        // The browser streams the stored revision into the file; the window never reads it whole.
+        expect(streamed).toEqual([true]);
+        expect(writes[0]!.byteLength).toBe(BROWSER_MAX_FULL_READ_BYTES + 1);
     });
 
     it('preserves externally changed bytes when saving a byte-created snapshot', async () => {
@@ -2460,7 +2452,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             createWritable: vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (chunk: FileSystemWriteChunkType) => {
                 saveAsWriteStarted.resolve(undefined);
                 await releaseSaveAsWrite.promise;
-                saveAsWrittenBytes = new Uint8Array(requireArrayBufferChunk(chunk));
+                saveAsWrittenBytes = await writtenChunkBytes(chunk);
             })})),
         });
         let originalWrittenBytes: Uint8Array | null = null;
@@ -2503,6 +2495,227 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         expect(originalWrittenBytes).toBeNull();
         expect(saveAsWrittenBytes).toEqual(originalBytes);
         expect(originalCreateWritable).not.toHaveBeenCalled();
+    });
+
+    it('writes a Save As file only once another document\'s Save to it has let go of the origin\'s publication lock', async () => {
+        let written: Uint8Array<ArrayBuffer> | null = null;
+        const createWritable = vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (chunk: FileSystemWriteChunkType) => {
+            written = await writtenChunkBytes(chunk);
+        })}));
+        const handle = createFileSystemFileHandle({
+            name: 'shared.pdf',
+            getFile: vi.fn(async () => new File([written ?? new Uint8Array()], 'shared.pdf', {type: 'application/pdf'})),
+            createWritable,
+        });
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: vi.fn(async () => handle)}});
+        const original = Uint8Array.of(37, 80, 68, 70);
+        const working = await browserDocumentStore.cloneAsWorkingCopy(await browserDocumentStore.createStoredDocument('original.pdf', original, PDF_SOURCE_OPTIONS));
+        const revisionOptions = await getRevisionOptions(browserDocumentStore, working);
+        const locks = new FakeLockManager();
+        const requested = Promise.withResolvers<undefined>();
+        const request = locks.request.bind(locks);
+        locks.request = (async (name: string, ...rest: [never, never]) => {
+            if (name === 'evb-viewer:browser-publish') requested.resolve(undefined);
+            return request(name, ...rest);
+        }) as typeof locks.request;
+        vi.stubGlobal('navigator', {locks});
+        // Another window's Save to the same file is between its check and its hash.
+        locks.holdElsewhere('evb-viewer:browser-publish');
+
+        const saveAs = capability.savePdfAs(working, undefined, revisionOptions);
+        await Promise.race([requested.promise, saveAs]);
+        await new Promise<undefined>(resolve => setImmediate(() => resolve(undefined)));
+        expect(createWritable).not.toHaveBeenCalled();
+
+        locks.releaseElsewhere('evb-viewer:browser-publish');
+        await expect(saveAs).resolves.not.toBeNull();
+        expect(createWritable).toHaveBeenCalledOnce();
+        expect(written).toEqual(original);
+    });
+
+    it.each([
+        {size: 'checked in memory', large: false},
+        {size: 'above the qpdf input limit, written from its stored file', large: true},
+    ])('refuses a Save As whose working copy was edited while it waited for the origin\'s publication lock ($size)', async ({large}) => {
+        const createWritable = vi.fn(async () => createFileSystemWritableFileStream({}));
+        const handle = createFileSystemFileHandle({name: 'shared.pdf', createWritable});
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: vi.fn(async () => handle)}});
+        const original = Uint8Array.of(37, 80, 68, 70);
+        const working = await browserDocumentStore.cloneAsWorkingCopy(await browserDocumentStore.createStoredDocument('original.pdf', original, PDF_SOURCE_OPTIONS));
+        const revisionOptions = await getRevisionOptions(browserDocumentStore, working);
+        if (large) {
+            // Too large for qpdf: PDF.js admits it, and the write streams it from its stored file.
+            const readableRevision = browserDocumentStore.readableRevision.bind(browserDocumentStore);
+            vi.spyOn(browserDocumentStore, 'readableRevision').mockImplementation(async (ref, expected) => {
+                const revision = await readableRevision(ref, expected);
+                return {...revision, blob: aboveQpdfInputLimit(revision.blob)};
+            });
+            pdfjsModule.getDocument.mockReturnValue(createLoadedPdfTask());
+        }
+        const locks = new FakeLockManager();
+        const requested = Promise.withResolvers<undefined>();
+        const request = locks.request.bind(locks);
+        locks.request = (async (name: string, ...rest: [never, never]) => {
+            if (name === 'evb-viewer:browser-publish') requested.resolve(undefined);
+            return request(name, ...rest);
+        }) as typeof locks.request;
+        vi.stubGlobal('navigator', {locks});
+        locks.holdElsewhere('evb-viewer:browser-publish');
+
+        const saveAs = capability.savePdfAs(working, undefined, revisionOptions);
+        await Promise.race([requested.promise, saveAs]);
+        // An edit lands while the Save As waits.
+        await browserDocumentStore.write(working, Uint8Array.of(37, 80, 68, 70, 45, 50), revisionOptions);
+        locks.releaseElsewhere('evb-viewer:browser-publish');
+
+        await expect(saveAs).rejects.toMatchObject({code: 'STALE_REVISION'});
+        expect(createWritable).not.toHaveBeenCalled();
+    });
+
+    // An edit undone while PDF.js checks a working copy too large for qpdf leaves the token the Save As holds current,
+    // so only reading the bytes it captured keeps what is checked and what is published one revision.
+    it('publishes from Save As the bytes PDF.js checked above the qpdf input limit when an edit is made and undone during the check', async () => {
+        let written: Uint8Array<ArrayBuffer> | null = null;
+        const handle = createFileSystemFileHandle({
+            name: 'large.pdf',
+            getFile: vi.fn(async () => new File([written ?? new Uint8Array()], 'large.pdf', {type: 'application/pdf'})),
+            createWritable: vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (chunk: FileSystemWriteChunkType) => {
+                written = await writtenChunkBytes(chunk);
+            })})),
+        });
+        const {
+            capability,
+            browserDocumentStore: store,
+        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: vi.fn(async () => handle)}});
+        const revisionA = new TextEncoder().encode('%PDF-1.7 revision A');
+        const revisionB = new TextEncoder().encode('%PDF-1.7 revision B');
+        const working = await store.cloneAsWorkingCopy(await store.createStoredDocument('large.pdf', revisionA, PDF_SOURCE_OPTIONS));
+        const revisionOptions = await getRevisionOptions(store, working);
+        const tokenA = revisionOptions.expectedDocumentRevisionToken;
+        // Edit B lands once the Save As holds its revision, and is undone once PDF.js has read the document.
+        // Report both revisions above the qpdf limit even to callers that use `stat` instead of `readableRevision`.
+        const stat = store.stat.bind(store);
+        vi.spyOn(store, 'stat').mockImplementation(async (ref) => ({
+            ...await stat(ref),
+            size: BROWSER_QPDF_MAX_INPUT_BYTES + 1,
+        }));
+        const readableBlob = store.readableBlob.bind(store);
+        vi.spyOn(store, 'readableBlob').mockImplementation(async (ref) => aboveQpdfInputLimit(await readableBlob(ref)));
+        const readableRevision = store.readableRevision.bind(store);
+        vi.spyOn(store, 'readableRevision').mockImplementationOnce(async (ref, expected) => {
+            const revision = await readableRevision(ref, expected);
+            await store.write(working, revisionB, {expectedDocumentRevisionToken: tokenA});
+            return revision;
+        });
+        let checked: Uint8Array | null = null;
+        pdfjsModule.getDocument.mockImplementationOnce((rawInit: unknown) => {
+            const {range} = rawInit as {range: {
+                requestDataRange: (begin: number, end: number) => void;
+                onDataRange: (begin: number, chunk: Uint8Array) => void;
+            }};
+            const destroy = vi.fn(async () => {});
+            const promise = new Promise<{loadingTask: {destroy: typeof destroy}}>((resolve, reject) => {
+                range.onDataRange = (_begin, chunk) => {
+                    checked = chunk.slice();
+                    void store.getDocumentRevision(working)
+                        .then(({token}) => store.restoreRevision(working, tokenA, token))
+                        .then(() => resolve({loadingTask: {destroy}}), reject);
+                };
+                range.requestDataRange(0, revisionA.byteLength);
+            });
+            return {promise, destroy};
+        });
+
+        await expect(capability.savePdfAs(working, undefined, revisionOptions)).resolves.not.toBeNull();
+        expect(checked).toEqual(revisionA);
+        expect(written).toEqual(revisionA);
+        await expect(getRevisionOptions(store, working)).resolves.toEqual(revisionOptions);
+    });
+
+    it('rejects plain Save As when stageAppend materializes changed picked file B or release and reopen exposes changed picked file B', async () => {
+        const bytesA = new TextEncoder().encode('%PDF-1.7\npicked A\n');
+        const bytesB = new TextEncoder().encode('%PDF-1.7\npicked B changed externally\n');
+        let currentFile = new File([bytesA], 'picked-saveas.pdf', {
+            type: 'application/pdf',
+            lastModified: 1,
+        });
+        const pickedHandle = {
+            kind: 'file',
+            name: 'picked-saveas.pdf',
+            getFile: vi.fn(async () => currentFile),
+        } as unknown as FileSystemFileHandle;
+        let written: Uint8Array<ArrayBuffer> | null = null;
+        const saveAsHandle = {
+            kind: 'file',
+            name: 'saved-copy.pdf',
+            getFile: vi.fn(async () => new File([written ?? new Uint8Array()], 'saved-copy.pdf', {type: 'application/pdf'})),
+            createWritable: vi.fn(async () => ({
+                write: async (chunk: Uint8Array) => { written = new Uint8Array(chunk); },
+                close: async () => {},
+                abort: async () => {},
+            })),
+        } as unknown as FileSystemFileHandle;
+        const {
+            capability,
+            browserDocumentStore: store,
+        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: vi.fn(async () => saveAsHandle)}});
+
+        // Case A: concurrent stageAppend materializes changed picked file B as :1:s before Save As publishes.
+        const pickedA = await store.registerFile(currentFile, {
+            ...PDF_SOURCE_OPTIONS,
+            saveHandle: pickedHandle,
+        });
+        const workingA = await store.cloneAsWorkingCopy(pickedA);
+        const revOptsA = await getRevisionOptions(store, workingA);
+        const origReadableA = store.readableRevision.bind(store);
+        vi.spyOn(store, 'readableRevision').mockImplementationOnce(async (ref, expected) => {
+            const revision = await origReadableA(ref, expected);
+            currentFile = new File([bytesB], 'picked-saveas.pdf', {
+                type: 'application/pdf',
+                lastModified: 2,
+            });
+            await store.stageAppend(workingA, revOptsA.expectedDocumentRevisionToken, async (file, base) => {
+                const tail = new TextEncoder().encode('%tail');
+                await file.writeAt(base, tail);
+                return base + tail.byteLength;
+            });
+            return revision;
+        });
+
+        await expect(capability.savePdfAs(workingA, undefined, revOptsA)).rejects.toMatchObject({code: 'STALE_REVISION'});
+        expect(written).toBeNull();
+
+        // Case B: release + reopen exposes changed picked file B with the same token before Save As publishes.
+        currentFile = new File([bytesA], 'picked-saveas-reopen.pdf', {
+            type: 'application/pdf',
+            lastModified: 1,
+        });
+        const pickedB = await store.registerFile(currentFile, {
+            ...PDF_SOURCE_OPTIONS,
+            saveHandle: pickedHandle,
+        });
+        const workingB = await store.cloneAsWorkingCopy(pickedB);
+        const revOptsB = await getRevisionOptions(store, workingB);
+        const origReadableB = store.readableRevision.bind(store);
+        vi.spyOn(store, 'readableRevision').mockImplementationOnce(async (ref, expected) => {
+            const revision = await origReadableB(ref, expected);
+            await store.release(workingB);
+            currentFile = new File([bytesB], 'picked-saveas-reopen.pdf', {
+                type: 'application/pdf',
+                lastModified: 3,
+            });
+            store.nameSource(workingB, pickedB);
+            return revision;
+        });
+
+        await expect(capability.savePdfAs(workingB, undefined, revOptsB)).rejects.toMatchObject({code: 'STALE_REVISION'});
+        expect(written).toBeNull();
     });
 
     it('streams a DOCX above the former 16 MiB browser limit into one download without a file handle', async () => {
@@ -2652,7 +2865,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             createWritable: async () => {
                 const chunks: Uint8Array[] = [];
                 return createFileSystemWritableFileStream({
-                    write: async chunk => {chunks.push(new Uint8Array(requireArrayBufferChunk(chunk)));},
+                    write: async chunk => {chunks.push(await writtenChunkBytes(chunk));},
                     close: async () => {bytes = new Uint8Array(Buffer.concat(chunks));},
                 });
             },

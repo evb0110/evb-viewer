@@ -1,3 +1,4 @@
+import { contentWitness } from '@document-store/contentWitness';
 import type {
     IStoreFile,
     IStorePort,
@@ -47,8 +48,21 @@ async function appendPdfMutationsToSyncFile(file: IPdfAppendFile, base: number, 
 /** Whether `port` keeps its files in the origin private file system, where a worker reads and writes them by path. */
 export const isOpfsStorePort = (port: IStorePort) => opfsPorts.has(port);
 
+const readBlobRange = async (blob: Blob, offset: number, length: number) => new Uint8Array(await blob.slice(offset, offset + length).arrayBuffer());
+
+/** The window's store worker, which hashes Blobs too once `openBrowserStorePort` opened it. */
+let storeWorkerWitness: ((blob: Blob) => Promise<string>) | null = null;
+
+/**
+ * The `content-v2` witness of `blob`, such as the file a Save just wrote: hashed by the window's store worker when
+ * it has one, so the window's thread neither reads nor hashes the bytes, and here otherwise.
+ */
+export function blobContentWitness(blob: Blob) {
+    return storeWorkerWitness?.(blob) ?? contentWitness(blob.size, (offset, length) => readBlobRange(blob, offset, length));
+}
+
 /** The storage port of a store worker (`opfsStore.worker.ts`), which holds the files' sync access handles. */
-export function createWorkerStorePort(worker: Worker): IStorePort & {probe(): Promise<boolean>} {
+export function createWorkerStorePort(worker: Worker): IStorePort & {probe(): Promise<boolean>; witnessBlob(blob: Blob): Promise<string>} {
     const pending = new Map<number, {resolve(value: unknown): void; reject(error: Error): void}>();
     let nextId = 1;
     const fail = (error: Error) => {
@@ -72,6 +86,7 @@ export function createWorkerStorePort(worker: Worker): IStorePort & {probe(): Pr
         const file: IStoreFile = {
             size: () => call('size', id),
             readAt: (offset, length) => call('readAt', id, offset, length),
+            witness: length => call('witness', id, length),
             writeAt: (offset, bytes) => call('writeAt', id, offset, bytes),
             truncate: length => call('truncate', id, length),
             flush: () => call('flush', id),
@@ -82,6 +97,7 @@ export function createWorkerStorePort(worker: Worker): IStorePort & {probe(): Pr
     };
     const port = {
         probe: () => call<boolean>('probe'),
+        witnessBlob: blob => call<string>('witnessBlob', blob),
         list: dir => call('list', dir),
         read: path => call('read', path),
         writeAtomic: (path, bytes) => call('writeAtomic', path, bytes),
@@ -89,7 +105,7 @@ export function createWorkerStorePort(worker: Worker): IStorePort & {probe(): Pr
         copyIn: (source, path) => call('copyIn', source, path),
         copy: (from, to) => call('copy', from, to),
         remove: path => call('remove', path),
-    } satisfies IStorePort & {probe(): Promise<boolean>};
+    } satisfies IStorePort & {probe(): Promise<boolean>; witnessBlob(blob: Blob): Promise<string>};
     opfsPorts.add(port);
     return port;
 }
@@ -124,9 +140,11 @@ export function createMemoryStorePort(): IStorePort {
                 file.length = Math.max(file.length, end);
             };
             const writeAt = async (offset: number, chunk: Uint8Array) => write(offset, chunk);
+            const readAt = async (offset: number, length: number) => file.buffer.slice(offset, Math.min(file.length, offset + length));
             const storeFile: IStoreFile = {
                 size: async () => file.length,
-                readAt: async (offset, length) => file.buffer.slice(offset, Math.min(file.length, offset + length)),
+                readAt,
+                witness: length => contentWitness(length, readAt),
                 writeAt,
                 async truncate(length) {
                     if (length > file.length) await writeAt(file.length, new Uint8Array(length - file.length));
@@ -169,6 +187,7 @@ export async function openBrowserStorePort(createWorker = () => new Worker(new U
         }
         const port = createWorkerStorePort(createWorker());
         await port.probe();
+        storeWorkerWitness = blob => port.witnessBlob(blob);
         return {port, durable: true};
     } catch {
         return {port: createMemoryStorePort(), durable: false};

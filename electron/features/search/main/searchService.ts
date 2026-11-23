@@ -27,6 +27,7 @@ import {
     searchIndexedDocument,
     type ISearchIndexedDocument,
     type ISearchQueryOptions,
+    type IProvisionalSearchMatches,
 } from '@electron/features/search/searchIndex';
 import { getErrorMessage } from '@electron/utils/error';
 
@@ -128,12 +129,26 @@ export function createSearchService() {
                 publish, signal,
             }) => {
                 const document = await request.resolveDocument(signal);
-                const onIndexProgress = (pagesScanned: number) => publish({
+                let processed = 0;
+                let provisional: IProvisionalSearchMatches | null = null;
+                // Progress is delivered latest-first, so every event carries
+                // the whole provisional window: one that only moved the page
+                // count must not drop matches an earlier event announced.
+                const publishRunning = () => publish({
                     requestId,
-                    processed: pagesScanned,
-                    total: Math.max(total, pagesScanned),
+                    processed,
+                    total: Math.max(total, processed),
                     status: 'running',
+                    ...(provisional === null ? {} : {
+                        results: provisional.results,
+                        resultsStartIndex: 0,
+                        truncated: provisional.truncated,
+                    }),
                 });
+                const onIndexProgress = (pagesScanned: number) => {
+                    processed = pagesScanned;
+                    publishRunning();
+                };
                 if (request.warmup) {
                     const coverage = await ensureSearchIndex(document, {
                         signal,
@@ -148,6 +163,10 @@ export function createSearchService() {
                 const response = await searchIndexedDocument(document, request.query, request, {
                     signal,
                     onIndexProgress,
+                    onProvisionalMatches: (matches) => {
+                        provisional = matches;
+                        publishRunning();
+                    },
                 });
                 publish({
                     requestId,

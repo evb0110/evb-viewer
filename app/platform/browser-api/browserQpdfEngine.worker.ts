@@ -24,6 +24,13 @@ import {getErrorMessage} from '@app/utils/error';
 declare const self: DedicatedWorkerGlobalScope;
 
 /** The part of the Emscripten module a command uses (`scripts/build-qpdf-wasm.sh`). */
+interface IQpdfFsNode {
+    id: number;
+    mode: number;
+    node_ops: object;
+    stream_ops: object;
+}
+
 interface IQpdfFileStream {
     path: string;
     position: number;
@@ -36,6 +43,11 @@ interface IQpdfModule {
         writeFile(path: string, data: Uint8Array, options?: {canOwn: boolean}): void;
         readFile(path: string): Uint8Array;
         write(stream: IQpdfFileStream, buffer: Uint8Array, offset: number, length: number, position?: number, canOwn?: boolean): number;
+        symlink(target: string, path: string): void;
+        createNode(parent: IQpdfFsNode | null, name: string, mode: number, rdev: number): IQpdfFsNode;
+        mount(type: {mount(): IQpdfFsNode}, options: object, mountpoint: string): void;
+        unmount(mountpoint: string): void;
+        ErrnoError: new (errno: number) => Error;
     };
 }
 
@@ -68,6 +80,17 @@ function hasAppendAdmissionExports(exports: WebAssembly.Exports): exports is Web
 
 const INPUT_PATH = '/work/input.pdf';
 const OUTPUT_PATH = '/work/output.pdf';
+// A Blob input is mounted read-only here, and `INPUT_PATH` links to it, so commands and their messages name one path.
+const BLOB_MOUNT = '/blob';
+const BLOB_NAME = 'input.pdf';
+// qpdf seeks back to objects it has passed: a few cached blocks keep a rewrite to about two reads of its input.
+const BLOB_BLOCK_BYTES = 256 * 1024;
+const BLOB_CACHED_BLOCKS = 8;
+const S_IFDIR = 0o040000;
+const S_IFREG = 0o100000;
+const ERRNO_EPERM = 63;
+const ERRNO_ENOENT = 44;
+const ERRNO_EINVAL = 28;
 
 const COMMAND_ARGS: Record<TBrowserQpdfCommand, () => string[]> = {
     'check': () => getQpdfCheckArgs(INPUT_PATH),
@@ -119,11 +142,86 @@ function appendBounded(text: string, line: string) {
 }
 
 /**
+ * Mounts `blob` read-only at `BLOB_MOUNT` as `BLOB_NAME`. This build has no `WORKERFS`, so the mount is the same
+ * idea in a few node and stream operations: reads are synchronous `FileReaderSync` slices of the Blob, through a
+ * small block cache, and nothing writes. The Blob's bytes never enter the file system's memory as a whole.
+ */
+function mountBlob(fs: IQpdfModule['FS'], blob: Blob) {
+    const reader = new FileReaderSync();
+    const blocks = new Map<number, Uint8Array>();
+    const block = (index: number) => {
+        let bytes = blocks.get(index);
+        if (bytes) {
+            blocks.delete(index);
+        } else {
+            bytes = new Uint8Array(reader.readAsArrayBuffer(blob.slice(index * BLOB_BLOCK_BYTES, (index + 1) * BLOB_BLOCK_BYTES)));
+            if (blocks.size >= BLOB_CACHED_BLOCKS) blocks.delete(blocks.keys().next().value!);
+        }
+        blocks.set(index, bytes);
+        return bytes;
+    };
+    const refuse = (errno: number) => () => {
+        throw new fs.ErrnoError(errno);
+    };
+    const nodes = new Map<string, IQpdfFsNode>();
+    const node_ops = {
+        getattr(node: IQpdfFsNode) {
+            const size = node.mode & S_IFREG ? blob.size : 4096;
+            const time = blob instanceof File ? blob.lastModified : 0;
+            return {
+                dev: 1, ino: node.id, mode: node.mode, nlink: 1, uid: 0, gid: 0, rdev: 0, size,
+                atime: new Date(time), mtime: new Date(time), ctime: new Date(time), atimeMs: time, mtimeMs: time, ctimeMs: time,
+                blksize: 4096, blocks: Math.ceil(size / 4096),
+            };
+        },
+        setattr: refuse(ERRNO_EPERM),
+        lookup: refuse(ERRNO_ENOENT),
+        mknod: refuse(ERRNO_EPERM),
+        rename: refuse(ERRNO_EPERM),
+        unlink: refuse(ERRNO_EPERM),
+        rmdir: refuse(ERRNO_EPERM),
+        symlink: refuse(ERRNO_EPERM),
+        readdir: () => ['.', '..', ...nodes.keys()],
+    };
+    const stream_ops = {
+        read(_stream: IQpdfFileStream, buffer: Uint8Array, offset: number, length: number, position: number) {
+            let done = 0;
+            while (done < length && position + done < blob.size) {
+                const at = position + done;
+                const bytes = block(Math.floor(at / BLOB_BLOCK_BYTES));
+                const from = at % BLOB_BLOCK_BYTES;
+                const count = Math.min(length - done, bytes.byteLength - from);
+                if (count <= 0) break;
+                buffer.set(bytes.subarray(from, from + count), offset + done);
+                done += count;
+            }
+            return done;
+        },
+        write: refuse(ERRNO_EPERM),
+        llseek(stream: IQpdfFileStream, offset: number, whence: number) {
+            const position = offset + (whence === 1 ? stream.position : whence === 2 ? blob.size : 0);
+            if (position < 0) throw new fs.ErrnoError(ERRNO_EINVAL);
+            return position;
+        },
+    };
+    fs.mkdirTree(BLOB_MOUNT);
+    fs.mount({
+        mount() {
+            const root = Object.assign(fs.createNode(null, '/', S_IFDIR | 0o555, 0), {node_ops, stream_ops: {}});
+            nodes.set(BLOB_NAME, Object.assign(fs.createNode(root, BLOB_NAME, S_IFREG | 0o444, 0), {node_ops, stream_ops}));
+            return root;
+        },
+    }, {}, BLOB_MOUNT);
+}
+
+/**
  * Runs one qpdf command in a fresh instance. Wasm memory never shrinks and
  * the file system holds whole files, so nothing outlives the command but the
- * compiled module; the input buffer is handed to the file system, not copied.
+ * compiled module. An input buffer is handed to the file system, not copied;
+ * a Blob is mounted read-only and read by range, and the mount ends with the
+ * instance, whether the command succeeded or not.
  */
-async function runQpdf(command: TBrowserQpdfCommand, input: Uint8Array): Promise<IBrowserQpdfRunResult> {
+async function runQpdf(command: TBrowserQpdfCommand, input: Uint8Array | Blob): Promise<IBrowserQpdfRunResult> {
     const engine = await loadQpdf();
     const log = {
         stdout: '',
@@ -148,7 +246,12 @@ async function runQpdf(command: TBrowserQpdfCommand, input: Uint8Array): Promise
         throw new EngineUnavailableError(getErrorMessage(error));
     }
     instance.FS.mkdirTree('/work');
-    instance.FS.writeFile(INPUT_PATH, input, {canOwn: true});
+    if (input instanceof Blob) {
+        mountBlob(instance.FS, input);
+        instance.FS.symlink(`${BLOB_MOUNT}/${BLOB_NAME}`, INPUT_PATH);
+    } else {
+        instance.FS.writeFile(INPUT_PATH, input, {canOwn: true});
+    }
     // The file system grows JavaScript buffers outside Wasm memory, so the
     // output is bounded as it is written, before it can be allocated.
     const write = instance.FS.write.bind(instance.FS);
@@ -170,6 +273,8 @@ async function runQpdf(command: TBrowserQpdfCommand, input: Uint8Array): Promise
             stderr: appendBounded(log.stderr, error.message),
             output: null,
         };
+    } finally {
+        if (input instanceof Blob) instance.FS.unmount(BLOB_MOUNT);
     }
     const output = WRITING_COMMANDS.has(command) && isQpdfSuccessExitCode(exitCode)
         ? instance.FS.readFile(OUTPUT_PATH)
@@ -212,10 +317,11 @@ async function readAppendAdmission(bytes: Uint8Array) {
 /**
  * Desktop's `normalizePdfAppendBase` for bytes: a base whose cross-reference
  * chain an append cannot extend is rewritten through qpdf, and the rewrite
- * must take an append.
+ * must take an append. The admission reads its input whole, so a Blob is read
+ * here, in this worker; qpdf then reads the Blob by range again.
  */
-async function normalizeAppendBase(input: Uint8Array): Promise<IBrowserQpdfNormalizeResult> {
-    const verdict = await readAppendAdmission(input);
+async function normalizeAppendBase(input: Uint8Array | Blob): Promise<IBrowserQpdfNormalizeResult> {
+    const verdict = await readAppendAdmission(input instanceof Blob ? new Uint8Array(await input.arrayBuffer()) : input);
     if (verdict !== 'repairable') {
         return {
             verdict,

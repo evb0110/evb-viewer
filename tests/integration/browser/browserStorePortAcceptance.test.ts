@@ -122,6 +122,13 @@ describe('browser store port on the origin private file system', () => {
                 sameContext: 'refused',
                 afterRelease: true,
             });
+            expect(await run('witnessInWorker')).toEqual({
+                whole: true,
+                prefix: true,
+                ofBlob: true,
+                crossed: ['witness', 'witness', 'witnessBlob'],
+                handedRange: true,
+            });
             // WebKit's default OPFS quota is 1000 MiB, with capacity reserved in 128 MiB steps.
             const mib = engine === 'webkit' ? 768 : 1024;
             const large = await run('largeRead', mib) as Record<string, unknown>;

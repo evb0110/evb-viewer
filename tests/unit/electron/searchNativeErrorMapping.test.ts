@@ -43,6 +43,15 @@ const fake = vi.hoisted(() => ({
     indexLines: [] as string[],
     indexCoverage: null as Record<string, unknown> | null,
     indexFailure: null as Error | null,
+    indexRuns: 0,
+    indexStartCapacity: null as {
+        brokerActive: number;
+        workers: number
+    } | null,
+    staleSearches: 0,
+    searchResponse: null as Record<string, unknown> | null,
+    indexRelease: null as Promise<unknown> | null,
+    provisionalSearches: 0,
 }));
 
 vi.mock('@electron/resources/jobBroker', async importOriginal => {
@@ -129,7 +138,60 @@ vi.mock('@electron/native-tools/runNativeToolCommand', () => ({async runNativeTo
     if (args[0] === 'stat') {
         return result(JSON.stringify(fake.indexCoverage));
     }
+    if (args[0] === 'search' && args.includes('--pages-from-stdin')) {
+        fake.provisionalSearches += 1;
+        // The indexer's searcher over the written pages: a plain case-folded
+        // literal stands in for its matcher, whose rules pdf-search tests.
+        let input = '';
+        for await (const chunk of options.stdin ?? []) {
+            input += chunk;
+        }
+        const query = args[args.indexOf('--query') + 1]!.toLowerCase();
+        const limit = Number(args[args.indexOf('--limit') + 1]);
+        const found = input.split('\n').filter(Boolean).flatMap((line) => {
+            const page = JSON.parse(line) as {
+                pageNumber: number;
+                text: string
+            };
+            const matches = [];
+            for (let start = page.text.toLowerCase().indexOf(query); start >= 0; start = page.text.toLowerCase().indexOf(query, start + query.length)) {
+                matches.push({
+                    pageNumber: page.pageNumber,
+                    pageMatchIndex: matches.length,
+                    startOffset: start,
+                    endOffset: start + query.length,
+                    excerpt: {
+                        prefix: false,
+                        suffix: false,
+                        before: page.text.slice(0, start),
+                        match: page.text.slice(start, start + query.length),
+                        after: page.text.slice(start + query.length),
+                    },
+                });
+            }
+            return matches;
+        }).map((match, matchIndex) => ({
+            ...match,
+            matchIndex,
+        }));
+        return result(JSON.stringify({
+            results: found.slice(0, limit),
+            truncated: found.length > limit,
+            coverage: {
+                pageCount: 3,
+                pagesScanned: 0,
+                pagesWritten: 0,
+                truncated: false,
+                missingTextPageSample: [],
+            },
+        }));
+    }
     if (args[0] === 'search') {
+        if (fake.staleSearches > 0) {
+            fake.staleSearches -= 1;
+            return result(JSON.stringify({stale: true}));
+        }
+        if (fake.searchResponse) return result(JSON.stringify(fake.searchResponse));
         return result(JSON.stringify({
             results: [],
             truncated: false,
@@ -139,7 +201,13 @@ vi.mock('@electron/native-tools/runNativeToolCommand', () => ({async runNativeTo
     if (fake.indexFailure) {
         throw fake.indexFailure;
     }
+    fake.indexRuns += 1;
+    fake.indexStartCapacity = {
+        brokerActive: fake.broker!.getSnapshot().active,
+        workers: fake.workerActive,
+    };
     fake.indexArgs = args;
+    await fake.indexRelease;
     let input = '';
     for await (const chunk of options.stdin ?? []) {
         input += chunk;
@@ -209,7 +277,11 @@ vi.mock('@electron/utils/workerTask', async importOriginal => ({
 }));
 
 const {streamPdfPageTexts} = await import('@electron/features/search/pdfPageTexts');
-const {buildSearchIndex} = await import('@electron/features/search/searchIndex');
+const {
+    buildSearchIndex,
+    cancelSearchIndexBuilds,
+} = await import('@electron/features/search/searchIndex');
+const {runWithMainOperationCancellationSignal} = await import('@electron/operation-lifecycle/mainOperationLifecycle');
 const {readDocumentTextSnapshot} = await import('@electron/features/ocr/main/documentText');
 
 afterEach(() => {
@@ -227,6 +299,12 @@ afterEach(() => {
     fake.indexLines = [];
     fake.indexCoverage = null;
     fake.indexFailure = null;
+    fake.indexRuns = 0;
+    fake.indexStartCapacity = null;
+    fake.staleSearches = 0;
+    fake.searchResponse = null;
+    fake.indexRelease = null;
+    fake.provisionalSearches = 0;
 });
 
 describe('native search error mapping', () => {
@@ -303,7 +381,7 @@ describe('search index text budget', () => {
                 },
                 onProgress,
             ),
-        }, pageNumber => progress.push(pageNumber));
+        }, {onProgress: pageNumber => progress.push(pageNumber)});
         try {
             await inspecting;
             expect([...progress]).toEqual([1]);
@@ -770,4 +848,389 @@ describe('PDF.js admission and producer cancellation (native-seam test)', () => 
             await leaving;
         }
     });
+});
+
+/** Pages that are extracted only as the test opens them. */
+function gatedPages(texts: readonly string[]) {
+    const gates = texts.map(() => Promise.withResolvers<undefined>());
+    return {
+        open: (...pageNumbers: number[]) => pageNumbers.forEach(pageNumber => gates[pageNumber - 1]!.resolve(undefined)),
+        openAll: () => gates.forEach(gate => gate.resolve(undefined)),
+        async* readPages(signal: AbortSignal) {
+            for (const [
+                index,
+                text,
+            ] of texts.entries()) {
+                await Promise.race([
+                    gates[index]!.promise,
+                    new Promise((_resolve, reject) => {
+                        if (signal.aborted) reject(signal.reason);
+                        signal.addEventListener('abort', () => reject(signal.reason), {once: true});
+                    }),
+                ]);
+                yield {
+                    pageNumber: index + 1,
+                    text,
+                };
+            }
+        },
+    };
+}
+
+async function withIndexDirectory(
+    run: (indexPath: string, onCleanup: (cleanup: () => Promise<unknown>) => void) => Promise<void>,
+) {
+    const directory = await mkdtemp(join(tmpdir(), 'evb-search-build-'));
+    const cleanups: Array<() => Promise<unknown>> = [];
+    try {
+        await run(join(directory, 'index'), cleanup => cleanups.push(cleanup));
+    } finally {
+        for (const cleanup of cleanups.reverse()) {
+            await cleanup();
+        }
+        await rm(directory, {
+            recursive: true,
+            force: true,
+        });
+    }
+}
+
+describe('shared index builds', () => {
+    it('keeps a build running for the searches that joined it after the request that started it ends', () => withIndexDirectory(async (indexPath) => {
+        const source = gatedPages(['first page']);
+        const document = {
+            indexPath,
+            documentRevision: 'revision',
+            readPages: source.readPages,
+        };
+        const request = new AbortController();
+        const first = runWithMainOperationCancellationSignal(request.signal, () => buildSearchIndex(document));
+        const joined = buildSearchIndex(document);
+        request.abort(new Error('IPC invoke canceled'));
+        source.open(1);
+
+        await expect(joined).resolves.toMatchObject({pagesWritten: 1});
+        await expect(first).resolves.toMatchObject({pagesWritten: 1});
+        expect(fake.indexRuns).toBe(1);
+    }));
+
+    it('starts a new build for a search that arrives while a canceled one unwinds', () => withIndexDirectory(async (indexPath) => {
+        const source = gatedPages(['page']);
+        const document = {
+            indexPath,
+            documentRevision: 'revision',
+            readPages: source.readPages,
+        };
+        const canceled = buildSearchIndex(document).catch((error: unknown) => error);
+        cancelSearchIndexBuilds(indexPath);
+        const next = buildSearchIndex(document);
+        source.open(1);
+
+        await expect(next).resolves.toMatchObject({pagesWritten: 1});
+        expect(await canceled).toBeInstanceOf(Error);
+        expect(fake.indexRuns).toBe(1);
+    }));
+
+    it('frees extraction capacity before the indexer runs', () => withIndexDirectory(async (indexPath) => {
+        fake.pageTexts.set(1, 'Poppler text');
+        fake.missingCjkDataPages.add(1);
+        await buildSearchIndex({
+            indexPath,
+            documentRevision: 'revision',
+            readPageCount: () => Promise.resolve(1),
+            readPages: (signal, pageCount, onProgress) => streamPdfPageTexts(
+                join(process.cwd(), 'tests/fixtures/electron/generated-text.pdf'),
+                {
+                    signal,
+                    ...(pageCount === undefined ? {} : {lastPage: pageCount}),
+                },
+                onProgress,
+            ),
+        });
+
+        expect(fake.pdfjsPages).toEqual([1]);
+        expect(fake.indexStartCapacity).toEqual({
+            brokerActive: 0,
+            workers: 0,
+        });
+    }));
+});
+
+describe('provisional search matches', () => {
+    const indexedMatch = {
+        pageNumber: 3,
+        pageMatchIndex: 0,
+        matchIndex: 0,
+        startOffset: 0,
+        endOffset: 6,
+        excerpt: {
+            prefix: false,
+            suffix: false,
+            before: '',
+            match: 'Needle',
+            after: 'needle',
+        },
+    };
+    const coverage = {
+        pageCount: 3,
+        pagesScanned: 3,
+        pagesWritten: 3,
+        truncated: false,
+        missingTextPageSample: [],
+    };
+
+    async function searchWhileIndexing(
+        indexPath: string,
+        options: {
+            pages?: readonly string[];
+            query?: string;
+            resultOffset?: number;
+            useRegex?: boolean;
+            limit?: number;
+            onCleanup?: (cleanup: () => Promise<unknown>) => void;
+            beforeSearch?: (document: {
+                indexPath: string;
+                documentRevision: string;
+                readPages: (signal: AbortSignal) => AsyncGenerator<{
+                    pageNumber: number;
+                    text: string
+                }>
+            }, source: ReturnType<typeof gatedPages>) => Promise<void>;
+        } = {},
+    ) {
+        fake.staleSearches = 1;
+        fake.indexCoverage = coverage;
+        fake.searchResponse = {
+            results: [indexedMatch],
+            truncated: false,
+            coverage,
+        };
+        const indexer = Promise.withResolvers<undefined>();
+        fake.indexRelease = indexer.promise;
+        const source = gatedPages(options.pages ?? [
+            'a needle here',
+            'nothing',
+            'Needle needle',
+        ]);
+        const document = {
+            indexPath,
+            documentRevision: 'revision',
+            readPages: source.readPages,
+        };
+        const sender = Object.assign(new EventEmitter(), {
+            id: 74,
+            send: vi.fn(),
+            isDestroyed: () => false,
+        });
+        const {createSearchService} = await import('@electron/features/search/main/searchService');
+        const service = createSearchService();
+        const progress = () => vi.mocked(sender.send).mock.calls
+            .map(call => call[1] as {
+                requestId: string;
+                processed: number;
+                status?: string;
+                results?: Array<Record<string, unknown>>;
+                truncated?: boolean
+            })
+            .filter(event => event.requestId === 'provisional');
+        const provisional = () => progress().filter(event => event.results !== undefined);
+        let search: Promise<unknown> | null = null;
+        let finalized = false;
+        const finalize = async () => {
+            if (finalized) return;
+            finalized = true;
+            source.openAll();
+            indexer.resolve(undefined);
+            await search?.catch(() => undefined);
+            await service.shutdown();
+        };
+        options.onCleanup?.(finalize);
+        try {
+            await options.beforeSearch?.(document, source);
+            service.subscribeProgress({sender: sender as never});
+            search = service.run({sender: sender as never}, {
+                matchCase: false,
+                wholeWord: false,
+                useRegex: options.useRegex ?? false,
+                ...(options.limit === undefined ? {} : {limit: options.limit}),
+                ...(options.resultOffset === undefined ? {} : {resultOffset: options.resultOffset}),
+                requestId: requireRequestId('provisional'),
+                requestIdPrefix: 'search',
+                query: options.query ?? 'needle',
+                pageCount: 3,
+                resolveDocument: async () => document,
+            });
+            const response = search.finally(() => service.shutdown());
+            response.catch(() => undefined);
+            return {
+                source,
+                progress,
+                provisional,
+                // The index is written once the test has seen what it shows before.
+                releaseIndexer: () => indexer.resolve(undefined),
+                response,
+            };
+        } catch (error) {
+            await finalize();
+            throw error;
+        }
+    }
+
+    const match = (pageNumber: number, pageMatchIndex: number, matchIndex: number, startOffset: number, before: string, after: string) => ({
+        pageNumber,
+        pageMatchIndex,
+        matchIndex,
+        startOffset,
+        endOffset: startOffset + 6,
+        excerpt: expect.objectContaining({
+            before,
+            match: startOffset === 0 && pageNumber === 3 ? 'Needle' : 'needle',
+            after,
+        }),
+    });
+
+    it('shows the matches of extracted pages before the index exists, then the indexed answer', () => withIndexDirectory(async (indexPath, onCleanup) => {
+        const {
+            source, provisional, releaseIndexer, response,
+        } = await searchWhileIndexing(indexPath, {onCleanup});
+        source.open(1);
+        await vi.waitFor(() => expect(provisional().at(-1)).toMatchObject({
+            results: [match(1, 0, 0, 2, 'a ', ' here')],
+            truncated: false,
+        }));
+        source.open(2, 3);
+        await vi.waitFor(() => expect(provisional().at(-1)?.results).toHaveLength(3));
+        releaseIndexer();
+
+        await expect(response).resolves.toEqual({
+            results: [indexedMatch],
+            truncated: false,
+            coverage,
+        });
+        expect(provisional().at(-1)).toMatchObject({
+            results: [
+                match(1, 0, 0, 2, 'a ', ' here'),
+                match(3, 0, 1, 0, '', ' needle'),
+                match(3, 1, 2, 7, 'Needle ', ''),
+            ],
+            resultsStartIndex: 0,
+            truncated: false,
+        });
+    }));
+
+    it('includes the pages a running build extracted before the search joined it', () => withIndexDirectory(async (indexPath, onCleanup) => {
+        const {
+            source, provisional, releaseIndexer, response,
+        } = await searchWhileIndexing(indexPath, {
+            onCleanup,
+            async beforeSearch(document, pages) {
+                const extracted: number[] = [];
+                void buildSearchIndex(document, {onProgress: pageNumber => extracted.push(pageNumber)}).catch(() => undefined);
+                pages.open(1, 2);
+                await vi.waitFor(() => expect(extracted).toContain(2));
+            },
+        });
+        await vi.waitFor(() => expect(provisional().at(-1)).toMatchObject({
+            processed: 2,
+            results: [match(1, 0, 0, 2, 'a ', ' here')],
+        }));
+        source.open(3);
+        await vi.waitFor(() => expect(provisional().at(-1)?.results).toHaveLength(3));
+        releaseIndexer();
+
+        await expect(response).resolves.toMatchObject({results: [indexedMatch]});
+        expect(fake.indexRuns).toBe(1);
+    }));
+
+    it('stops at the first match past the result limit', () => withIndexDirectory(async (indexPath, onCleanup) => {
+        const {
+            source, provisional, releaseIndexer, response,
+        } = await searchWhileIndexing(indexPath, {
+            limit: 2,
+            onCleanup,
+        });
+        source.open(1, 2, 3);
+        await vi.waitFor(() => expect(provisional().at(-1)?.truncated).toBe(true));
+        releaseIndexer();
+
+        await response;
+        expect(provisional().at(-1)).toMatchObject({
+            results: [
+                match(1, 0, 0, 2, 'a ', ' here'),
+                match(3, 0, 1, 0, '', ' needle'),
+            ],
+            truncated: true,
+        });
+    }));
+
+    it('leaves later result windows to the index', () => withIndexDirectory(async (indexPath, onCleanup) => {
+        const {
+            source, progress, provisional, releaseIndexer, response,
+        } = await searchWhileIndexing(indexPath, {
+            resultOffset: 500,
+            onCleanup,
+        });
+        source.open(1, 2, 3);
+        // Every running event would carry provisional matches; this one follows the last page.
+        await vi.waitFor(() => expect(progress()).toContainEqual(expect.objectContaining({
+            processed: 3,
+            status: 'running',
+        })));
+        releaseIndexer();
+
+        await expect(response).resolves.toMatchObject({results: [indexedMatch]});
+        expect(provisional()).toEqual([]);
+        expect(fake.provisionalSearches).toBe(0);
+    }));
+
+    it('streams a leading-space literal query across a long blank layout run', () => withIndexDirectory(async (indexPath, onCleanup) => {
+        const blank = ' '.repeat(32 * 1024);
+        const {
+            source, provisional, releaseIndexer, response,
+        } = await searchWhileIndexing(indexPath, {
+            pages: [`${blank}x needle`],
+            query: ' needle',
+            onCleanup,
+        });
+        source.open(1);
+        await vi.waitFor(() => expect(provisional().at(-1)).toMatchObject({
+            processed: 1,
+            status: 'running',
+            results: [expect.objectContaining({
+                pageNumber: 1,
+                matchIndex: 0,
+                startOffset: blank.length + 1,
+                endOffset: blank.length + 8,
+                excerpt: expect.objectContaining({match: ' needle'}),
+            })],
+            truncated: false,
+        }));
+        releaseIndexer();
+
+        await expect(response).resolves.toMatchObject({results: [indexedMatch]});
+    }));
+
+    it('leaves a regular expression to the index', () => withIndexDirectory(async (indexPath, onCleanup) => {
+        const {
+            source, progress, provisional, releaseIndexer, response,
+        } = await searchWhileIndexing(indexPath, {
+            useRegex: true,
+            onCleanup,
+        });
+        source.open(1, 2, 3);
+        // Every running event would carry provisional matches; this one follows the last page.
+        await vi.waitFor(() => expect(progress()).toContainEqual(expect.objectContaining({
+            processed: 3,
+            status: 'running',
+        })));
+        releaseIndexer();
+
+        await expect(response).resolves.toEqual({
+            results: [indexedMatch],
+            truncated: false,
+            coverage,
+        });
+        expect(provisional()).toEqual([]);
+        expect(fake.provisionalSearches).toBe(0);
+    }));
 });

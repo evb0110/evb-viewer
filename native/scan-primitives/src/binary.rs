@@ -112,16 +112,24 @@ impl BinaryImage {
         self.zip_words(other, |left, right| left & !right)
     }
 
+    pub fn into_subtract(mut self, other: &Self) -> Self {
+        self.zip_words_in_place(other, |left, right| left & !right);
+        self
+    }
+
     fn zip_words(&self, other: &Self, operation: impl Fn(u32, u32) -> u32 + Sync) -> Self {
-        assert_eq!((self.width, self.height), (other.width, other.height));
         let mut output = self.clone();
+        output.zip_words_in_place(other, operation);
         output
-            .words
+    }
+
+    fn zip_words_in_place(&mut self, other: &Self, operation: impl Fn(u32, u32) -> u32 + Sync) {
+        assert_eq!((self.width, self.height), (other.width, other.height));
+        self.words
             .par_iter_mut()
             .zip(other.words.par_iter())
             .for_each(|(target, right)| *target = operation(*target, *right));
-        output.clear_padding();
-        output
+        self.clear_padding();
     }
 
     pub(crate) fn clear_padding(&mut self) {
@@ -162,8 +170,10 @@ mod tests {
             for x in 0..67 {
                 assert_eq!(a.and(&b).get(x, y), a.get(x, y) && b.get(x, y));
                 assert_eq!(a.or(&b).get(x, y), a.get(x, y) || b.get(x, y));
+                assert_eq!(a.subtract(&b).get(x, y), a.get(x, y) && !b.get(x, y));
             }
         }
+        assert_eq!(a.clone().into_subtract(&b), a.subtract(&b));
     }
 
     #[test]
