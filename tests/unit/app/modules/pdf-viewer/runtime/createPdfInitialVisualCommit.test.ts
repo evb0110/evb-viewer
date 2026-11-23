@@ -112,7 +112,8 @@ function createResidentCanvasFixture(
         viewport,
         viewerContainer: ref(viewerContainer),
         renderedPageStateVersion: ref(0),
-        isCommittedVisual: pageNumber => pageNumber === 2,
+        // Page 2 shows the raster that attempt 7 painted.
+        getCommittedVisualRequestId: pageNumber => (pageNumber === 2 ? 7 : null),
         queueFrame: vi.fn(),
         emitInitialVisualReady,
     });
@@ -153,13 +154,13 @@ function createResidentCanvasFixture(
         initialVisual.handlePageCanvasMounted({
             openSurfaceGeneration: snapshot.generation,
             documentRevision: snapshot.identity!.documentRevision,
-            renderVersion: 1,
             requestId: pageNumber,
             pageNumber: requirePageNumber(pageNumber),
         });
     }
 
     return {
+        currentPage,
         initialVisual,
         emitInitialVisualReady,
         mountPageCanvas,
@@ -201,6 +202,55 @@ describe('createPdfInitialVisualCommit', () => {
 
         fixture.initialVisual.adoptResidentCanvas(requirePageNumber(2));
         expect(fixture.emitInitialVisualReady).toHaveBeenCalledOnce();
+
+        fixture.viewerContainer.remove();
+    });
+
+    it('reports the resident raster attempt to the surface, also after a newer page committed', () => {
+        const fixture = createResidentCanvasFixture();
+        fixture.initialVisual.adoptResidentCanvas(requirePageNumber(2));
+        expect(fixture.surface.snapshot.value.committedRender).toMatchObject({
+            pageNumber: 2,
+            requestId: 7,
+        });
+
+        fixture.surface.requestNavigation(3);
+        fixture.surface.reportNavigation(fixture.surface.navigationTicket.value!, {
+            kind: 'placed',
+            page: 3,
+            left: 0,
+            top: 775,
+            geometryRevision: 8,
+            interactionEpoch: 98,
+        });
+        fixture.mountPageCanvas(3);
+        expect(fixture.surface.snapshot.value.committedRender).toMatchObject({
+            pageNumber: 3,
+            requestId: 3,
+        });
+
+        // Back on page 2, its resident canvas is that page's latest attempt.
+        fixture.currentPage.value = 2;
+        fixture.surface.requestNavigation(2);
+        fixture.surface.reportNavigation(fixture.surface.navigationTicket.value!, {
+            kind: 'placed',
+            page: 2,
+            left: 0,
+            top: 0,
+            geometryRevision: 8,
+            interactionEpoch: 98,
+        });
+        fixture.initialVisual.adoptResidentCanvas(requirePageNumber(2));
+        fixture.initialVisual.reconcileInitialVisual();
+
+        expect(fixture.surface.snapshot.value.committedRender).toMatchObject({
+            pageNumber: 2,
+            requestId: 7,
+        });
+        expect(fixture.surface.viewportSession.value).toMatchObject({
+            lifecycle: 'ready',
+            committedPage: 2,
+        });
 
         fixture.viewerContainer.remove();
     });

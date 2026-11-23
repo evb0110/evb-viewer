@@ -16,7 +16,8 @@ export interface ICreatePdfInitialVisualCommitOptions {
     viewport: TPdfViewportSession;
     viewerContainer: Ref<HTMLElement | null>;
     renderedPageStateVersion: Ref<number>;
-    isCommittedVisual: (pageNumber: TPageNumber) => boolean;
+    /** The attempt identity of the page's committed raster, while it is current. */
+    getCommittedVisualRequestId: (pageNumber: TPageNumber) => number | null;
     queueFrame: () => void;
     emitInitialVisualReady: (payload: {pageNumber: TPageNumber}) => void;
 }
@@ -81,7 +82,8 @@ export const createPdfInitialVisualCommit = (options: ICreatePdfInitialVisualCom
         options.emitInitialVisualReady({pageNumber: ready.pageNumber});
     }
     function adoptResidentCanvas(pageNumber: TPageNumber) {
-        if (!chassisAuthority || !options.openSurfaceRenderOwner || !options.isCommittedVisual(pageNumber)) {
+        const requestId = options.getCommittedVisualRequestId(pageNumber);
+        if (!chassisAuthority || !options.openSurfaceRenderOwner || requestId === null) {
             return;
         }
         const surface = chassisAuthority.openSurface;
@@ -119,9 +121,11 @@ export const createPdfInitialVisualCommit = (options: ICreatePdfInitialVisualCom
                 return;
             }
         }
-        const fence = surface.createOwnedResidentRenderFence(options.openSurfaceRenderOwner, {
+        // The resident canvas reports the attempt that painted it.
+        const fence = surface.createOwnedRenderFence(options.openSurfaceRenderOwner, {
             generation: snapshot.generation,
             documentRevision: snapshot.identity.documentRevision,
+            requestId,
             pageNumber,
         });
         if (!fence || !surface.commitCanvas(fence)) {
@@ -138,8 +142,7 @@ export const createPdfInitialVisualCommit = (options: ICreatePdfInitialVisualCom
         const fence = options.openSurfaceRenderOwner && surface.createOwnedRenderFence(options.openSurfaceRenderOwner, {
             generation: commit.openSurfaceGeneration,
             documentRevision: commit.documentRevision,
-            rendererVersion: commit.renderVersion,
-            rendererRequestId: commit.requestId,
+            requestId: commit.requestId,
             pageNumber: commit.pageNumber,
         });
         return fence ? {

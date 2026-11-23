@@ -91,6 +91,7 @@ import { buildPdfInitialSurfacePlaceholderStyle } from '@app/modules/pdf-viewer/
 import { buildPdfCommittedOpenPageShellStyle } from '@app/modules/pdf-viewer/engine/pdf-initial-surface-placeholder/buildPdfCommittedOpenPageShellStyle';
 import { shouldApplyPdfOpeningPageFrame } from '@app/modules/pdf-viewer/engine/pdf-initial-surface-placeholder/shouldApplyPdfOpeningPageFrame';
 import * as initialPageSkeletonGeometry from '@app/modules/pdf-viewer/runtime/lifecycle/commitPdfInitialPageSkeletonGeometry';
+import { observePdfOpeningPageGeometry } from '@app/modules/pdf-viewer/runtime/lifecycle/observePdfOpeningPageGeometry';
 import type {
     IPdfViewerProps,
     IPdfViewerEmit,
@@ -246,19 +247,22 @@ const hasProjectedOpeningPageFrame = computed(() => (
     && projectedOpeningPageStyle.value !== null
 ));
 
-let openingGeometryAnimationFrame: number | null = null;
+// One opening page at a time waits for its size.
+let stopOpeningGeometryObserver = () => {};
 let openingGeometryDisposed = false;
+function isOpeningGeometryCurrent(expectedGeneration: number, pageNumber: TPageNumber) {
+    return !openingGeometryDisposed
+        && showCommittedInitialPageShell.value
+        && openingPageFrame.value !== null
+        && chassisAuthority.openSurface.snapshot.value.generation === expectedGeneration
+        && chassisAuthority.openSurface.snapshot.value.geometry === null
+        && committedInitialPageNumber.value === pageNumber;
+}
 function commitOpeningPageGeometryAfterDomUpdate(
     expectedGeneration: number,
     pageNumber: TPageNumber,
 ) {
-    if (
-        openingGeometryDisposed
-        || !showCommittedInitialPageShell.value
-        || openingPageFrame.value === null
-        || chassisAuthority.openSurface.snapshot.value.generation !== expectedGeneration
-        || committedInitialPageNumber.value !== pageNumber
-    ) {
+    if (!isOpeningGeometryCurrent(expectedGeneration, pageNumber)) {
         return false;
     }
     const diagnostic = initialPageSkeletonGeometry.diagnosePdfPageSkeletonGeometry(
@@ -296,23 +300,22 @@ async function handleOpeningPageContainerMounted(pageNumber: TPageNumber) {
         `.page_container[data-page="${String(pageNumber)}"]`,
     );
     const rect = pageContainer?.getBoundingClientRect();
-    if (!rect || rect.width > 0 && rect.height > 0) {
+    if (!pageContainer || !rect || rect.width > 0 && rect.height > 0
+        || !isOpeningGeometryCurrent(expectedGeneration, pageNumber)) {
         return;
     }
-    if (openingGeometryAnimationFrame !== null) {
-        cancelAnimationFrame(openingGeometryAnimationFrame);
-    }
-    openingGeometryAnimationFrame = requestAnimationFrame(() => {
-        openingGeometryAnimationFrame = null;
-        commitOpeningPageGeometryAfterDomUpdate(expectedGeneration, pageNumber);
+    stopOpeningGeometryObserver();
+    stopOpeningGeometryObserver = observePdfOpeningPageGeometry({
+        pageContainer,
+        isCurrent: () => isOpeningGeometryCurrent(expectedGeneration, pageNumber),
+        commit: () => commitOpeningPageGeometryAfterDomUpdate(expectedGeneration, pageNumber),
     });
 }
 
 function handleOpeningPageContainerUnmounted(pageNumber: TPageNumber) {
     handlePageContainerUnmounted(pageNumber);
-    if (pageNumber === committedInitialPageNumber.value && openingGeometryAnimationFrame !== null) {
-        cancelAnimationFrame(openingGeometryAnimationFrame);
-        openingGeometryAnimationFrame = null;
+    if (pageNumber === committedInitialPageNumber.value) {
+        stopOpeningGeometryObserver();
     }
 }
 
@@ -322,10 +325,7 @@ onBeforeUnmount(() => {
         chassisAuthority.viewportWritePort.retire();
     }
     openingGeometryDisposed = true;
-    if (openingGeometryAnimationFrame !== null) {
-        cancelAnimationFrame(openingGeometryAnimationFrame);
-        openingGeometryAnimationFrame = null;
-    }
+    stopOpeningGeometryObserver();
 });
 
 defineExpose(pdfViewerPublicApi);

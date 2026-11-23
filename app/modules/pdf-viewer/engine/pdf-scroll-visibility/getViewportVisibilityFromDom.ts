@@ -306,3 +306,25 @@ export function getViewportVisibilityFromDom(
         details: { totalPages },
     });
 }
+
+/**
+ * What of the document the viewport shows: the mounted pages decide, and the
+ * page layout covers a viewport that no mounted page reaches.
+ */
+export function getViewportVisibility(
+    container: HTMLElement | null,
+    totalPages: number,
+    metrics: IPdfPageLayoutMetrics | null,
+    physicalScrollOrigin = 0,
+): IViewportVisibilityResult {
+    if (!container || totalPages <= 0) {
+        return {
+            range: null,
+            mostVisiblePage: null,
+        };
+    }
+    const domVisibility = getViewportVisibilityFromDom(container, totalPages);
+    return domVisibility.range || domVisibility.mostVisiblePage !== null
+        ? domVisibility
+        : getViewportVisibilityFromLayout(container, totalPages, metrics, physicalScrollOrigin) ?? domVisibility;
+}

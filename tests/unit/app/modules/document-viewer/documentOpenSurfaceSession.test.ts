@@ -1635,8 +1635,7 @@ describe('document open surface session', () => {
             const fence = session.createOwnedRenderFence(firstRenderer, {
                 generation,
                 documentRevision: 'rev-a',
-                rendererVersion: 4,
-                rendererRequestId: requestId,
+                requestId,
                 pageNumber: 1,
             });
             expect(fence).not.toBeNull();
@@ -1646,16 +1645,14 @@ describe('document open surface session', () => {
         const preHandoffFence = session.createOwnedRenderFence(firstRenderer, {
             generation,
             documentRevision: 'rev-a',
-            rendererVersion: 5,
-            rendererRequestId: 1,
+            requestId: 4,
             pageNumber: 1,
         })!;
         const replacementRenderer = session.claimRenderOwner();
         const replacementFence = session.createOwnedRenderFence(replacementRenderer, {
             generation,
             documentRevision: 'rev-a',
-            rendererVersion: 1,
-            rendererRequestId: 1,
+            requestId: 1,
             pageNumber: 1,
         });
         expect(replacementFence).not.toBeNull();
@@ -1663,8 +1660,7 @@ describe('document open surface session', () => {
         expect(session.createOwnedRenderFence(firstRenderer, {
             generation,
             documentRevision: 'rev-a',
-            rendererVersion: 6,
-            rendererRequestId: 1,
+            requestId: 5,
             pageNumber: 1,
         })).toBeNull();
         expect(session.commitCanvas(replacementFence!)).toBe(true);
@@ -1673,15 +1669,14 @@ describe('document open surface session', () => {
         const latePreviousRendererFence = session.createOwnedRenderFence(firstRenderer, {
             generation,
             documentRevision: 'rev-a',
-            rendererVersion: 5,
-            rendererRequestId: 1,
+            requestId: 4,
             pageNumber: 1,
         });
         expect(latePreviousRendererFence).toBeNull();
         expect(session.snapshot.value.committedRender).toEqual(replacementFence);
     });
 
-    it('adopts an older resident page canvas as a new commit for the current renderer owner', () => {
+    it('commits an older attempt of another page, the resident canvas a navigation returns to', () => {
         const session = createDocumentOpenSurfaceSession();
         const generation = beginSurface(session, 'a.pdf', 'rev-a');
         commitDefaultGeometry(session, generation);
@@ -1689,21 +1684,51 @@ describe('document open surface session', () => {
         const newerRender = session.createOwnedRenderFence(owner, {
             generation,
             documentRevision: 'rev-a',
-            rendererVersion: 8,
-            rendererRequestId: 20,
+            requestId: 20,
             pageNumber: 1,
         })!;
         expect(session.commitCanvas(newerRender)).toBe(true);
 
         session.requestNavigation(2);
-        const residentCanvas = session.createOwnedResidentRenderFence(owner, {
+        const residentCanvas = session.createOwnedRenderFence(owner, {
             generation,
             documentRevision: 'rev-a',
+            requestId: 5,
             pageNumber: 2,
         });
         expect(residentCanvas).not.toBeNull();
         expect(session.commitCanvas(residentCanvas!)).toBe(true);
         expect(session.snapshot.value.committedRender).toEqual(residentCanvas);
+
+        // On its own page, an attempt older than the resident one stays out.
+        expect(session.createOwnedRenderFence(owner, {
+            generation,
+            documentRevision: 'rev-a',
+            requestId: 4,
+            pageNumber: 2,
+        })).toBeNull();
+        expect(session.snapshot.value.committedRender).toEqual(residentCanvas);
+    });
+
+    it('keeps the newer pending attempt when an older one of the same page starts later', () => {
+        const session = createDocumentOpenSurfaceSession();
+        const generation = beginSurface(session, 'a.pdf', 'rev-a');
+        commitDefaultGeometry(session, generation);
+        const owner = session.claimRenderOwner();
+        const attempt = (requestId: number) => session.createOwnedRenderFence(owner, {
+            generation,
+            documentRevision: 'rev-a',
+            requestId,
+            pageNumber: 1,
+        });
+        const newer = attempt(20);
+        expect(newer).not.toBeNull();
+
+        // Request 19 started first but asks for its fence after 20 did.
+        expect(attempt(19)).toBeNull();
+        expect(session.viewportSession.value.renderFence?.requestId).toBe(20);
+        expect(session.commitCanvas(newer!)).toBe(true);
+        expect(session.snapshot.value.committedRender).toEqual(newer);
     });
 
     it('does not replace a current-generation canvas commit with a late failure', () => {

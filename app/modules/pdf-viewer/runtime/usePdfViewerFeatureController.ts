@@ -188,6 +188,9 @@ export const usePdfViewerFeatureController = (
         getCommittedPageScale: pageNumber => (
             renderingSessionRef.value?.getCommittedPageScale(pageNumber) ?? null
         ),
+        cancelSupersededRasters: () => renderingSessionRef.value?.cancelSupersededRasters(),
+        adoptResidentCanvas: pageNumber => renderingSessionRef.value?.adoptResidentCanvas(pageNumber),
+        reconcileCommittedVisual: () => renderingSessionRef.value?.reconcileCommittedVisual(),
         selectionMarkupStyle,
         classState: {
             isAnySaving,
