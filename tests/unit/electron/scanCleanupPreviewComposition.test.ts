@@ -2096,6 +2096,10 @@ describe('scanCleanupPreviewCompositionTest', () => {
             ]).size).toBe(1);
             expect(observedLeaseTokens.previewSidecar).toHaveLength(1);
             expect(observedLeaseTokens.previewSidecar[0]).not.toBe(observedLeaseTokens.detectionSidecar[0]);
+            expect(observedLeaseTokens.previewRender.length).toBeGreaterThan(0);
+            expect(observedLeaseTokens.previewRender.every(
+                token => token === observedLeaseTokens.previewSidecar[0],
+            )).toBe(true);
             expect(mainJobBroker.getSnapshot()).toMatchObject({
                 active: 0,
                 queued: 0,

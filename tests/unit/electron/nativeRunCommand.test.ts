@@ -1317,13 +1317,17 @@ describe('runNativeCommand broker admission', () => {
                 255,
             ]),
         ]);
+        const batchWritten = Promise.withResolvers<void>();
+        const releaseBatch = Promise.withResolvers<void>();
         mocks.spawn.mockImplementation((_command: string, args: string[]) => {
             spawnedArgs.push(args);
             if (args.includes('--manifest')) {
                 return sidecarProc;
             }
             const prefix = args.at(-1)!;
-            void writeFile(`${prefix}-2.ppm`, ppmBytes).then(() => {
+            void writeFile(`${prefix}-2.ppm`, ppmBytes).then(async () => {
+                batchWritten.resolve();
+                await releaseBatch.promise;
                 batchProc.emit('close', 0, null);
             });
             return batchProc;
@@ -1394,7 +1398,7 @@ describe('runNativeCommand broker admission', () => {
                 await vi.waitFor(() => expect(spawnedArgs).toHaveLength(1));
                 // While the sidecar is still running, staging page 2 must be admitted under the
                 // same detection lease rather than blocking on the broker's single leaf slot.
-                const staged = await renderBatch({
+                const stagedPromise = renderBatch({
                     dpi: 150,
                     log: () => undefined,
                     pdftoppmBinary: '/bin/pdftoppm',
@@ -1412,6 +1416,16 @@ describe('runNativeCommand broker admission', () => {
                     }],
                     onTerminationProof,
                 });
+                await batchWritten.promise;
+                expect(spawnedArgs).toHaveLength(2);
+                // Both sidecarProc and batchProc are simultaneously active under the same
+                // detection lease; no extra transient leaf lease was allocated.
+                expect(mainJobBroker.getSnapshot()).toMatchObject({
+                    active: 2,
+                    queued: 0,
+                });
+                releaseBatch.resolve();
+                const staged = await stagedPromise;
                 expect(staged).toEqual([{
                     pageNumber: 2,
                     width: 1,
