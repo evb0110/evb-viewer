@@ -96,7 +96,7 @@ pub(crate) struct FileSnapshot {
 
 impl FileSnapshot {
     pub(crate) fn take(original: &Path) -> Result<Self, String> {
-        let mut source = File::open(original).map_err(|error| error.to_string())?;
+        let source = File::open(original).map_err(|error| error.to_string())?;
         let metadata = source.metadata().map_err(|error| error.to_string())?;
         if !metadata.is_file() {
             return Err(format!(
@@ -104,15 +104,16 @@ impl FileSnapshot {
                 original.display()
             ));
         }
-        let (mut backup_file, backup) =
+        let (backup_file, backup) =
             open_randomized_temporary(original, &mut fill_publication_random)?;
-        let snapshot_result = std::io::copy(&mut source, &mut backup_file)
-            .map(|_| ())
-            .and_then(|()| backup_file.sync_all());
-        // Close both handles before removing the original so staging also
-        // works on Windows.
-        drop(source);
-        drop(backup_file);
+        // Both handles close at the end of this block, before the original
+        // is removed, so staging also works on Windows.
+        let snapshot_result = {
+            let (mut source, mut backup_file) = (source, backup_file);
+            std::io::copy(&mut source, &mut backup_file)
+                .map(|_| ())
+                .and_then(|()| backup_file.sync_all())
+        };
         if let Err(error) = snapshot_result {
             let _ = fs::remove_file(&backup);
             return Err(error.to_string());
@@ -214,12 +215,14 @@ fn write_atomic_with_random(
     write: impl FnOnce(&mut File) -> Result<(), String>,
     mut fill_random: impl FnMut(&mut [u8]) -> Result<(), String>,
 ) -> Result<(), String> {
-    let (mut file, temporary) = open_randomized_temporary(path, &mut fill_random)?;
-    let write_result =
-        write(&mut file).and_then(|()| file.sync_all().map_err(|error| error.to_string()));
-    // Windows cannot unlink an open file. Close before either rename or
-    // error cleanup so the no-partial-temp guarantee is cross-platform.
-    drop(file);
+    let (file, temporary) = open_randomized_temporary(path, &mut fill_random)?;
+    // Windows cannot unlink an open file. The handle closes at the end of
+    // this block, before either rename or error cleanup, so the
+    // no-partial-temp guarantee is cross-platform.
+    let write_result = {
+        let mut file = file;
+        write(&mut file).and_then(|()| file.sync_all().map_err(|error| error.to_string()))
+    };
     let result =
         write_result.and_then(|()| fs::rename(&temporary, path).map_err(|error| error.to_string()));
     // A successful rename consumed the temporary; every other exit removes

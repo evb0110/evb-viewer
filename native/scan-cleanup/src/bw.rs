@@ -12,9 +12,8 @@ use scan_primitives::{
     threshold::{
         otsu_threshold, otsu_threshold_excluding, threshold_global, threshold_global_biased,
         threshold_local, threshold_local_biased, threshold_local_biased_excluding,
-        threshold_local_multiscale_biased_excluding_with_integrals_for_consensus,
-        threshold_local_multiscale_biased_with_integrals_for_consensus, IntegralImages,
-        LocalThreshold, MaskedIntegralImages,
+        threshold_local_multiscale_biased_excluding_for_consensus,
+        threshold_local_multiscale_biased_for_consensus, LocalThreshold,
     },
     BinaryImage, ComponentMap, GrayImage,
 };
@@ -768,7 +767,9 @@ fn finish_thresholded_with_line_budget(
         .then(|| thresholded.or(&restored_thin_strokes(thresholded, raw_source, calibration)));
     let thresholded = completed.as_ref().unwrap_or(thresholded);
     let mut preview_interventions = inactive_line_stroke_budget_interventions(thresholded);
-    let (preview, preview_fallback) = postprocess_binary_with_diagnostics_and_raw_budgeted(
+    // Shadowed bindings would stay alive to the end of the function, so each
+    // dead stage is moved out or dropped before the next one allocates.
+    let (postprocessed, preview_fallback) = postprocess_binary_with_diagnostics_and_raw_budgeted(
         thresholded,
         Some(normalized),
         Some(raw_source),
@@ -777,8 +778,8 @@ fn finish_thresholded_with_line_budget(
         None,
         &mut preview_interventions,
     );
-    let preview = rescue_component_scoped_faint_strokes_budgeted(
-        &preview,
+    let rescued = rescue_component_scoped_faint_strokes_budgeted(
+        &postprocessed,
         raw_source,
         picture_mask,
         text_vicinity,
@@ -790,17 +791,16 @@ fn finish_thresholded_with_line_budget(
         None,
         &mut preview_interventions,
     );
-    let preview = match output_exclusion {
-        Some(mask) => preview.subtract(mask),
-        None => preview,
-    };
+    drop(postprocessed);
+    let preview = without_exclusion(rescued, output_exclusion);
     if !line_stroke_budget_has_offenders(&preview, options.dpi) {
         return (preview, preview_fallback, preview_interventions);
     }
+    drop(preview);
 
     let (source, budget, mut interventions) =
         establish_line_stroke_budget(thresholded, options.dpi);
-    let (output, fallback) = postprocess_binary_with_diagnostics_and_raw_budgeted(
+    let (postprocessed, fallback) = postprocess_binary_with_diagnostics_and_raw_budgeted(
         &source,
         Some(normalized),
         Some(raw_source),
@@ -809,8 +809,9 @@ fn finish_thresholded_with_line_budget(
         budget.as_ref(),
         &mut interventions,
     );
-    let output = rescue_component_scoped_faint_strokes_budgeted(
-        &output,
+    drop(source);
+    let rescued = rescue_component_scoped_faint_strokes_budgeted(
+        &postprocessed,
         raw_source,
         picture_mask,
         text_vicinity,
@@ -822,11 +823,19 @@ fn finish_thresholded_with_line_budget(
         budget.as_ref(),
         &mut interventions,
     );
-    let output = match output_exclusion {
-        Some(mask) => output.subtract(mask),
-        None => output,
-    };
-    (output, fallback, interventions)
+    drop(postprocessed);
+    (
+        without_exclusion(rescued, output_exclusion),
+        fallback,
+        interventions,
+    )
+}
+
+fn without_exclusion(image: BinaryImage, exclusion: Option<&BinaryImage>) -> BinaryImage {
+    match exclusion {
+        Some(mask) => image.subtract(mask),
+        None => image,
+    }
 }
 
 fn normalize_offender_component<F>(
@@ -1337,7 +1346,7 @@ fn binarize_normalized_calibrated(
     let mode = diagnostics.route;
     (
         binarize_with_mode(
-            &threshold_input,
+            threshold_input,
             normalized,
             raw_source,
             options,
@@ -1406,6 +1415,7 @@ pub(crate) fn binarize_normalized_with_diagnostics(
             spread_plan,
         )
     });
+    drop(threshold_input);
     timings.thresholding_ms += thresholding_started.elapsed().as_secs_f64() * 1_000.0;
     let postprocess_started = Instant::now();
     let (binary, despeckle_fallback, _) = if dark_background {
@@ -1476,6 +1486,7 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
             }
         });
     let threshold_input = smooth_for_binarization(&masked_input, options.dpi);
+    drop(masked_input);
     let diagnostics = spread_plan.map_or(routing_diagnostics, |plan| plan.diagnostics());
     timings.preparation_ms += preparation_started.elapsed().as_secs_f64() * 1_000.0;
     let thresholding_started = Instant::now();
@@ -1499,6 +1510,7 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
             spread_plan,
         )
     });
+    drop(threshold_input);
     timings.thresholding_ms += thresholding_started.elapsed().as_secs_f64() * 1_000.0;
     let postprocess_started = Instant::now();
     let (binary, despeckle_fallback, _) = if dark_background {
@@ -1549,7 +1561,7 @@ fn should_rescue_spread_fallback(
 }
 
 fn binarize_with_mode(
-    threshold_input: &GrayImage,
+    threshold_input: GrayImage,
     normalized: &GrayImage,
     raw_source: &GrayImage,
     options: &CleanupOptions,
@@ -1559,7 +1571,7 @@ fn binarize_with_mode(
     text_vicinity: Option<&BinaryImage>,
 ) -> BinaryImage {
     let binary = threshold_with_mode(
-        threshold_input,
+        &threshold_input,
         normalized,
         None,
         options,
@@ -1567,6 +1579,9 @@ fn binarize_with_mode(
         calibration,
         None,
     );
+    // The smoothed threshold input is dead once thresholded; free it before
+    // postprocessing allocates its own full-page stages.
+    drop(threshold_input);
     let (output, _, _) = finish_thresholded_with_line_budget(
         &binary,
         normalized,
@@ -1857,11 +1872,15 @@ fn threshold_local_midpoint(
     // keeps its stroke instead of falling under theirs. The paper window stays
     // wide enough to see past a large glyph's interior.
     let ink_radius = (radius / 3).max(LOCAL_INK_MIN_RADIUS);
-    let ink = dilate_gray(&neutral(255), ink_radius, ink_radius);
+    let ink_source = neutral(255);
+    let ink = dilate_gray(&ink_source, ink_radius, ink_radius);
     // A hairline beside a heavy stem peaks far below that stem's core, so its
     // own core, measured across the hairline alone, keeps it from breaking.
     let own_radius = ((dpi * OWN_INK_RADIUS_MM / 25.4).round() as usize).max(1);
-    let own_ink = dilate_gray(&neutral(255), own_radius, own_radius);
+    let own_ink = dilate_gray(&ink_source, own_radius, own_radius);
+    // Only the three extreme fields and the source feed the cut.
+    drop(ink_source);
+    drop(smoothed);
     let output = BinaryImage::from_fn_parallel(source.width(), source.height(), |x, y| {
         let local_paper = i16::from(paper.get(x, y));
         let depth = |core: &GrayImage| f32::from(local_paper - i16::from(core.get(x, y)));
@@ -1908,17 +1927,15 @@ fn threshold_local_for_route_excluding(
             bias,
         );
     }
-    let integrals = MaskedIntegralImages::new(threshold_input, picture_mask);
     let [small_radius, medium_radius, large_radius] = multiscale_threshold_radii(
         calibration,
         raster_dpi,
         shared_threshold_radius,
         shared_x_height_px,
     );
-    threshold_local_multiscale_biased_excluding_with_integrals_for_consensus(
+    threshold_local_multiscale_biased_excluding_for_consensus(
         threshold_input,
         picture_mask,
-        &integrals,
         [small_radius, medium_radius, large_radius],
         method,
         bias,
@@ -1941,16 +1958,14 @@ fn threshold_local_for_route(
         return threshold_local_biased(threshold_input, legacy_radius, method, bias);
     }
 
-    let integrals = IntegralImages::new(threshold_input);
     let [small_radius, medium_radius, large_radius] = multiscale_threshold_radii(
         calibration,
         raster_dpi,
         shared_threshold_radius,
         shared_x_height_px,
     );
-    threshold_local_multiscale_biased_with_integrals_for_consensus(
+    threshold_local_multiscale_biased_for_consensus(
         threshold_input,
-        &integrals,
         [small_radius, medium_radius, large_radius],
         method,
         bias,
@@ -2049,9 +2064,9 @@ fn postprocess_binary_with_diagnostics_and_raw_budgeted(
             level,
             true,
         );
-        (outcome.image, outcome.fallback)
+        (Cow::Owned(outcome.image), outcome.fallback)
     } else {
-        (binary.clone(), false)
+        (Cow::Borrowed(binary), false)
     };
     let smoothed_candidate = smooth_edges_for_page(&despeckled, options.dpi);
     let smoothed = cap_added_ink_to_stroke_budget(
@@ -2062,6 +2077,8 @@ fn postprocess_binary_with_diagnostics_and_raw_budgeted(
         StrokeBudgetAdditionStage::Smoothing,
         interventions,
     );
+    drop(smoothed_candidate);
+    drop(despeckled);
     let preserved_rules = rule_components.map(|flags| {
         ComponentMap::from_binary(binary).retain(|component| flags[component.label as usize])
     });
