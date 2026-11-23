@@ -35,6 +35,11 @@ export interface IStoreFile {
     size(): Promise<number>;
     /** Returns fewer than `length` bytes only at the end of the file. */
     readAt(offset: number, length: number): Promise<Uint8Array>;
+    /**
+     * The `content-v2` witness (`contentWitness`) of the first `length` bytes, hashed in the context that holds the
+     * file: a browser's store worker reads them there, so no byte crosses to the window for it.
+     */
+    witness(length: number): Promise<string>;
     /** Writes all of `bytes` or throws: a short write (a full browser store) is an error. */
     writeAt(offset: number, bytes: Uint8Array): Promise<void>;
     truncate(length: number): Promise<void>;

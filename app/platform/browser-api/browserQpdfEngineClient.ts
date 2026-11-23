@@ -81,7 +81,7 @@ function getOwner() {
 
 function requestEngine<TSchema extends v.GenericSchema>(
     type: TRequestType,
-    payload: Record<string, unknown> & {input: Uint8Array},
+    payload: Record<string, unknown> & {input: Uint8Array | Blob},
     schema: TSchema,
     options: IBrowserQpdfRequestOptions,
 ): Promise<v.InferOutput<TSchema>> {
@@ -91,7 +91,8 @@ function requestEngine<TSchema extends v.GenericSchema>(
     if (!canUseBrowserWorker()) {
         return Promise.reject(new BrowserQpdfEngineUnavailableError('This browser cannot run the qpdf engine worker'));
     }
-    const input = toTransferableUint8Array(payload.input);
+    // Bytes are transferred to the engine; a Blob is posted by reference and read there by range.
+    const input = payload.input instanceof Blob ? payload.input : toTransferableUint8Array(payload.input);
     const engines = getOwner();
     const requestId = engines.createRequestId();
     const createAbortError = () => signal?.reason instanceof Error
@@ -122,19 +123,20 @@ function requestEngine<TSchema extends v.GenericSchema>(
                 ...payload,
                 input,
             },
-        }, [input.buffer]);
+        }, input instanceof Blob ? [] : [input.buffer]);
     })).finally(() => signal?.removeEventListener('abort', onAbort));
 }
 
 /**
  * Runs one of desktop's qpdf commands (`@pdf-core/qpdfCommands`) on a PDF.
- * The engine takes `input` over. The caller applies desktop's exit policy:
+ * The engine takes bytes over; a Blob, such as a store document's
+ * `readableBlob`, stays the caller's and is read by range. The caller applies desktop's exit policy:
  * `isQpdfSuccessExitCode`, with warnings from `extractQpdfWarnings`.
  * Canceling or a timeout ends the engine mid-command.
  */
 export function runBrowserQpdfCommand(
     command: TBrowserQpdfCommand,
-    input: Uint8Array,
+    input: Uint8Array | Blob,
     options: IBrowserQpdfRequestOptions = {},
 ): Promise<IBrowserQpdfRunResult> {
     return requestEngine('run', {
@@ -146,10 +148,10 @@ export function runBrowserQpdfCommand(
 /**
  * Desktop's open-time append admission and repair: returns the qpdf rewrite
  * of a PDF whose cross-reference chain an edit cannot extend, or null output
- * when the PDF stands. The engine takes `input` over.
+ * when the PDF stands. The engine takes bytes over, and reads a Blob itself.
  */
 export function normalizeBrowserPdfAppendBase(
-    input: Uint8Array,
+    input: Uint8Array | Blob,
     options: IBrowserQpdfRequestOptions = {},
 ): Promise<IBrowserQpdfNormalizeResult> {
     return requestEngine('normalize-append-base', {input}, BROWSER_QPDF_NORMALIZE_RESULT_SCHEMA, options);

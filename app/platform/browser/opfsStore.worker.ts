@@ -2,7 +2,9 @@
 // The storage port's file system on the origin private file system. Sync access handles exist only in
 // dedicated workers, so this worker owns every handle of its window: one writer per file, which every engine
 // enforces across windows too. Handle modes are not used; Firefox and WebKit ignore them. A PDF edit that
-// appends a revision runs here too, on the handle the document already holds.
+// appends a revision runs here too, on the handle the document already holds, and so does content hashing:
+// a witness reads its bytes here, so the window neither receives nor hashes them.
+import { contentWitness } from '@document-store/contentWitness';
 import type {
     IOcrTextLayerAppendRequest,
     IPdfAppendRequest,
@@ -157,6 +159,18 @@ const operations: Record<string, (...args: never[]) => unknown> = {
         const read = handle.read(bytes, {at: offset});
         return bytes.subarray(0, read);
     },
+    /** The content witness of the first `length` bytes, read synchronously into one reused buffer. */
+    witness(id: number, length: number) {
+        const handle = file(id);
+        let buffer = new Uint8Array();
+        return contentWitness(length, async (offset, size) => {
+            if (buffer.byteLength < size) buffer = new Uint8Array(size);
+            const view = buffer.subarray(0, size);
+            return view.subarray(0, handle.read(view, {at: offset}));
+        });
+    },
+    /** The content witness of a Blob, such as the file a Save just wrote, read by range in this worker. */
+    witnessBlob: (blob: Blob) => contentWitness(blob.size, async (offset, length) => new Uint8Array(await blob.slice(offset, offset + length).arrayBuffer())),
     writeAt: (id: number, offset: number, bytes: Uint8Array) => writeAll(file(id), bytes, offset),
     truncate: (id: number, length: number) => file(id).truncate(length),
     /** Appends the revisions `request` makes past the first `base` bytes, the PDF they edit. */

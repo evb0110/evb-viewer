@@ -18,7 +18,10 @@ import {
     type IBrowserPageOpsWorkerRequestMap,
     type IOcrTextLayerInstructions,
 } from '@contracts/browserPageOpsWorker';
-import { loadWasmWithDeadline } from '@app/platform/browser/loadWasmWithDeadline';
+import {
+    exceedsWasmMemoryHighWater,
+    loadWasmWithDeadline,
+} from '@app/platform/browser/loadWasmWithDeadline';
 import {
     NATIVE_ERROR_ENVELOPE_SCHEMA,
     type TNativeErrorCode,
@@ -51,6 +54,8 @@ const wasmIdentityBindingsSchema = v.array(v.object({
 const WASM_PATH = '/wasm/evb-pdf-page-ops.wasm';
 
 let wasmExportsPromise: Promise<IPdfPageOpsWasmExports> | null = null;
+/** The engine `wasmExportsPromise` resolved to, while it is still this thread's engine. */
+let loadedExports: IPdfPageOpsWasmExports | null = null;
 
 export function createWasmFailure(
     code: TNativeErrorCode,
@@ -157,9 +162,23 @@ export function createPageOpsHostImports(memory: () => WebAssembly.Memory) {
     }};
 }
 
-/** Lets the next request load a fresh engine: a trap leaves this one unusable. */
-export function discardPdfPageOpsWasm() {
+/**
+ * Lets the next request load a fresh engine: a trap leaves `exports` unusable. An engine that already stopped
+ * being this thread's, such as one a request held past its retirement, leaves its replacement alone.
+ */
+export function discardPdfPageOpsWasm(exports: IPdfPageOpsWasmExports) {
+    if (loadedExports !== exports) return;
     wasmExportsPromise = null;
+    loadedExports = null;
+}
+
+/**
+ * Called when a request on `exports` has ended: an engine whose memory grew past the high-water mark stops being
+ * this thread's engine, so its memory goes once nothing holds it. A request still holding it, such as a
+ * page-structure edit between its write and its verification, finishes on it; the next request loads a fresh one.
+ */
+export function releasePdfPageOpsWasmAboveHighWater(exports: IPdfPageOpsWasmExports) {
+    if (exceedsWasmMemoryHighWater(exports.memory)) discardPdfPageOpsWasm(exports);
 }
 
 export function loadPdfPageOpsWasm() {
@@ -176,9 +195,12 @@ export function loadPdfPageOpsWasm() {
         memory = exports.memory;
         return exports;
     })();
+    // Registered before any caller awaits the load, so the engine is known as this thread's before it runs a request.
     // A failed load must not disable the page tool for the rest of the
     // session: the next operation loads it again.
-    pending.catch(() => {
+    pending.then(exports => {
+        if (wasmExportsPromise === pending) loadedExports = exports;
+    }, () => {
         if (wasmExportsPromise === pending) wasmExportsPromise = null;
     });
     return pending;
@@ -309,10 +331,13 @@ export function runFileRequest(exports: IPdfPageOpsWasmExports, file: IFileReque
         if (!(error instanceof Error && error.name === 'RuntimeError')) throw error;
         // As in `runWasmRequest`: a trap leaves the engine unusable, so the next request loads a fresh one.
         trapped = true;
-        wasmExportsPromise = null;
+        discardPdfPageOpsWasm(exports);
         return createWasmFailure('too-large', `The browser page tool ran out of memory: ${getErrorMessage(error)}`);
     } finally {
-        if (!trapped) exports.evb_pdf_page_ops_free(pointer, request.byteLength);
+        if (!trapped) {
+            exports.evb_pdf_page_ops_free(pointer, request.byteLength);
+            releasePdfPageOpsWasmAboveHighWater(exports);
+        }
     }
 }
 

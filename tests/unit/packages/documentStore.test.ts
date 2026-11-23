@@ -106,6 +106,7 @@ function crashingPort(port: IStorePort, at: (operation: string, target: string) 
     const wrap = (file: IStoreFile, target: string): IStoreFile => ({
         size: async () => (check('size', target), file.size()),
         readAt: async (offset, length) => (check('readAt', target), file.readAt(offset, length)),
+        witness: async length => (check('witness', target), file.witness(length)),
         async writeAt(offset, bytes) {
             if (!crashed && at('writeAt', target)) await file.writeAt(offset, bytes.subarray(0, bytes.byteLength >> 1));
             check('writeAt', target);
@@ -1177,4 +1178,26 @@ it('persists foreign staged/committed revision state across reopen, resolvePendi
     expect(await untitled.setDrafts(1, { note: 'valid draft on undone untitled r1' })).toMatchObject({ status: 'stored', revision: { id: 1 } });
     expect(untitled.state().drafts).toEqual({ note: 'valid draft on undone untitled r1' });
     await untitled.close();
+});
+
+it('refuses queued and later operations on a closed DocumentDirectory without touching the manifest', async () => {
+    const workDir = await mkdtemp(path.join(tmpdir(), 'evb-docstore-closed-'));
+    try {
+        const docStore = store();
+        const doc = await create(docStore, { ext: 'pdf', source: new Blob(['closed-test-v1']) });
+        await doc.mutate(1, append('+v2'));
+        await doc.retain([1, 2]);
+        const manifestBefore = new TextDecoder().decode(await docStore.port.read(`documents/${doc.id}/manifest.json`));
+
+        await doc.close();
+
+        await expect(doc.ownCurrentFile()).rejects.toThrow(/is closed/u);
+        await expect(doc.restore(2, 1)).rejects.toThrow(/is closed/u);
+        await expect(saveDocument(doc, { expected: 2, saveAs: path.join(workDir, 'out.pdf') })).rejects.toThrow(/is closed/u);
+
+        const manifestAfter = new TextDecoder().decode(await docStore.port.read(`documents/${doc.id}/manifest.json`));
+        expect(manifestAfter).toBe(manifestBefore);
+    } finally {
+        await rm(workDir, { recursive: true, force: true });
+    }
 });

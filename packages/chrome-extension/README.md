@@ -33,8 +33,10 @@ no extension that access by itself.
    page's encoded `file` parameter (`packages/contracts/browserExtensionLaunch.ts`).
 3. The viewer page is the workspace build (`EVB_BROWSER_EXTENSION_BUILD=1` in
    `nuxt.config.ts`). `app/platform/browser-api/openBrowserExtensionDocument.ts`
-   fetches the document with the site's cookies, checks its signature, and
-   opens it as a dropped file would be. The `file` parameter stays readable in
+   fetches the document with the site's cookies, checks its signature from the
+   response's first bytes, streams the rest into the document store as it
+   downloads, a bounded batch at a time, and opens it as a dropped file would
+   be. A download that fails part way leaves no document. The `file` parameter stays readable in
    the address bar, so it shows where the document came from and a bookmark
    opens it again. The page's history entry keeps the stored document, so a
    reload shows it again without fetching it; a window the workspace opens

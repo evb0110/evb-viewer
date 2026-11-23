@@ -42,9 +42,16 @@ export const BROWSER_QPDF_ENGINE_ERROR_CODES = {
 } as const;
 
 const requestIdSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
+/**
+ * A PDF in hand, which the engine's file system takes over, or a Blob such as a store revision's file, which the
+ * engine reads by range from a read-only mount and never copies whole.
+ */
 const inputSchema = v.pipe(
-    v.custom<Uint8Array>(value => value instanceof Uint8Array),
-    v.check(input => input.byteLength > 0 && input.byteLength <= BROWSER_QPDF_MAX_INPUT_BYTES),
+    v.custom<Uint8Array | Blob>(value => value instanceof Uint8Array || value instanceof Blob),
+    v.check(input => {
+        const size = input instanceof Blob ? input.size : input.byteLength;
+        return size > 0 && size <= BROWSER_QPDF_MAX_INPUT_BYTES;
+    }),
 );
 const diagnosticSchema = v.pipe(v.string(), v.maxLength(BROWSER_QPDF_MAX_DIAGNOSTIC_CHARACTERS));
 

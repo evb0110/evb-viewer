@@ -1,6 +1,5 @@
 import {
     contentOf,
-    contentWitness,
     sameWitness,
 } from './contentWitness';
 import type {
@@ -164,9 +163,10 @@ export type TDraftResult = { status: 'stored'; revision: IRevision | null } | TS
 export type TRestoreResult = { status: 'committed'; revision: IRevision | null } | TStaleRevision | { status: 'conflict' };
 /**
  * `imported`: bytes the person supplied without a destination; they are the baseline, so the document starts clean.
- * `id`: the directory's id when the caller must know it first, for example to lock it before it exists.
+ * `id`: the directory's id when the caller must know it first, for example to lock it before it exists. A writer
+ * `source` writes the first revision itself, such as bytes arriving as a stream.
  */
-export type TDocumentInit = { ext: string; id?: string } & ({ destination: string } | { source: TExternalSource; imported?: boolean });
+export type TDocumentInit = { ext: string; id?: string } & ({ destination: string } | { source: TExternalSource | TRevisionWriter; imported?: boolean });
 
 /**
  * The manifest names a current revision whose file is missing or short, as when a profile comes back without it. The
@@ -264,11 +264,11 @@ export class DocumentDirectory {
         if ('destination' in init) {
             const baseline = await store.publication.witness(init.destination);
             if (baseline === null) throw new Error('The destination has no readable content');
-            await doc.commit({ ...manifest, destination: init.destination, baseline }, null, undefined, true);
+            await doc.commitFirst({ ...manifest, destination: init.destination, baseline }, null, undefined);
         } else {
             const name = `r1.${init.ext}`;
             const { file, length, witness } = await doc.createRevisionFile(name, init.source, init.imported === true);
-            await doc.commit({ ...manifest, current: { id: 1, file: name, length, witness }, baseline: witness }, file, undefined, true);
+            await doc.commitFirst({ ...manifest, current: { id: 1, file: name, length, witness }, baseline: witness }, file, undefined);
         }
         return doc;
     }
@@ -301,7 +301,7 @@ export class DocumentDirectory {
             if (current) await port.remove(doc.path(current.file)).catch(() => undefined);
             throw error;
         }
-        await doc.commit({ ...manifest, history: [] }, file, value, true);
+        await doc.commitFirst({ ...manifest, history: [] }, file, value);
         return doc;
     }
 
@@ -382,38 +382,40 @@ export class DocumentDirectory {
      * after an undo. One manifest replace; nothing is copied. Drafts described the replaced bytes, so they go.
      */
     restore(expected: number | null, revisionId: number) {
-        return this.run(async (): Promise<TRestoreResult> => {
-            const stale = this.staleRevision(expected);
-            if (stale) return stale;
-            const { manifest } = this;
-            const { current } = manifest;
-            if ((current?.id ?? 1) === revisionId) return { status: 'committed', revision: current ?? null };
-            const target = manifest.history.find(revision => revision.id === revisionId);
-            if (!target) return { status: 'stale-revision', current: current ?? null };
-            if (!hasFile(target) && !(sameWitness(target.witness, manifest.baseline) && manifest.destination !== undefined
-                && sameWitness(await this.store.publication.witness(manifest.destination), target.witness))) return { status: 'conflict' };
-            let file = hasFile(target) ? this.file : null;
-            if (hasFile(target)) {
-                // `open` creates a missing file: the revision must be there, whole, before the manifest names it.
-                const { port } = this.store;
-                if (target.file !== current?.file) {
-                    file = (await port.list(`${DOCUMENTS_DIR}/${this.id}`)).includes(target.file) ? await port.open(this.path(target.file)) : null;
-                }
-                try {
-                    if (!file || await file.size() < target.length) throw new DamagedDocumentError(`Revision ${target.id} of document ${this.id} is missing or cut short`);
-                } catch (error) {
-                    if (file !== this.file) await file?.close().catch(() => undefined);
-                    throw error;
-                }
+        return this.run(() => this.applyRestore(expected, revisionId));
+    }
+
+    async applyRestore(expected: number | null, revisionId: number): Promise<TRestoreResult> {
+        const stale = this.staleRevision(expected);
+        if (stale) return stale;
+        const { manifest } = this;
+        const { current } = manifest;
+        if ((current?.id ?? 1) === revisionId) return { status: 'committed', revision: current ?? null };
+        const target = manifest.history.find(revision => revision.id === revisionId);
+        if (!target) return { status: 'stale-revision', current: current ?? null };
+        if (!hasFile(target) && !(sameWitness(target.witness, manifest.baseline) && manifest.destination !== undefined
+            && sameWitness(await this.store.publication.witness(manifest.destination), target.witness))) return { status: 'conflict' };
+        let file = hasFile(target) ? this.file : null;
+        if (hasFile(target)) {
+            // `open` creates a missing file: the revision must be there, whole, before the manifest names it.
+            const { port } = this.store;
+            if (target.file !== current?.file) {
+                file = (await port.list(`${DOCUMENTS_DIR}/${this.id}`)).includes(target.file) ? await port.open(this.path(target.file)) : null;
             }
-            await this.commit({
-                ...manifest,
-                current: hasFile(target) ? target : undefined,
-                history: this.historyAfter(manifest.history.filter(revision => revision !== target)),
-                drafts: undefined,
-            }, file);
-            return { status: 'committed', revision: hasFile(target) ? target : null };
-        });
+            try {
+                if (!file || await file.size() < target.length) throw new DamagedDocumentError(`Revision ${target.id} of document ${this.id} is missing or cut short`);
+            } catch (error) {
+                if (file !== this.file) await file?.close().catch(() => undefined);
+                throw error;
+            }
+        }
+        await this.commit({
+            ...manifest,
+            current: hasFile(target) ? target : undefined,
+            history: this.historyAfter(manifest.history.filter(revision => revision !== target)),
+            drafts: undefined,
+        }, file);
+        return { status: 'committed', revision: hasFile(target) ? target : null };
     }
 
     /** Keeps exactly the revisions `revisionIds` names in history, from now on and after every change. */
@@ -462,14 +464,16 @@ export class DocumentDirectory {
      * its own.
      */
     ownCurrentFile() {
-        return this.run(async () => {
-            const { current } = this.manifest;
-            if (!current) return null;
-            const longer = this.longerThanCurrent();
-            if (longer.length > 0) await this.moveToCopy(longer);
-            if (await this.currentFile().size() > current.length) await this.currentFile().truncate(current.length);
-            return current;
-        });
+        return this.run(() => this.applyOwnCurrentFile());
+    }
+
+    async applyOwnCurrentFile() {
+        const { current } = this.manifest;
+        if (!current) return null;
+        const longer = this.longerThanCurrent();
+        if (longer.length > 0) await this.moveToCopy(longer);
+        if (await this.currentFile().size() > current.length) await this.currentFile().truncate(current.length);
+        return current;
     }
 
     /**
@@ -494,6 +498,7 @@ export class DocumentDirectory {
 
     close() {
         const closed = this.tail.then(async () => {
+            this.refusal ??= new Error(`Document ${this.id} is closed`);
             await this.file?.close();
             this.file = null;
         });
@@ -769,6 +774,21 @@ export class DocumentDirectory {
     }
 
     /**
+     * The first manifest of a directory nobody holds yet. One that fails, even after it replaced the manifest, leaves
+     * no file of the directory open: the caller removes the directory, which an open file blocks on some platforms
+     * (the origin private file system, Windows).
+     */
+    private async commitFirst(next: IManifest, file: IStoreFile | null, drafts: unknown) {
+        try {
+            await this.commit(next, file, drafts, true);
+        } catch (error) {
+            await this.file?.close().catch(() => undefined);
+            this.file = null;
+            throw error;
+        }
+    }
+
+    /**
      * Updates the single-owner byte-revision epoch when `manifest` moves from `before` to `next`.
      * Unchanged materialization, backing-file moves (`moveToCopy`), history retention, drafts writes and `pendingPublish`
      * bookkeeping leave `byteRevision` unchanged; any real change to current bytes, foreign state or unmaterialized
@@ -820,7 +840,7 @@ export class DocumentDirectory {
                     await file.flush();
                 }
                 const length = await file.size();
-                const witness = withWitness ? await contentWitness(length, (offset, size) => file.readAt(offset, size)) : undefined;
+                const witness = withWitness ? await file.witness(length) : undefined;
                 return { file, length, witness };
             } catch (error) {
                 await file.close().catch(() => undefined);
