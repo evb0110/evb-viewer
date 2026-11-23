@@ -224,7 +224,13 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
             jobId: options.jobId,
             kind: 'structure',
             ...(options.signal ? {signal: options.signal} : {}),
-            task: () => readDjvuPageStructures(options.djvuPath, options.jobId, options.signal, structurePath),
+            task: onTerminationProof => readDjvuPageStructures(
+                options.djvuPath,
+                options.jobId,
+                options.signal,
+                structurePath,
+                onTerminationProof,
+            ),
         });
         structureReady = true;
 
@@ -495,6 +501,7 @@ async function readDjvuPageStructures(
     jobId: string,
     signal: AbortSignal | undefined,
     outputPath: string,
+    onTerminationProof?: (proof: Promise<boolean>) => void,
 ): Promise<string> {
     let fileDescriptor: number | null = null;
     let structureCount = 0;
@@ -522,7 +529,11 @@ async function readDjvuPageStructures(
             includeProcessEnv: true,
             windowsHide: true,
             ...(signal ? { signal } : {}),
+            ...(onTerminationProof ? { onTerminationProof } : {}),
             onStdout: chunk => {
+                if (fileDescriptor === null) {
+                    return;
+                }
                 carry += chunk;
                 let newline = carry.indexOf('\n');
                 while (newline >= 0) {
@@ -547,9 +558,14 @@ async function readDjvuPageStructures(
         return outputPath;
     } catch (error) {
         if (fileDescriptor !== null) {
-            closeSync(fileDescriptor);
+            const fd = fileDescriptor;
+            fileDescriptor = null;
+            closeSync(fd);
         }
         await rm(outputPath, {force: true}).catch(() => undefined);
+        if (getUnprovenNativeTerminationDetail(error) !== undefined) {
+            throw error;
+        }
         throw new Error(`DjVu layer structure inspection failed; compact export stopped without flattening the document: ${getErrorMessage(error)}`);
     }
 }

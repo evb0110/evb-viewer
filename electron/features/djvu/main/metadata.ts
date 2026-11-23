@@ -11,6 +11,7 @@ import {
 } from '@electron/features/djvu/main/nativeToolPaths';
 import { createLogger } from '@electron/utils/createLogger';
 import { isAbortError } from '@electron/utils/abort';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import {getCachedDjvuHasText} from '@electron/features/djvu/main/getCachedDjvuHasText';
 const logger = createLogger('djvu-metadata');
 
@@ -26,6 +27,7 @@ const DJVU_COMPONENT_LIST_MAX_STDOUT_BYTES = 8 * 1024 * 1024;
 const DJVU_METADATA_MAX_STDERR_BYTES = 131_072;
 interface IDjvuMetadataOptions {
     signal?: AbortSignal;
+    onTerminationProof?: (proof: Promise<boolean>) => void;
     maxStdoutBytes?: number;
 }
 
@@ -42,6 +44,7 @@ async function runDjvused(args: string[], options: IDjvuMetadataOptions = {}): P
         includeProcessEnv: true,
         windowsHide: true,
         ...(options.signal ? { signal: options.signal } : {}),
+        ...(options.onTerminationProof ? { onTerminationProof: options.onTerminationProof } : {}),
     };
     const result = await runDjvuSourceCommand(djvused, args, 0, commandOptions);
 
@@ -180,7 +183,7 @@ export async function getDjvuResolution(filePath: string, options: IDjvuMetadata
             .map(parseDjvuInfoLine)
             .find(info => info !== null)?.dpi ?? 300;
     } catch (error) {
-        if (isAbortError(error)) {
+        if (isAbortError(error) || getUnprovenNativeTerminationDetail(error) !== undefined) {
             throw error;
         }
         logger.debug(`Failed to read DjVu resolution for ${filePath}: ${String(error)}`);

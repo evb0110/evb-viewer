@@ -47,30 +47,23 @@ vi.mock('@electron/features/djvu/main/buildDjvuRuntimeEnv', () => ({buildDjvuRun
 vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({
     renderDjvuPageToImage: mocks.renderDjvuPageToImage,
     runRegisteredDjvuProcess: mocks.runRegisteredDjvuProcess,
-    withDjvuNativeResourceLease: async (options: {
+    withDjvuNativeResourceLease: (options: {
         jobId: string;
         kind: 'metadata' | 'structure';
         signal?: AbortSignal;
-        task: () => Promise<unknown>;
-    }) => {
-        const lease = await mainJobBroker.acquire({
-            ownerId: options.jobId,
-            kind: `djvu-${options.kind}`,
-            priority: 'user',
-            resources: {
-                cpuTokens: 1,
-                estimatedResidentBytes: 64 * 1024 * 1024,
-                nativeProcesses: 1,
-                ioWeight: 1,
-            },
-            ...(options.signal ? {signal: options.signal} : {}),
-        });
-        try {
-            return await options.task();
-        } finally {
-            lease.release();
-        }
-    },
+        task: (onTerminationProof: (proof: Promise<boolean>) => void) => Promise<unknown>;
+    }) => mainJobBroker.run({
+        ownerId: options.jobId,
+        kind: `djvu-${options.kind}`,
+        priority: 'user',
+        resources: {
+            cpuTokens: 1,
+            estimatedResidentBytes: 64 * 1024 * 1024,
+            nativeProcesses: 1,
+            ioWeight: 1,
+        },
+        ...(options.signal ? {signal: options.signal} : {}),
+    }, ({onTerminationProof}) => options.task(onTerminationProof)),
 }));
 vi.mock('@electron/native-tools/runNativeCommand', () => ({runNativeCommand: mocks.runNativeCommand}));
 vi.mock('@electron/native-tools/resolveNativeToolPath', () => ({resolveNativeToolPath: mocks.resolveNativeToolPath}));
@@ -745,6 +738,76 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
             pageSizes: pageSizes(2),
         })).rejects.toThrow('compact export stopped without flattening');
         expect(mocks.renderDjvuPageToImage).not.toHaveBeenCalled();
+    });
+
+    it('preserves unproven termination during structure inspection and releases its lease when delayed proof resolves true', async () => {
+        const delayedProof = Promise.withResolvers<boolean>();
+        const unprovenError = markUnprovenNativeTermination(
+            new Error('djvudump watchdog expired'),
+            'djvudump process tree not proven dead yet',
+        );
+        mocks.runNativeCommand.mockImplementationOnce(async (
+            _command: string,
+            _args: string[],
+            options?: {onTerminationProof?: (proof: Promise<boolean>) => void},
+        ) => {
+            options?.onTerminationProof?.(delayedProof.promise);
+            throw unprovenError;
+        });
+
+        const competitorState: {lease: {release: () => boolean} | null} = {lease: null};
+        try {
+            await expect(buildCompactDjvuAwarePdfFromDjvu({
+                jobId: 'job-dump-unproven',
+                djvuPath: join(tempDir, 'input.djvu'),
+                outputPath: join(tempDir, 'unproven-dump.pdf'),
+                tempDir,
+                pageCount: 2,
+                sourceDpi: 300,
+                pageSizes: pageSizes(2),
+            })).rejects.toBe(unprovenError);
+
+            expect(mocks.renderDjvuPageToImage).not.toHaveBeenCalled();
+            const capacity = mainJobBroker.getSnapshot().capacity;
+            let competitorGranted = false;
+            const competitor = mainJobBroker.acquire({
+                ownerId: 'competitor-after-dump',
+                kind: 'djvu-structure',
+                priority: 'user',
+                resources: capacity,
+            }).then((lease) => {
+                competitorGranted = true;
+                competitorState.lease = lease;
+                return lease;
+            });
+            void competitor.catch(() => undefined);
+
+            await Promise.resolve();
+            expect(competitorGranted).toBe(false);
+            expect(mainJobBroker.getSnapshot()).toMatchObject({
+                active: 1,
+                queued: 1,
+                used: {
+                    cpuTokens: 1,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            });
+
+            delayedProof.resolve(true);
+            const competitorLease = await competitor;
+            expect(competitorGranted).toBe(true);
+            expect(competitorLease.release()).toBe(true);
+            competitorState.lease = null;
+            expect(mainJobBroker.getSnapshot()).toMatchObject({
+                active: 0,
+                queued: 0,
+            });
+        } finally {
+            mainJobBroker.cancelOwner('competitor-after-dump');
+            competitorState.lease?.release();
+            delayedProof.resolve(true);
+        }
     });
 
     it('records the selected fidelity preset and effective page quality', async () => {

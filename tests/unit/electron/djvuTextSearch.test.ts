@@ -421,4 +421,51 @@ describe('DjVu native streamed text search', () => {
             'select 3; print-txt',
         ]);
     });
+
+    it('forwards onTerminationProof so a broker lease releases once delayed proof resolves true', async () => {
+        const {JobBroker} = await import('@electron/resources/jobBroker');
+        const capacity = {
+            cpuTokens: 1,
+            estimatedResidentBytes: 64 * 1024 * 1024,
+            nativeProcesses: 1,
+            ioWeight: 1,
+        };
+        const broker = new JobBroker(capacity);
+        const delayedProof = Promise.withResolvers<boolean>();
+        const unproven = markUnprovenNativeTermination(abortError(), 'djvused text stream not proven dead yet');
+        mocks.runNativeCommand.mockImplementationOnce(async (_command: string, _args: string[], options: IRunCommandOptions) => {
+            options.onTerminationProof?.(delayedProof.promise);
+            throw unproven;
+        });
+
+        await expect(broker.run({
+            ownerId: 'djvu-has-text',
+            kind: 'djvu-metadata',
+            priority: 'user',
+            resources: capacity,
+        }, ({onTerminationProof}) => detectDjvuHasText('/library/book.djvu', undefined, onTerminationProof))).rejects.toBe(unproven);
+
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 1,
+            used: capacity,
+        });
+
+        delayedProof.resolve(true);
+        await vi.waitFor(() => expect(broker.getSnapshot()).toMatchObject({
+            active: 0,
+            queued: 0,
+        }));
+
+        const pageDelayedProof = Promise.withResolvers<boolean>();
+        mocks.runNativeCommand.mockImplementationOnce(async (_command: string, _args: string[], options: IRunCommandOptions) => {
+            options.onTerminationProof?.(pageDelayedProof.promise);
+            throw unproven;
+        });
+
+        await expect(readDjvuPageText('/library/book.djvu', 1)).rejects.toBe(unproven);
+        expect(mainJobBroker.getSnapshot().active).toBe(1);
+
+        pageDelayedProof.resolve(true);
+        await vi.waitFor(() => expect(mainJobBroker.getSnapshot().active).toBe(0));
+    });
 });

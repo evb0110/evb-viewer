@@ -188,7 +188,11 @@ async function runDjvuConversionJobWithSlot<T>(
     }
 }
 
-function runDjvuMetadataWithSlot<T>(jobId: TJobId, signal: AbortSignal, run: () => Promise<T>) {
+function runDjvuMetadataWithSlot<T>(
+    jobId: TJobId,
+    signal: AbortSignal,
+    run: (onTerminationProof: (proof: Promise<boolean>) => void) => Promise<T>,
+) {
     return withDjvuNativeResourceLease({
         jobId,
         kind: 'metadata',
@@ -198,6 +202,8 @@ function runDjvuMetadataWithSlot<T>(jobId: TJobId, signal: AbortSignal, run: () 
 }
 
 async function requestDjvuNativeCancel(jobId: TJobId) {
+    // Reject queued stages immediately while keeping active native charges
+    // accounted until the child processes exit or prove termination.
     mainJobBroker.cancelOwner(jobId, 'DjVu conversion canceled');
     await cancelConversion(jobId);
 }
@@ -368,6 +374,7 @@ async function getDjvuConversionPageSizes(
     djvuPath: string,
     pageCount: number,
     signal: AbortSignal,
+    onTerminationProof?: (proof: Promise<boolean>) => void,
 ) {
     if (pageCount > DJVU_PAGE_SIZE_ARRAY_MAX_PAGES) {
         logger.debug(
@@ -377,8 +384,14 @@ async function getDjvuConversionPageSizes(
     }
 
     try {
-        return await getDjvuPageSizesForViewing(djvuPath, pageCount, { signal });
+        return await getDjvuPageSizesForViewing(djvuPath, pageCount, {
+            signal,
+            ...(onTerminationProof ? { onTerminationProof } : {}),
+        });
     } catch (error) {
+        if (getUnprovenNativeTerminationDetail(error) !== undefined) {
+            throw error;
+        }
         if (signal.aborted) {
             throw signal.reason instanceof Error
                 ? signal.reason
@@ -862,8 +875,14 @@ async function runDjvuPrintPath(
                     pageCount,
                     sourceDpi,
                 ] = await Promise.all([
-                    runDjvuMetadataWithSlot(jobId, job.signal, () => getDjvuPageCount(djvuPath, { signal: job.signal })),
-                    runDjvuMetadataWithSlot(jobId, job.signal, () => getDjvuResolution(djvuPath, { signal: job.signal })),
+                    runDjvuMetadataWithSlot(jobId, job.signal, onTerminationProof => getDjvuPageCount(djvuPath, {
+                        signal: job.signal,
+                        onTerminationProof,
+                    })),
+                    runDjvuMetadataWithSlot(jobId, job.signal, onTerminationProof => getDjvuResolution(djvuPath, {
+                        signal: job.signal,
+                        onTerminationProof,
+                    })),
                 ]);
                 throwIfCanceled(job.signal);
 
@@ -882,7 +901,11 @@ async function runDjvuPrintPath(
                 // Do not scan a full document into a dense page-size array first.
                 const pageSizes = selectedPages
                     ? null
-                    : await runDjvuMetadataWithSlot(jobId, job.signal, () => getDjvuConversionPageSizes(jobId, djvuPath, pageCount, job.signal));
+                    : await runDjvuMetadataWithSlot(
+                        jobId,
+                        job.signal,
+                        onTerminationProof => getDjvuConversionPageSizes(jobId, djvuPath, pageCount, job.signal, onTerminationProof),
+                    );
                 throwIfCanceled(job.signal);
 
                 const convertedPdfPath = finalPdfPath;
@@ -1084,12 +1107,22 @@ async function runDjvuConvertToPdf(
                     pageCount,
                     sourceDpi,
                 ] = await Promise.all([
-                    runDjvuMetadataWithSlot(jobId, job.signal, () => getDjvuPageCount(djvuPath, { signal: job.signal })),
-                    runDjvuMetadataWithSlot(jobId, job.signal, () => getDjvuResolution(djvuPath, { signal: job.signal })),
+                    runDjvuMetadataWithSlot(jobId, job.signal, onTerminationProof => getDjvuPageCount(djvuPath, {
+                        signal: job.signal,
+                        onTerminationProof,
+                    })),
+                    runDjvuMetadataWithSlot(jobId, job.signal, onTerminationProof => getDjvuResolution(djvuPath, {
+                        signal: job.signal,
+                        onTerminationProof,
+                    })),
                 ]);
 
                 throwIfCanceled(job.signal);
-                const pageSizes = await runDjvuMetadataWithSlot(jobId, job.signal, () => getDjvuConversionPageSizes(jobId, djvuPath, pageCount, job.signal));
+                const pageSizes = await runDjvuMetadataWithSlot(
+                    jobId,
+                    job.signal,
+                    onTerminationProof => getDjvuConversionPageSizes(jobId, djvuPath, pageCount, job.signal, onTerminationProof),
+                );
                 throwIfCanceled(job.signal);
 
                 const convertResult = await convertDjvuPagesToPdf({
@@ -1123,19 +1156,27 @@ async function runDjvuConvertToPdf(
                 throwIfCanceled(job.signal);
 
                 const hasSourceText = strategy === 'compact-djvu-aware'
-                    && await runDjvuMetadataWithSlot(jobId, job.signal, () => detectDjvuHasText(djvuPath, job.signal))
-                        .catch(error => logger.warn(`[${jobId}] Source text notice probe failed: ${getErrorMessage(error)}`));
+                    && await runDjvuMetadataWithSlot(jobId, job.signal, onTerminationProof => detectDjvuHasText(djvuPath, job.signal, onTerminationProof))
+                        .catch((error: unknown) => {
+                            if (getUnprovenNativeTerminationDetail(error) !== undefined) {
+                                throw error;
+                            }
+                            logger.warn(`[${jobId}] Source text notice probe failed: ${getErrorMessage(error)}`);
+                            return false;
+                        });
                 throwIfCanceled(job.signal);
 
                 const bookmarks = options.preserveBookmarks !== false
-                    ? await runDjvuMetadataWithSlot(jobId, job.signal, async () => {
-                        const [
-                            outline,
-                            components,
-                        ] = await Promise.all([
-                            getDjvuOutline(djvuPath, {signal: job.signal}),
-                            getDjvuPageComponentMap(djvuPath, {signal: job.signal}),
-                        ]);
+                    ? await runDjvuMetadataWithSlot(jobId, job.signal, async (onTerminationProof) => {
+                        const outline = await getDjvuOutline(djvuPath, {
+                            signal: job.signal,
+                            onTerminationProof,
+                        });
+                        throwIfCanceled(job.signal);
+                        const components = await getDjvuPageComponentMap(djvuPath, {
+                            signal: job.signal,
+                            onTerminationProof,
+                        });
                         return parseDjvuOutline(outline, components);
                     })
                     : [];

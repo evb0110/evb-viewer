@@ -8,6 +8,8 @@ import {
     parseEpochMs,
     type TEpochMs,
 } from '@contracts/timestamps';
+import { getErrorMessage } from '@electron/utils/error';
+import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 
 export type TDjvuSourceRevisionKey = `${number}:${number}`;
 
@@ -181,7 +183,15 @@ export function getOrProbeDjvuPageSourceInfo(
     const probeKey = `${normalizedPath}\u0000${revision}\u0000${pageNumber}`;
     const pending = pendingProbes.get(probeKey);
     if (pending) {
-        return pending;
+        // Only the initiating caller owns the underlying native child and its
+        // termination-proof callback; strip the unproven-termination mark for
+        // joiners so their separate broker leases are never stranded.
+        return pending.catch((error: unknown) => {
+            if (getUnprovenNativeTerminationDetail(error) !== undefined) {
+                throw new Error(getErrorMessage(error));
+            }
+            throw error;
+        });
     }
     const nextProbe = probe(getCachedDjvuDocumentInfo(normalizedPath, revision)).then((info) => {
         storeInfo(normalizedPath, revision, [info]);

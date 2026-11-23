@@ -44,6 +44,7 @@ export interface IRegisteredDjvuProcessOptions {
     timeoutResetsOnStdout?: boolean;
     onStderr?: (chunk: string) => void;
     onStdout?: (chunk: string) => void;
+    onTerminationProof?: (proof: Promise<boolean>) => void;
     timeoutMs?: number;
     maxStderrBytes?: number;
     signal?: AbortSignal;
@@ -73,9 +74,9 @@ export async function withDjvuNativeResourceLease<T>(options: {
     jobId: string;
     kind: 'metadata' | 'structure';
     signal?: AbortSignal;
-    task: () => Promise<T>;
+    task: (onTerminationProof: (proof: Promise<boolean>) => void) => Promise<T>;
 }) {
-    const lease = await mainJobBroker.acquire({
+    return mainJobBroker.run({
         ownerId: options.jobId,
         kind: `djvu-${options.kind}`,
         priority: 'user',
@@ -86,12 +87,7 @@ export async function withDjvuNativeResourceLease<T>(options: {
             ioWeight: 1,
         },
         ...(options.signal ? {signal: options.signal} : {}),
-    });
-    try {
-        return await options.task();
-    } finally {
-        lease.release();
-    }
+    }, ({onTerminationProof}) => options.task(onTerminationProof));
 }
 
 function getDjvuQuotaFailureMessage(quotaMonitor: {failure: {message: string} | null}) {
@@ -190,38 +186,59 @@ async function _convertDjvuToPdfWithRanges(
             await artifactJob.updateRange(chunk.index, {status: 'running'});
 
             const rangeJobId = `${jobId}-range-${chunk.index + 1}-pages-${chunk.startPage}-${chunk.endPage}`;
-            const brokerLease = await mainJobBroker.acquire({
-                ownerId: jobId,
-                kind: 'djvu-range-conversion',
-                priority: 'user',
-                resources: {
-                    cpuTokens: 1,
-                    estimatedResidentBytes: 96 * 1024 * 1024,
-                    nativeProcesses: 1,
-                    ioWeight: 2,
-                },
-                signal: conversionSignal,
-            });
-            if (firstError) {
-                brokerLease.release();
-                return firstError;
-            }
-            const pageResult = await convertPageRangeToPdf(
-                inputPath,
-                chunk.outputPath,
-                rangeJobId,
-                chunk.startPage,
-                chunk.endPage,
-                options.subsample,
-                conversionSignal,
-            ).finally(() => brokerLease.release());
-
-            if (!pageResult.success) {
-                if (getUnprovenNativeTerminationDetail(pageResult.cause) !== undefined) {
-                    firstError = pageResult.cause;
+            let pageResult: Awaited<ReturnType<typeof convertPageRangeToPdf>> | null;
+            try {
+                pageResult = await mainJobBroker.run({
+                    ownerId: jobId,
+                    kind: 'djvu-range-conversion',
+                    priority: 'user',
+                    resources: {
+                        cpuTokens: 1,
+                        estimatedResidentBytes: 96 * 1024 * 1024,
+                        nativeProcesses: 1,
+                        ioWeight: 2,
+                    },
+                    signal: conversionSignal,
+                }, async ({onTerminationProof}) => {
+                    if (firstError) {
+                        return null;
+                    }
+                    const result = await convertPageRangeToPdf(
+                        inputPath,
+                        chunk.outputPath,
+                        rangeJobId,
+                        chunk.startPage,
+                        chunk.endPage,
+                        options.subsample,
+                        conversionSignal,
+                        onTerminationProof,
+                    );
+                    if (!result.success && getUnprovenNativeTerminationDetail(result.cause) !== undefined) {
+                        throw result.cause;
+                    }
+                    return result;
+                });
+            } catch (error) {
+                if (getUnprovenNativeTerminationDetail(error) !== undefined) {
+                    firstError = error;
                     await cancelConversion(jobId);
+                    return error;
+                }
+                const quotaFailure = getDjvuQuotaFailureMessage(quotaMonitor);
+                if (quotaFailure !== undefined) {
+                    firstError ??= quotaFailure;
                     return firstError;
                 }
+                if (firstError !== null || isDjvuConversionCancellationError(getErrorMessage(error))) {
+                    return firstError ?? getErrorMessage(error);
+                }
+                throw error;
+            }
+            if (pageResult === null) {
+                return firstError;
+            }
+
+            if (!pageResult.success) {
                 const pageError = getDjvuQuotaFailureMessage(quotaMonitor)
                     ?? pageResult.error
                     ?? `Failed to convert pages ${chunk.startPage}-${chunk.endPage}`;
@@ -250,7 +267,7 @@ async function _convertDjvuToPdfWithRanges(
                     status: 'failed',
                     error: 'Range artifact is empty',
                 });
-                firstError = `Converted pages ${chunk.startPage}-${chunk.endPage} produced an empty artifact`;
+                firstError ??= `Converted pages ${chunk.startPage}-${chunk.endPage} produced an empty artifact`;
                 return firstError;
             }
             // A range read after the source changed renders another revision.
@@ -382,7 +399,14 @@ async function _convertDjvuToPdfSingleProcess(
     }
 
     try {
-        const brokerLease = await mainJobBroker.acquire({
+        const args = buildPdfArgs(inputPath, outputPath, options.subsample, options.pages);
+        // A single ddjvu process reports completed pages in ascending order. Keep
+        // only the last marker and a scalar count, so progress cannot grow a
+        // page-sized Set for very large documents. Repeated markers remain
+        // idempotent, which preserves the old progress behavior on noisy stderr.
+        let lastProgressPage = 0;
+        let completedPageCount = 0;
+        const result = await mainJobBroker.run({
             ownerId: jobId,
             kind: 'djvu-conversion',
             priority: 'user',
@@ -393,49 +417,47 @@ async function _convertDjvuToPdfSingleProcess(
                 ioWeight: 2,
             },
             signal: quotaMonitor.signal,
-        });
-        const args = buildPdfArgs(inputPath, outputPath, options.subsample, options.pages);
-        // A single ddjvu process reports completed pages in ascending order. Keep
-        // only the last marker and a scalar count, so progress cannot grow a
-        // page-sized Set for very large documents. Repeated markers remain
-        // idempotent, which preserves the old progress behavior on noisy stderr.
-        let lastProgressPage = 0;
-        let completedPageCount = 0;
-        const result = await runProcess(
-            jobId,
-            getDjvuNativeToolPaths().ddjvu,
-            args,
-            {
-                env: buildDjvuRuntimeEnv(),
-                signal: quotaMonitor.signal,
-                sourceIndex: args.length - 2,
-                onStderr: (chunk) => {
-                    if (!options.onProgress || totalPages <= 0) {
-                        return;
-                    }
-                    const pageMatches = chunk.matchAll(/-------- page (\d+)/g);
-                    for (const match of pageMatches) {
-                        const pageNum = parseInt(match[1] ?? '0', 10);
-                        if (!Number.isInteger(pageNum) || pageNum < 1 || pageNum > totalPages) {
-                            continue;
+        }, async ({onTerminationProof}) => {
+            const processResult = await runProcess(
+                jobId,
+                getDjvuNativeToolPaths().ddjvu,
+                args,
+                {
+                    env: buildDjvuRuntimeEnv(),
+                    signal: quotaMonitor.signal,
+                    sourceIndex: args.length - 2,
+                    onTerminationProof,
+                    onStderr: (chunk) => {
+                        if (!options.onProgress || totalPages <= 0) {
+                            return;
                         }
-                        if (pageNum <= lastProgressPage) {
-                            continue;
+                        const pageMatches = chunk.matchAll(/-------- page (\d+)/g);
+                        for (const match of pageMatches) {
+                            const pageNum = parseInt(match[1] ?? '0', 10);
+                            if (!Number.isInteger(pageNum) || pageNum < 1 || pageNum > totalPages) {
+                                continue;
+                            }
+                            if (pageNum <= lastProgressPage) {
+                                continue;
+                            }
+                            lastProgressPage = pageNum;
+                            completedPageCount += 1;
+                            const percent = Math.min(
+                                PROGRESS_CAP,
+                                Math.round((completedPageCount / totalPages) * PROGRESS_CAP),
+                            );
+                            options.onProgress(percent);
                         }
-                        lastProgressPage = pageNum;
-                        completedPageCount += 1;
-                        const percent = Math.min(
-                            PROGRESS_CAP,
-                            Math.round((completedPageCount / totalPages) * PROGRESS_CAP),
-                        );
-                        options.onProgress(percent);
-                    }
+                    },
                 },
-            },
-        ).finally(() => brokerLease.release());
+            );
+            if (!processResult.success && getUnprovenNativeTerminationDetail(processResult.cause) !== undefined) {
+                throw processResult.cause;
+            }
+            return processResult;
+        });
 
         if (!result.success) {
-            if (getUnprovenNativeTerminationDetail(result.cause) !== undefined) throw result.cause;
             await cleanupPartialOutput(outputPath);
             return {
                 success: false,
@@ -508,6 +530,7 @@ async function convertPageRangeToPdf(
     endPage: number,
     subsample: number | undefined,
     signal?: AbortSignal,
+    onTerminationProof?: (proof: Promise<boolean>) => void,
 ) {
     const pages = startPage === endPage
         ? String(startPage)
@@ -526,6 +549,7 @@ async function convertPageRangeToPdf(
             env: buildDjvuRuntimeEnv(),
             sourceIndex: args.length - 2,
             ...(signal ? { signal } : {}),
+            ...(onTerminationProof ? { onTerminationProof } : {}),
         },
     );
 }
@@ -621,6 +645,7 @@ export async function convertDjvuPageToImage(
         subsample?: number;
         format?: TImageFormat;
         signal?: AbortSignal;
+        onTerminationProof?: (proof: Promise<boolean>) => void;
         targetHeightPx?: number;
         targetWidthPx?: number;
     } = {},
@@ -638,6 +663,7 @@ export async function renderDjvuPageToImage(
         format?: TImageFormat;
         mode?: TDjvuRenderMode;
         signal?: AbortSignal;
+        onTerminationProof?: (proof: Promise<boolean>) => void;
         targetHeightPx?: number;
         targetWidthPx?: number;
     } = {},
@@ -666,6 +692,7 @@ export async function renderDjvuPageToImage(
         env: buildDjvuRuntimeEnv(),
         sourceIndex: args.length - 2,
         ...(options.signal ? { signal: options.signal } : {}),
+        ...(options.onTerminationProof ? { onTerminationProof: options.onTerminationProof } : {}),
         timeoutMs: DJVU_IMAGE_PROCESS_TIMEOUT_MS,
     });
     if (!result.success) {
@@ -706,6 +733,7 @@ export async function runRegisteredDjvuProcess(
 
 export async function cancelConversion(jobId: string) {
     let canceled = false;
+    mainJobBroker.cancelOwner(jobId, DJVU_CONVERSION_CANCELED_MESSAGE);
 
     if (activeProcessIds.has(jobId)) {
         canceledProcessIds.add(jobId);
@@ -763,6 +791,9 @@ async function runProcess(
             // The stream consumer owns stdout; this wrapper never returns it.
             commandOptions.longLived = true;
             commandOptions.onStdout = options.onStdout;
+        }
+        if (options.onTerminationProof !== undefined) {
+            commandOptions.onTerminationProof = options.onTerminationProof;
         }
         await (options.sourceIndex === undefined
             ? runNativeCommand(command, args, commandOptions)

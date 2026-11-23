@@ -223,7 +223,7 @@ function cancelPreviewOperationsForSender(ownerWebContentsId: number, reason: st
     }
 }
 
-function clearPreviewStateForSender(ownerWebContentsId: number) {
+function clearPreviewStateForSender(ownerWebContentsId: number, reason: string) {
     const state = previewStateBySender.get(ownerWebContentsId);
     if (!state) {
         return;
@@ -232,14 +232,18 @@ function clearPreviewStateForSender(ownerWebContentsId: number) {
     state.latestRequestIds.clear();
     state.reservedRequestIds.clear();
     for (const pending of state.pendingRequests.values()) {
-        pending.abortController.abort(new Error('Renderer lifecycle ended'));
+        pending.abortController.abort(new Error(reason));
     }
     state.pendingRequests.clear();
     previewStateBySender.delete(ownerWebContentsId);
-    mainJobBroker.cancelOwner(`djvu-preview:${ownerWebContentsId}`, 'Renderer lifecycle ended');
+    mainJobBroker.cancelOwner(`djvu-preview:${ownerWebContentsId}`, reason);
 }
 
 function unregisterPreviewSenderCleanupIfIdle(ownerWebContentsId: number) {
+    const state = previewStateBySender.get(ownerWebContentsId);
+    if (state && (state.pendingRequests.size > 0 || state.reservedRequestIds.size > 0)) {
+        return;
+    }
     for (const active of activePreviewOperationsBySenderRequestKey.values()) {
         if (active.ownerWebContentsId === ownerWebContentsId) {
             return;
@@ -259,7 +263,7 @@ function registerPreviewSenderCleanup(sender: WebContents) {
         return;
     }
     const cancel = (reason: string) => {
-        clearPreviewStateForSender(ownerWebContentsId);
+        clearPreviewStateForSender(ownerWebContentsId, reason);
         cancelPreviewOperationsForSender(ownerWebContentsId, reason);
         unregisterPreviewSenderCleanupIfIdle(ownerWebContentsId);
     };
@@ -384,6 +388,7 @@ async function runCoalescedPreviewRequest<TResult>(
     render: (
         operation: {
             cancelGroup: string;
+            onTerminationProof: (proof: Promise<boolean>) => void;
             signal: AbortSignal;
         },
     ) => Promise<TResult>,
@@ -407,82 +412,83 @@ async function runCoalescedPreviewRequest<TResult>(
         request,
     });
     recordPreviewRequest(state, senderId, request);
+    registerPreviewSenderCleanup(sender);
 
-    if (!hasImmediateReservation && isPreviewRequestSuperseded(state, request)) {
-        throw new Error('DjVu preview request superseded');
-    }
-
-    const brokerLease = await mainJobBroker.acquire({
-        ownerId: `djvu-preview:${senderId}`,
-        kind: 'djvu-preview',
-        priority: resolveDjvuPreviewBrokerPriority(priority),
-        perOwnerLimit: maxInFlight,
-        resources: {
-            cpuTokens: 1,
-            estimatedResidentBytes: 64 * 1024 * 1024,
-            nativeProcesses: 1,
-            ioWeight: 1,
-        },
-        signal: abortController.signal,
-    }).catch((error: unknown) => {
-        state.reservedRequestIds.delete(requestId);
-        state.pendingRequests.delete(requestId);
-        throw error;
-    });
-    state.pendingRequests.delete(requestId);
     try {
-        if (sender.isDestroyed()) {
-            throw new Error('DjVu preview operation canceled');
-        }
         if (!hasImmediateReservation && isPreviewRequestSuperseded(state, request)) {
             throw new Error('DjVu preview request superseded');
         }
-        const operationKey = getActivePreviewOperationKey(senderId, request.requestId);
-        const cancelGroup = `djvu-preview:${senderId}:${request.requestId}`;
-        const mainOperation = registerMainOperation({
-            kind: 'abortable-work',
-            ownerWebContentsId: senderId,
-            workingCopyPath: documentKey,
-            cancel: (reason) => {
-                abortController.abort(new Error(reason));
-                void cancelConversion(cancelGroup);
+        return await mainJobBroker.run({
+            ownerId: `djvu-preview:${senderId}`,
+            kind: 'djvu-preview',
+            priority: resolveDjvuPreviewBrokerPriority(priority),
+            perOwnerLimit: maxInFlight,
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 64 * 1024 * 1024,
+                nativeProcesses: 1,
+                ioWeight: 1,
             },
-        });
-        registerPreviewSenderCleanup(sender);
-        const activeOperation: IActiveDjvuPreviewOperation = {
-            abortController,
-            cancelGroup,
-            ownerWebContentsId: senderId,
-            request,
-        };
-        activePreviewOperationsBySenderRequestKey.set(operationKey, activeOperation);
-        const abortMainOperation = () => {
-            if (!abortController.signal.aborted) {
-                abortController.abort(new Error('DjVu preview operation canceled'));
+            signal: abortController.signal,
+        }, async ({onTerminationProof}) => {
+            state.pendingRequests.delete(requestId);
+            if (sender.isDestroyed()) {
+                throw new Error('DjVu preview operation canceled');
             }
-            void cancelConversion(cancelGroup);
-        };
-        mainOperation.signal.addEventListener('abort', abortMainOperation, { once: true });
-        try {
-            return await render({
-                cancelGroup,
-                signal: abortController.signal,
+            if (!hasImmediateReservation && isPreviewRequestSuperseded(state, request)) {
+                throw new Error('DjVu preview request superseded');
+            }
+            const operationKey = getActivePreviewOperationKey(senderId, request.requestId);
+            const cancelGroup = `djvu-preview:${senderId}:${request.requestId}`;
+            const mainOperation = registerMainOperation({
+                kind: 'abortable-work',
+                ownerWebContentsId: senderId,
+                workingCopyPath: documentKey,
+                cancel: (reason) => {
+                    abortController.abort(new Error(reason));
+                    void cancelConversion(cancelGroup);
+                },
             });
-        } finally {
-            mainOperation.signal.removeEventListener('abort', abortMainOperation);
-            if (activePreviewOperationsBySenderRequestKey.get(operationKey) === activeOperation) {
-                activePreviewOperationsBySenderRequestKey.delete(operationKey);
+            const activeOperation: IActiveDjvuPreviewOperation = {
+                abortController,
+                cancelGroup,
+                ownerWebContentsId: senderId,
+                request,
+            };
+            activePreviewOperationsBySenderRequestKey.set(operationKey, activeOperation);
+            const abortMainOperation = () => {
+                if (!abortController.signal.aborted) {
+                    abortController.abort(new Error('DjVu preview operation canceled'));
+                }
+                void cancelConversion(cancelGroup);
+            };
+            mainOperation.signal.addEventListener('abort', abortMainOperation, { once: true });
+            try {
+                return await render({
+                    cancelGroup,
+                    onTerminationProof,
+                    signal: abortController.signal,
+                });
+            } finally {
+                mainOperation.signal.removeEventListener('abort', abortMainOperation);
+                if (activePreviewOperationsBySenderRequestKey.get(operationKey) === activeOperation) {
+                    activePreviewOperationsBySenderRequestKey.delete(operationKey);
+                }
+                mainOperation.complete();
             }
-            mainOperation.complete();
-        }
+        });
     } finally {
-        brokerLease.release();
         state.reservedRequestIds.delete(requestId);
         state.pendingRequests.delete(requestId);
         if (state.latestRequestIds.get(requestKey) === requestId) {
             state.latestRequestIds.delete(requestKey);
         }
-        if (state.latestRequestIds.size === 0 && state.reservedRequestIds.size === 0) {
+        if (
+            state.latestRequestIds.size === 0
+            && state.reservedRequestIds.size === 0
+            && state.pendingRequests.size === 0
+            && previewStateBySender.get(senderId) === state
+        ) {
             previewStateBySender.delete(senderId);
         }
         unregisterPreviewSenderCleanupIfIdle(senderId);

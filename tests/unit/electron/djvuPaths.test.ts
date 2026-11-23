@@ -1,7 +1,7 @@
 import path from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {
-    mkdtempSync, copyFileSync, readFileSync, readdirSync, rmSync,
+    mkdtempSync, copyFileSync, readFileSync, readdirSync, rmSync, writeFileSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
 import {
@@ -21,16 +21,39 @@ import {
 const native = vi.hoisted(() => ({
     platform: process.platform,
     scratchRoot: '',
+    onPowerShell: null as ((args: string[], options: {
+        signal?: AbortSignal;
+        onTerminationProof?: (proof: Promise<boolean>) => void;
+    }) => Promise<{
+        stdout: string;
+        stderr: string;
+        exitCode: number;
+    }>) | null,
+    spawnedNonPowerShell: [] as string[],
 }));
 vi.mock('@electron/utils/appTempDir', () => ({getAppTempDir: () => native.scratchRoot}));
 // Keep real filesystem and DjVuLibre decoding. Only the process launcher is
 // replaced, so the Windows alias branch can run on any host.
-vi.mock('@electron/native-tools/runNativeCommand', () => ({runNativeCommand: async (command: string, args: string[], options: {cwd?: string} = {}) => {
-    if (command === 'powershell.exe') return {
-        stdout: '',
-        stderr: '',
-        exitCode: 0,
-    };
+vi.mock('@electron/native-tools/runNativeCommand', () => ({runNativeCommand: async (
+    command: string,
+    args: string[],
+    options: {
+        cwd?: string;
+        signal?: AbortSignal;
+        onTerminationProof?: (proof: Promise<boolean>) => void;
+    } = {},
+) => {
+    if (command === 'powershell.exe') {
+        if (native.onPowerShell) {
+            return native.onPowerShell(args, options);
+        }
+        return {
+            stdout: '',
+            stderr: '',
+            exitCode: 0,
+        };
+    }
+    native.spawnedNonPowerShell.push(command);
     const toolRoot = path.resolve('resources/djvulibre', `${native.platform}-${process.arch}`);
     const stdout = execFileSync(command, args, {
         ...options,
@@ -129,6 +152,120 @@ describe('DjVu native tool path boundary', () => {
             ] of sourceBytes) expect(readFileSync(path.join(root, name))).toEqual(bytes);
             expect(readdirSync(native.scratchRoot).filter(name => name.startsWith('djvu-export-'))).toEqual([]);
         } finally {
+            Object.defineProperty(process, 'platform', platformDescriptor);
+            rmSync(root, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it.each([
+        'scratch-root',
+        'indirect-source',
+    ] as const)('holds the broker lease across canceled Windows short-path %s lookup until delayed proof resolves true', async (lookupKind) => {
+        const {JobBroker} = await import('@electron/resources/jobBroker');
+        const {markUnprovenNativeTermination} = await import('@electron/utils/nativeTerminationProof');
+        const aliasSuffix = path.join('djvu-export-XXXXXX', 'source', `input-${'x'.repeat(36)}.djvu`);
+        const aliasProbe = path.join('djvu-s8-XXXXXX', 'scratch', aliasSuffix);
+        const tempBase = needsDjvuPathAlias(path.join(tmpdir(), aliasProbe), 'win32')
+            ? (native.platform === 'win32' ? path.join(process.env.SystemRoot ?? 'C:\\Windows', 'Temp') : '/tmp')
+            : tmpdir();
+        const root = mkdtempSync(path.join(tempBase, 'djvu-s8-'));
+        const platformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform')!;
+        const delayedProof = Promise.withResolvers<boolean>();
+        try {
+            const capacity = {
+                cpuTokens: 1,
+                estimatedResidentBytes: 64 * 1024 * 1024,
+                nativeProcesses: 1,
+                ioWeight: 1,
+            };
+            const broker = new JobBroker(capacity);
+            const controller = new AbortController();
+            const unprovenError = markUnprovenNativeTermination(
+                new Error('powershell short-path lookup watchdog expired'),
+                'powershell short-path child not proven dead yet',
+            );
+            native.spawnedNonPowerShell.length = 0;
+            native.scratchRoot = lookupKind === 'scratch-root'
+                ? path.join(root, 'Евгений')
+                : path.join(root, 'scratch');
+            if (lookupKind === 'indirect-source') {
+                expect(needsDjvuPathAlias(path.join(native.scratchRoot, aliasSuffix), 'win32')).toBe(false);
+            }
+
+            const source = path.join(root, 'café-index.djvu');
+            // Minimal 25-byte indirect FORM:DJVM + DJVMDIRM header (bit 7 clear).
+            const indirectHeader = Buffer.alloc(25);
+            indirectHeader.write('AT&TFORM\0\0\0\0DJVMDIRM', 0, 'latin1');
+            indirectHeader[24] = 0x00;
+            writeFileSync(source, indirectHeader);
+
+            const expectedMethod = lookupKind === 'scratch-root' ? '.GetFolder(' : '.GetFile(';
+            const observedPowerShellCommands: string[] = [];
+            native.onPowerShell = async (args, options) => {
+                const commandText = args.join(' ');
+                observedPowerShellCommands.push(commandText);
+                expect(commandText).toContain(expectedMethod);
+                expect(options.signal).toBe(controller.signal);
+                expect(options.onTerminationProof).toEqual(expect.any(Function));
+                controller.abort(new Error('DjVu operation canceled'));
+                options.onTerminationProof?.(delayedProof.promise);
+                throw unprovenError;
+            };
+
+            Object.defineProperty(process, 'platform', {
+                ...platformDescriptor,
+                value: 'win32',
+            });
+
+            await expect(broker.run({
+                ownerId: `win-short-${lookupKind}`,
+                kind: 'djvu-metadata',
+                priority: 'user',
+                resources: capacity,
+            }, ({onTerminationProof}) => runDjvuSourceCommand('/tools/djvused', [
+                source,
+                '-e',
+                'n',
+            ], 0, {
+                signal: controller.signal,
+                onTerminationProof,
+            }))).rejects.toBe(unprovenError);
+
+            expect(observedPowerShellCommands).toHaveLength(1);
+            expect(native.spawnedNonPowerShell).toEqual([]);
+            let competitorGranted = false;
+            const competitor = broker.acquire({
+                ownerId: 'competitor',
+                kind: 'djvu-metadata',
+                priority: 'user',
+                resources: capacity,
+            }).then((lease) => {
+                competitorGranted = true;
+                return lease;
+            });
+
+            await Promise.resolve();
+            expect(competitorGranted).toBe(false);
+            expect(broker.getSnapshot()).toMatchObject({
+                active: 1,
+                queued: 1,
+                used: capacity,
+            });
+
+            delayedProof.resolve(true);
+            const competitorLease = await competitor;
+            expect(competitorGranted).toBe(true);
+            expect(competitorLease.release()).toBe(true);
+            expect(broker.getSnapshot()).toMatchObject({
+                active: 0,
+                queued: 0,
+            });
+        } finally {
+            delayedProof.resolve(true);
+            native.onPowerShell = null;
             Object.defineProperty(process, 'platform', platformDescriptor);
             rmSync(root, {
                 recursive: true,

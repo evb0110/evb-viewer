@@ -32,6 +32,7 @@ import {
     sweepStaleManagedScratchTempDirs,
     usingManagedScratchScope,
 } from '@electron/utils/managedScratchTemp';
+import { isAbortError } from '@electron/utils/abort';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 
@@ -162,31 +163,54 @@ export function needsDjvuPathAlias(filePath: string, platform = process.platform
     return platform === 'win32' && (filePath.length >= WINDOWS_MAX_PATH || /[^\x20-\x7e]/u.test(filePath));
 }
 
-// Node hands this environment value to PowerShell as UTF-16, without shell
-// interpolation. A disabled 8.3 policy simply leaves a path needing an alias.
-async function getWindowsShortPath(filePath: string, kind: 'GetFile' | 'GetFolder') {
-    return runNativeCommand('powershell.exe', [
-        '-NoProfile',
-        '-NonInteractive',
-        '-Command',
-        '$ErrorActionPreference="Stop"; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(); '
-        + `(New-Object -ComObject Scripting.FileSystemObject).${kind}($env:EVB_DJVU_SCRATCH_ROOT).ShortPath`,
-    ], {
-        env: {EVB_DJVU_SCRATCH_ROOT: filePath},
-        includeProcessEnv: true,
-        windowsHide: true,
-        timeoutMs: 15_000,
-    }).then(result => result.stdout.trim(), () => '');
+interface IWindowsShortPathOptions {
+    signal?: AbortSignal;
+    onTerminationProof?: (proof: Promise<boolean>) => void;
 }
 
-async function getDjvuScratchRoot() {
+// Node hands this environment value to PowerShell as UTF-16, without shell
+// interpolation. A disabled 8.3 policy simply leaves a path needing an alias.
+async function getWindowsShortPath(
+    filePath: string,
+    kind: 'GetFile' | 'GetFolder',
+    options: IWindowsShortPathOptions = {},
+) {
+    try {
+        const result = await runNativeCommand('powershell.exe', [
+            '-NoProfile',
+            '-NonInteractive',
+            '-Command',
+            '$ErrorActionPreference="Stop"; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(); '
+            + `(New-Object -ComObject Scripting.FileSystemObject).${kind}($env:EVB_DJVU_SCRATCH_ROOT).ShortPath`,
+        ], {
+            env: {EVB_DJVU_SCRATCH_ROOT: filePath},
+            includeProcessEnv: true,
+            windowsHide: true,
+            timeoutMs: 15_000,
+            ...(options.signal ? {signal: options.signal} : {}),
+            ...(options.onTerminationProof ? {onTerminationProof: options.onTerminationProof} : {}),
+        });
+        return result.stdout.trim();
+    } catch (error) {
+        if (
+            getUnprovenNativeTerminationDetail(error) !== undefined
+            || isAbortError(error)
+            || options.signal?.aborted
+        ) {
+            throw error;
+        }
+        return '';
+    }
+}
+
+async function getDjvuScratchRoot(options: IWindowsShortPathOptions = {}) {
     const root = getAppTempDir();
     // Reserve enough room for mkdtemp's suffix and the longest alias below.
     const aliasSuffix = join('djvu-export-XXXXXX', 'source', `input-${'x'.repeat(36)}.djvu`);
     if (!needsDjvuPathAlias(join(root, aliasSuffix))) {
         return root;
     }
-    const shortPath = await getWindowsShortPath(root, 'GetFolder');
+    const shortPath = await getWindowsShortPath(root, 'GetFolder', options);
     if (shortPath && !needsDjvuPathAlias(join(shortPath, aliasSuffix))) {
         return shortPath;
     }
@@ -236,7 +260,11 @@ export async function runDjvuSourceCommand(
         && !needsDjvuPathAlias(cwd)) {
         return runNativeCommand(command, args, options);
     }
-    const scratchRoot = await getDjvuScratchRoot();
+    const shortPathOptions: IWindowsShortPathOptions = {
+        ...(options.signal ? {signal: options.signal} : {}),
+        ...(options.onTerminationProof ? {onTerminationProof: options.onTerminationProof} : {}),
+    };
+    const scratchRoot = await getDjvuScratchRoot(shortPathOptions);
     return usingManagedScratchScope('djvu-export-', scratchRoot, async (scratchPath) => {
         const aliasArgs = [...args];
         aliasArgs[sourceIndex] = sourcePath;
@@ -261,7 +289,7 @@ export async function runDjvuSourceCommand(
                 }
                 const indirect = header.toString('ascii', 12, 20) === 'DJVMDIRM' && (header[24]! & 0x80) === 0;
                 const shortSource = indirect && needsDjvuPathAlias(basename(sourcePath))
-                    ? await getWindowsShortPath(sourcePath, 'GetFile') : '';
+                    ? await getWindowsShortPath(sourcePath, 'GetFile', shortPathOptions) : '';
                 const sourceName = basename(shortSource || sourcePath);
                 if (!needsDjvuPathAlias(join(sourceFolderAlias, sourceName))) {
                     // One junction serves even thousands of components, including
