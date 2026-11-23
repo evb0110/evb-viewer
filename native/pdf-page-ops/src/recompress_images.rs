@@ -406,7 +406,7 @@ fn jpeg_candidate(
         stream.content.clone()
     } else if let Some(source) = structural {
         // An image the source cannot give back keeps its bytes.
-        let Ok(bytes) = source.read_raw(id, MAX_IMAGE_STREAM_BYTES) else {
+        let Ok(bytes) = source.raw_stream(id, MAX_IMAGE_STREAM_BYTES) else {
             return Ok(None);
         };
         bytes
@@ -424,11 +424,9 @@ pub(crate) fn write_recompress_images_path(
     input_path: &Path,
     output_path: &Path,
     instructions: &RecompressImagesFile,
-    qpdf_path: Option<&Path>,
 ) -> Result<()> {
-    let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
-        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    let structural = StructuralSource::for_path(input_path, qpdf_path);
+    let (source, mut incremental) = SourcePdf::open_append_base_path(input_path)?;
+    let structural = Some(&source as StructuralSource);
     let report = recompress_images_in(&mut incremental, structural, instructions)?;
     if report.changed {
         let revision_bytes = build_incremental_revision(&mut incremental)?;
@@ -454,8 +452,12 @@ pub(crate) fn recompress_images_bytes(data: &[u8], instructions: &[u8]) -> Resul
         instructions,
         "recompress-images instructions",
     )?)?;
-    let mut incremental = incremental_from_bytes(data)?;
-    let report = recompress_images_in(&mut incremental, None, &instructions)?;
+    let (source, mut incremental) = incremental_from_bytes(data)?;
+    let report = recompress_images_in(
+        &mut incremental,
+        Some(&source as StructuralSource),
+        &instructions,
+    )?;
     Ok(ReportedBytes {
         page_count: page_count(&incremental.previous_document),
         data: if report.changed {

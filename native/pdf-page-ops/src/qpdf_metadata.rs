@@ -3,27 +3,20 @@
 
 use super::*;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum QpdfMetadataPurpose {
-    Geometry,
-    Conformance,
-}
-
 /// None means only that the supplied qpdf executable has no adjacent library.
 /// A present but unusable library, or an unreadable PDF, is an error.
 /// The boolean reports bounded qpdf warnings to the load-policy owner.
 pub(crate) fn load_qpdf_metadata_pdf_path(
     path: &Path,
     qpdf_path: &Path,
-    purpose: QpdfMetadataPurpose,
 ) -> Result<Option<(IncrementalDocument, bool)>> {
     #[cfg(not(target_family = "wasm"))]
     {
-        platform::load(path, qpdf_path, purpose)
+        platform::load(path, qpdf_path)
     }
     #[cfg(target_family = "wasm")]
     {
-        let _ = (path, qpdf_path, purpose);
+        let _ = (path, qpdf_path);
         Ok(None)
     }
 }
@@ -316,7 +309,6 @@ mod platform {
     struct Reader {
         api: Api,
         data: Data,
-        purpose: QpdfMetadataPurpose,
         diagnostic_bytes: Cell<usize>,
     }
 
@@ -338,7 +330,7 @@ mod platform {
     }
 
     impl Reader {
-        fn open(library: &Path, path: &Path, purpose: QpdfMetadataPurpose) -> Result<Self> {
+        fn open(library: &Path, path: &Path) -> Result<Self> {
             let api = Api::open(library)?;
             let data = unsafe { (api.init)() };
             if data.is_null() {
@@ -347,16 +339,12 @@ mod platform {
             let reader = Self {
                 api,
                 data,
-                purpose,
                 diagnostic_bytes: Cell::new(0),
             };
             unsafe {
                 (reader.api.silence_errors)(data);
                 (reader.api.suppress_warnings)(data, 1);
-                (reader.api.attempt_recovery)(
-                    data,
-                    c_int::from(purpose == QpdfMetadataPurpose::Conformance),
-                );
+                (reader.api.attempt_recovery)(data, 1);
             }
             #[cfg(windows)]
             let path_bytes = path
@@ -556,7 +544,7 @@ mod platform {
             elements: &mut usize,
             encoded: &mut usize,
         ) -> Result<Option<Object>> {
-            if !matches!(context, Context::PageTree | Context::Root) {
+            if context != Context::Root {
                 return Ok(None);
             }
             let kind = unsafe { (self.api.object_type)(self.data, handle) };
@@ -564,24 +552,7 @@ mod platform {
             if kind != 9 {
                 return Ok(None);
             }
-            // Select only through the actual page-tree context. Private
-            // dictionaries always keep their complete graph.
-            let keys = if context == Context::PageTree {
-                &[
-                    c"/Type",
-                    c"/Kids",
-                    c"/Parent",
-                    c"/Count",
-                    c"/MediaBox",
-                    c"/CropBox",
-                    c"/Rotate",
-                    c"/UserUnit",
-                ][..]
-            } else if self.purpose == QpdfMetadataPurpose::Conformance {
-                &[c"/Type", c"/AcroForm", c"/StructTreeRoot"][..]
-            } else {
-                &[c"/Type", c"/Pages"][..]
-            };
+            let keys = [c"/Type", c"/AcroForm", c"/StructTreeRoot"];
             let mut dictionary = Dictionary::new();
             for key in keys {
                 if unsafe { (self.api.has_key)(self.data, handle, key.as_ptr()) } == 0 {
@@ -802,7 +773,6 @@ mod platform {
     #[derive(Clone, Copy, Eq, Hash, PartialEq)]
     enum Context {
         Root,
-        PageTree,
         Value,
         Conformance,
     }
@@ -831,7 +801,7 @@ mod platform {
                         // Discover physical pages before optional graphs. Their
                         // identity then comes from the actual page tree, not a
                         // private dictionary that happens to use /Type /Page.
-                        if matches!(context, Context::Root | Context::PageTree | Context::Value) {
+                        if matches!(context, Context::Root | Context::Value) {
                             self.pending.push_back((*id, context));
                         } else {
                             self.pending.push_front((*id, context));
@@ -851,47 +821,11 @@ mod platform {
         }
 
         fn targets(&mut self, dict: &Dictionary, context: Context, depth: usize) -> Result<()> {
-            let kind = dict
-                .get(b"Type")
-                .ok()
-                .and_then(|value| value.as_name().ok());
-            if context == Context::PageTree {
-                for key in [
-                    b"Kids".as_slice(),
-                    b"Parent",
-                    b"Count",
-                    b"MediaBox",
-                    b"CropBox",
-                    b"Rotate",
-                ] {
-                    if let Ok(value) = dict.get(key) {
-                        self.enqueue(
-                            value,
-                            if key == b"Kids" || key == b"Parent" {
-                                Context::PageTree
-                            } else {
-                                Context::Value
-                            },
-                            depth,
-                        )?;
-                    }
-                }
-                if kind == Some(b"Page") {
-                    if let Ok(unit) = dict.get(b"UserUnit") {
-                        self.enqueue(unit, Context::Value, depth)?;
-                    }
-                }
-                return Ok(());
-            }
             if context == Context::Root {
-                if self.reader.purpose == QpdfMetadataPurpose::Conformance {
-                    for (key, value) in dict.iter() {
-                        if matches!(key.as_slice(), b"AcroForm" | b"StructTreeRoot") {
-                            self.enqueue(value, Context::Conformance, depth)?;
-                        }
+                for (key, value) in dict.iter() {
+                    if matches!(key.as_slice(), b"AcroForm" | b"StructTreeRoot") {
+                        self.enqueue(value, Context::Conformance, depth)?;
                     }
-                } else if let Ok(pages) = dict.get(b"Pages") {
-                    self.enqueue(pages, Context::PageTree, depth)?;
                 }
                 return Ok(());
             }
@@ -936,10 +870,7 @@ mod platform {
                 if !self.visited.insert((id, context)) {
                     continue;
                 }
-                if !matches!(context, Context::Root | Context::PageTree)
-                    && (self.visited.contains(&(id, Context::Root))
-                        || self.visited.contains(&(id, Context::PageTree)))
-                {
+                if context != Context::Root && self.visited.contains(&(id, Context::Root)) {
                     continue;
                 }
                 if self.visited.len() > MAX_QPDF_OBJECT_ELEMENTS {
@@ -1012,17 +943,14 @@ mod platform {
         Ok(())
     }
 
-    pub(super) fn load(
-        path: &Path,
-        qpdf: &Path,
-        purpose: QpdfMetadataPurpose,
-    ) -> Result<Option<(IncrementalDocument, bool)>> {
+    /// The catalog's conformance graph, read with qpdf's recovery, which a
+    /// conformance check accepts.
+    pub(super) fn load(path: &Path, qpdf: &Path) -> Result<Option<(IncrementalDocument, bool)>> {
         let Some(library) = adjacent_library(qpdf)? else {
             return Ok(None);
         };
         let initial = fs::metadata(path).map_err(io_domain_error)?;
-        let recovered = purpose == QpdfMetadataPurpose::Conformance;
-        let reader = Reader::open(&library, path, purpose)?;
+        let reader = Reader::open(&library, path)?;
         let mut document = Document::with_version(reader.version()?);
         document.trailer = reader.trailer()?;
         document.max_id = document
@@ -1033,12 +961,6 @@ mod platform {
             .and_then(|size| size.checked_sub(1))
             .and_then(|size| u32::try_from(size).ok())
             .unwrap_or(0);
-        if !recovered {
-            assert_plaintext_base(
-                &document,
-                "Encrypted PDFs are not supported by native metadata reads",
-            )?;
-        }
         let root = document.trailer.get(b"Root")?.clone();
         let retained = retained_cost(&Object::Dictionary(document.trailer.clone()))?;
         let mut projection = Projection {
@@ -1050,9 +972,7 @@ mod platform {
         };
         projection.enqueue(&root, Context::Root, 0)?;
         projection.drain()?;
-        if recovered {
-            read_signatures(&mut projection, path, qpdf)?;
-        }
+        read_signatures(&mut projection, path, qpdf)?;
         let current = fs::metadata(path).map_err(io_domain_error)?;
         if current.len() != initial.len() || current.modified().ok() != initial.modified().ok() {
             return Err(corrupt("PDF input changed while reading native metadata"));

@@ -7,7 +7,7 @@
 //! browser its request buffer, through the same code.
 use super::*;
 use lopdf::xref::{Xref, XrefType};
-use std::io;
+use std::{io, rc::Rc};
 
 /// The largest object, cross-reference section or object stream read whole.
 const MAX_OBJECT_BYTES: usize = MAX_DECOMPRESSED_PDF_STREAM_BYTES;
@@ -60,23 +60,76 @@ impl ByteSource for [u8] {
     }
 }
 
+/// One read at `offset` that leaves the handle's cursor alone, so reads
+/// through a shared handle never race over where it points.
+#[cfg(unix)]
+fn read_file_at(file: &File, buffer: &mut [u8], offset: u64) -> io::Result<usize> {
+    std::os::unix::fs::FileExt::read_at(file, buffer, offset)
+}
+
+/// Windows moves the cursor on a positioned read, but no read here uses it.
+#[cfg(windows)]
+fn read_file_at(file: &File, buffer: &mut [u8], offset: u64) -> io::Result<usize> {
+    std::os::windows::fs::FileExt::seek_read(file, buffer, offset)
+}
+
+/// Targets without positioned reads have no file sources in use.
+#[cfg(not(any(unix, windows)))]
+fn read_file_at(file: &File, buffer: &mut [u8], offset: u64) -> io::Result<usize> {
+    let mut file = file;
+    file.seek(SeekFrom::Start(offset))?;
+    file.read(buffer)
+}
+
+/// Fills `buffer` from `offset`, across short reads; the file ending first
+/// is `UnexpectedEof`.
+fn read_file_exact_at(file: &File, mut buffer: &mut [u8], mut offset: u64) -> io::Result<()> {
+    while !buffer.is_empty() {
+        match read_file_at(file, buffer, offset) {
+            Ok(0) => return Err(io::ErrorKind::UnexpectedEof.into()),
+            Ok(read) => {
+                buffer = &mut buffer[read..];
+                offset += read as u64;
+            }
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
+
+/// The chunk a range copy moves through memory at once.
+const COPY_CHUNK_BYTES: usize = 256 * 1024;
+
 impl ByteSource for File {
     fn read_at(&self, offset: u64, buffer: &mut [u8]) -> io::Result<()> {
-        let mut file = self;
-        file.seek(SeekFrom::Start(offset))?;
-        file.read_exact(buffer)
+        read_file_exact_at(self, buffer, offset)
     }
 
-    /// `io::copy` from a length-limited file into a buffered file uses the
-    /// kernel's file-to-file copy on Linux.
-    fn copy_range(&self, offset: u64, len: u64, output: &mut impl Write) -> io::Result<()> {
-        let mut file = self;
-        file.seek(SeekFrom::Start(offset))?;
-        if io::copy(&mut file.take(len), output)? != len {
-            return Err(io::ErrorKind::UnexpectedEof.into());
+    fn copy_range(&self, mut offset: u64, len: u64, output: &mut impl Write) -> io::Result<()> {
+        let mut buffer = vec![0; len.min(COPY_CHUNK_BYTES as u64) as usize];
+        let mut left = len;
+        while left > 0 {
+            let chunk = &mut buffer[..left.min(COPY_CHUNK_BYTES as u64) as usize];
+            read_file_exact_at(self, chunk, offset)?;
+            output.write_all(chunk)?;
+            offset += chunk.len() as u64;
+            left -= chunk.len() as u64;
         }
         Ok(())
     }
+}
+
+/// What an open accepts of a file's encryption and terminal revision.
+#[derive(Clone, Copy)]
+enum OpenMode {
+    /// Any terminal revision; an encrypted file read with the empty password.
+    Decrypting,
+    /// Any terminal revision; encryption refused from the index.
+    Plaintext,
+    /// The base of an append: qpdf's terminal revision, no bytes before the
+    /// header, encryption refused from the index.
+    AppendBase,
 }
 
 /// A parsed PDF whose stream data stays in its source.
@@ -101,6 +154,27 @@ impl SourcePdf<File> {
         PageTreeResolver::with_both_ends(&pdf.document).map_err(page_tree_damaged)?;
         Ok(pdf)
     }
+
+    /// The PDF in the file at `path`, as `open_plaintext` reads it, whose page
+    /// tree yields its first and last pages.
+    pub(crate) fn open_plaintext_path(path: &Path) -> Result<Self> {
+        let (file, len) = open_source_file(path)?;
+        let pdf = Self::open_plaintext(file, len)?;
+        PageTreeResolver::with_both_ends(&pdf.document).map_err(page_tree_damaged)?;
+        Ok(pdf)
+    }
+
+    /// The PDF in the file at `path` as the base of an incremental append,
+    /// with the source that reads the streams the base leaves unread.
+    pub(crate) fn open_append_base_path(path: &Path) -> Result<(Self, IncrementalDocument)> {
+        let (file, len) = open_source_file(path)?;
+        let mut source = Self::open_append_base(file, len)
+            .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+        let base = source
+            .take_append_base()
+            .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+        Ok((source, base))
+    }
 }
 
 /// The file at `path` as a source, with its length.
@@ -115,7 +189,14 @@ impl<S: ByteSource> SourcePdf<S> {
     /// encrypted input is read decrypted when the empty password opens it;
     /// otherwise it needs a password this route does not take.
     pub(crate) fn open(bytes: S, len: u64) -> Result<Self> {
-        Self::open_indexed(bytes, len, true, &[])
+        Self::open_indexed(bytes, len, OpenMode::Decrypting, &[])
+    }
+
+    /// A read that takes only plaintext: encryption, which the index shows,
+    /// is refused before any object is read or decrypted. Any terminal
+    /// revision the index reads will do, since nothing is appended.
+    pub(crate) fn open_plaintext(bytes: S, len: u64) -> Result<Self> {
+        Self::open_indexed(bytes, len, OpenMode::Plaintext, &[])
     }
 
     /// The base of an incremental append. Plaintext objects appended to an
@@ -125,7 +206,7 @@ impl<S: ByteSource> SourcePdf<S> {
     /// are refused too: this reader counts offsets from the header, as lopdf
     /// does, but an appended revision records them from the start of the file.
     pub(crate) fn open_append_base(bytes: S, len: u64) -> Result<Self> {
-        Self::open_indexed(bytes, len, false, &[])
+        Self::open_indexed(bytes, len, OpenMode::AppendBase, &[])
     }
 
     /// An append base that also holds the objects in `named`, with what they
@@ -133,23 +214,35 @@ impl<S: ByteSource> SourcePdf<S> {
     /// the trailer no longer reaches, such as the image of a deleted stamp
     /// that an undo restores.
     pub(crate) fn open_append_base_naming(bytes: S, len: u64, named: &[ObjectId]) -> Result<Self> {
-        Self::open_indexed(bytes, len, false, named)
+        Self::open_indexed(bytes, len, OpenMode::AppendBase, named)
     }
 
-    fn open_indexed(bytes: S, len: u64, decrypt: bool, named: &[ObjectId]) -> Result<Self> {
+    fn open_indexed(bytes: S, len: u64, mode: OpenMode, named: &[ObjectId]) -> Result<Self> {
         let reader = Reader::new(&bytes, len)?;
-        if !decrypt && reader.base != 0 {
-            return Err(corrupt("PDF has bytes before its header"));
-        }
-        let index = reader.index()?;
+        let index = match mode {
+            // An append extends the revision every reader takes as the last
+            // one: the one qpdf's locator finds, as admission at open
+            // requires of every base.
+            OpenMode::AppendBase => {
+                if reader.base != 0 {
+                    return Err(corrupt("PDF has bytes before its header"));
+                }
+                reader.index_at(reader.qpdf_start()?)?
+            }
+            OpenMode::Decrypting | OpenMode::Plaintext => reader.index()?,
+        };
         if index.trailer.has(b"Encrypt") {
-            if !decrypt {
-                return Err(domain_error(
+            return Err(match mode {
+                OpenMode::Decrypting => return Self::open_decrypted(bytes, len, index.start),
+                OpenMode::Plaintext => domain_error(
+                    NativeErrorCode::Encrypted,
+                    "Encrypted PDFs are not supported by native page ops",
+                ),
+                OpenMode::AppendBase => domain_error(
                     NativeErrorCode::Encrypted,
                     "Unlock the encrypted PDF before editing it",
-                ));
-            }
-            return Self::open_decrypted(bytes, len, index.start);
+                ),
+            });
         }
         let mut document = Document::with_version(reader.version.clone());
         document.max_id = index.max_number;
@@ -245,6 +338,81 @@ impl<S: ByteSource> SourcePdf<S> {
         self.streams
             .get(&id)
             .map(|(offset, len)| (&self.bytes, *offset, *len))
+    }
+
+    /// Reads into `document`, which holds this source's objects, the bytes
+    /// of each stream the source left unread that `root` reaches, without
+    /// entering a page or page-tree node or an object `mapped` names, at most
+    /// `max_bytes` in all, so a writer that copies that graph copies its data.
+    pub(crate) fn read_streams_into(
+        &self,
+        document: &mut Document,
+        root: &Object,
+        mapped: impl Fn(ObjectId) -> bool,
+        max_bytes: usize,
+    ) -> Result<()> {
+        let mut pending = Vec::new();
+        collect_object_references(root, &mut pending);
+        let mut seen = HashSet::new();
+        let mut left = max_bytes;
+        while let Some(id) = pending.pop() {
+            if mapped(id) || !seen.insert(id) {
+                continue;
+            }
+            let Some(object) = document.objects.get_mut(&id) else {
+                continue;
+            };
+            let dictionary = match &*object {
+                Object::Dictionary(dictionary) => dictionary,
+                Object::Stream(stream) => &stream.dict,
+                object => {
+                    collect_object_references(object, &mut pending);
+                    continue;
+                }
+            };
+            if matches!(
+                dictionary.get(b"Type").and_then(Object::as_name),
+                Ok(b"Page" | b"Pages")
+            ) {
+                continue;
+            }
+            collect_references(dictionary, &mut pending);
+            if let Object::Stream(stream) = object {
+                if stream.content.is_empty() && self.streams.contains_key(&id) {
+                    let bytes = self.raw_stream(id, left)?;
+                    left -= bytes.len();
+                    stream.set_content(bytes);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// `stream`, object `id` of this source's document, with its encoded
+    /// bytes: read by range when the source holds them, refused above
+    /// `max_bytes` as a decoder refuses an oversized stream.
+    pub(crate) fn with_bytes<'d>(
+        &self,
+        id: ObjectId,
+        stream: &'d Stream,
+        max_bytes: usize,
+    ) -> lopdf::Result<std::borrow::Cow<'d, Stream>> {
+        if !stream.content.is_empty() || !self.streams.contains_key(&id) {
+            return Ok(std::borrow::Cow::Borrowed(stream));
+        }
+        let bytes = self.raw_stream(id, max_bytes).map_err(|error| {
+            match error.downcast_ref::<NativeError>().map(|error| error.code) {
+                Some(NativeErrorCode::TooLarge) => {
+                    lopdf::Error::from(lopdf::DecompressError::MemoryLimitExceeded {
+                        limit: max_bytes,
+                    })
+                }
+                _ => lopdf::Error::IO(io::Error::other(error.to_string())),
+            }
+        })?;
+        let mut stream = stream.clone();
+        stream.set_content(bytes);
+        Ok(std::borrow::Cow::Owned(stream))
     }
 
     /// How object `id` spelled the real at `path`, when `value` is still the
@@ -501,8 +669,15 @@ fn collect_references(dictionary: &Dictionary, pending: &mut Vec<ObjectId>) {
 #[derive(Clone, Copy)]
 enum XrefEntry {
     Free,
-    Offset { offset: u64, generation: u16 },
-    InStream { container: u32 },
+    Offset {
+        offset: u64,
+        generation: u16,
+    },
+    /// Object stream `container`, as its member in header slot `index`.
+    InStream {
+        container: u32,
+        index: u32,
+    },
 }
 
 /// One cross-reference section's entries, its trailer and its form.
@@ -515,7 +690,8 @@ struct XrefIndex {
     /// The highest object number any section lists, free ones included, so a
     /// new object never takes a freed number.
     max_number: u32,
-    /// Ascending object offsets, which bound a stream whose length is wrong.
+    /// Ascending offsets of every object any revision wrote and of every
+    /// cross-reference section, which bound each stream's data.
     offsets: Vec<u64>,
     trailer: Dictionary,
     xref_type: XrefType,
@@ -525,7 +701,7 @@ fn corrupt(message: impl Into<String>) -> Box<dyn Error> {
     domain_error(NativeErrorCode::CorruptXref, message)
 }
 
-struct Reader<'a, S> {
+struct Reader<'a, S: ?Sized> {
     bytes: &'a S,
     len: u64,
     /// Where `%PDF-` starts. Offsets count from it, as lopdf reads them.
@@ -533,7 +709,7 @@ struct Reader<'a, S> {
     version: String,
 }
 
-impl<'a, S: ByteSource> Reader<'a, S> {
+impl<'a, S: ByteSource + ?Sized> Reader<'a, S> {
     fn new(bytes: &'a S, len: u64) -> Result<Self> {
         let head = Self::read(bytes, len, 0, 1024)?;
         let base = find_bytes(&head, b"%PDF-").ok_or_else(|| corrupt("PDF header is missing"))?;
@@ -610,36 +786,75 @@ impl<'a, S: ByteSource> Reader<'a, S> {
         }
     }
 
-    fn index(&self) -> Result<XrefIndex> {
+    /// The offset the last `startxref` in the file's tail names.
+    fn terminal_start(&self) -> Result<u64> {
         let tail_start = self.len.saturating_sub(TAIL_BYTES as u64);
         let tail = Self::read(self.bytes, self.len, tail_start, TAIL_BYTES)?;
         let marker = find_last_bytes(&tail, b"startxref")
             .ok_or_else(|| corrupt("PDF startxref marker is missing"))?;
-        let start = parse_u64_token(&tail, marker + b"startxref".len())
+        parse_u64_token(&tail, marker + b"startxref".len())
             .map(|(offset, _)| offset)
-            .ok_or_else(|| corrupt("PDF startxref value is invalid"))?;
+            .ok_or_else(|| corrupt("PDF startxref value is invalid"))
+    }
+
+    /// The terminal startxref qpdf's locator finds, which an append extends:
+    /// a base without one leaves no revision every reader takes as the last.
+    fn qpdf_start(&self) -> Result<u64> {
+        let tail_start = self.len.saturating_sub(QPDF_STARTXREF_SEARCH_BYTES);
+        let tail = Self::read(
+            self.bytes,
+            self.len,
+            tail_start,
+            QPDF_STARTXREF_SEARCH_BYTES as usize,
+        )?;
+        qpdf_terminal_xref(&tail, tail_start, self.len)
+            .ok_or_else(|| corrupt("PDF terminal startxref is not where qpdf reads it"))
+    }
+
+    fn index(&self) -> Result<XrefIndex> {
+        self.index_at(self.terminal_start()?)
+    }
+
+    /// The cross-reference chain from the section at `start`, merged.
+    fn index_at(&self, start: u64) -> Result<XrefIndex> {
         let mut next = start;
         let mut entries = HashMap::new();
         // The newest revision that names a document-level entry decides it.
         let mut trailer = Dictionary::new();
         let mut visited = HashSet::new();
         let mut xref_type = None;
+        // Where every object any revision wrote, superseded and freed ones
+        // included, and every section starts: a stream's data ends before
+        // the next of them.
+        let mut offsets = Vec::new();
         loop {
             if !visited.insert(next) || visited.len() > MAX_XREF_SECTIONS {
                 return Err(corrupt("PDF cross-reference chain loops or is too long"));
             }
             let (section, section_trailer, kind) = self.xref_section(next)?;
+            offsets.push(next);
             xref_type.get_or_insert(kind);
             // A hybrid file's table lists its compressed objects as free;
             // its XRefStm entries take precedence over those.
-            if let Ok(stream) = section_trailer.get(b"XRefStm").and_then(Object::as_i64) {
-                let offset = u64::try_from(stream).map_err(|_| corrupt("Invalid /XRefStm"))?;
-                for (number, entry) in self.xref_section(offset)?.0 {
-                    entries.entry(number).or_insert(entry);
+            let hybrid = match section_trailer.get(b"XRefStm").and_then(Object::as_i64) {
+                Ok(stream) => {
+                    let offset = u64::try_from(stream).map_err(|_| corrupt("Invalid /XRefStm"))?;
+                    offsets.push(offset);
+                    self.xref_section(offset)?.0
                 }
-            }
-            for (number, entry) in section {
+                Err(_) => Vec::new(),
+            };
+            for (number, entry) in hybrid.into_iter().chain(section) {
+                if let XrefEntry::Offset { offset, .. } = entry {
+                    offsets.push(offset);
+                }
                 entries.entry(number).or_insert(entry);
+            }
+            if offsets.len() > MAX_SOURCE_VALUES {
+                return Err(domain_error(
+                    NativeErrorCode::TooLarge,
+                    format!("PDF cross-references list more than {MAX_SOURCE_VALUES} entries"),
+                ));
             }
             if entries.len() > MAX_PDF_OBJECTS {
                 return Err(domain_error(
@@ -667,14 +882,9 @@ impl<'a, S: ByteSource> Reader<'a, S> {
         }
         let max_number = entries.keys().copied().max().unwrap_or(0);
         entries.retain(|_, entry| !matches!(entry, XrefEntry::Free));
-        let mut offsets = entries
-            .values()
-            .filter_map(|entry| match entry {
-                XrefEntry::Offset { offset, .. } => Some(*offset),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
         offsets.sort_unstable();
+        offsets.dedup();
+        offsets.shrink_to_fit();
         Ok(XrefIndex {
             entries,
             start,
@@ -683,6 +893,54 @@ impl<'a, S: ByteSource> Reader<'a, S> {
             trailer,
             xref_type: xref_type.unwrap_or(XrefType::CrossReferenceTable),
         })
+    }
+
+    /// Visits each cross-reference revision's entries from `start` as
+    /// `visit(revision, number, entry)`, newest revision first, numbering
+    /// them from 0; a hybrid section's stream entries come before its
+    /// table's. One revision's entries are dropped once visited. Returns
+    /// where each section, `/XRefStm` ones included, starts.
+    fn walk_revisions(
+        &self,
+        start: u64,
+        mut visit: impl FnMut(usize, u32, XrefEntry),
+    ) -> Result<Vec<u64>> {
+        let mut sections = Vec::new();
+        let mut next = start;
+        let mut visited = HashSet::new();
+        let mut listed = 0_usize;
+        for revision in 0.. {
+            if !visited.insert(next) || visited.len() > MAX_XREF_SECTIONS {
+                return Err(corrupt("PDF cross-reference chain loops or is too long"));
+            }
+            let (entries, trailer, _) = self.xref_section(next)?;
+            sections.push(next);
+            let hybrid = match trailer.get(b"XRefStm").and_then(Object::as_i64) {
+                Ok(stream) => {
+                    let offset = u64::try_from(stream).map_err(|_| corrupt("Invalid /XRefStm"))?;
+                    sections.push(offset);
+                    self.xref_section(offset)?.0
+                }
+                Err(_) => Vec::new(),
+            };
+            listed = listed.saturating_add(hybrid.len() + entries.len());
+            if listed > MAX_SOURCE_VALUES {
+                return Err(domain_error(
+                    NativeErrorCode::TooLarge,
+                    format!("PDF cross-references list more than {MAX_SOURCE_VALUES} entries"),
+                ));
+            }
+            for (number, entry) in hybrid.into_iter().chain(entries) {
+                visit(revision, number, entry);
+            }
+            match trailer.get(b"Prev").and_then(Object::as_i64).ok() {
+                Some(previous) => {
+                    next = u64::try_from(previous).map_err(|_| corrupt("Invalid /Prev"))?
+                }
+                None => break,
+            }
+        }
+        Ok(sections)
     }
 
     fn xref_section(&self, offset: u64) -> Result<XrefSection> {
@@ -803,6 +1061,8 @@ impl<'a, S: ByteSource> Reader<'a, S> {
                     2 => XrefEntry::InStream {
                         container: u32::try_from(fields[1])
                             .map_err(|_| corrupt("Invalid object stream number"))?,
+                        // An index past u32 names no slot, so any usable one counts.
+                        index: u32::try_from(fields[2]).unwrap_or(u32::MAX),
                     },
                     // Unknown entry types read as null objects.
                     _ => XrefEntry::Free,
@@ -857,8 +1117,8 @@ impl<'a, S: ByteSource> Reader<'a, S> {
 
     /// The data range of a stream starting at `data` (counted from the
     /// header) as absolute file offsets. A declared length must end at
-    /// `endstream`; otherwise the data ends at the only `endstream` before
-    /// the next object, as lopdf recovers it.
+    /// `endstream` before `bound`, where the next object starts; otherwise
+    /// the data ends at the only `endstream` before it, as lopdf recovers it.
     fn stream_extent(
         &self,
         data: u64,
@@ -866,7 +1126,10 @@ impl<'a, S: ByteSource> Reader<'a, S> {
         bound: Option<u64>,
     ) -> Result<(u64, u64)> {
         let start = self.base + data;
-        if let Some(len) = declared {
+        // A declared length that runs into the next object would hide it.
+        let within =
+            |len: u64| bound.is_none_or(|bound| start.saturating_add(len) <= self.base + bound);
+        if let Some(len) = declared.filter(|len| within(*len)) {
             if self.ends_at_endstream(start, len)? {
                 return Ok((start, len));
             }
@@ -945,36 +1208,164 @@ impl<'a, S: ByteSource> Reader<'a, S> {
     }
 }
 
-struct Loader<'r, 'a, S> {
+/// The most decoded object streams one read keeps at once.
+const MAX_CACHED_OBJECT_STREAMS: usize = 64;
+/// The decoded bytes those streams may hold together. A stream larger than
+/// this alone is decoded for each read and never kept.
+const OBJECT_STREAM_CACHE_BYTES: usize = 32 * 1024 * 1024;
+
+/// How many object streams may be decoding at once, each to read the
+/// `/Length` of the one before.
+const MAX_OBJECT_STREAM_NESTING: usize = 4;
+
+/// One decoded object stream: its data, ending as an indirect object does,
+/// and where its header places each member. It holds what any revision
+/// reads of the stream, so revisions that read it share one decoding.
+struct ObjectStreamData {
+    content: Vec<u8>,
+    /// Each header slot's object number and start, `usize::MAX` for a slot
+    /// whose offset is unparseable or outside the data.
+    slots: Vec<(u32, usize)>,
+    /// Each object number's first usable slot start.
+    first: HashMap<u32, usize>,
+}
+
+impl ObjectStreamData {
+    /// The memory it holds: what each buffer allocated, not what it uses,
+    /// with a byte of hash-table control per bucket of `first`.
+    fn bytes(&self) -> usize {
+        let slot = std::mem::size_of::<(u32, usize)>();
+        self.content.capacity() + self.slots.capacity() * slot + self.first.capacity() * (slot + 1)
+    }
+
+    fn shrink(&mut self) {
+        self.content.shrink_to_fit();
+        self.slots.shrink_to_fit();
+        self.first.shrink_to_fit();
+    }
+
+    /// Where member `number` starts: at `slot`, the one the cross-reference
+    /// names, when it lists the member at an offset inside the data, else at
+    /// the first slot that does, so a duplicate entry that points nowhere
+    /// hides nothing.
+    fn member_start(&self, number: u32, slot: u32) -> Option<usize> {
+        self.slots
+            .get(slot as usize)
+            .filter(|(listed, start)| *listed == number && *start != usize::MAX)
+            .map(|(_, start)| *start)
+            .or_else(|| self.first.get(&number).copied())
+    }
+}
+
+/// Decoded object streams, least recently used first, within
+/// `MAX_CACHED_OBJECT_STREAMS` and `OBJECT_STREAM_CACHE_BYTES`. A member is
+/// parsed from its stream when it is read, so a stream evicted while some of
+/// its members are unread is decoded again only when one of them is.
+#[derive(Default)]
+struct ObjectStreamCache {
+    /// Each stream by the extent of its data, as the reading revision
+    /// resolved its `/Length`: the same bytes decode the same way, whichever
+    /// revision reads them.
+    entries: Vec<((u64, u64), Rc<ObjectStreamData>)>,
+    bytes: usize,
+}
+
+impl ObjectStreamCache {
+    fn get(&mut self, extent: (u64, u64)) -> Option<Rc<ObjectStreamData>> {
+        let at = self.entries.iter().position(|(at, _)| *at == extent)?;
+        let entry = self.entries.remove(at);
+        let data = entry.1.clone();
+        self.entries.push(entry);
+        Some(data)
+    }
+
+    /// Keeps `data` as the most recent stream, unless it alone exceeds the
+    /// byte budget: then it serves the read at hand and is not kept.
+    fn insert(&mut self, extent: (u64, u64), mut data: ObjectStreamData) -> Rc<ObjectStreamData> {
+        data.shrink();
+        let data = Rc::new(data);
+        if data.bytes() > OBJECT_STREAM_CACHE_BYTES {
+            return data;
+        }
+        self.bytes += data.bytes();
+        self.entries.push((extent, data.clone()));
+        while self.entries.len() > MAX_CACHED_OBJECT_STREAMS
+            || self.bytes > OBJECT_STREAM_CACHE_BYTES
+        {
+            let (_, evicted) = self.entries.remove(0);
+            self.bytes -= evicted.bytes();
+        }
+        data
+    }
+}
+
+/// The cross-references a loader reads objects through: the terminal
+/// revision's merged index, or one revision's view of a file's history.
+trait XrefView {
+    /// The entry that places object `number`, unless it is free or unlisted.
+    fn entry(&self, number: u32) -> Option<XrefEntry>;
+    /// Where the next object after the one at `offset` starts, which bounds
+    /// that object's stream data.
+    fn next_offset(&self, offset: u64) -> Option<u64>;
+}
+
+impl XrefView for XrefIndex {
+    fn entry(&self, number: u32) -> Option<XrefEntry> {
+        self.entries.get(&number).copied()
+    }
+
+    fn next_offset(&self, offset: u64) -> Option<u64> {
+        let next = self.offsets.partition_point(|next| *next <= offset);
+        self.offsets.get(next).copied()
+    }
+}
+
+/// An object read at its offset, its reals, and a stream's data range.
+type DirectObject = (Object, RealSpellings, Option<(u64, u64)>);
+
+struct Loader<'r, 'a, S: ?Sized> {
     reader: &'r Reader<'a, S>,
-    index: &'r XrefIndex,
-    object_streams: HashMap<u32, BTreeMap<ObjectId, (Object, RealSpellings)>>,
+    index: &'r dyn XrefView,
+    object_streams: ObjectStreamCache,
+    /// Object streams being decoded, which read as empty meanwhile, so a
+    /// stream whose `/Length` lives in itself cannot recurse.
+    decoding: HashSet<u32>,
+    /// Each object stream read so far, by its object's offset: its
+    /// dictionary and the extent of its data, as this loader's view resolves
+    /// its `/Length`.
+    containers: HashMap<u64, (Dictionary, (u64, u64))>,
+    /// Object streams too large to keep decoded, whose members this view
+    /// places in them were parsed at once, and those members not yet taken.
+    prefetched_streams: HashSet<u32>,
+    prefetched: HashMap<u32, (Object, RealSpellings)>,
     streams: HashMap<ObjectId, (u64, u64)>,
     reals: HashMap<ObjectId, RealSpellings>,
-    /// Integers taken from object streams, which a later `/Length` may name.
-    taken_integers: HashMap<ObjectId, i64>,
     /// The values every object parsed so far holds.
     values: usize,
 }
 
-impl<'r, 'a, S: ByteSource> Loader<'r, 'a, S> {
-    fn new(reader: &'r Reader<'a, S>, index: &'r XrefIndex) -> Self {
+impl<'r, 'a, S: ByteSource + ?Sized> Loader<'r, 'a, S> {
+    fn new(reader: &'r Reader<'a, S>, index: &'r dyn XrefView) -> Self {
         Self {
             reader,
             index,
-            object_streams: HashMap::new(),
+            object_streams: ObjectStreamCache::default(),
+            decoding: HashSet::new(),
+            containers: HashMap::new(),
+            prefetched_streams: HashSet::new(),
+            prefetched: HashMap::new(),
             streams: HashMap::new(),
             reals: HashMap::new(),
-            taken_integers: HashMap::new(),
             values: 0,
         }
     }
 
-    /// Counts `object`'s values against the read's aggregate ceiling.
-    fn charge(&mut self, object: &Object) -> Result<()> {
+    /// How many values `object` holds.
+    fn values_of(object: &Object) -> usize {
         let mut pending = vec![object];
+        let mut values = 0;
         while let Some(object) = pending.pop() {
-            self.values += 1;
+            values += 1;
             match object {
                 Object::Array(items) => pending.extend(items),
                 Object::Dictionary(dict) => pending.extend(dict.iter().map(|(_, value)| value)),
@@ -984,6 +1375,12 @@ impl<'r, 'a, S: ByteSource> Loader<'r, 'a, S> {
                 _ => {}
             }
         }
+        values
+    }
+
+    /// Counts `object`'s values against the read's aggregate ceiling.
+    fn charge(&mut self, object: &Object) -> Result<()> {
+        self.values += Self::values_of(object);
         if self.values > MAX_SOURCE_VALUES {
             return Err(domain_error(
                 NativeErrorCode::TooLarge,
@@ -996,160 +1393,410 @@ impl<'r, 'a, S: ByteSource> Loader<'r, 'a, S> {
     /// One object as the document holds it: a missing or free one reads as
     /// null, a stream as its dictionary with an empty body.
     fn load(&mut self, id: ObjectId) -> Result<Object> {
-        match self.index.entries.get(&id.0).copied() {
+        let (object, reals) = match self.index.entry(id.0) {
             Some(XrefEntry::Offset { offset, generation }) if generation == id.1 => {
-                let (_, object, data, reals) = self.reader.indirect_object(offset, Some(id))?;
-                self.charge(&object)?;
-                self.keep(id, reals);
-                let (Some(data), Object::Dictionary(mut dict)) = (data, object.clone()) else {
-                    return Ok(object);
-                };
-                let declared = match dict.get(b"Length") {
-                    Ok(Object::Reference(length)) => self.length(*length)?,
-                    Ok(length) => length.as_i64().ok(),
-                    Err(_) => None,
+                let (object, reals, extent) = self.direct(id, offset)?;
+                if let Some(extent) = extent {
+                    self.streams.insert(id, extent);
                 }
-                .and_then(|length| u64::try_from(length).ok());
-                let bound = self
-                    .index
-                    .offsets
-                    .get(self.index.offsets.partition_point(|next| *next <= offset))
-                    .copied();
-                let (start, len) = self.reader.stream_extent(data, declared, bound)?;
-                dict.set("Length", i64::try_from(len)?);
-                self.streams.insert(id, (start, len));
-                Ok(Object::Stream(Stream {
-                    dict,
-                    content: Vec::new(),
-                    allows_compression: false,
-                    start_position: None,
-                }))
+                (object, reals)
             }
-            Some(XrefEntry::InStream { container }) if id.1 == 0 => {
-                let Some((object, reals)) = self.compressed(container)?.remove(&id) else {
-                    return Ok(Object::Null);
-                };
-                if let Object::Integer(value) = object {
-                    self.taken_integers.insert(id, value);
+            Some(XrefEntry::InStream { container, index }) if id.1 == 0 => {
+                match self.member(container, id.0, index, true)? {
+                    Some(member) => member,
+                    None => return Ok(Object::Null),
                 }
-                self.keep(id, reals);
-                Ok(object)
             }
-            _ => Ok(Object::Null),
-        }
-    }
-
-    fn keep(&mut self, id: ObjectId, reals: RealSpellings) {
+            _ => return Ok(Object::Null),
+        };
+        self.charge(&object)?;
         if !reals.is_empty() {
             self.reals.insert(id, reals);
         }
+        Ok(object)
+    }
+
+    /// The object at `offset`, a stream as its dictionary with an empty
+    /// body, with its reals and, for a stream, its data's range.
+    fn direct(&mut self, id: ObjectId, offset: u64) -> Result<DirectObject> {
+        let (_, object, data, reals) = self.reader.indirect_object(offset, Some(id))?;
+        let (data, mut dict) = match (data, object) {
+            (Some(data), Object::Dictionary(dict)) => (data, dict),
+            (_, object) => return Ok((object, reals, None)),
+        };
+        let declared = match dict.get(b"Length") {
+            Ok(Object::Reference(length)) => self.length(*length)?,
+            Ok(length) => length.as_i64().ok(),
+            Err(_) => None,
+        }
+        .and_then(|length| u64::try_from(length).ok());
+        let bound = self.index.next_offset(offset);
+        let (start, len) = self.reader.stream_extent(data, declared, bound)?;
+        dict.set("Length", i64::try_from(len)?);
+        let stream = Object::Stream(Stream {
+            dict,
+            content: Vec::new(),
+            allows_compression: false,
+            start_position: None,
+        });
+        Ok((stream, reals, Some((start, len))))
     }
 
     /// An indirect `/Length`: read without following it as a stream.
     fn length(&mut self, id: ObjectId) -> Result<Option<i64>> {
-        let length = match self.index.entries.get(&id.0).copied() {
+        let length = match self.index.entry(id.0) {
             Some(XrefEntry::Offset { offset, generation }) if generation == id.1 => {
                 self.reader.indirect_object(offset, Some(id))?.1
             }
-            Some(XrefEntry::InStream { container }) if id.1 == 0 => {
-                match self.taken_integers.get(&id) {
-                    Some(value) => Object::Integer(*value),
-                    None => self
-                        .compressed(container)?
-                        .get(&id)
-                        .map_or(Object::Null, |(object, _)| object.clone()),
-                }
-            }
+            Some(XrefEntry::InStream { container, index }) if id.1 == 0 => self
+                .member(container, id.0, index, false)?
+                .map_or(Object::Null, |(object, _)| object),
             _ => Object::Null,
         };
+        // Lengths are read without being kept, so repeated lookups of
+        // large ones count against the same ceiling as the objects.
+        self.charge(&length)?;
         Ok(length.as_i64().ok())
     }
 
-    /// The objects of one object stream not yet taken. A container being
-    /// decoded reads as empty, so a stream that names itself cannot recurse.
-    fn compressed(
+    /// Member `number` of object stream `container`, which the
+    /// cross-reference lists at header slot `slot`, with its reals; `take`
+    /// when the document keeps it. As lopdf reads one, a member that does not
+    /// parse is missing.
+    fn member(
         &mut self,
         container: u32,
-    ) -> Result<&mut BTreeMap<ObjectId, (Object, RealSpellings)>> {
-        if !self.object_streams.contains_key(&container) {
-            self.object_streams.insert(container, BTreeMap::new());
-            let objects = self.object_stream(container)?;
-            self.object_streams.insert(container, objects);
+        number: u32,
+        slot: u32,
+        take: bool,
+    ) -> Result<Option<(Object, RealSpellings)>> {
+        if self.prefetched_streams.contains(&container) {
+            if !take {
+                return Ok(self.prefetched.get(&number).cloned());
+            }
+            // Charged when parsed; `load` charges what it keeps.
+            let member = self.prefetched.remove(&number);
+            if let Some((object, _)) = &member {
+                self.values -= Self::values_of(object);
+            }
+            return Ok(member);
         }
-        Ok(self.object_streams.get_mut(&container).unwrap())
+        let Some(data) = self.compressed(container)? else {
+            return Ok(None);
+        };
+        if data.bytes() > OBJECT_STREAM_CACHE_BYTES {
+            self.prefetch(container, &data)?;
+            return self.member(container, number, slot, take);
+        }
+        let Some(pos) = data.member_start(number, slot) else {
+            return Ok(None);
+        };
+        Self::parse_member(&data, pos, container, number)
     }
 
-    /// The objects of an object stream with their reals. As lopdf reads
-    /// one, an object that does not parse is missing.
-    fn object_stream(
-        &mut self,
+    fn parse_member(
+        data: &ObjectStreamData,
+        pos: usize,
         container: u32,
-    ) -> Result<BTreeMap<ObjectId, (Object, RealSpellings)>> {
-        if !matches!(
-            self.index.entries.get(&container),
-            Some(XrefEntry::Offset { generation: 0, .. })
-        ) {
-            return Err(corrupt(format!("PDF object stream {container} is missing")));
-        }
-        let Object::Stream(stream) = self.load((container, 0))? else {
-            return Err(corrupt(format!(
-                "PDF object stream {container} is not a stream"
-            )));
+        number: u32,
+    ) -> Result<Option<(Object, RealSpellings)>> {
+        let mut cursor = Cursor {
+            bytes: &data.content,
+            pos,
+            ..Cursor::default()
         };
-        let (start, len) = self
-            .streams
-            .remove(&(container, 0))
-            .ok_or_else(|| corrupt("PDF object stream has no data"))?;
-        let mut content = self.reader.stream_content(&stream.dict, start, len)?;
-        let first = stream
-            .dict
+        match cursor.object(0) {
+            Ok(object) => Ok(Some((object, cursor.reals))),
+            Err(Crowded) => Err(too_many_elements(format!(
+                "{number} 0 in stream {container}"
+            ))),
+            Err(_) => Ok(None),
+        }
+    }
+
+    /// Parses at once every member this view places in `container`, a
+    /// stream too large to keep decoded, so its members do not each decode
+    /// it again. What it parses counts against the read's value ceiling.
+    fn prefetch(&mut self, container: u32, data: &ObjectStreamData) -> Result<()> {
+        self.prefetched_streams.insert(container);
+        for &(number, _) in &data.slots {
+            let Some(XrefEntry::InStream {
+                container: owner,
+                index,
+            }) = self.index.entry(number)
+            else {
+                continue;
+            };
+            if owner != container || self.prefetched.contains_key(&number) {
+                continue;
+            }
+            let Some(pos) = data.member_start(number, index) else {
+                continue;
+            };
+            if let Some(member) = Self::parse_member(data, pos, container, number)? {
+                self.charge(&member.0)?;
+                self.prefetched.insert(number, member);
+            }
+        }
+        Ok(())
+    }
+
+    /// Object stream `container`, decoded once while it stays cached. One
+    /// being decoded reads as empty.
+    fn compressed(&mut self, container: u32) -> Result<Option<Rc<ObjectStreamData>>> {
+        let Some(XrefEntry::Offset {
+            offset,
+            generation: 0,
+        }) = self.index.entry(container)
+        else {
+            return Err(corrupt(format!("PDF object stream {container} is missing")));
+        };
+        if let Some((_, extent)) = self.containers.get(&offset) {
+            if let Some(data) = self.object_streams.get(*extent) {
+                return Ok(Some(data));
+            }
+        }
+        if self.decoding.contains(&container) {
+            return Ok(None);
+        }
+        // Only a damaged file keeps one object stream's `/Length` in another;
+        // a chain of them would otherwise recurse once per stream.
+        if self.decoding.len() >= MAX_OBJECT_STREAM_NESTING {
+            return Err(corrupt("PDF object streams nest their lengths too deeply"));
+        }
+        self.decoding.insert(container);
+        let data = self.object_stream(container, offset);
+        self.decoding.remove(&container);
+        data.map(Some)
+    }
+
+    /// Object stream `container` at `offset`, from the cache when its data's
+    /// extent, as this view resolves it, is there.
+    fn object_stream(&mut self, container: u32, offset: u64) -> Result<Rc<ObjectStreamData>> {
+        let (dict, extent) = match self.containers.get(&offset) {
+            Some(found) => found.clone(),
+            None => {
+                let (Object::Stream(stream), _, Some(extent)) =
+                    self.direct((container, 0), offset)?
+                else {
+                    return Err(corrupt(format!(
+                        "PDF object stream {container} is not a stream"
+                    )));
+                };
+                self.containers
+                    .insert(offset, (stream.dict.clone(), extent));
+                (stream.dict, extent)
+            }
+        };
+        if let Some(data) = self.object_streams.get(extent) {
+            return Ok(data);
+        }
+        let mut content = self.reader.stream_content(&dict, extent.0, extent.1)?;
+        let first = dict
             .get(b"First")
             .and_then(Object::as_i64)
             .ok()
             .and_then(|first| usize::try_from(first).ok())
             .filter(|first| *first <= content.len())
             .ok_or_else(|| corrupt(format!("PDF object stream {container} has no valid /First")))?;
-        let header = std::str::from_utf8(&content[..first])
+        let mut tokens = std::str::from_utf8(&content[..first])
             .map_err(|_| corrupt(format!("PDF object stream {container} has no valid header")))?
-            .split_whitespace()
-            .map(|number| number.parse::<u32>().ok())
-            .collect::<Vec<_>>();
+            .split_whitespace();
+        let mut slots = Vec::new();
+        let mut usable = HashMap::new();
+        while let (Some(number), Some(offset)) = (tokens.next(), tokens.next()) {
+            if slots.len() >= MAX_OBJECT_ELEMENTS {
+                return Err(too_many_elements(format!("stream {container}")));
+            }
+            let number = number.parse::<u32>().ok();
+            let start = offset
+                .parse::<u32>()
+                .ok()
+                .and_then(|offset| first.checked_add(offset as usize))
+                .filter(|start| *start < content.len());
+            match (number, start) {
+                (Some(number), Some(start)) => {
+                    usable.entry(number).or_insert(start);
+                    slots.push((number, start));
+                }
+                (number, _) => slots.push((number.unwrap_or(u32::MAX), usize::MAX)),
+            }
+        }
         // The data ends as an indirect object does (with a trailing delimiter so
         // lookahead tokenization never hits Incomplete at EOF), so a token that
         // ends it ends there, and a number that ends it is not the start of a
         // reference the lookahead must wait for.
         content.extend_from_slice(b"\nendobj\n");
-        let mut objects = BTreeMap::new();
-        for pair in header.chunks_exact(2) {
-            let (Some(number), Some(offset)) = (pair[0], pair[1]) else {
-                continue;
-            };
-            // A member the newest xref places elsewhere is never read.
-            if !matches!(
-                self.index.entries.get(&number),
-                Some(XrefEntry::InStream { container: owner }) if *owner == container
-            ) {
-                continue;
-            }
-            let mut cursor = Cursor {
-                bytes: &content,
-                pos: first.saturating_add(offset as usize),
-                ..Cursor::default()
-            };
-            match cursor.object(0) {
-                Ok(object) => {
-                    self.charge(&object)?;
-                    objects.insert((number, 0), (object, cursor.reals));
-                }
-                Err(Crowded) => {
-                    return Err(too_many_elements(format!(
-                        "{number} 0 in stream {container}"
-                    )))
-                }
-                Err(_) => {}
-            }
+        let data = ObjectStreamData {
+            content,
+            slots,
+            first: usable,
+        };
+        Ok(self.object_streams.insert(extent, data))
+    }
+}
+
+/// Where the bodies of streams end, for a scan of `bytes` that steps over
+/// every physical object, those of earlier revisions included, and meets one
+/// whose `/Length` is indirect or unusable. Each body is measured as the
+/// revision that wrote it reads it: an indirect `/Length` resolves through
+/// that revision's cross-references, and a body ends before the next object
+/// any revision lists. The chain is read when the first such stream is met.
+/// What it keeps follows the entries the cross-references list, not the
+/// revisions times the objects.
+pub(crate) struct IndirectStreamEnds<'a> {
+    bytes: &'a [u8],
+    indexed: Option<RevisionHistory<'a>>,
+}
+
+struct RevisionHistory<'a> {
+    reader: Reader<'a, [u8]>,
+    /// Each object's entries, newest revision first, one per revision that
+    /// lists it.
+    entries: HashMap<u32, Vec<(usize, XrefEntry)>>,
+    /// Every offset any revision lists an object at, ascending, with the
+    /// oldest revision that lists one there: the one that wrote it.
+    objects: Vec<(u64, usize)>,
+    /// Those offsets and every cross-reference section's, ascending: a
+    /// body ends before the next of them.
+    boundaries: Vec<u64>,
+    /// The object streams any revision's lookups decoded, by their extent.
+    object_streams: ObjectStreamCache,
+    /// The values every lookup parsed, against one read-wide ceiling.
+    values: usize,
+}
+
+/// What revision `revision` and those before it list.
+struct RevisionView<'h> {
+    entries: &'h HashMap<u32, Vec<(usize, XrefEntry)>>,
+    boundaries: &'h [u64],
+    revision: usize,
+}
+
+impl XrefView for RevisionView<'_> {
+    fn entry(&self, number: u32) -> Option<XrefEntry> {
+        let entries = self.entries.get(&number)?;
+        let at = entries.partition_point(|(revision, _)| *revision < self.revision);
+        match entries.get(at)?.1 {
+            XrefEntry::Free => None,
+            entry => Some(entry),
         }
-        Ok(objects)
+    }
+
+    fn next_offset(&self, offset: u64) -> Option<u64> {
+        let next = self.boundaries.partition_point(|next| *next <= offset);
+        self.boundaries.get(next).copied()
+    }
+}
+
+impl<'a> IndirectStreamEnds<'a> {
+    pub(crate) fn new(bytes: &'a [u8]) -> Self {
+        Self {
+            bytes,
+            indexed: None,
+        }
+    }
+
+    fn indexed(&mut self) -> Result<&mut RevisionHistory<'a>> {
+        if self.indexed.is_none() {
+            let reader = Reader::new(self.bytes, self.bytes.len() as u64)?;
+            let mut entries = HashMap::<u32, Vec<(usize, XrefEntry)>>::new();
+            let mut objects = Vec::new();
+            let sections =
+                reader.walk_revisions(reader.terminal_start()?, |revision, number, entry| {
+                    let listed = entries.entry(number).or_default();
+                    // The first entry for a number in one revision decides it.
+                    if listed.last().is_some_and(|(last, _)| *last == revision) {
+                        return;
+                    }
+                    listed.push((revision, entry));
+                    if let XrefEntry::Offset { offset, .. } = entry {
+                        objects.push((offset, revision));
+                    }
+                })?;
+            // The oldest revision listing an offset sorts first and stays.
+            objects
+                .sort_unstable_by_key(|(offset, revision)| (*offset, std::cmp::Reverse(*revision)));
+            objects.dedup_by_key(|(offset, _)| *offset);
+            entries.shrink_to_fit();
+            objects.shrink_to_fit();
+            let mut boundaries = objects
+                .iter()
+                .map(|(offset, _)| *offset)
+                .chain(sections)
+                .collect::<Vec<_>>();
+            boundaries.sort_unstable();
+            boundaries.dedup();
+            self.indexed = Some(RevisionHistory {
+                reader,
+                entries,
+                objects,
+                boundaries,
+                object_streams: ObjectStreamCache::default(),
+                values: 0,
+            });
+        }
+        Ok(self.indexed.as_mut().unwrap())
+    }
+
+    /// What the measuring keeps: listed entries, object offsets, the
+    /// decoded bytes of cached object streams and the values it parsed.
+    #[cfg(test)]
+    pub(crate) fn retained(&self) -> (usize, usize, usize, usize) {
+        self.indexed.as_ref().map_or((0, 0, 0, 0), |indexed| {
+            (
+                indexed.entries.values().map(Vec::len).sum(),
+                indexed.objects.len(),
+                indexed.object_streams.bytes,
+                indexed.values,
+            )
+        })
+    }
+
+    /// The length of the body that starts at absolute offset `data` and
+    /// whose `/Length` is `length`, if any: its value in the revision that
+    /// wrote the body, when the body ends there at `endstream` before the
+    /// next object; otherwise, as the indexed reader recovers it, the only
+    /// `endstream` before the next object. A file whose cross-references
+    /// cannot be read, or a body with no single end, is refused.
+    pub(crate) fn body_len(&mut self, length: Option<ObjectId>, data: u64) -> Result<u64> {
+        let indexed = self.indexed()?;
+        let data = data
+            .checked_sub(indexed.reader.base)
+            .ok_or_else(|| corrupt("PDF stream data starts before its header"))?;
+        let next = indexed
+            .objects
+            .partition_point(|(offset, _)| *offset <= data);
+        let view = RevisionView {
+            entries: &indexed.entries,
+            boundaries: &indexed.boundaries,
+            revision: next
+                .checked_sub(1)
+                .map_or(0, |holder| indexed.objects[holder].1),
+        };
+        let mut loader = Loader::new(&indexed.reader, &view);
+        loader.object_streams = std::mem::take(&mut indexed.object_streams);
+        loader.values = indexed.values;
+        // A length the index cannot read, such as one in an encrypted object
+        // stream, is recovered from the body's end; one past the read's
+        // value ceiling refuses the file.
+        let declared = match length.map(|length| loader.length(length)) {
+            Some(Err(error))
+                if error.downcast_ref::<NativeError>().map(|error| error.code)
+                    == Some(NativeErrorCode::TooLarge) =>
+            {
+                return Err(error)
+            }
+            Some(Ok(declared)) => declared,
+            _ => None,
+        }
+        .and_then(|length| u64::try_from(length).ok());
+        indexed.values = loader.values;
+        let object_streams = std::mem::take(&mut loader.object_streams);
+        let bound = view.next_offset(data);
+        let extent = indexed.reader.stream_extent(data, declared, bound);
+        indexed.object_streams = object_streams;
+        Ok(extent?.1)
     }
 }
 
@@ -1285,21 +1932,15 @@ impl<'a> Cursor<'a> {
             .ok_or(Invalid)
     }
 
-    /// After `stream`: spaces, then one end of line.
+    /// After `stream`: where its data starts, by `stream_data_offset`.
     fn stream_data_start(&mut self) -> ParseResult<usize> {
-        while matches!(self.peek()?, b' ' | b'\t') {
-            self.pos += 1;
-        }
-        match self.peek()? {
-            b'\n' => self.pos += 1,
-            b'\r' => {
-                self.pos += 1;
-                if self.peek()? == b'\n' {
-                    self.pos += 1;
-                }
+        self.pos = stream_data_offset(self.bytes, self.pos).map_err(|ran_out| {
+            if ran_out {
+                Incomplete
+            } else {
+                Invalid
             }
-            _ => return Err(Invalid),
-        }
+        })?;
         Ok(self.pos)
     }
 
@@ -1521,5 +2162,519 @@ impl<'a> Cursor<'a> {
             bytes.push(high << 4);
         }
         Ok(Object::String(bytes, StringFormat::Hexadecimal))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pattern(len: usize) -> Vec<u8> {
+        (0..len).map(|index| (index * 31 % 251) as u8).collect()
+    }
+
+    struct TempFile(PathBuf);
+
+    impl Drop for TempFile {
+        fn drop(&mut self) {
+            let _ = fs::remove_file(&self.0);
+        }
+    }
+
+    fn temp_file(label: &str, bytes: &[u8]) -> (TempFile, File) {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "evb-pdf-source-{label}-{}-{nanos}",
+            std::process::id()
+        ));
+        fs::write(&path, bytes).unwrap();
+        let file = File::open(&path).unwrap();
+        (TempFile(path), file)
+    }
+
+    #[test]
+    fn file_reads_through_one_handle_from_many_threads_in_any_order() {
+        let bytes = pattern(3 * COPY_CHUNK_BYTES + 17);
+        let (_path, file) = temp_file("concurrent", &bytes);
+        let ranges = (0..64_u64)
+            .map(|index| {
+                let start = (index * 48_611) % (bytes.len() as u64 - 4_096);
+                (start, 1 + (index * 997) % 4_096)
+            })
+            .collect::<Vec<_>>();
+        std::thread::scope(|scope| {
+            for thread in 0..8 {
+                let (file, bytes, ranges) = (&file, &bytes, &ranges);
+                scope.spawn(move || {
+                    // Each thread walks the ranges from its own start, backwards
+                    // on odd threads, so reads interleave out of order.
+                    for step in 0..ranges.len() {
+                        let at = (thread * 7 + step) % ranges.len();
+                        let at = if thread % 2 == 1 {
+                            ranges.len() - 1 - at
+                        } else {
+                            at
+                        };
+                        let (start, len) = ranges[at];
+                        let mut read = vec![0; len as usize];
+                        file.read_at(start, &mut read).unwrap();
+                        assert_eq!(read, bytes[start as usize..(start + len) as usize]);
+                    }
+                    let mut copied = Vec::new();
+                    file.copy_range(5, bytes.len() as u64 - 9, &mut copied)
+                        .unwrap();
+                    assert_eq!(copied, bytes[5..bytes.len() - 4]);
+                });
+            }
+        });
+    }
+
+    #[test]
+    fn file_reads_past_the_end_are_unexpected_eof() {
+        let bytes = pattern(100);
+        let (_path, file) = temp_file("eof", &bytes);
+        let mut buffer = [0; 4];
+        let error = file.read_at(98, &mut buffer).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof);
+        let error = file.copy_range(90, 11, &mut Vec::new()).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof);
+        file.read_at(96, &mut buffer).unwrap();
+        assert_eq!(buffer, bytes[96..]);
+    }
+
+    fn stream_data(bytes: usize) -> ObjectStreamData {
+        ObjectStreamData {
+            content: vec![0; bytes],
+            slots: Vec::new(),
+            first: HashMap::new(),
+        }
+    }
+
+    /// The extent of a stream's data, as the cache keys it.
+    fn extent(start: u64) -> (u64, u64) {
+        (start, 7)
+    }
+
+    #[test]
+    fn object_stream_cache_reuses_a_decoded_stream_and_evicts_the_least_recent() {
+        let mut cache = ObjectStreamCache::default();
+        let first = cache.insert(extent(1), stream_data(10));
+        assert!(Rc::ptr_eq(&cache.get(extent(1)).unwrap(), &first));
+        // The same object read to a different length is another stream.
+        assert!(cache.get((1, 8)).is_none());
+        for start in 2..=MAX_CACHED_OBJECT_STREAMS as u64 {
+            cache.insert(extent(start), stream_data(10));
+        }
+        // Reading the first keeps it; the second is now the least recent.
+        cache.get(extent(1)).unwrap();
+        cache.insert(extent(1_000), stream_data(10));
+        assert!(cache.get(extent(2)).is_none());
+        assert!(Rc::ptr_eq(&cache.get(extent(1)).unwrap(), &first));
+        assert_eq!(cache.entries.len(), MAX_CACHED_OBJECT_STREAMS);
+    }
+
+    #[test]
+    fn object_stream_cache_holds_its_byte_budget_and_keeps_no_stream_above_it() {
+        let mut cache = ObjectStreamCache::default();
+        let half = OBJECT_STREAM_CACHE_BYTES / 2;
+        cache.insert(extent(1), stream_data(half));
+        cache.insert(extent(2), stream_data(half - 1));
+        assert!(cache.get(extent(1)).is_some());
+        cache.insert(extent(3), stream_data(half));
+        assert!(cache.get(extent(2)).is_none());
+        assert!(cache.bytes <= OBJECT_STREAM_CACHE_BYTES);
+        // A stream above the whole budget serves its read and is not kept,
+        // nor does it evict what is.
+        let large = cache.insert(extent(4), stream_data(OBJECT_STREAM_CACHE_BYTES + 1));
+        assert_eq!(large.content.len(), OBJECT_STREAM_CACHE_BYTES + 1);
+        assert!(cache.get(extent(4)).is_none());
+        assert!(cache.get(extent(1)).is_some() && cache.get(extent(3)).is_some());
+        assert!(cache.bytes <= OBJECT_STREAM_CACHE_BYTES);
+    }
+
+    #[test]
+    fn object_stream_cache_counts_and_trims_what_a_stream_allocated() {
+        let mut cache = ObjectStreamCache::default();
+        // Ten bytes in a buffer that allocated more than the whole budget.
+        let mut content = Vec::with_capacity(OBJECT_STREAM_CACHE_BYTES + 1);
+        content.extend_from_slice(&[0; 10]);
+        let mut first = HashMap::with_capacity(100_000);
+        first.insert(1, 0);
+        let data = ObjectStreamData {
+            content,
+            slots: Vec::with_capacity(100_000),
+            first,
+        };
+        assert!(data.bytes() > OBJECT_STREAM_CACHE_BYTES);
+        let kept = cache.insert(extent(1), data);
+        assert!(cache.get(extent(1)).is_some());
+        assert_eq!(cache.bytes, kept.bytes());
+        assert!(cache.bytes < 1_024, "{}", cache.bytes);
+    }
+
+    /// Member `index` of object stream `stream` holds `<< /Value ... >>`.
+    fn member_number(stream: usize, index: usize) -> u32 {
+        1_000 + (stream * 100 + index) as u32
+    }
+
+    /// A PDF whose catalog lists, in `order`, members of `streams` object
+    /// streams of `members` each, behind a cross-reference stream. Stream `k`
+    /// declares its `/Length` through `length(k)`: `None` for a direct one,
+    /// or the member whose value holds it.
+    fn object_stream_pdf(
+        streams: usize,
+        members: usize,
+        order: &[(usize, usize)],
+        length: impl Fn(usize) -> Option<(usize, usize)>,
+    ) -> Vec<u8> {
+        let mut bodies = (0..streams)
+            .map(|stream| {
+                (0..members)
+                    .map(|index| format!("<< /Value {} >>", member_number(stream, index)))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        let encode = |bodies: &[String], number: usize| {
+            let mut header = String::new();
+            let mut objects = String::new();
+            for (index, body) in bodies.iter().enumerate() {
+                header.push_str(&format!(
+                    "{} {} ",
+                    member_number(number, index),
+                    objects.len()
+                ));
+                objects.push_str(body);
+                objects.push(' ');
+            }
+            (header.len(), format!("{header}{objects}"))
+        };
+        // A member that holds a length is a fixed-width integer, so the
+        // lengths measured with placeholders hold once the values are in.
+        let holders = (0..streams).filter_map(|stream| Some((stream, length(stream)?)));
+        for (_, (holder, index)) in holders.clone() {
+            bodies[holder][index] = format!("{:08}", 0);
+        }
+        let lengths = bodies
+            .iter()
+            .enumerate()
+            .map(|(stream, bodies)| encode(bodies, stream).1.len())
+            .collect::<Vec<_>>();
+        for (stream, (holder, index)) in holders {
+            bodies[holder][index] = format!("{:08}", lengths[stream]);
+        }
+        let container = |stream: usize| 10 + stream as u32;
+        let mut pdf = b"%PDF-1.7\n".to_vec();
+        let mut offsets = BTreeMap::new();
+        let refs = order
+            .iter()
+            .map(|(stream, index)| format!("{} 0 R", member_number(*stream, *index)))
+            .collect::<Vec<_>>()
+            .join(" ");
+        for (number, body) in [
+            (
+                1,
+                format!("<< /Type /Catalog /Pages 2 0 R /Refs [{refs}] >>"),
+            ),
+            (2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string()),
+            (
+                3,
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>".to_string(),
+            ),
+        ] {
+            offsets.insert(number, pdf.len());
+            pdf.extend_from_slice(format!("{number} 0 obj\n{body}\nendobj\n").as_bytes());
+        }
+        for (stream, bodies) in bodies.iter().enumerate() {
+            let (first, encoded) = encode(bodies, stream);
+            let declared = match length(stream) {
+                Some((holder, index)) => format!("{} 0 R", member_number(holder, index)),
+                None => encoded.len().to_string(),
+            };
+            offsets.insert(container(stream), pdf.len());
+            pdf.extend_from_slice(
+                format!(
+                    "{} 0 obj\n<< /Type /ObjStm /N {members} /First {first} /Length {declared} >>\nstream\n{encoded}\nendstream\nendobj\n",
+                    container(stream)
+                )
+                .as_bytes(),
+            );
+        }
+        let compressed = (0..streams)
+            .flat_map(|stream| {
+                (0..members).map(move |index| {
+                    (
+                        member_number(stream, index),
+                        container(stream),
+                        index as u16,
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        finish_with_xref_stream(pdf, &offsets, &compressed)
+    }
+
+    /// Ends `pdf` with a cross-reference stream listing the objects at
+    /// `offsets` and the `compressed` members, as (number, stream, slot).
+    fn finish_with_xref_stream(
+        mut pdf: Vec<u8>,
+        offsets: &BTreeMap<u32, usize>,
+        compressed: &[(u32, u32, u16)],
+    ) -> Vec<u8> {
+        let xref_number = 9_000_u32;
+        let xref_offset = pdf.len();
+        let mut rows = Vec::new();
+        for number in 0..=xref_number {
+            let (kind, field, index) = if number == xref_number {
+                (1, xref_offset as u64, 0)
+            } else if let Some(offset) = offsets.get(&number) {
+                (1, *offset as u64, 0)
+            } else if let Some((_, container, index)) =
+                compressed.iter().find(|(member, ..)| *member == number)
+            {
+                (2, u64::from(*container), *index)
+            } else {
+                (0, 0, 0)
+            };
+            rows.push(kind);
+            rows.extend_from_slice(&field.to_be_bytes());
+            rows.extend_from_slice(&index.to_be_bytes());
+        }
+        pdf.extend_from_slice(
+            format!(
+                "{xref_number} 0 obj\n<< /Type /XRef /Size {} /W [1 8 2] /Root 1 0 R /Length {} >>\nstream\n",
+                xref_number + 1,
+                rows.len()
+            )
+            .as_bytes(),
+        );
+        pdf.extend_from_slice(&rows);
+        pdf.extend_from_slice(
+            format!("\nendstream\nendobj\nstartxref\n{xref_offset}\n%%EOF\n").as_bytes(),
+        );
+        pdf
+    }
+
+    /// A one-page PDF whose catalog also names object 20, with object
+    /// stream 10 holding `header` then `members` as its data.
+    fn page_with_object_stream(
+        header: &str,
+        members: &str,
+        compressed: &[(u32, u32, u16)],
+    ) -> Vec<u8> {
+        let mut pdf = b"%PDF-1.7\n".to_vec();
+        let mut offsets = BTreeMap::new();
+        let page = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>";
+        let direct = [
+            (1, "<< /Type /Catalog /Pages 2 0 R /Extra 20 0 R >>"),
+            (2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>"),
+            (3, page),
+        ];
+        for (number, body) in direct {
+            if compressed.iter().any(|(member, ..)| *member == number) {
+                continue;
+            }
+            offsets.insert(number, pdf.len());
+            pdf.extend_from_slice(format!("{number} 0 obj\n{body}\nendobj\n").as_bytes());
+        }
+        offsets.insert(10, pdf.len());
+        let data = format!("{header}{members}");
+        pdf.extend_from_slice(
+            format!(
+                "10 0 obj\n<< /Type /ObjStm /N {} /First {} /Length {} >>\nstream\n",
+                header.split_whitespace().count() / 2,
+                header.len(),
+                data.len()
+            )
+            .as_bytes(),
+        );
+        pdf.extend_from_slice(data.as_bytes());
+        pdf.extend_from_slice(b"\nendstream\nendobj\n");
+        finish_with_xref_stream(pdf, &offsets, compressed)
+    }
+
+    #[test]
+    fn an_object_stream_larger_than_the_cache_serves_its_read_without_being_kept() {
+        let pad = "A".repeat(OBJECT_STREAM_CACHE_BYTES + 1);
+        let pdf = page_with_object_stream("20 0 ", &format!("<< /Pad ({pad}) >>"), &[(20, 10, 0)]);
+        let reader = Reader::new(&pdf[..], pdf.len() as u64).unwrap();
+        let index = reader.index().unwrap();
+        let mut loader = Loader::new(&reader, &index);
+        let member = loader.load((20, 0)).unwrap();
+        let read = member
+            .as_dict()
+            .unwrap()
+            .get(b"Pad")
+            .unwrap()
+            .as_str()
+            .unwrap();
+        assert_eq!(read.len(), OBJECT_STREAM_CACHE_BYTES + 1);
+        assert!(loader.object_streams.entries.is_empty());
+        assert_eq!(loader.object_streams.bytes, 0);
+        let source = SourcePdf::open(&pdf[..], pdf.len() as u64).unwrap();
+        assert!(source.document.get_object((20, 0)).is_ok());
+    }
+
+    #[test]
+    fn members_of_an_object_stream_too_large_to_keep_are_parsed_from_one_decoding() {
+        let pad = "A".repeat(OBJECT_STREAM_CACHE_BYTES + 1);
+        let members = format!("<< /Pad ({pad}) /Kids [21 0 R 22 0 R 23 0 R] >> 21 22 23");
+        let at = |member: &str| members.rfind(member).unwrap() + 1;
+        let header = format!("20 0 21 {} 22 {} 23 {} ", at(" 21"), at(" 22"), at(" 23"));
+        let pdf = page_with_object_stream(
+            &header,
+            &members,
+            &[(20, 10, 0), (21, 10, 1), (22, 10, 2), (23, 10, 3)],
+        );
+        let reader = Reader::new(&pdf[..], pdf.len() as u64).unwrap();
+        let index = reader.index().unwrap();
+        let mut loader = Loader::new(&reader, &index);
+        loader.load((20, 0)).unwrap();
+        // The first read parsed every member, kept nothing decoded, and
+        // serves the rest without decoding again.
+        assert!(loader.prefetched_streams.contains(&10));
+        assert_eq!(loader.prefetched.len(), 3);
+        assert!(loader.object_streams.entries.is_empty());
+        for (number, value) in [(21, 21), (22, 22), (23, 23)] {
+            assert_eq!(loader.load((number, 0)).unwrap().as_i64().unwrap(), value);
+        }
+        assert!(loader.prefetched.is_empty());
+        // Each member counted once against the read's ceiling.
+        assert_eq!(loader.values, 6 + 3);
+    }
+
+    #[test]
+    fn a_duplicate_object_stream_entry_that_points_nowhere_hides_no_member() {
+        let page = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>";
+        // Slot 0 lists the page where it is; slot 1, which the cross-reference
+        // names, lists it again past the data.
+        let pdf = page_with_object_stream("3 0 3 999999 ", page, &[(3, 10, 1)]);
+        let source = SourcePdf::open(&pdf[..], pdf.len() as u64).unwrap();
+        assert_eq!(source.document.get_pages().len(), 1);
+        assert!(read_pdf_document_catalog(&source.document).is_object());
+        // The slot the cross-reference names wins over an earlier usable one.
+        let other = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 20 20] >>";
+        let pdf = page_with_object_stream(
+            &format!("3 0 3 {} ", page.len() + 1),
+            &format!("{page} {other}"),
+            &[(3, 10, 1)],
+        );
+        let source = SourcePdf::open(&pdf[..], pdf.len() as u64).unwrap();
+        let media_box = source
+            .document
+            .get_dictionary((3, 0))
+            .unwrap()
+            .get(b"MediaBox")
+            .unwrap();
+        assert_eq!(media_box.as_array().unwrap()[2].as_i64().unwrap(), 20);
+    }
+
+    fn member_value(document: &Document, stream: usize, index: usize) -> i64 {
+        document
+            .get_dictionary((member_number(stream, index), 0))
+            .and_then(|member| member.get(b"Value"))
+            .and_then(Object::as_i64)
+            .unwrap()
+    }
+
+    #[test]
+    fn members_of_more_object_streams_than_the_cache_holds_read_in_any_order() {
+        let streams = MAX_CACHED_OBJECT_STREAMS + 6;
+        // Consecutive reads alternate between streams, so each finds its
+        // stream evicted and decodes it again.
+        let order = (0..3)
+            .flat_map(|index| (0..streams).map(move |stream| (stream, index)))
+            .collect::<Vec<_>>();
+        let pdf = object_stream_pdf(streams, 3, &order, |_| None);
+        let source = SourcePdf::open(&pdf[..], pdf.len() as u64).unwrap();
+        let eager = Document::load_mem(&pdf).unwrap();
+        for &(stream, index) in &order {
+            let value = i64::from(member_number(stream, index));
+            assert_eq!(member_value(&source.document, stream, index), value);
+            assert_eq!(member_value(&eager, stream, index), value);
+        }
+    }
+
+    #[test]
+    fn an_object_stream_whose_length_it_holds_itself_reads_by_its_end() {
+        let pdf = object_stream_pdf(2, 3, &[(0, 0), (1, 2)], |stream| {
+            (stream == 0).then_some((0, 1))
+        });
+        let source = SourcePdf::open(&pdf[..], pdf.len() as u64).unwrap();
+        assert_eq!(member_value(&source.document, 0, 0), 1_000);
+        assert_eq!(member_value(&source.document, 1, 2), 1_102);
+    }
+
+    #[test]
+    fn object_stream_lengths_held_in_a_chain_of_streams_stop_at_their_nesting_ceiling() {
+        // Stream k keeps its /Length in stream k + 1; the last one is direct.
+        let chain = |streams: usize| {
+            object_stream_pdf(streams, 2, &[(0, 0)], move |stream| {
+                (stream + 1 < streams).then_some((stream + 1, 1))
+            })
+        };
+        let shallow = chain(MAX_OBJECT_STREAM_NESTING);
+        let source = SourcePdf::open(&shallow[..], shallow.len() as u64).unwrap();
+        assert_eq!(member_value(&source.document, 0, 0), 1_000);
+        let deep = chain(MAX_OBJECT_STREAM_NESTING + 2);
+        let error = SourcePdf::open(&deep[..], deep.len() as u64).err().unwrap();
+        assert_eq!(
+            error.downcast_ref::<NativeError>().unwrap().code,
+            NativeErrorCode::CorruptXref
+        );
+    }
+
+    #[test]
+    fn streams_a_catalog_reaches_are_read_but_not_its_pages_or_mapped_objects() {
+        let mut document = Document::with_version("1.7");
+        let pages_id = document.new_object_id();
+        let content = document.add_object(Stream::new(Dictionary::new(), b"page".to_vec()));
+        let page_id = document.add_object(dictionary! {
+            "Type" => "Page", "Parent" => pages_id, "Contents" => content,
+            "MediaBox" => vec![0.into(), 0.into(), 10.into(), 10.into()],
+        });
+        document.set_object(
+            pages_id,
+            dictionary! { "Type" => "Pages", "Kids" => vec![page_id.into()], "Count" => 1 },
+        );
+        let metadata = document.add_object(Stream::new(
+            dictionary! { "Type" => "Metadata" },
+            b"<x:xmpmeta/>".to_vec(),
+        ));
+        let catalog = document.add_object(dictionary! {
+            "Type" => "Catalog", "Pages" => pages_id, "Metadata" => metadata,
+        });
+        document.trailer.set("Root", catalog);
+        let mut bytes = Vec::new();
+        document.save_to(&mut bytes).unwrap();
+
+        let source = SourcePdf::open(&bytes[..], bytes.len() as u64).unwrap();
+        let root = source.document.trailer.get(b"Root").unwrap().clone();
+        let read = |mapped: &dyn Fn(ObjectId) -> bool, max_bytes| {
+            let mut copy = source.document.clone();
+            source
+                .read_streams_into(&mut copy, &root, mapped, max_bytes)
+                .map(|()| copy)
+        };
+        let copy = read(&|_| false, 1_024).unwrap();
+        let stream = |id| copy.get_object(id).unwrap().as_stream().unwrap();
+        assert_eq!(stream(metadata).content, b"<x:xmpmeta/>");
+        assert!(stream(content).content.is_empty());
+        // An object the copy maps elsewhere is neither read nor charged.
+        let copy = read(&|id| id == metadata, 0).unwrap();
+        assert!(copy
+            .get_object(metadata)
+            .unwrap()
+            .as_stream()
+            .unwrap()
+            .content
+            .is_empty());
+        let error = read(&|_| false, 4).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<NativeError>().unwrap().code,
+            NativeErrorCode::TooLarge
+        );
     }
 }

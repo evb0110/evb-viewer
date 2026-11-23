@@ -86,10 +86,9 @@ pub(crate) fn write_print_layout_path(
     output_path: &Path,
     view_mode: PrintViewMode,
     orientation: PrintOrientation,
-    qpdf_path: Option<&Path>,
 ) -> Result<()> {
     if (view_mode, orientation) == (PrintViewMode::Single, PrintOrientation::Auto) {
-        return write_print_appearances_path(input_path, output_path, qpdf_path);
+        return write_print_appearances_path(input_path, output_path);
     }
     let mut document = load_print_layout_pdf_path(input_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;

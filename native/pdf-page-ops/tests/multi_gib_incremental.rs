@@ -2174,7 +2174,7 @@ fn auto_print_appends_a_missing_appearance_to_a_book_above_the_layout_ceiling() 
 
 #[cfg(unix)]
 #[test]
-fn auto_print_draws_each_free_text_with_its_embedded_font_after_one_font_read() {
+fn auto_print_draws_each_free_text_with_its_embedded_font_read_by_range() {
     use std::os::unix::fs::PermissionsExt;
 
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
@@ -2283,7 +2283,7 @@ fn auto_print_draws_each_free_text_with_its_embedded_font_after_one_font_read() 
 
     let eager = drawing(1);
     fs::write(&log, "").unwrap();
-    // 18 MiB of image data makes the dictionary load structural.
+    // 18 MiB of image data, which the base never reads.
     let structural = drawing(18 * 1024 * 1024);
     // A print job's subsets follow its three bundled faces, so each label's
     // own document program is TextFont3 or later, and no bundled face.
@@ -2299,13 +2299,9 @@ fn auto_print_draws_each_free_text_with_its_embedded_font_after_one_font_read() 
         );
     }
     assert_eq!(structural, eager);
-    // Every program arrives in one qpdf read of the source.
+    // Every program is read by its byte range: no qpdf process reads the source.
     let calls = fs::read_to_string(&log).unwrap();
-    let font_reads = calls
-        .lines()
-        .filter(|call| call.contains("--json-stream-data=inline") || call.contains("--show-object"))
-        .count();
-    assert_eq!(font_reads, 1, "{calls}");
+    assert!(calls.is_empty(), "{calls}");
 }
 
 #[test]

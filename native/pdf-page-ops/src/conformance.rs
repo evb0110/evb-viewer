@@ -104,8 +104,7 @@ pub(crate) fn write_pdf_conformance(
             "PDF conformance requires the bundled qpdf structural reader",
         )
     })?;
-    let metadata =
-        load_qpdf_metadata_pdf_path(input_path, qpdf_path, QpdfMetadataPurpose::Conformance)?;
+    let metadata = load_qpdf_metadata_pdf_path(input_path, qpdf_path)?;
     let document;
     let source = if let Some((metadata, _warned)) = &metadata {
         metadata.get_prev_documents()

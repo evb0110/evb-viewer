@@ -4,7 +4,7 @@ use super::*;
 
 /// Walks a path's cross-reference chain with the eager preflight's parsers,
 /// reading each section through a window that grows only when it runs out.
-pub(crate) fn path_xref_chain(path: &Path, encoded_len: u64) -> Result<XrefChain> {
+fn path_xref_chain(path: &Path, encoded_len: u64) -> Result<XrefChain> {
     let mut file =
         File::open(path).map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
     let (root, _) = read_terminal_xref(path, encoded_len)?;
@@ -306,12 +306,11 @@ fn parse_xref_stream_section(
     // A direct /Length says where the section's data ends, so the span covers
     // the data and `check_xref_spans` checks it against the file. An indirect
     // /Length is not resolved here, and the span stops at the dictionary.
-    let data = match bytes.get(stream_cursor.cursor..) {
-        Some([b'\r', b'\n', ..]) => stream_cursor.cursor + 2,
-        Some([b'\r' | b'\n', ..]) => stream_cursor.cursor + 1,
-        _ => stream_cursor.cursor,
-    };
-    let end = match dictionary.length.filter(|_| dictionary.length_is_direct) {
+    let data = stream_data_offset(bytes, stream_cursor.cursor).unwrap_or(stream_cursor.cursor);
+    let end = match dictionary
+        .length
+        .filter(|_| dictionary.length_generation.is_none())
+    {
         Some(length) => usize::try_from(length)
             .ok()
             .and_then(|length| data.checked_add(length))
@@ -418,7 +417,7 @@ fn parse_xref_dictionary(
                     dictionary.dictionary_type = admission_dictionary_type(name);
                     dictionary.pending_key = None;
                 } else {
-                    dictionary.pending_key = admission_key(name);
+                    dictionary.expect_value_of(name);
                 }
             }
             AdmissionToken::Integer(value) if dictionary_depth == 1 => {
@@ -452,7 +451,7 @@ fn parse_xref_dictionary(
                     match dictionary.pending_key.take() {
                         Some(AdmissionKey::Length) => {
                             dictionary.length = Some(value);
-                            dictionary.length_is_direct = !lexer.next_is_reference();
+                            dictionary.length_generation = lexer.next_reference_generation();
                         }
                         Some(AdmissionKey::Prev) => dictionary.prev = Some(value),
                         Some(AdmissionKey::Size) => dictionary.size = Some(value),
@@ -504,15 +503,15 @@ fn xref_error(message: impl Into<String>) -> Box<dyn Error> {
 }
 
 impl AdmissionLexer<'_> {
-    /// The remaining tokens of this integer value, not later dictionary entries.
-    pub(super) fn next_is_reference(&self) -> bool {
+    /// The generation that makes the integer just read a reference's object
+    /// number, read from the rest of its value and not later entries.
+    pub(super) fn next_reference_generation(&self) -> Option<u64> {
         let mut value = AdmissionLexer::new(&self.bytes[self.cursor..]);
-        matches!(
-            (value.next_token(), value.next_token()),
-            (
-                Some(AdmissionToken::Integer(_)),
-                Some(AdmissionToken::Keyword(b"R"))
-            )
-        )
+        match (value.next_token(), value.next_token()) {
+            (Some(AdmissionToken::Integer(generation)), Some(AdmissionToken::Keyword(b"R"))) => {
+                Some(generation)
+            }
+            _ => None,
+        }
     }
 }

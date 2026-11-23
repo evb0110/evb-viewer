@@ -409,7 +409,6 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
             return write_page_geometry(
                 &config.input_path,
                 *page_number,
-                config.qpdf_path.as_deref(),
                 &mut std::io::stdout().lock(),
             )
         }
@@ -482,13 +481,7 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
         } => {
             let pages = read_pages_file(pages_file)
                 .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
-            return write_crop_pages_path(
-                &config.input_path,
-                output_path,
-                &pages,
-                *margins,
-                config.qpdf_path.as_deref(),
-            );
+            return write_crop_pages_path(&config.input_path, output_path, &pages, *margins);
         }
         Operation::PrintLayout {
             view_mode,
@@ -499,28 +492,17 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
                 output_path,
                 *view_mode,
                 *orientation,
-                config.qpdf_path.as_deref(),
             )
         }
         Operation::RemoveCrop { pages_file } => {
             let pages = read_pages_file(pages_file)
                 .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
-            return write_remove_crop_pages_path(
-                &config.input_path,
-                output_path,
-                &pages,
-                config.qpdf_path.as_deref(),
-            );
+            return write_remove_crop_pages_path(&config.input_path, output_path, &pages);
         }
         Operation::SplitPages { instructions_file } => {
             let instructions = read_split_pages_file(instructions_file)
                 .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
-            return write_split_pages_path(
-                &config.input_path,
-                output_path,
-                &instructions,
-                config.qpdf_path.as_deref(),
-            );
+            return write_split_pages_path(&config.input_path, output_path, &instructions);
         }
         Operation::OverlayText {
             source_path,
@@ -539,22 +521,12 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
         Operation::ReplacePageImages { instructions_file } => {
             let instructions = read_replace_page_images_file(instructions_file)
                 .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
-            return write_replace_page_images_path(
-                &config.input_path,
-                output_path,
-                &instructions,
-                config.qpdf_path.as_deref(),
-            );
+            return write_replace_page_images_path(&config.input_path, output_path, &instructions);
         }
         Operation::RecompressImages { instructions_file } => {
             let instructions = read_recompress_images_file(instructions_file)
                 .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
-            return write_recompress_images_path(
-                &config.input_path,
-                output_path,
-                &instructions,
-                config.qpdf_path.as_deref(),
-            );
+            return write_recompress_images_path(&config.input_path, output_path, &instructions);
         }
         Operation::OcrTextLayer { instructions_file } => {
             let instructions = read_ocr_text_layer_file(instructions_file)
@@ -584,12 +556,7 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
             );
         }
         Operation::PageSizes { metadata_only } => {
-            return write_page_sizes_path(
-                &config.input_path,
-                output_path,
-                config.qpdf_path.as_deref(),
-                *metadata_only,
-            )
+            return write_page_sizes_path(&config.input_path, output_path, *metadata_only)
         }
         Operation::Decrypt { password_file } => {
             return write_decrypted_pdf_path(

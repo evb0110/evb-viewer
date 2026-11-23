@@ -366,7 +366,7 @@ pub(crate) fn open_mutation_base<S: ByteSource>(
         .collect::<Vec<_>>();
     let mut source = SourcePdf::open_append_base_naming(source, len, &restored_images)?;
     let mut incremental = source.take_append_base()?;
-    let streams = StructuralSource::Ranges(&source);
+    let streams = &source as StructuralSource;
     materialize_stamp_recovery_sources(
         &mut incremental,
         Some(streams),

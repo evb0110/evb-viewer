@@ -430,7 +430,6 @@ pub(crate) fn write_split_pages_path(
     input_path: &Path,
     output_path: &Path,
     instructions: &SplitPagesFile,
-    qpdf_path: Option<&Path>,
 ) -> Result<()> {
     // Keep the established full-rewrite semantics for compatibility-sized
     // documents. In particular, split-pages intentionally prunes source page
@@ -453,13 +452,7 @@ pub(crate) fn write_split_pages_path(
         return Ok(());
     }
 
-    let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
-        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    assert_plaintext_base(
-        incremental.get_prev_documents(),
-        "Encrypted PDFs are not supported by native page ops",
-    )?;
-
+    let (_, mut incremental) = SourcePdf::open_append_base_path(input_path)?;
     split_pages_incremental(&mut incremental, instructions)?;
     incremental.new_document.version = incremental.get_prev_documents().version.clone();
     let revision_bytes = build_incremental_revision(&mut incremental)?;

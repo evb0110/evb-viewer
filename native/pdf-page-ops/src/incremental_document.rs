@@ -37,50 +37,17 @@ static QPDF_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 // Only the Unix fake-qpdf fixtures use this namespace.
 #[cfg(all(test, unix))]
 static TEST_QPDF_SEQUENCE: AtomicU64 = AtomicU64::new(0);
-// Keep this argument set compatible with the oldest qpdf shipped by the
-// supported Linux packaging image. qpdf 10 rejects the newer
-// --decode-level/--json-stream-data options; the JSON object section already
-// omits stream bytes in the qpdf 10 and qpdf 12 formats we parse below.
-const QPDF_STRUCTURE_ARGS: &[&str] = &["--suppress-recovery", "--json"];
 // A read that appends nothing may use the cross-reference table qpdf
 // reconstructs for a damaged file, which is the view the opening check accepts.
 const QPDF_RECOVERED_STRUCTURE_ARGS: &[&str] = &["--json"];
 
-/// Where a structural load reads the base streams it left unloaded: the
-/// source file through qpdf for a path load, or the indexed reader's byte
-/// ranges. A document loaded from bytes holds every base stream and has none.
-#[derive(Clone, Copy)]
-pub(crate) enum StructuralSource<'a> {
-    Qpdf {
-        input_path: &'a Path,
-        qpdf_path: &'a Path,
-    },
-    Ranges(&'a dyn RawStreamSource),
-}
+/// Where a base read through the indexed reader reads the streams it left
+/// unread: their byte ranges in its source.
+pub(crate) type StructuralSource<'a> = &'a dyn RawStreamSource;
 
 /// A source that reads a stream's encoded bytes, as the file holds them.
 pub(crate) trait RawStreamSource {
     fn raw_stream(&self, object_id: ObjectId, max_bytes: usize) -> Result<Vec<u8>>;
-}
-
-impl<'a> StructuralSource<'a> {
-    pub(crate) fn for_path(input_path: &'a Path, qpdf_path: Option<&'a Path>) -> Option<Self> {
-        qpdf_path.map(|qpdf_path| Self::Qpdf {
-            input_path,
-            qpdf_path,
-        })
-    }
-
-    /// The encoded bytes of base stream `object_id`, or an error above `max_bytes`.
-    pub(crate) fn read_raw(self, object_id: ObjectId, max_bytes: usize) -> Result<Vec<u8>> {
-        match self {
-            Self::Qpdf {
-                input_path,
-                qpdf_path,
-            } => read_qpdf_stream_bounded(input_path, qpdf_path, object_id, max_bytes),
-            Self::Ranges(source) => source.raw_stream(object_id, max_bytes),
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -187,7 +154,7 @@ impl IncrementalDocument {
         if self.unavailable_base_streams.contains(&object_id) {
             if let Some(source) = structural {
                 let mut transient = stream.clone();
-                transient.set_content(source.read_raw(object_id, max_bytes)?);
+                transient.set_content(source.raw_stream(object_id, max_bytes)?);
                 return Ok(
                     if transient.filters().is_ok_and(|filters| !filters.is_empty()) {
                         decompressed_stream_with_limit(&transient, max_bytes).ok()
@@ -209,7 +176,7 @@ impl IncrementalDocument {
         if !self.unavailable_base_streams.contains(&object_id) {
             return Ok(());
         }
-        let bytes = source.read_raw(object_id, max_bytes)?;
+        let bytes = source.raw_stream(object_id, max_bytes)?;
         self.set_base_stream_bytes(object_id, bytes)
     }
 
@@ -349,27 +316,6 @@ fn ensure_input_unchanged(path: &Path, initial_metadata: &fs::Metadata) -> Resul
         return Err("PDF input changed while qpdf was reading its structure".into());
     }
     Ok(())
-}
-
-/// qpdf's structural view as the base of an incremental append, and whether
-/// qpdf read it only with warnings: it then reads a damaged object as null.
-pub(crate) fn load_qpdf_structural_incremental_pdf(
-    path: &Path,
-    qpdf_path: &Path,
-) -> Result<(IncrementalDocument, bool)> {
-    let (initial_metadata, mut document, unavailable_base_streams, warned) =
-        read_qpdf_structure(path, qpdf_path, QPDF_STRUCTURE_ARGS)?;
-    let previous_len = initial_metadata.len();
-    let (previous_xref_start, xref_type) = read_terminal_xref(path, previous_len)?;
-    document.xref_start = usize::try_from(previous_xref_start)
-        .map_err(|_| "Previous PDF xref offset exceeds this platform's address space")?;
-    document.reference_table = lopdf::xref::Xref::new(document.max_id.saturating_add(1), xref_type);
-    ensure_input_unchanged(path, &initial_metadata)?;
-    let previous_last_byte = read_last_byte(path, previous_len)?;
-    let mut incremental =
-        IncrementalDocument::from_document(document, previous_len, previous_last_byte);
-    incremental.unavailable_base_streams = unavailable_base_streams;
-    Ok((incremental, warned))
 }
 
 /// What a fresh reader sees after an incremental append: the objects the
@@ -564,85 +510,6 @@ pub(crate) fn run_qpdf_bounded(
         ));
     }
     Ok(status.code() == Some(3))
-}
-
-/// Reads one encoded PDF stream with bounded memory and a subprocess deadline.
-/// Callers select a small number of resource references after structural parsing.
-pub(crate) fn read_qpdf_stream_bounded(
-    path: &Path,
-    qpdf_path: &Path,
-    object_id: ObjectId,
-    max_bytes: usize,
-) -> Result<Vec<u8>> {
-    let temp = TempQpdfFiles::create()?;
-    let diagnostics = create_private_temp_file(&temp.diagnostics)?;
-    let mut child = Command::new(qpdf_path)
-        .arg("--suppress-recovery")
-        .arg(format!("--show-object={},{}", object_id.0, object_id.1))
-        .arg("--raw-stream-data")
-        .arg("--")
-        .arg(path)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::from(diagnostics))
-        .spawn()
-        .map_err(io_domain_error)?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or("qpdf stream reader has no stdout")?;
-    let limit = u64::try_from(max_bytes)?
-        .checked_add(1)
-        .ok_or("Invalid stream byte limit")?;
-    let (send, receive) = std::sync::mpsc::channel();
-    let reader = thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let result = stdout.take(limit).read_to_end(&mut bytes).map(|_| bytes);
-        let _ = send.send(result);
-    });
-    let started = Instant::now();
-    let mut output = None;
-    let result = loop {
-        if output.is_none() {
-            match receive.try_recv() {
-                Ok(Ok(bytes)) => {
-                    if bytes.len() > max_bytes {
-                        break Err("qpdf resource stream exceeds its byte limit".into());
-                    }
-                    output = Some(bytes);
-                }
-                Ok(Err(error)) => break Err(io_domain_error(error)),
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    break Err("qpdf resource reader stopped".into());
-                }
-                Err(std::sync::mpsc::TryRecvError::Empty) => {}
-            }
-        }
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                if !status.success() && status.code() != Some(3) {
-                    break Err("qpdf resource stream read failed".into());
-                }
-                if let Some(bytes) = output.take() {
-                    break Ok(bytes);
-                }
-            }
-            Ok(None) => {}
-            Err(error) => break Err(io_domain_error(error)),
-        }
-        if started.elapsed() > QPDF_STRUCTURE_TIMEOUT
-            || fs::metadata(&temp.diagnostics)
-                .is_ok_and(|metadata| metadata.len() > MAX_QPDF_DIAGNOSTIC_BYTES as u64)
-        {
-            break Err("qpdf resource stream read exceeded its resource limit".into());
-        }
-        thread::sleep(Duration::from_millis(10));
-    };
-    if result.is_err() {
-        let _ = child.kill();
-    }
-    let _ = child.wait();
-    let _ = reader.join();
-    result
 }
 
 fn create_private_temp_file(path: &Path) -> Result<File> {
@@ -1235,6 +1102,7 @@ fn hex_value(value: u8) -> Result<u8> {
     }
 }
 
+#[cfg(test)]
 fn read_last_byte(path: &Path, len: u64) -> Result<Option<u8>> {
     let mut file = File::open(path).map_err(io_domain_error)?;
     read_last_byte_from_file(&mut file, len)
@@ -1447,7 +1315,7 @@ mod tests {
     }
 
     #[cfg(unix)]
-    fn load_with_fake_qpdf(status: i32, structure: &str) -> Result<IncrementalDocument> {
+    fn load_with_fake_qpdf(status: i32, structure: &str) -> Result<Document> {
         let nonce = test_qpdf_temp_nonce()?;
         let stem = format!("evb-qpdf-status-{}-{nonce}", std::process::id());
         let input_path = std::env::temp_dir().join(format!("{stem}-input.pdf"));
@@ -1461,8 +1329,7 @@ mod tests {
         let script = format!("#!/bin/sh\nprintf '%s' '{structure}'\nexit {status}\n");
         let _fake_executable = crate::write_fake_executable(&qpdf_path, &script);
 
-        let result = load_qpdf_structural_incremental_pdf(&input_path, &qpdf_path)
-            .map(|(incremental, _)| incremental);
+        let result = load_qpdf_structural_document(&input_path, &qpdf_path);
         let _ = fs::remove_file(&input_path);
         let _ = fs::remove_file(&qpdf_path);
         result
@@ -1522,13 +1389,14 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
     #[test]
     fn materialized_stream_updates_declared_length_before_clone_and_save() {
-        let nonce = qpdf_temp_nonce().unwrap();
-        let qpdf_path = std::env::temp_dir().join(format!("evb-qpdf-stream-length-{nonce}"));
-        let _fake_executable =
-            crate::write_fake_executable(&qpdf_path, "#!/bin/sh\nprintf 'recovered bytes'\n");
+        struct Recovered;
+        impl RawStreamSource for Recovered {
+            fn raw_stream(&self, _: ObjectId, _: usize) -> Result<Vec<u8>> {
+                Ok(b"recovered bytes".to_vec())
+            }
+        }
         let mut document = Document::with_version("1.4");
         let root = document.add_object(dictionary! {"Type" => "Catalog"});
         document.trailer.set("Root", root);
@@ -1539,16 +1407,8 @@ mod tests {
         let mut incremental = IncrementalDocument::from_document(document, 0, None);
         incremental.unavailable_base_streams.insert(stream_id);
         incremental
-            .materialize_base_stream(
-                StructuralSource::Qpdf {
-                    input_path: Path::new("unused.pdf"),
-                    qpdf_path: &qpdf_path,
-                },
-                stream_id,
-                1024,
-            )
+            .materialize_base_stream(&Recovered, stream_id, 1024)
             .unwrap();
-        fs::remove_file(qpdf_path).unwrap();
         incremental
             .opt_clone_object_to_new_document(stream_id)
             .unwrap();
@@ -1587,25 +1447,24 @@ mod tests {
         )
         .expect("qpdf warning-only output with valid JSON should load");
 
-        assert_eq!(result.previous_document.max_id, 1);
-        assert_eq!(result.previous_document.root_id().unwrap(), (1, 0));
+        assert_eq!(result.max_id, 1);
+        assert_eq!(result.root_id().unwrap(), (1, 0));
     }
 
     #[cfg(unix)]
     #[test]
     fn qpdf_legacy_json_loads_plain_strings_and_marks_streams_unavailable() {
-        let mut result = load_with_fake_qpdf(
+        let result = load_with_fake_qpdf(
             0,
             r#"{"version":1,"objects":{"trailer":{"/Size":3,"/Root":"1 0 R"},"1 0 R":{"/Type":"/Catalog","/Title":"Legacy title","/X#23":"/X#23","/Resources":{"/XObject":{"/Im#23":"/Im#23"}}},"2 0 R":{"/Length":4,"/Filter":"/FlateDecode"}}}"#,
         )
         .expect("qpdf legacy JSON should load");
 
-        assert_eq!(result.previous_document.version, "1.4");
-        assert_eq!(result.previous_document.max_id, 2);
-        assert_eq!(result.previous_document.root_id().unwrap(), (1, 0));
+        assert_eq!(result.version, "1.4");
+        assert_eq!(result.max_id, 2);
+        assert_eq!(result.root_id().unwrap(), (1, 0));
         assert_eq!(
             result
-                .previous_document
                 .get_object((1, 0))
                 .unwrap()
                 .as_dict()
@@ -1616,12 +1475,7 @@ mod tests {
                 .unwrap(),
             b"Legacy title"
         );
-        let catalog = result
-            .previous_document
-            .get_object((1, 0))
-            .unwrap()
-            .as_dict()
-            .unwrap();
+        let catalog = result.get_object((1, 0)).unwrap().as_dict().unwrap();
         assert_eq!(catalog.get(b"X#").unwrap().as_name().unwrap(), b"X#");
         assert_eq!(
             catalog
@@ -1639,11 +1493,8 @@ mod tests {
                 .unwrap(),
             b"Im#"
         );
-        assert!(matches!(
-            result.previous_document.get_object((2, 0)).unwrap(),
-            Object::Stream(_)
-        ));
-        assert!(result.opt_clone_object_to_new_document((2, 0)).is_err());
+        let stream = result.get_object((2, 0)).unwrap().as_stream().unwrap();
+        assert!(is_unread_base_stream(&result, stream));
     }
 
     #[cfg(unix)]

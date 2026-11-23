@@ -62,8 +62,10 @@ const EVB_DRAWN_SUBTYPES: [&[u8]; 8] = [
     b"Ink",
 ];
 
-/// The ceiling for one embedded font program FreeText synthesis reads; one batch read holds it.
-const FONT_PROGRAM_BYTES: usize = MAX_BATCH_RAW_BYTES;
+/// The ceiling for one embedded font program FreeText synthesis reads.
+const FONT_PROGRAM_BYTES: usize = 16 * 1024 * 1024;
+/// The font program bytes one print job reads in all.
+const FONT_PROGRAMS_BYTES: usize = 64 * 1024 * 1024;
 
 /// The font dictionaries a FreeText's text may use, in order: its own /DR, its
 /// page's inherited resources and the AcroForm /DR. A page needs no MediaBox.
@@ -156,44 +158,45 @@ fn free_text_font_programs(document: &Document, page_id: ObjectId) -> Vec<Object
 }
 
 /// Reads the unread font programs that missing FreeText appearances may draw
-/// with, in as few qpdf runs as the batch budgets allow: one for ordinary fonts.
-/// A program above the per-program ceiling, or one qpdf cannot read, stays
-/// unread, and synthesis skips it as an unusable program.
-fn read_font_programs(
+/// with, each by its byte range, at most `FONT_PROGRAMS_BYTES` in all; a
+/// program the annotations share is read once. A program above its own
+/// ceiling or past the budget, or one the source cannot read, stays unread,
+/// and synthesis skips it as an unusable program.
+fn read_font_programs<S: ByteSource>(
     incremental: &mut IncrementalDocument,
-    input_path: &Path,
-    qpdf_path: &Path,
+    source: &SourcePdf<S>,
     page_ids: &BTreeMap<u32, ObjectId>,
 ) {
-    let document = &incremental.previous_document;
-    let mut programs = BTreeMap::new();
-    for page_id in page_ids.values() {
-        for id in free_text_font_programs(document, *page_id) {
-            let declared = document
+    read_font_programs_within(incremental, source, page_ids, FONT_PROGRAMS_BYTES);
+}
+
+fn read_font_programs_within<S: ByteSource>(
+    incremental: &mut IncrementalDocument,
+    source: &SourcePdf<S>,
+    page_ids: &BTreeMap<u32, ObjectId>,
+    budget: usize,
+) {
+    let programs = page_ids
+        .values()
+        .flat_map(|page_id| free_text_font_programs(&incremental.previous_document, *page_id))
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut left = budget;
+    for id in programs {
+        if !incremental.unavailable_base_streams.contains(&id) {
+            continue;
+        }
+        let ceiling = FONT_PROGRAM_BYTES.min(left);
+        if incremental
+            .materialize_base_stream(source as StructuralSource, id, ceiling)
+            .is_ok()
+        {
+            let read = incremental
+                .previous_document
                 .get_object(id)
                 .and_then(Object::as_stream)
-                .ok()
-                .and_then(|stream| stream.dict.get(b"Length").ok())
-                .and_then(|length| document.dereference(length).ok()?.1.as_i64().ok())
-                .and_then(|length| usize::try_from(length).ok());
-            if let Some(bytes) = declared.filter(|bytes| {
-                *bytes <= FONT_PROGRAM_BYTES && incremental.unavailable_base_streams.contains(&id)
-            }) {
-                programs.insert(id, bytes);
-            }
+                .map_or(0, |stream| stream.content.len());
+            left = left.saturating_sub(read);
         }
-    }
-    let programs: Vec<_> = programs.into_iter().collect();
-    let mut start = 0;
-    while start < programs.len() {
-        let end = batch_end(&programs, start);
-        let run: Vec<ObjectId> = programs[start..end].iter().map(|(id, _)| *id).collect();
-        for (id, bytes) in read_qpdf_stream_batch(input_path, qpdf_path, &run).unwrap_or_default() {
-            if bytes.len() <= FONT_PROGRAM_BYTES {
-                let _ = incremental.set_base_stream_bytes(id, bytes);
-            }
-        }
-        start = end;
     }
 }
 
@@ -315,23 +318,12 @@ pub(crate) fn materialize_print_appearances(
 /// name them, so memory follows those annotations rather than the document.
 /// Nothing is written when no printed annotation needs an appearance or flag; the
 /// caller then prints the source itself.
-pub(crate) fn write_print_appearances_path(
-    input_path: &Path,
-    output_path: &Path,
-    qpdf_path: Option<&Path>,
-) -> Result<()> {
-    let mut incremental = load_dictionary_incremental_pdf_path(input_path, qpdf_path)
-        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    assert_plaintext_base(
-        &incremental.previous_document,
-        "Encrypted PDFs cannot be laid out for printing",
-    )?;
+pub(crate) fn write_print_appearances_path(input_path: &Path, output_path: &Path) -> Result<()> {
+    let (source, mut incremental) = SourcePdf::open_append_base_path(input_path)?;
     let base_max_id = incremental.previous_document.max_id;
     let mut changed = Vec::new();
     let page_ids = incremental.previous_document.get_pages();
-    if let Some(qpdf_path) = qpdf_path {
-        read_font_programs(&mut incremental, input_path, qpdf_path, &page_ids);
-    }
+    read_font_programs(&mut incremental, &source, &page_ids);
     let mut fonts = PrintFonts::default();
     for page_id in page_ids.into_values() {
         changed.extend(materialize_print_appearances(
@@ -367,4 +359,85 @@ pub(crate) fn write_print_appearances_path(
             &expected_object_ids,
         )
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn font_programs_a_print_job_reads_stay_within_its_budget() {
+        const PROGRAM: usize = 4_096;
+        let mut document = Document::with_version("1.7");
+        let pages = document.new_object_id();
+        let font = |document: &mut Document, name: &str| {
+            let program = document.add_object(Stream::new(Dictionary::new(), vec![7; PROGRAM]));
+            let descriptor = document.add_object(dictionary! {
+                "Type" => "FontDescriptor", "FontName" => name, "FontFile2" => program,
+            });
+            let font = document.add_object(dictionary! {
+                "Type" => "Font", "Subtype" => "TrueType", "BaseFont" => name,
+                "FontDescriptor" => descriptor,
+            });
+            (font, program)
+        };
+        let (first, first_program) = font(&mut document, "First");
+        let (second, second_program) = font(&mut document, "Second");
+        let label = |document: &mut Document, name: &str| {
+            document.add_object(dictionary! {
+                "Type" => "Annot", "Subtype" => "FreeText", "F" => 4,
+                "Rect" => vec![10.into(), 10.into(), 90.into(), 30.into()],
+                "Contents" => Object::string_literal("label"),
+                "DA" => Object::string_literal(format!("/{name} 12 Tf 0 g")),
+            })
+        };
+        let annots = vec![
+            label(&mut document, "F1").into(),
+            label(&mut document, "F2").into(),
+            label(&mut document, "F1").into(),
+        ];
+        let page = document.add_object(dictionary! {
+            "Type" => "Page", "Parent" => pages,
+            "MediaBox" => vec![0.into(), 0.into(), 100.into(), 100.into()],
+            "Resources" => dictionary! { "Font" => dictionary! { "F1" => first, "F2" => second } },
+            "Annots" => annots,
+        });
+        document.set_object(
+            pages,
+            dictionary! { "Type" => "Pages", "Kids" => vec![page.into()], "Count" => 1 },
+        );
+        let catalog = document.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages });
+        document.trailer.set("Root", catalog);
+        let mut bytes = Vec::new();
+        document.save_to(&mut bytes).unwrap();
+
+        let read = |budget| {
+            let mut source = SourcePdf::open_append_base(&bytes[..], bytes.len() as u64).unwrap();
+            let mut incremental = source.take_append_base().unwrap();
+            let page_ids = incremental.previous_document.get_pages();
+            read_font_programs_within(&mut incremental, &source, &page_ids, budget);
+            [first_program, second_program].map(|id| {
+                let unread = incremental.unavailable_base_streams.contains(&id);
+                (!unread).then(|| {
+                    incremental
+                        .previous_document
+                        .get_object(id)
+                        .unwrap()
+                        .as_stream()
+                        .unwrap()
+                        .content
+                        .len()
+                })
+            })
+        };
+        // Both fit, and the program two labels share is read once.
+        assert_eq!(read(2 * PROGRAM), [Some(PROGRAM), Some(PROGRAM)]);
+        // One and a half programs' budget reads one; the other stays unread.
+        let partial = read(PROGRAM + PROGRAM / 2);
+        assert_eq!(
+            partial.iter().flatten().sum::<usize>(),
+            PROGRAM,
+            "{partial:?}"
+        );
+    }
 }

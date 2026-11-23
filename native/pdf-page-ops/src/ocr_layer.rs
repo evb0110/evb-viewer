@@ -729,7 +729,7 @@ pub(crate) fn ocr_text_visibility_from_source<S: ByteSource>(
     let mut incremental = source.take_append_base()?;
     let report = inspect_ocr_text_visibility(
         &mut incremental,
-        Some(StructuralSource::Ranges(&source)),
+        Some(&source as StructuralSource),
         page_numbers,
         with_evb_ocr_text,
     )?;
@@ -909,7 +909,7 @@ fn ocr_text_layer_base<S: ByteSource, P>(
         .map_err(|_| "PDF page count exceeds the response range")?;
     apply_ocr_text_layer(
         &mut incremental,
-        Some(StructuralSource::Ranges(&source)),
+        Some(&source as StructuralSource),
         instructions,
         load_source,
     )?;
@@ -1343,19 +1343,20 @@ BT\n/F 34 Tf\n1 0 0 1 1000 2863 Tm\n<017F0069> Tj\nET\nQ\n% EVB_VIEWER_OCR_LAYER
 
     /// The operators the writer leaves on the page after removing earlier OCR text.
     fn operators_after_strip(pdf: &[u8]) -> Vec<String> {
-        let mut incremental = incremental_from_bytes(pdf).unwrap();
+        let (source, mut incremental) = incremental_from_bytes(pdf).unwrap();
         let page_id = PageTreeResolver::new(&incremental.previous_document)
             .unwrap()
             .page_id(&incremental.previous_document, 1)
             .unwrap();
         prepare_incremental_overlay_page(&mut incremental, page_id).unwrap();
-        strip_previous_ocr_text(&mut incremental, None, page_id).unwrap();
+        let structural = Some(&source as StructuralSource);
+        strip_previous_ocr_text(&mut incremental, structural, page_id).unwrap();
         incremental
             .new_document
             .get_page_contents(page_id)
             .into_iter()
             .flat_map(|id| {
-                let bytes = read_content_stream(&mut incremental, None, id)
+                let bytes = read_content_stream(&mut incremental, structural, id)
                     .unwrap()
                     .unwrap();
                 Content::decode(&bytes).unwrap().operations

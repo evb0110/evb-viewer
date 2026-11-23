@@ -92,11 +92,9 @@ pub(crate) fn write_replace_page_images_path(
     input_path: &Path,
     output_path: &Path,
     instructions: &ReplacePageImagesFile,
-    qpdf_path: Option<&Path>,
 ) -> Result<()> {
-    let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
-        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    let structural = StructuralSource::for_path(input_path, qpdf_path);
+    let (source, mut incremental) = SourcePdf::open_append_base_path(input_path)?;
+    let structural = Some(&source as StructuralSource);
     let report = replace_page_images_in(&mut incremental, structural, instructions, |path| {
         load_pdf_path(path)
     })?;
@@ -139,8 +137,9 @@ pub(crate) fn replace_page_images_bytes(
             "replace-page-images names a replacement PDF the request does not carry",
         ));
     }
-    let mut incremental = incremental_from_bytes(data)?;
-    let report = replace_page_images_in(&mut incremental, None, &instructions, |&index| {
+    let (source, mut incremental) = incremental_from_bytes(data)?;
+    let structural = Some(&source as StructuralSource);
+    let report = replace_page_images_in(&mut incremental, structural, &instructions, |&index| {
         load_pdf_bytes(replacements[index])
     })?;
     Ok(ReportedBytes {
@@ -290,19 +289,32 @@ fn reachable_stream_bytes(document: &Document, roots: &[&Object]) -> Result<u64>
     Ok(total)
 }
 
-/// Reads the page's content streams that a structural load left unread.
+/// Reads the page's content streams that a structural load left unread, and
+/// whether all fit the content ceiling. One that does not leaves its page
+/// unsupported, as the eager reader's decoding ceiling did, without stopping
+/// the other pages.
 fn materialize_page_contents(
     incremental: &mut IncrementalDocument,
     structural: Option<StructuralSource<'_>>,
     page_id: ObjectId,
-) -> Result<()> {
+) -> Result<bool> {
     let Some(source) = structural else {
-        return Ok(());
+        return Ok(true);
     };
     for content_id in incremental.previous_document.get_page_contents(page_id) {
-        incremental.materialize_base_stream(source, content_id, MAX_REPLACEMENT_CONTENT_BYTES)?;
+        match incremental.materialize_base_stream(source, content_id, MAX_REPLACEMENT_CONTENT_BYTES)
+        {
+            Ok(()) => {}
+            Err(error)
+                if error.downcast_ref::<NativeError>().map(|error| error.code)
+                    == Some(NativeErrorCode::TooLarge) =>
+            {
+                return Ok(false)
+            }
+            Err(error) => return Err(error),
+        }
     }
-    Ok(())
+    Ok(true)
 }
 
 /// Whether an image draws over the whole page view with nothing showing
@@ -460,7 +472,9 @@ fn replace_page_images(
     replacement_page_id: ObjectId,
     max_byte_ratio: f64,
 ) -> Result<(ReplacePageOutcome, u64, u64)> {
-    materialize_page_contents(incremental, structural, page_id)?;
+    if !materialize_page_contents(incremental, structural, page_id)? {
+        return Ok((ReplacePageOutcome::UnsupportedText, 0, 0));
+    }
     let document = &incremental.previous_document;
     let content = match page_content_with_limit(document, page_id, MAX_REPLACEMENT_CONTENT_BYTES) {
         Ok(bytes) => parse_content(&bytes)?.ok(),
@@ -583,4 +597,32 @@ fn replace_page_images(
         source_bytes,
         replacement_bytes,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A source whose reads fail with `code`.
+    struct Refusing(NativeErrorCode);
+
+    impl RawStreamSource for Refusing {
+        fn raw_stream(&self, _: ObjectId, _: usize) -> Result<Vec<u8>> {
+            Err(domain_error(self.0, "refused"))
+        }
+    }
+
+    #[test]
+    fn a_page_whose_content_exceeds_its_ceiling_is_unsupported_not_fatal() {
+        let mut document = Document::with_version("1.7");
+        let content = document.add_object(Stream::with_position(dictionary! { "Length" => 10 }, 0));
+        let page = document.add_object(dictionary! { "Type" => "Page", "Contents" => content });
+        let mut incremental = IncrementalDocument::from_document(document, 0, None);
+        incremental.unavailable_base_streams.insert(content);
+        let too_large = Refusing(NativeErrorCode::TooLarge);
+        assert!(!materialize_page_contents(&mut incremental, Some(&too_large), page).unwrap());
+        // Any other failure to read still stops the operation.
+        let broken = Refusing(NativeErrorCode::Io);
+        assert!(materialize_page_contents(&mut incremental, Some(&broken), page).is_err());
+    }
 }

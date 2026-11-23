@@ -8,6 +8,84 @@ const LOPDF_EOF_SEARCH_BYTES: usize = 512;
 const LOPDF_STARTXREF_SEARCH_BYTES: usize = 25;
 const LOPDF_HEADER_LINE_BYTES: usize = 64 * 1024;
 const QPDF_PAGE_COUNT_OUTPUT_BYTES: usize = 1024;
+/// qpdf takes the last `startxref` followed by an integer that starts in a
+/// file's final 1054 bytes; with recovery off it refuses a file without one.
+pub(crate) const QPDF_STARTXREF_SEARCH_BYTES: u64 = 1054;
+
+/// qpdf's tokenizer space: PDF whitespace and vertical tab.
+fn is_qpdf_space(byte: u8) -> bool {
+    is_pdf_whitespace(byte) || byte == 0x0b
+}
+
+/// What ends a qpdf token: a space or a PDF delimiter.
+fn is_qpdf_delimiter(byte: u8) -> bool {
+    is_qpdf_space(byte) || is_pdf_delimiter(byte)
+}
+
+/// The token qpdf reads at `at`, after spaces and `%` comments, when it is
+/// an integer: an optional sign, digits, then the end of the input or a
+/// delimiter. `Some(None)` is an integer no offset can be, such as `-1`.
+fn qpdf_integer(bytes: &[u8], mut at: usize) -> Option<Option<u64>> {
+    loop {
+        match bytes.get(at) {
+            Some(byte) if is_qpdf_space(*byte) => at += 1,
+            Some(b'%') => {
+                while bytes
+                    .get(at)
+                    .is_some_and(|byte| !matches!(byte, b'\r' | b'\n'))
+                {
+                    at += 1;
+                }
+            }
+            _ => break,
+        }
+    }
+    let negative = bytes.get(at) == Some(&b'-');
+    if matches!(bytes.get(at), Some(b'+' | b'-')) {
+        at += 1;
+    }
+    let digits = bytes[at.min(bytes.len())..]
+        .iter()
+        .take_while(|byte| byte.is_ascii_digit())
+        .count();
+    let end = at + digits;
+    if digits == 0 || bytes.get(end).is_some_and(|byte| !is_qpdf_delimiter(*byte)) {
+        return None;
+    }
+    let value = std::str::from_utf8(&bytes[at..end])
+        .ok()?
+        .parse::<u64>()
+        .ok();
+    Some(value.filter(|_| !negative))
+}
+
+/// The terminal cross-reference offset qpdf's locator reads, from `tail`,
+/// the file's bytes from `tail_start` to its end at `file_len`: the last
+/// `startxref` in the final 1054 bytes that qpdf's tokenizer reads as that
+/// word followed by an integer. Every append, of any size, extends this
+/// revision: qpdf reads appended files without recovery, and the indexed
+/// reader takes the same `startxref` only here. An integer no offset can be
+/// stops the search, as it makes qpdf refuse the file.
+pub(crate) fn qpdf_terminal_xref(tail: &[u8], tail_start: u64, file_len: u64) -> Option<u64> {
+    let window = usize::try_from(
+        file_len
+            .saturating_sub(QPDF_STARTXREF_SEARCH_BYTES)
+            .saturating_sub(tail_start),
+    )
+    .ok()?
+    .min(tail.len());
+    let mut end = tail.len();
+    while let Some(at) = find_last_bytes(&tail[window..end], b"startxref") {
+        let at = window + at;
+        let after = at + b"startxref".len();
+        let word_ends = tail.get(after).is_none_or(|byte| is_qpdf_delimiter(*byte));
+        if let Some(offset) = qpdf_integer(tail, after).filter(|_| word_ends) {
+            return offset;
+        }
+        end = after - 1;
+    }
+    None
+}
 
 struct TerminalXref {
     offset: u64,
@@ -185,6 +263,11 @@ fn append_admission_from(
         Ok(terminal) => terminal,
         Err(refusal) => return Ok(AppendAdmission::Repairable(refusal.to_string())),
     };
+    if qpdf_terminal_xref(&tail, tail_start, file_len) != Some(terminal.offset) {
+        return Ok(AppendAdmission::Repairable(
+            "PDF terminal startxref is not where qpdf reads it".to_string(),
+        ));
+    }
     if file_len > policy.max_encoded_bytes() as u64 {
         return large_base();
     }
@@ -413,14 +496,14 @@ mod tests {
         bytes
     }
 
-    /// The eager loader still opens the bases of image and text-layer
-    /// writers; annotation, label and OCR saves open theirs by index.
+    /// Appends open their base by index; split, overlay text and print
+    /// layout below their byte budgets still load the whole file eagerly.
     fn assert_admission_matches_appender(label: &str, bytes: &[u8], expected_appendable: bool) {
         let path = temp_path(label);
         fs::write(&path, bytes).unwrap();
         let admission = append_admission(&path, None).unwrap();
         let len = fs::metadata(&path).unwrap().len();
-        let appender_accepts = load_incremental_pdf_path(&path, None).is_ok()
+        let appender_accepts = load_pdf_path(&path).is_ok()
             && SourcePdf::open_append_base(bytes, len)
                 .and_then(|mut pdf| pdf.take_append_base())
                 .is_ok()
@@ -656,5 +739,40 @@ mod tests {
         }
         let _ = fs::remove_file(&qpdf_path);
         fs::remove_file(&path).unwrap();
+    }
+
+    /// What qpdf 12 without recovery reads of two revisions whose terminal
+    /// `startxref` is spelled each way: the newer one (222), the older one
+    /// (111) when the newer spelling is not an integer token, or nothing when
+    /// it is an integer no offset can be.
+    #[test]
+    fn qpdf_locator_tokenizes_the_terminal_offset_as_qpdf_does() {
+        let cases: [(&[u8], Option<u64>); 13] = [
+            (b"\n222\n", Some(222)),
+            (b"\n222\x0b\n", Some(222)),
+            (b"\x0b222\n", Some(222)),
+            (b"\x00222\n", Some(222)),
+            (b"\n%c\n222\n", Some(222)),
+            (b"\n%c\r222\n", Some(222)),
+            (b"\n222%c\n", Some(222)),
+            (b"\n+222\n", Some(222)),
+            (b"/222\n", Some(111)),
+            (b"222\n", Some(111)),
+            (b"\n222x\n", Some(111)),
+            (b"\n222.0\n", Some(111)),
+            (b"\n-5\n", None),
+        ];
+        for (terminal, expected) in cases {
+            let mut bytes = b"startxref\n111\n%%EOF\nxref\n3 1\n".to_vec();
+            bytes.extend_from_slice(b"startxref");
+            bytes.extend_from_slice(terminal);
+            bytes.extend_from_slice(b"%%EOF\n");
+            assert_eq!(
+                qpdf_terminal_xref(&bytes, 0, bytes.len() as u64),
+                expected,
+                "{}",
+                String::from_utf8_lossy(terminal).escape_debug()
+            );
+        }
     }
 }
