@@ -3,6 +3,8 @@ import {
     getDjvuNativeToolPaths,
     runDjvuSourceCommand,
 } from '@electron/features/djvu/main/nativeToolPaths';
+import { NativeProcessError } from '@electron/native-tools/processResult';
+import { mainJobBroker } from '@electron/resources/jobBroker';
 import { createHash } from 'node:crypto';
 import {
     mkdir,
@@ -26,12 +28,21 @@ import {
 } from '@electron/features/search/public';
 import {decodeDjvuString} from '@electron/features/djvu/main/decodeDjvuString';
 const DJVU_TEXT_TIMEOUT_MS = 10 * 60 * 1_000;
+const DJVU_PAGE_TEXT_TIMEOUT_MS = 30_000;
+// DjVuLibre indexes pages with a signed 32-bit int; larger numbers wrap or fail inside djvused.
+const DJVU_MAX_PAGE_NUMBER = 2_147_483_647;
 const DJVU_TEXT_MAX_PAGE_CHARS = 8 * 1024 * 1024;
 const DJVU_TEXT_MAX_PAGE_ZONES = 200_000;
 const DJVU_TEXT_MAX_TOKEN_CHARS = 1024 * 1024;
 const DJVU_TEXT_MAX_DEPTH = 64;
 const DJVU_TEXT_CAPTURED_STDERR_BYTES = 256 * 1024;
 const DJVU_SEARCH_MAX_WORDS_PER_MATCH = 256;
+const DJVU_PAGE_TEXT_BROKER_RESOURCES = {
+    cpuTokens: 1,
+    estimatedResidentBytes: 64 * 1024 * 1024,
+    nativeProcesses: 1,
+    ioWeight: 1,
+};
 const INTERNAL_STOP_REASON = Symbol('djvu-text-internal-stop');
 const OPEN_PAREN = 0x28;
 const CLOSE_PAREN = 0x29;
@@ -79,9 +90,11 @@ interface IDjvuTextParserOptions {
 }
 
 interface IDjvuTextStreamOptions extends IDjvuTextParserOptions {
+    commandLabel?: string;
     /** A djvused script; the default prints every page. */
     script?: string;
     signal?: AbortSignal | undefined;
+    timeoutMs?: number;
 }
 
 /** `/\s/u` for the code point at `index`, without a string per ASCII character. */
@@ -385,10 +398,10 @@ async function streamDjvuTextPages(filePath: string, options: IDjvuTextStreamOpt
             options.script ?? 'print-txt',
         ], 0, {
             env: buildDjvuRuntimeEnv(),
-            timeoutMs: DJVU_TEXT_TIMEOUT_MS,
+            timeoutMs: options.timeoutMs ?? DJVU_TEXT_TIMEOUT_MS,
             longLived: true,
             maxStderrBytes: DJVU_TEXT_CAPTURED_STDERR_BYTES,
-            commandLabel: 'djvused text stream',
+            commandLabel: options.commandLabel ?? 'djvused text stream',
             defaultCwdToCommandDir: true,
             prependCommandDirToPath: true,
             includeProcessEnv: true,
@@ -432,18 +445,57 @@ async function streamDjvuTextPages(filePath: string, options: IDjvuTextStreamOpt
     return {stop};
 }
 
-export async function readDjvuPageText(filePath: string, pageNumber: number) {
-    let pageText = '';
-    await streamDjvuTextPages(filePath, {onPage(page) {
-        if (page.pageNumber < pageNumber) {
-            return undefined;
-        }
-        if (page.pageNumber === pageNumber) {
-            pageText = page.text;
-        }
+function isDjvuPageNotFoundError(error: unknown, pageNumber: number) {
+    if (!(error instanceof NativeProcessError) || error.exitCode === 0) {
         return false;
-    }});
-    return pageText;
+    }
+    return new RegExp(`\\bpage\\s+"?${pageNumber}"?\\s+not\\s+found\\b`, 'iu').test(error.stderr);
+}
+
+export async function readDjvuPageText(
+    filePath: string,
+    pageNumber: number,
+    signal?: AbortSignal,
+) {
+    if (!Number.isSafeInteger(pageNumber) || pageNumber < 1 || pageNumber > DJVU_MAX_PAGE_NUMBER) {
+        return '';
+    }
+    signal?.throwIfAborted();
+    return mainJobBroker.run({
+        ownerId: 'djvu-page-text',
+        kind: 'djvu-page-text',
+        priority: 'visible',
+        admissionClass: 'interactive',
+        resources: DJVU_PAGE_TEXT_BROKER_RESOURCES,
+        ...(signal === undefined ? {} : {signal}),
+    }, async () => {
+        let pageText = '';
+        try {
+            await streamDjvuTextPages(filePath, {
+                commandLabel: 'djvused page text',
+                script: `select ${pageNumber}; print-txt`,
+                signal,
+                timeoutMs: DJVU_PAGE_TEXT_TIMEOUT_MS,
+                onPage(page) {
+                    if (page.pageNumber === 1) {
+                        pageText = page.text;
+                        return undefined;
+                    }
+                    return false;
+                },
+            });
+        } catch (error) {
+            if (
+                !signal?.aborted
+                && getUnprovenNativeTerminationDetail(error) === undefined
+                && isDjvuPageNotFoundError(error, pageNumber)
+            ) {
+                return '';
+            }
+            throw error;
+        }
+        return pageText;
+    });
 }
 
 function wordsForPageRange(page: IDjvuParsedTextPage, startOffset: number, endOffset: number) {

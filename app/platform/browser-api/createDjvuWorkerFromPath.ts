@@ -12,6 +12,7 @@ import {
     DJVU_COMPONENT_BASE_URL,
     loadDjvuJs,
     type IDjvuComponentDirectory,
+    type IDjvuComponentRequest,
     type IDjvuContentsItem,
     type IDjvuNormalizedTextZone,
     type IDjvuPageSize,
@@ -238,7 +239,14 @@ function throwIfCanceled(signal?: AbortSignal) {
     }
 }
 
-const pageTableCache = new Map<string, Promise<IDjvuPageSize[]>>();
+interface ICachedDjvuPageTableEntry {
+    promise: Promise<IDjvuPageSize[]>;
+    controller: AbortController | null;
+    waiters: number;
+    settled: boolean;
+}
+
+const pageTableCache = new Map<string, ICachedDjvuPageTableEntry>();
 
 export { getDjvuWorkerPageSizes };
 
@@ -252,30 +260,29 @@ async function readDjvuPageTable(
     directory: IDjvuComponentDirectory | null,
     signal?: AbortSignal,
 ): Promise<IDjvuPageSize[]> {
-    if (!directory) {
-        return [parseDjvuPageHead(await layout.readComponentHead({
+    throwIfCanceled(signal);
+    const pageRequests: IDjvuComponentRequest[] = directory
+        ? directory.flags.flatMap((flags, index) => (
+            (flags & DJVU_DIRM_TYPE_MASK) === DJVU_DIRM_PAGE_FLAG
+                ? [{
+                    index,
+                    name: directory.names[index] ?? '',
+                }]
+                : []
+        ))
+        : [{
             index: 0,
             name: '',
-        }), 1)];
+        }];
+    if (pageRequests.length === 0) {
+        return [];
     }
-    const pageSizes: IDjvuPageSize[] = [];
-    for (const [
-        index,
-        flags,
-    ] of directory.flags.entries()) {
-        if ((flags & DJVU_DIRM_TYPE_MASK) !== DJVU_DIRM_PAGE_FLAG) {
-            continue;
-        }
+    const heads = await layout.readComponentHeads(pageRequests, signal).catch((error: unknown) => {
         throwIfCanceled(signal);
-        pageSizes.push(parseDjvuPageHead(
-            await layout.readComponentHead({
-                index,
-                name: directory.names[index] ?? '',
-            }),
-            pageSizes.length + 1,
-        ));
-    }
-    return pageSizes;
+        throw error;
+    });
+    throwIfCanceled(signal);
+    return heads.map((head, pageIndex) => parseDjvuPageHead(head, pageIndex + 1));
 }
 
 async function readDjvuComponentDirectory(worker: IDjvuWorker) {
@@ -291,27 +298,76 @@ async function readDjvuComponentDirectory(worker: IDjvuWorker) {
 
 function readCachedDjvuPageTable(
     versionKey: string,
-    read: () => Promise<IDjvuPageSize[]>,
+    read: (signal?: AbortSignal) => Promise<IDjvuPageSize[]>,
+    signal?: AbortSignal,
 ) {
+    throwIfCanceled(signal);
     if (!versionKey) {
-        return read();
+        return read(signal);
     }
-    const cached = pageTableCache.get(versionKey);
-    if (cached) {
+    let entry = pageTableCache.get(versionKey);
+    if (entry) {
         pageTableCache.delete(versionKey);
-        pageTableCache.set(versionKey, cached);
-        return cached;
+        pageTableCache.set(versionKey, entry);
+    } else {
+        const controller = new AbortController();
+        const created: ICachedDjvuPageTableEntry = {
+            promise: Promise.resolve([]),
+            controller,
+            waiters: 0,
+            settled: false,
+        };
+        created.promise = read(controller.signal).finally(() => {
+            created.settled = true;
+            created.controller = null;
+        });
+        created.promise.catch(() => {
+            if (pageTableCache.get(versionKey) === created) {
+                pageTableCache.delete(versionKey);
+            }
+        });
+        entry = created;
+        pageTableCache.set(versionKey, created);
+        for (const key of pageTableCache.keys()) {
+            if (pageTableCache.size <= DJVU_PAGE_TABLE_CACHE_ENTRIES) break;
+            pageTableCache.delete(key);
+        }
     }
-    const pending = read();
-    pageTableCache.set(versionKey, pending);
-    pending.catch(() => {
-        if (pageTableCache.get(versionKey) === pending) pageTableCache.delete(versionKey);
+    if (entry.settled) {
+        return entry.promise;
+    }
+    const activeEntry = entry;
+    activeEntry.waiters += 1;
+    let released = false;
+    const releaseWaiter = () => {
+        if (released) {
+            return;
+        }
+        released = true;
+        activeEntry.waiters = Math.max(0, activeEntry.waiters - 1);
+    };
+    return new Promise<IDjvuPageSize[]>((resolve, reject) => {
+        const onAbort = () => {
+            releaseWaiter();
+            if (activeEntry.waiters === 0 && !activeEntry.settled) {
+                if (pageTableCache.get(versionKey) === activeEntry) {
+                    pageTableCache.delete(versionKey);
+                }
+                activeEntry.controller?.abort();
+            }
+            reject(new Error('DjVu conversion canceled'));
+        };
+        signal?.addEventListener('abort', onAbort, {once: true});
+        activeEntry.promise.then((value) => {
+            signal?.removeEventListener('abort', onAbort);
+            releaseWaiter();
+            resolve(value);
+        }, (error: unknown) => {
+            signal?.removeEventListener('abort', onAbort);
+            releaseWaiter();
+            reject(error);
+        });
     });
-    for (const key of pageTableCache.keys()) {
-        if (pageTableCache.size <= DJVU_PAGE_TABLE_CACHE_ENTRIES) break;
-        pageTableCache.delete(key);
-    }
-    return pending;
 }
 
 function buildBrowserDjvuSearchPage(
@@ -584,7 +640,8 @@ export async function createDjvuWorkerFromPath(
         throwIfCanceled(options.signal);
         const pageTable = await readCachedDjvuPageTable(
             source.versionKey,
-            () => readDjvuPageTable(layout, directory, options.signal),
+            sharedSignal => readDjvuPageTable(layout, directory, sharedSignal),
+            options.signal,
         );
         throwIfCanceled(options.signal);
         setDjvuWorkerPageSizes(openedWorker, pageTable);
