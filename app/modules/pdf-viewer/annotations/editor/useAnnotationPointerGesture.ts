@@ -17,6 +17,7 @@ import type {
     IAnnotationEditorPoint,
     TAnnotationResizeHandle,
 } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
+import { textNotePosition } from '@app/modules/pdf-viewer/engine/annotation-geometry/textNoteIconRect';
 import { hasPointerMovedPastThreshold } from '@app/modules/pdf-viewer/engine/pdf-shape-overlay-interactions/hasPointerMovedPastThreshold';
 
 interface IAnnotationPointerEvent {
@@ -200,10 +201,14 @@ export const useAnnotationPointerGesture = (
         }
         active.value = {
             moveBounds: [...options.surface.entitiesByPage.value.values()].flat().filter(entity => options.surface.movingIds.value.has(entity.identity.id) || entity.identity.id === annotationId).flatMap(entity => {
-                const bounds = rectForMovableEntity(options.surface.beginMove(entity.identity.id)?.entity ?? entity);
+                const moving = options.surface.beginMove(entity.identity.id)?.entity ?? entity;
+                const bounds = rectForMovableEntity(moving);
+                // A note is bounded by the icon its writer saves, so it stops where it will be saved.
                 return bounds ? [{
                     id: entity.identity.id,
-                    bounds: rotatedAnnotationBounds(bounds, 'rotation' in entity ? entity.rotation : 0, pageDimensions(entity.pageIndex)),
+                    bounds: moving.kind === 'note'
+                        ? textNotePosition(bounds, options.surface.getPageGeometry(entity.pageIndex))
+                        : rotatedAnnotationBounds(bounds, 'rotation' in entity ? entity.rotation : 0, pageDimensions(entity.pageIndex)),
                 }] : [];
             }),
             mode: 'move',

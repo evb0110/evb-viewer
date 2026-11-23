@@ -152,7 +152,12 @@ async function dragTabToOtherPane(page: Page, sourcePaneId: string, targetPaneId
 }
 
 describe('dirty tab transfer and annotation save', () => {
-    it('reopens a saved sticky note at the point where it was placed', async () => {
+    // The corner point is (3, 785) pt on the 612 x 792 pt page, inside the 10 pt
+    // the writer needs for the note's 20 pt icon.
+    it.each([
+        ['inside the page', {x: 0.3, y: 0.35}],
+        ['at the page corner', {x: 3 / 612, y: 7 / 792}],
+    ] as const)('reopens a saved sticky note placed %s where it was shown before Save', async (_label, anchor) => {
         outputDirectory = mkdtempSync(join(tmpdir(), 'evb-note-placement-save-'));
         const source = await createBlankFixturePdf(`note-placement-${Date.now()}.pdf`);
         const saved = join(outputDirectory, 'note.pdf');
@@ -167,25 +172,38 @@ describe('dirty tab transfer and annotation save', () => {
         await waitForViewerInteractive(page);
         await clickAnnotationTool(page, 'Note');
         const container = '.editor-pane.is-active .page_container[data-page="1"]';
-        const point = await page.$eval(container, element => {
+        const point = await page.$eval(container, (element, at) => {
             const rect = element.getBoundingClientRect();
             return {
-                x: rect.x + rect.width * 0.3,
-                y: rect.y + rect.height * 0.35,
+                x: rect.x + rect.width * at.x,
+                y: rect.y + rect.height * at.y,
             };
-        });
+        }, anchor);
         await page.mouse.click(point.x, point.y);
         await page.waitForSelector('textarea.note-window__textarea', {visible: true});
         await page.keyboard.type('Note placement round trip');
         await clickLatestVisibleNoteWindowClose(page);
         const marker = `${container} [data-annotation-kind="note"]`;
-        const expected = await page.$eval(container, (element, click) => {
+        // Where the note shows on its page: pixels from the page's top-left corner, and the same in page points.
+        const readNotePosition = (target: Page) => target.$eval(marker, (element) => {
             const rect = element.getBoundingClientRect();
+            const pageRect = element.closest('.page_container')!.getBoundingClientRect();
+            const x = rect.x + rect.width / 2 - pageRect.x;
+            const y = rect.y + rect.height / 2 - pageRect.y;
             return {
-                x: (click.x - rect.x) / rect.width,
-                y: (click.y - rect.y) / rect.height,
+                x,
+                y,
+                xPt: x / pageRect.width * 612,
+                yPt: y / pageRect.height * 792,
+                pageWidth: pageRect.width,
+                pageHeight: pageRect.height,
             };
-        }, point);
+        });
+        const placed = await readNotePosition(page);
+        if (anchor.x > 0.1) {
+            expect(Math.abs(placed.x - placed.pageWidth * anchor.x), `Placed note horizontal offset: ${JSON.stringify(placed)}`).toBeLessThanOrEqual(1);
+            expect(Math.abs(placed.y - placed.pageHeight * anchor.y), `Placed note vertical offset: ${JSON.stringify(placed)}`).toBeLessThanOrEqual(1);
+        }
         await saveViaVisibleToolbar(page, 30_000, saved);
         expect(await readPdfTextAnnotationRecords(saved)).toEqual(expect.arrayContaining([expect.objectContaining({
             contents: 'Note placement round trip',
@@ -199,16 +217,19 @@ describe('dirty tab transfer and annotation save', () => {
         await waitForPdfLoaded(session.page);
         await waitForViewerInteractive(session.page);
         await session.page.waitForSelector(marker, {visible: true});
-        const error = await session.page.$eval(marker, (element, anchor) => {
-            const rect = element.getBoundingClientRect();
-            const pageRect = element.closest('.page_container')!.getBoundingClientRect();
-            return {
-                x: rect.x + rect.width / 2 - (pageRect.x + pageRect.width * anchor.x),
-                y: rect.y + rect.height / 2 - (pageRect.y + pageRect.height * anchor.y),
-            };
-        }, expected);
-        expect(Math.abs(error.x), `Reopened note horizontal drift: ${JSON.stringify(error)}`).toBeLessThanOrEqual(1);
-        expect(Math.abs(error.y), `Reopened note vertical drift: ${JSON.stringify(error)}`).toBeLessThanOrEqual(1);
+        const reopened = await readNotePosition(session.page);
+        // Inside the page the note stays at the click. At the corner it stays where it was shown before Save.
+        // The reopened page can be laid out at another size, so compare where on the page, in its pixels.
+        const expected = anchor.x > 0.1 ? anchor : {
+            x: placed.x / placed.pageWidth,
+            y: placed.y / placed.pageHeight,
+        };
+        const drift = {
+            placed,
+            reopened,
+        };
+        expect(Math.abs(reopened.x - reopened.pageWidth * expected.x), `Reopened note horizontal drift: ${JSON.stringify(drift)}`).toBeLessThanOrEqual(1);
+        expect(Math.abs(reopened.y - reopened.pageHeight * expected.y), `Reopened note vertical drift: ${JSON.stringify(drift)}`).toBeLessThanOrEqual(1);
     }, 150_000);
 
     it('transfers the committed annotation and saves a later edit with it', async () => {

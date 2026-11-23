@@ -21,6 +21,8 @@ interface IBuildWorkspaceCheckpointSignatureOptions {
 
 export interface IWorkspaceCheckpointChangeSignature {
     workspace: string;
+    /** Which documents the window presents and where: tabs, panes, document identity and dirtiness. Not views or their mounting. */
+    structure: string;
     tabSignatures: Map<string, string>;
 }
 
@@ -39,21 +41,29 @@ function buildTabSignature(
     } catch {
         // A capture failure is reported by the checkpoint builder.
     }
-    return JSON.stringify([
+    // The document a tab holds, whether or not its view is mounted: a memory policy that unmounts
+    // background views must not turn a tab switch into an immediate write.
+    const structure = [
         tab.id,
         paneId,
         session ? describeTabDocument(session.snapshot.value) : null,
-        workspace !== null,
         identity?.revisionInfo?.documentRef ?? null,
-        toolbar?.hasPdf ?? null,
-        toolbar?.currentPage ?? null,
-        toolbar?.zoom ?? null,
-        toolbar?.zoomMode ?? null,
-        toolbar?.continuousScroll ?? null,
-        toolbar?.viewMode ?? null,
-        toolbar?.viewRotation ?? null,
-        refsSignature,
-    ]);
+    ];
+    return {
+        structure: JSON.stringify(structure),
+        full: JSON.stringify([
+            ...structure,
+            workspace !== null,
+            refsSignature,
+            toolbar?.hasPdf ?? null,
+            toolbar?.currentPage ?? null,
+            toolbar?.zoom ?? null,
+            toolbar?.zoomMode ?? null,
+            toolbar?.continuousScroll ?? null,
+            toolbar?.viewMode ?? null,
+            toolbar?.viewRotation ?? null,
+        ]),
+    };
 }
 
 // Distills every field the persisted checkpoint depends on into a cheap string
@@ -65,14 +75,18 @@ function buildTabSignature(
 export function buildWorkspaceCheckpointChangeSignature(
     options: IBuildWorkspaceCheckpointSignatureOptions,
 ): IWorkspaceCheckpointChangeSignature {
-    const tabSignatures = new Map(options.tabs.value.map(tab => [
+    const tabs = options.tabs.value.map(tab => [
         tab.id,
         buildTabSignature(
             tab,
             options.getPaneByTabId(tab.id)?.paneId ?? null,
             options.documentSessionsByTabId.value[tab.id],
         ),
-    ]));
+    ] as const);
+    const paneMembership = options.panes.value.map(pane => [
+        pane.paneId,
+        ...pane.tabIds,
+    ]);
     const workspace = JSON.stringify([
         options.activePaneId.value,
         options.activeTabId.value,
@@ -82,10 +96,14 @@ export function buildWorkspaceCheckpointChangeSignature(
             pane.activeTabId,
             ...pane.tabIds,
         ]),
-        [...tabSignatures.values()],
+        tabs.map(([, signature]) => signature.full),
     ]);
     return {
         workspace,
-        tabSignatures,
+        structure: JSON.stringify([
+            paneMembership,
+            tabs.map(([, signature]) => signature.structure),
+        ]),
+        tabSignatures: new Map(tabs.map(([tabId, signature]) => [tabId, signature.full])),
     };
 }

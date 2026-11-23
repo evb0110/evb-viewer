@@ -245,9 +245,10 @@ describe('useAnnotationPointerGesture', () => {
             y: 0.1,
         }, pointer(50, 10));
 
+        // The note stops where its 20 pt icon meets the edge. Committing it fits the saved rect inside the page.
         expect(harness.interaction.previewRect.value).toMatchObject({
             left: 0.4,
-            top: 0,
+            top: expect.closeTo(0, 12),
             width: 0.4,
             height: 0.2,
         });

@@ -207,6 +207,79 @@ describe('buildWorkspaceCheckpointChangeSignature', () => {
     });
 });
 
+describe('buildWorkspaceCheckpointChangeSignature structure', () => {
+    it('ignores view state and tracks which documents the window presents', () => {
+        const options = createSignatureOptions();
+        const session = options.documentSessionsByTabId.value['tab-a'];
+        const base = buildWorkspaceCheckpointChangeSignature(options);
+
+        session.getView('tab-a')?.publishToolbarSnapshot(toolbar({
+            hasPdf: true,
+            currentPage: 4,
+            totalPages: 30,
+            zoom: 1.5,
+        }));
+        options.activeTabId.value = requireTabId('tab-b');
+        const afterView = buildWorkspaceCheckpointChangeSignature(options);
+        expect(afterView.workspace).not.toBe(base.workspace);
+        expect(afterView.structure).toBe(base.structure);
+
+        session.assign({
+            fileName: 'opened.pdf',
+            originalPath: requireDocumentRef('/opened.pdf'),
+            documentInstanceId: requireDocumentInstanceId('document-opened'),
+            isDirty: false,
+            isDjvu: false,
+        });
+        const afterOpen = buildWorkspaceCheckpointChangeSignature(options);
+        expect(afterOpen.structure).not.toBe(afterView.structure);
+
+        setTestDocumentDirty(session, true);
+        const afterEdit = buildWorkspaceCheckpointChangeSignature(options);
+        expect(afterEdit.structure).not.toBe(afterOpen.structure);
+        setTestDocumentDirty(session, false);
+        const afterSave = buildWorkspaceCheckpointChangeSignature(options);
+        expect(afterSave.structure).not.toBe(afterEdit.structure);
+
+        options.tabs.value = [...options.tabs.value, {id: 'tab-c'}];
+        expect(buildWorkspaceCheckpointChangeSignature(options).structure).not.toBe(afterSave.structure);
+    });
+});
+
+describe('buildWorkspaceCheckpointChangeSignature structure across views', () => {
+    it('keeps the structure while a clean tab\'s view mounts, unmounts or reports refs, and changes it when a tab moves or closes', () => {
+        const options = createSignatureOptions();
+        const session = options.documentSessionsByTabId.value['tab-a'];
+        const base = buildWorkspaceCheckpointChangeSignature(options);
+        let workingCopy: TDocumentRef | null = null;
+        const workspace = {getToolbarSnapshot: createDefaultWorkspaceToolbarSnapshot} as IWorkspaceExpose;
+        workspace.getWorkspaceDocumentRefsSignature = () => [null, workingCopy, false];
+
+        // A memory policy unmounts background views on every tab switch.
+        session.attachWorkspace('tab-a', workspace);
+        const mounted = buildWorkspaceCheckpointChangeSignature(options);
+        expect(mounted.workspace).not.toBe(base.workspace);
+        expect(mounted.structure).toBe(base.structure);
+        workingCopy = requireDocumentRef('/working.pdf');
+        expect(buildWorkspaceCheckpointChangeSignature(options).structure).toBe(base.structure);
+        session.detachWorkspace('tab-a', workspace);
+        expect(buildWorkspaceCheckpointChangeSignature(options).structure).toBe(base.structure);
+
+        const otherPane: IEditorPaneState = {
+            paneId: requirePaneId('pane-2'),
+            tabIds: [requireTabId('tab-a')],
+            activeTabId: requireTabId('tab-a'),
+        };
+        expect(buildWorkspaceCheckpointChangeSignature({
+            ...options,
+            getPaneByTabId: () => otherPane,
+        }).structure).not.toBe(base.structure);
+
+        options.tabs.value = [{id: 'tab-a'}];
+        expect(buildWorkspaceCheckpointChangeSignature(options).structure).not.toBe(base.structure);
+    });
+});
+
 describe('buildWorkspaceCheckpoint', () => {
     it('fails closed when a mounted workspace snapshot cannot be captured', () => {
         const options = createSignatureOptions();
@@ -352,6 +425,177 @@ describe('useWorkspaceCrashCheckpoint', () => {
             } else {
                 window.electronAPI = originalElectronApi;
             }
+        }
+    });
+});
+
+describe('useWorkspaceCrashCheckpoint write timing', () => {
+    function mountCheckpoint(saveWorkspaceCheckpoint: (checkpoint: IWorkspaceCheckpoint) => Promise<boolean>) {
+        const options = createSignatureOptions();
+        const originalElectronApi = window.electronAPI;
+        window.electronAPI = createElectronPlatformApiFixture({windowTabs: {saveWorkspaceCheckpoint}});
+        let checkpoint!: ReturnType<typeof useWorkspaceCrashCheckpoint>;
+        const app = createApp({
+            setup() {
+                checkpoint = useWorkspaceCrashCheckpoint({
+                    ...options,
+                    enabled: ref(true),
+                    isStartupOpenClaimPending: ref(false),
+                });
+                return () => null;
+            },
+        });
+        app.mount(document.createElement('div'));
+        return {
+            options,
+            checkpoint,
+            dispose() {
+                app.unmount();
+                if (originalElectronApi === undefined) {
+                    delete window.electronAPI;
+                } else {
+                    window.electronAPI = originalElectronApi;
+                }
+            },
+        };
+    }
+
+    async function settle() {
+        for (let turn = 0; turn < 5; turn += 1) await nextEventLoopTurn();
+    }
+
+    it('writes an opened document at once and waits for the debounce on page and zoom changes', async () => {
+        vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']});
+        const saveWorkspaceCheckpoint = vi.fn(async (_checkpoint: IWorkspaceCheckpoint) => true);
+        const {options, dispose} = mountCheckpoint(saveWorkspaceCheckpoint);
+        try {
+            await settle();
+            saveWorkspaceCheckpoint.mockClear();
+            const session = options.documentSessionsByTabId.value['tab-a'];
+
+            session.getView('tab-a')?.publishToolbarSnapshot(toolbar({
+                hasPdf: true,
+                currentPage: 5,
+                totalPages: 30,
+                zoom: 2,
+            }));
+            await settle();
+            expect(saveWorkspaceCheckpoint).not.toHaveBeenCalled();
+            await vi.advanceTimersByTimeAsync(2_000);
+            await settle();
+            expect(saveWorkspaceCheckpoint).toHaveBeenCalledOnce();
+            saveWorkspaceCheckpoint.mockClear();
+
+            // Mounting a view, as a tab switch does, waits for the debounce too.
+            session.attachWorkspace('tab-a', createWorkspaceExposeFixture());
+            await settle();
+            expect(saveWorkspaceCheckpoint).not.toHaveBeenCalled();
+            await vi.advanceTimersByTimeAsync(2_000);
+            await settle();
+            expect(saveWorkspaceCheckpoint).toHaveBeenCalledOnce();
+            saveWorkspaceCheckpoint.mockClear();
+
+            session.assign({
+                fileName: 'opened.pdf',
+                originalPath: requireDocumentRef('/opened.pdf'),
+                documentInstanceId: requireDocumentInstanceId('document-opened'),
+                isDirty: false,
+                isDjvu: false,
+            });
+            await settle();
+            // No timer advanced: a crash now still finds the opened document.
+            expect(saveWorkspaceCheckpoint).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+                tabs: expect.arrayContaining([expect.objectContaining({
+                    tabId: 'tab-a',
+                    sourceRef: '/opened.pdf',
+                })]),
+            }));
+
+            saveWorkspaceCheckpoint.mockClear();
+            setTestDocumentDirty(session, true);
+            await settle();
+            setTestDocumentDirty(session, false);
+            await settle();
+            // Saving clears dirtiness, which is written at once too.
+            expect(saveWorkspaceCheckpoint).toHaveBeenCalledTimes(2);
+            expect(saveWorkspaceCheckpoint.mock.lastCall?.[0].tabs[0]).toEqual(expect.objectContaining({isDirty: false}));
+        } finally {
+            dispose();
+            vi.useRealTimers();
+        }
+    });
+
+    it('coalesces documents opened while a write is in flight into one follow-up write', async () => {
+        const finishWrite = Promise.withResolvers<void>();
+        const saved: IWorkspaceCheckpoint[] = [];
+        const saveWorkspaceCheckpoint = vi.fn(async (checkpoint: IWorkspaceCheckpoint) => {
+            saved.push(checkpoint);
+            if (saved.length === 2) await finishWrite.promise;
+            return true;
+        });
+        const {options, dispose} = mountCheckpoint(saveWorkspaceCheckpoint);
+        try {
+            await settle();
+            options.documentSessionsByTabId.value['tab-a'].assign({
+                fileName: 'first.pdf',
+                originalPath: requireDocumentRef('/first.pdf'),
+                documentInstanceId: requireDocumentInstanceId('document-first'),
+                isDirty: false,
+                isDjvu: false,
+            });
+            await settle();
+            // The first opened document's write is blocked. Three more documents open meanwhile.
+            for (const name of ['second', 'third', 'fourth']) {
+                options.documentSessionsByTabId.value['tab-b'].assign({
+                    fileName: `${name}.pdf`,
+                    originalPath: requireDocumentRef(`/${name}.pdf`),
+                    documentInstanceId: requireDocumentInstanceId(`document-${name}`),
+                    isDirty: false,
+                    isDjvu: false,
+                });
+                await settle();
+            }
+            expect(saveWorkspaceCheckpoint).toHaveBeenCalledTimes(2);
+            finishWrite.resolve();
+            await settle();
+            expect(saveWorkspaceCheckpoint).toHaveBeenCalledTimes(3);
+            expect(saved.at(-1)?.tabs.map(tab => tab.sourceRef)).toEqual(['/first.pdf', '/fourth.pdf']);
+        } finally {
+            finishWrite.resolve();
+            dispose();
+        }
+    });
+
+    it('resolves a write that replaced a failed one and rejects when the latest write fails', async () => {
+        const firstStarted = Promise.withResolvers<void>();
+        const failFirst = Promise.withResolvers<void>();
+        let calls = 0;
+        const saveWorkspaceCheckpoint = vi.fn(async (_checkpoint: IWorkspaceCheckpoint) => {
+            calls += 1;
+            if (calls === 1) {
+                firstStarted.resolve();
+                await failFirst.promise;
+                throw new Error('disk full');
+            }
+            if (calls === 3) throw new Error('still full');
+            return true;
+        });
+        const {options, checkpoint, dispose} = mountCheckpoint(saveWorkspaceCheckpoint);
+        try {
+            // The mount's write is in flight. A newer checkpoint queues behind it.
+            await firstStarted.promise;
+            options.activeTabId.value = requireTabId('tab-b');
+            const replacing = checkpoint.persistCheckpointNow();
+            await settle();
+            failFirst.resolve();
+            await expect(replacing).resolves.toBeUndefined();
+            expect(saveWorkspaceCheckpoint).toHaveBeenCalledTimes(2);
+            expect(saveWorkspaceCheckpoint.mock.lastCall?.[0]).toEqual(expect.objectContaining({activeTabId: 'tab-b'}));
+
+            await expect(checkpoint.persistCheckpointNow()).rejects.toThrow('still full');
+        } finally {
+            failFirst.resolve();
+            dispose();
         }
     });
 });

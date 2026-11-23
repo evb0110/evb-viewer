@@ -52,6 +52,7 @@ import {
 } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
 import { createPdfPagePointResolver } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/createPdfPagePointResolver';
 import { markerRectFromPoint } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/markerRectFromPoint';
+import { textNotePosition } from '@app/modules/pdf-viewer/engine/annotation-geometry/textNoteIconRect';
 import {useAnnotationTextSelectionCache} from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationTextSelectionCache';
 import {createAnnotationSelectionLifecycle} from '@app/modules/pdf-viewer/runtime/annotations/createAnnotationSelectionLifecycle';
 import {
@@ -697,9 +698,11 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                 return false;
             }
             const previous = entity.kind === 'note' ? entity.position : entity.kind === 'text-box' ? entity.rect : null;
-            if (previous && (['left', 'top', 'width', 'height'] as const).some(key => previous[key] !== rect[key])) {
+            // A note holds the icon its writer saves, so it does not move again on Save.
+            const next = entity.kind === 'note' ? textNotePosition(rect, annotationEditorSurface.getPageGeometry(entity.pageIndex)) : rect;
+            if (previous && (['left', 'top', 'width', 'height'] as const).some(key => previous[key] !== next[key])) {
                 if (entity.kind === 'note') {
-                    annotationApplication.value.store.updateNote(entity.identity.id, {position: rect});
+                    annotationApplication.value.store.updateNote(entity.identity.id, {position: next});
                 } else {
                     annotationApplication.value.store.updateTextBox(entity.identity.id, {rect});
                 }

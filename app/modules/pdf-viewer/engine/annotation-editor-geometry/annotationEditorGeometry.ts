@@ -312,9 +312,24 @@ export function clampAnnotationMoveDelta(rects: readonly IAnnotationMarkerRect[]
     const right = Math.max(...rects.map(rect => rect.left + rect.width));
     const bottom = Math.max(...rects.map(rect => rect.top + rect.height));
     return {
-        x: clamp(delta.x, Math.min(0, -left), Math.max(0, 1 - right)),
-        y: clamp(delta.y, Math.min(0, -top), Math.max(0, 1 - bottom)),
+        x: fitMoveDeltaInsidePage(rects, clamp(delta.x, Math.min(0, -left), Math.max(0, 1 - right)), 'left', 'width'),
+        y: fitMoveDeltaInsidePage(rects, clamp(delta.y, Math.min(0, -top), Math.max(0, 1 - bottom)), 'top', 'height'),
     };
+}
+
+// A delta of 1 - right can still end a moved rect past the page in float64, where the native save
+// refuses a marker whose start plus span exceeds 1. Step it back until every moved rect ends inside.
+function fitMoveDeltaInsidePage(
+    rects: readonly IAnnotationMarkerRect[],
+    delta: number,
+    start: 'left' | 'top',
+    span: 'width' | 'height',
+) {
+    let fitted = delta;
+    while (fitted > 0 && rects.some(rect => rect[start] + fitted + rect[span] > 1)) {
+        fitted = Math.max(0, fitted - Number.EPSILON);
+    }
+    return fitted;
 }
 
 export function resizeRotatedAnnotationRect(

@@ -145,6 +145,60 @@ it('does not reopen a document whose restore ended the renderer, says so, and ke
 });
 
 
+it('#353 restores a document the renderer crashed right after opening', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'evb-open-crash-'));
+    const firstPath = join(directory, 'first.pdf');
+    const openedPath = join(directory, 'opened-last.pdf');
+    copyFileSync(join(process.cwd(), 'tests/fixtures/release/packaged-core-smoke.pdf'), firstPath);
+    copyFileSync(firstPath, openedPath);
+    const session = await startElectronE2ESession(`e2e-open-crash-${Date.now()}`, {
+        clean: true,
+        initialOpenPaths: [firstPath],
+    });
+    try {
+        await waitForPdfLoaded(session.page, 60_000);
+        await waitForViewerInteractive(session.page, 60_000);
+        await expect.poll(() => JSON.stringify(readWorkspaceRecoveryRecords(session.name))
+            .includes('first.pdf'), {timeout: 60_000}).toBe(true);
+        const client = await session.page.createCDPSession();
+        // Marks this renderer's document, so the check below reads the recovered one.
+        await session.page.evaluate(() => {
+            document.documentElement.dataset.e2eBeforeCrash = 'true';
+        });
+        await session.page.evaluate(async (path: TDocumentRef) => {
+            await window.__allowRendererFileOpenForAutomation?.(path);
+            void window.__openFileDirect?.(path);
+        }, openedPath as TDocumentRef);
+        // The renderer ends, as running out of memory does, as soon as the
+        // opened document paints: well inside the layout checkpoint's
+        // debounce for view changes.
+        await session.page.waitForFunction(() => (
+            (document.querySelector('.tab.is-active')?.textContent ?? '').includes('opened-last.pdf')
+            && document.querySelectorAll('.workspace-host[data-workspace-active="true"] .page_container--rendered').length > 0
+        ), {
+            timeout: 60_000,
+            polling: 'mutation',
+        });
+        // The crash ends the target, so the request itself never answers.
+        void client.send('Page.crash').catch(() => undefined);
+        await expect.poll(() => session.page.evaluate(() => (
+            document.documentElement.dataset.e2eBeforeCrash === undefined
+            && document.querySelectorAll('.tab').length > 0
+        )).catch(() => false), {timeout: 60_000}).toBe(true);
+
+        await expect.poll(() => readTabTitles(session.page).catch(() => []), {timeout: 60_000}).toEqual([
+            'first.pdf',
+            'opened-last.pdf',
+        ]);
+    } finally {
+        await session.stop();
+        rmSync(directory, {
+            recursive: true,
+            force: true,
+        });
+    }
+});
+
 it('#1609 reports a corrupt orphan manifest through the existing recovery notice', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'evb-corrupt-manifest-1609-'));
     const original = join(directory, 'recovery-input.pdf');

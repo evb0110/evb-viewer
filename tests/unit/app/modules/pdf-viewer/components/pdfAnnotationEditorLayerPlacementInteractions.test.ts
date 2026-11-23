@@ -399,9 +399,12 @@ describe('PdfAnnotationEditorLayer placement interactions', () => {
         expect(host.querySelectorAll('[data-annotation-kind]')).toHaveLength(sameKind ? 1 : 2);
         if (sameKind) expect(target.classList.contains('is-selected')).toBe(true);
         const original = surface.getEntitiesForPage(0).find(entity => entity.identity.id === existing.identity.id)!;
-        const rect = original.kind === 'note' ? original.position : 'rect' in original ? original.rect : null;
-        expect(rect?.left).toBeCloseTo(sameKind ? 0.3 : 0.2);
-        expect(rect?.top).toBeCloseTo(sameKind ? 0.3 : 0.2);
+        const rectOf = (entity: typeof original) => entity.kind === 'note' ? entity.position : 'rect' in entity ? entity.rect : null;
+        // A note holds the icon its writer saves, so compare with where it was created.
+        const created = rectOf(existing)!;
+        const rect = rectOf(original);
+        expect(rect?.left).toBeCloseTo(created.left + (sameKind ? 0.1 : 0));
+        expect(rect?.top).toBeCloseTo(created.top + (sameKind ? 0.1 : 0));
     });
 
     it('consumes a stationary placement click after focus without hit-testing the new empty draft', async () => {
