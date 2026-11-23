@@ -1,4 +1,6 @@
-import type {IPdfViewerExpose, TPdfDocumentAnnotations} from '@app/modules/pdf-viewer/public';
+import {
+    CANONICAL_ANNOTATION_RECOVERY_VERSION, isAnnotationRecoveryWritten, type IPdfViewerExpose, type TPdfDocumentAnnotations,
+} from '@app/modules/pdf-viewer/public';
 import type {useMetadataSession} from '@app/modules/workspace-shell/composables/useMetadataSession';
 import type {useWorkspaceAnnotationSession} from '@app/modules/workspace-shell/composables/useWorkspaceAnnotationSession';
 import type {IWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
@@ -11,6 +13,8 @@ import {getWindowTabsCapability} from '@app/utils/platformWindowTabs';
 interface IDraftHold {
     released: PromiseWithResolvers<void>;
     failedInstance?: string | null;
+    /** A draft the replay could not apply, such as one naming no recovered annotation, stays stored as a failed replay. */
+    retained?: boolean;
 }
 
 interface IWorkspaceDocumentRecoveryOptions {
@@ -37,24 +41,11 @@ export function createWorkspaceDocumentRecovery(options: IWorkspaceDocumentRecov
         const viewer = pdfViewer();
         if (controller.snapshot.value.phase !== 'presented' || !viewer?.captureCanonicalAnnotationRecovery) return null;
         const recovery: IWorkspaceDocumentRecovery = {
-            ...viewer.captureCanonicalAnnotationRecovery((entities) => {
-                const revisions = new Map(entities.map(entity => [entity.identity.id, entity.revision]));
-                return annotations.captureAnnotationNoteDrafts(id => revisions.get(id) ?? null);
-            }),
+            ...viewer.captureCanonicalAnnotationRecovery(revisionOf => annotations.captureAnnotationNoteDrafts(revisionOf)),
             metadata: structuredClone(metadata.captureRecovery()),
         };
-        // An open editor's text counts as written once the bytes hold that text.
-        const drafts = new Map(recovery.drafts.map(draft => [draft.annotationId, draft]));
-        const edited = recovery.entities.map((entity) => {
-            const draft = drafts.get(entity.identity.id);
-            if (!draft || (entity.kind !== 'note' && entity.kind !== 'text-markup' && entity.kind !== 'text-box')) return entity;
-            drafts.delete(entity.identity.id);
-            return entity.kind === 'text-box'
-                ? {...entity, text: draft.text, rect: draft.geometry ?? entity.rect}
-                : {...entity, contents: draft.text};
-        });
-        const unwritten = drafts.size > 0 || recovery.metadata?.bookmarks !== undefined || recovery.metadata?.pageLabels !== undefined
-            || pdfDocumentAnnotations.application.value.store.hasChangesSinceWorkingBaseline(edited);
+        const unwritten = !isAnnotationRecoveryWritten(recovery)
+            || recovery.metadata?.bookmarks !== undefined || recovery.metadata?.pageLabels !== undefined;
         return unwritten ? recovery : undefined;
     }
 
@@ -138,7 +129,7 @@ export function createWorkspaceDocumentRecovery(options: IWorkspaceDocumentRecov
             if (!read || hold !== waiting.hold || documentInstanceId !== waiting.hold.failedInstance || revisionInfo?.token !== waiting.revision) {
                 return;
             }
-            replay(pdfViewer(), waiting.value);
+            if (replay(pdfViewer(), waiting.value).draftErrors?.length) return;
             hold = null;
             markStale();
         }).catch(options.reportFailure);
@@ -150,6 +141,10 @@ export function createWorkspaceDocumentRecovery(options: IWorkspaceDocumentRecov
         if (!recovery) throw new Error('Canonical annotation recovery is unavailable');
         recovery.drafts.forEach(draft => annotations.restoreAnnotationNoteDraft(draft));
         if (recoveredMetadata) metadata.restoreRecovery(recoveredMetadata);
+        if (recovery.draftErrors?.length) {
+            if (hold) hold.retained = true;
+            options.reportFailure(new Error('Recovered editor text that matches no recovered annotation stays stored'));
+        }
         return recovery;
     }
 
@@ -164,7 +159,7 @@ export function createWorkspaceDocumentRecovery(options: IWorkspaceDocumentRecov
             return (applied: boolean) => {
                 if (hold !== current) return;
                 current.released.resolve();
-                if (!applied) {
+                if (!applied || current.retained) {
                     current.failedInstance = controller.snapshot.value.identity.documentInstanceId;
                     return;
                 }
@@ -173,14 +168,17 @@ export function createWorkspaceDocumentRecovery(options: IWorkspaceDocumentRecov
             };
         },
         /**
-         * Puts recovered drafts back through `viewer`, the view the restored tab shows. Drafts captured from another
-         * read than that of the recovered bytes take that read's geometry, so they wait for it; when it fails they stay
-         * stored. While no view has the document loaded, the replay waits for its first read and the drafts stay held.
+         * Puts recovered drafts back through `viewer`, the view the restored tab shows. A plan of changes applies onto
+         * the read of the recovered bytes, which holds everything else, and drafts captured from another read take that
+         * read's geometry, so both wait for it; when it fails they stay stored. While no view has the document loaded,
+         * the replay waits for its first read and the drafts stay held.
          */
         restoreCanonicalAnnotationRecovery: async (viewer: IPdfViewerExpose | null, value: unknown) => {
             const readRevision = isRecord(value) ? value.annotationReadRevision : undefined;
             const {documentInstanceId, revisionInfo} = controller.snapshot.value.identity;
-            if (readRevision !== undefined && readRevision !== revisionInfo?.token) {
+            const plan = isRecord(value) && value.version === CANONICAL_ANNOTATION_RECOVERY_VERSION;
+            const unread = plan && pdfDocumentAnnotations.application.value.store.readRevision !== (revisionInfo?.token ?? null);
+            if (unread || (readRevision !== undefined && readRevision !== revisionInfo?.token)) {
                 const joined = pdfDocumentAnnotations.joinRead();
                 if (joined === null) {
                     // The settle of the hold this replaces no longer releases the writer; resolve any caller awaiting it.
