@@ -92,17 +92,17 @@ fn classify_refusal(error: Box<dyn Error>) -> Result<AppendAdmission> {
     }
 }
 
-/// Runs the append loaders' structural acceptance without loading the
-/// document: the terminal-xref guard, then for an eager base lopdf's
-/// startxref locator and the loader's cross-reference chain preflight. A
-/// larger base gets qpdf's page-tree read with recovery off and the loader's
-/// page ceiling; its full structural read costs seconds, so it is not run here
-/// and such a base is never called appendable. Object-level damage that only a
-/// full load meets is not judged either.
+/// Runs the append loaders' structural acceptance: the terminal-xref guard,
+/// then for an eager base lopdf's startxref locator and the loader's
+/// cross-reference chain preflight. A larger base gets qpdf's page-tree read
+/// with recovery off and the loader's page ceiling; its full qpdf structural
+/// read costs seconds, so it is not run here and such a base is never called
+/// appendable. Every base then gets the indexed read annotation, label and OCR
+/// saves open it with (`indexed_base_admission`).
 pub(crate) fn append_admission(path: &Path, qpdf_path: Option<&Path>) -> Result<AppendAdmission> {
     let mut file = File::open(path).map_err(io_domain_error)?;
     let file_len = file.metadata().map_err(io_domain_error)?.len();
-    append_admission_from(&mut file, file_len, PDF_PATH_LOAD_POLICY, || {
+    let admission = append_admission_from(&mut file, file_len, PDF_PATH_LOAD_POLICY, || {
         let qpdf_path = qpdf_path.ok_or_else(large_base_needs_qpdf)?;
         let temp = TempQpdfFiles::create()?;
         match run_qpdf_bounded(
@@ -115,16 +115,46 @@ pub(crate) fn append_admission(path: &Path, qpdf_path: Option<&Path>) -> Result<
             Ok(_) => large_base_admission(&temp),
             Err(error) => classify_refusal(error),
         }
-    })
+    })?;
+    indexed_base_admission(admission, &file, file_len)
+}
+
+/// Saves open their base through the cross-reference index, which refuses
+/// damage the chain preflight does not reach, such as an entry that points at
+/// another object, as `corrupt-xref`: a rewrite repairs that. A resource
+/// ceiling the index meets is a limit. Any other refusal, such as encryption
+/// the unlock flow removes or a damaged page tree, is the save's to report.
+fn indexed_base_admission<S: ByteSource>(
+    admission: AppendAdmission,
+    source: S,
+    len: u64,
+) -> Result<AppendAdmission> {
+    if !matches!(
+        admission,
+        AppendAdmission::Appendable | AppendAdmission::Unverified(_)
+    ) {
+        return Ok(admission);
+    }
+    let Err(error) =
+        SourcePdf::open_append_base(source, len).and_then(|mut pdf| pdf.take_append_base())
+    else {
+        return Ok(admission);
+    };
+    match error.downcast_ref::<NativeError>().map(|error| error.code) {
+        Some(NativeErrorCode::CorruptXref) => Ok(AppendAdmission::Repairable(error.to_string())),
+        Some(NativeErrorCode::TooLarge) => Ok(AppendAdmission::Limited(error.to_string())),
+        // A file that cannot be read was not judged.
+        Some(NativeErrorCode::Io) => Err(error),
+        _ => Ok(admission),
+    }
 }
 
 /// The same admission for a PDF held in memory, as the browser holds its
-/// working copies. The browser loads every base eagerly from one request
-/// buffer, so it judges against that reader's policy: only a base its buffer
-/// cannot carry is refused, as the engine limit it is.
+/// working copies, judged against the browser buffer's policy: only a base its
+/// buffer cannot carry is refused, as the engine limit it is.
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 pub(crate) fn append_admission_of_bytes(bytes: &[u8]) -> Result<AppendAdmission> {
-    append_admission_from(
+    let admission = append_admission_from(
         &mut std::io::Cursor::new(bytes),
         u64::try_from(bytes.len())?,
         BROWSER_PDF_LOAD_POLICY,
@@ -133,7 +163,8 @@ pub(crate) fn append_admission_of_bytes(bytes: &[u8]) -> Result<AppendAdmission>
                 "PDF exceeds the browser engine's request buffer".to_string(),
             ))
         },
-    )
+    )?;
+    indexed_base_admission(admission, bytes, u64::try_from(bytes.len())?)
 }
 
 fn large_base_needs_qpdf() -> Box<dyn Error> {
@@ -382,12 +413,17 @@ mod tests {
         bytes
     }
 
+    /// The eager loader still opens the bases of image and text-layer
+    /// writers; annotation, label and OCR saves open theirs by index.
     fn assert_admission_matches_appender(label: &str, bytes: &[u8], expected_appendable: bool) {
         let path = temp_path(label);
         fs::write(&path, bytes).unwrap();
         let admission = append_admission(&path, None).unwrap();
         let len = fs::metadata(&path).unwrap().len();
         let appender_accepts = load_incremental_pdf_path(&path, None).is_ok()
+            && SourcePdf::open_append_base(bytes, len)
+                .and_then(|mut pdf| pdf.take_append_base())
+                .is_ok()
             && read_terminal_xref(&path, len).is_ok();
         fs::remove_file(&path).unwrap();
         assert_eq!(
@@ -568,11 +604,36 @@ mod tests {
     fn large_base_admission_reports_repair_limit_or_unverified() {
         let path = temp_path("large-sparse");
         let mut file = File::create(&path).unwrap();
-        let tail = b"startxref\n9\n%%EOF\n";
-        let len = MAX_ENCODED_PDF_BYTES as u64 + 1024;
-        file.set_len(len - tail.len() as u64).unwrap();
-        file.seek(SeekFrom::End(0)).unwrap();
-        file.write_all(tail).unwrap();
+        // One page over a stream that lifts the file past the eager ceiling,
+        // left sparse.
+        let mut offsets = Vec::new();
+        for object in [
+            "<</Type/Catalog/Pages 2 0 R>>",
+            "<</Type/Pages/Count 1/Kids[3 0 R]>>",
+            "<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 100]>>",
+        ] {
+            if offsets.is_empty() {
+                file.write_all(b"%PDF-1.7\n").unwrap();
+            }
+            offsets.push(file.stream_position().unwrap());
+            let number = offsets.len();
+            write!(file, "{number} 0 obj\n{object}\nendobj\n").unwrap();
+        }
+        let padding = MAX_ENCODED_PDF_BYTES as u64;
+        offsets.push(file.stream_position().unwrap());
+        write!(file, "4 0 obj\n<</Length {padding}>>\nstream\n").unwrap();
+        file.seek(SeekFrom::Current(padding as i64)).unwrap();
+        file.write_all(b"\nendstream\nendobj\n").unwrap();
+        let xref = file.stream_position().unwrap();
+        file.write_all(b"xref\n0 5\n0000000000 65535 f \n").unwrap();
+        for offset in offsets {
+            writeln!(file, "{offset:010} 00000 n ").unwrap();
+        }
+        write!(
+            file,
+            "trailer\n<</Size 5/Root 1 0 R>>\nstartxref\n{xref}\n%%EOF\n"
+        )
+        .unwrap();
         drop(file);
         let qpdf_path = temp_path("large-fake-qpdf");
         for (script, expected) in [

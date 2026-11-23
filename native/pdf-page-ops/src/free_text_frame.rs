@@ -141,7 +141,9 @@ impl FreeTextFrame {
 /// shading, an image or a form. One absent or unread is unknown, so it can.
 fn appearance_fills(document: &impl PdfObjectSource, annotation: &Dictionary) -> bool {
     let ap = entry(document, annotation, b"AP").and_then(|ap| ap.as_dict().ok());
-    let normal = ap.and_then(|ap| entry(document, ap, b"N")?.as_stream().ok());
+    let normal = ap
+        .and_then(|ap| entry(document, ap, b"N")?.as_stream().ok())
+        .filter(|stream| !is_unread_base_stream(document, stream));
     let limit = MAX_STAMP_APPEARANCE_STREAM_BYTES;
     let bytes = normal.and_then(|n| plain_stream_with_limit(n, limit).ok());
     let content = bytes.and_then(|bytes| parse_content(&bytes).ok()?.ok());
@@ -149,6 +151,94 @@ fn appearance_fills(document: &impl PdfObjectSource, annotation: &Dictionary) ->
         ["f", "F", "f*", "B", "B*", "b", "b*", "sh", "Do", "BI"].contains(&o.operator.as_str())
     };
     content.is_none_or(|c| c.operations.iter().any(fills))
+}
+
+/// The object of a label's normal appearance, when it is one stream.
+fn normal_appearance(document: &impl PdfObjectSource, annotation: &Dictionary) -> Option<ObjectId> {
+    let ap = entry(document, annotation, b"AP")?.as_dict().ok()?;
+    ap.get(b"N").ok()?.as_reference().ok()
+}
+
+/// Reads, from `source`, the normal appearances of the FreeText labels on the
+/// pages `mutations` edit text boxes on, and of each label they address by
+/// object, by text box or geometry update, wherever it is listed now, as one
+/// a geometry update moves from another page: `appearance_fills` decides from them whether a label's /C is
+/// its fill. One that cannot be read stays unknown.
+pub(crate) fn materialize_free_text_appearances(
+    incremental: &mut IncrementalDocument,
+    source: StructuralSource<'_>,
+    mutations: &NativeMutationsFile,
+) -> Result<()> {
+    let text_boxes = &mutations.text_boxes;
+    if text_boxes.is_empty() && mutations.geometry_updates.is_empty() {
+        return Ok(());
+    }
+    let mut appearances = Vec::new();
+    {
+        let document = &*incremental;
+        let addressed = text_boxes
+            .iter()
+            .filter_map(|editor| parse_pdfjs_annotation_object_id(editor.annotation_id.as_deref()?))
+            .chain(
+                mutations
+                    .geometry_updates
+                    .iter()
+                    .map(|update| (update.object_number, update.generation_number)),
+            );
+        for id in addressed {
+            if let Ok(dict) = document.dictionary(id) {
+                if dict.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"FreeText") {
+                    appearances.extend(normal_appearance(document, dict));
+                }
+            }
+        }
+        let pages = PageLookup::new(document, document.located_pages())?;
+        let page_numbers = text_boxes
+            .iter()
+            .filter_map(|editor| mutation_page_number(editor.page_index).ok())
+            .collect::<std::collections::BTreeSet<_>>();
+        for page_number in page_numbers {
+            let Ok(page_id) = pages.page_id(document, page_number) else {
+                continue;
+            };
+            for annotation in get_page_annots(document, page_id)? {
+                let Some(dict) = document
+                    .resolved(&annotation)
+                    .ok()
+                    .and_then(|object| object.as_dict().ok())
+                else {
+                    continue;
+                };
+                if dict.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"FreeText") {
+                    appearances.extend(normal_appearance(document, dict));
+                }
+            }
+        }
+    }
+    let mut seen = HashSet::new();
+    let mut remaining = MAX_PLACED_IMAGE_AGGREGATE_BYTES as usize;
+    for id in appearances {
+        if !seen.insert(id) {
+            continue;
+        }
+        if remaining == 0 {
+            break;
+        }
+        let limit = remaining.min(MAX_STAMP_APPEARANCE_STREAM_BYTES);
+        if incremental
+            .materialize_base_stream(source, id, limit)
+            .is_ok()
+        {
+            if let Ok(stream) = incremental
+                .get_prev_documents()
+                .get_object(id)
+                .and_then(Object::as_stream)
+            {
+                remaining = remaining.saturating_sub(stream.content.len());
+            }
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn free_text_frame(

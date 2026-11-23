@@ -1567,8 +1567,8 @@ fn scanned_file_sidecars_match_the_eager_reader() {
     );
 
     // An appearance declaring /Length 5 over no data: qpdf reads the object as
-    // null and only warns, while the eager load rejects the file. Below the
-    // ceiling annotation parsing must report it the eager way.
+    // null and only warns, the eager load rejects the file, and the indexed
+    // reader ends the stream at its endstream.
     write_scanned_annotation_pdf(
         &with_damaged_appearance,
         IMAGE_BYTES,
@@ -1632,16 +1632,15 @@ fn scanned_file_sidecars_match_the_eager_reader() {
     } else {
         assert_eq!(geometry, Err("too-large".to_string()));
     }
-    for with_qpdf in [false, true] {
-        assert_eq!(
-            page_ops_sidecar(
-                &with_damaged_appearance,
-                &["parse-annotations", "--modified-at", "D:20261009120000Z"],
-                with_qpdf
-            ),
-            Err("too-large".to_string())
-        );
-    }
+    // The indexed reader finds the damaged appearance's end at its
+    // endstream, with or without qpdf.
+    let parse = &["parse-annotations", "--modified-at", "D:20261009120000Z"];
+    let parsed = page_ops_sidecar(&with_damaged_appearance, parse, false);
+    assert!(parsed.is_ok(), "{parsed:?}");
+    assert_eq!(
+        page_ops_sidecar(&with_damaged_appearance, parse, true),
+        parsed
+    );
 }
 
 #[test]
@@ -1885,15 +1884,16 @@ fn a_failed_batch_read_keeps_each_note_whose_appearance_qpdf_can_read() {
 
 #[cfg(unix)]
 #[test]
-fn two_hundred_notes_above_the_structural_ceiling_read_their_appearances_in_one_qpdf_run() {
+fn two_hundred_notes_above_the_structural_ceiling_read_their_appearances_without_qpdf() {
     use std::os::unix::fs::PermissionsExt;
 
     let large = temp_path("note-batch-large", "pdf");
     let wrapper = temp_path("note-batch-qpdf", "sh");
     let log = temp_path("note-batch-qpdf", "log");
     let _cleanup = TempFiles::disk_heavy(vec![large.clone(), wrapper.clone(), log.clone()]);
-    // Each note's normal appearance is an unread stream above the structural
-    // ceiling. The parse must read them together, not spawn qpdf per note.
+    // Each note's normal appearance is a stream the index leaves in the file.
+    // The parse reads them by range and never spawns qpdf, which once ran
+    // per note.
     let mut objects = Vec::new();
     for note in 0..200_u32 {
         // A 20 by 10 grid of 10-point cells on the 200 by 100 page.
@@ -1945,10 +1945,8 @@ fn two_hundred_notes_above_the_structural_ceiling_read_their_appearances_in_one_
         .map(|note| (5 + 2 * note, "note".to_string()))
         .collect();
     assert_eq!(kinds, expected);
-    // The structural load and one batch read; the per-note spawns of the
-    // previous reader made more than two hundred runs.
-    let runs = fs::read_to_string(&log).unwrap().lines().count();
-    assert!(runs <= 3, "qpdf ran {runs} times for 200 notes");
+    let runs = fs::read_to_string(&log).map_or(0, |log| log.lines().count());
+    assert_eq!(runs, 0, "qpdf ran {runs} times for 200 notes");
 }
 
 #[test]
@@ -2673,7 +2671,7 @@ fn page_tree_deletes_match_whole_writes_and_scope_recursive_threads() {
     let heavy = temp_path("delete-closure-heavy", "pdf");
     let mutations = temp_path("delete-closure-mutations", "json");
     let report = temp_path("delete-closure-report", "json");
-    // Each later delete reads the ownership snapshot the earlier one wrote.
+    // The host still names an ownership cache, which saves leave unused.
     let cache = temp_path("delete-closure-ownership", "d");
     let _cleanup = TempFiles::disk_heavy(vec![
         small.clone(),
@@ -2720,7 +2718,7 @@ fn page_tree_deletes_match_whole_writes_and_scope_recursive_threads() {
                 String::from_utf8_lossy(&output.stderr)
             );
             let effects: Value = serde_json::from_slice(&fs::read(&report).unwrap()).unwrap();
-            if path != &small {
+            {
                 assert_eq!(
                     effects["annotationDeleteEffects"]["affectedPageIndices"],
                     if payload["shapes"].is_object() {
@@ -2754,12 +2752,11 @@ fn page_tree_deletes_match_whole_writes_and_scope_recursive_threads() {
         assert_eq!(states[0], states[1]);
         assert_eq!(states[0], states[2]);
     }
-    // The larger files read pages alone, and each of their saves leaves a snapshot.
-    assert!(fs::read_dir(&cache).unwrap().count() > 0);
+    assert!(!cache.exists());
 }
 
 #[test]
-fn orphan_only_ownership_is_ignored_only_above_the_byte_ceiling() {
+fn orphan_only_ownership_is_ignored_at_every_size() {
     let mutations = temp_path("orphan-delete", "json");
     fs::write(
         &mutations,
@@ -2781,16 +2778,14 @@ fn orphan_only_ownership_is_ignored_only_above_the_byte_ceiling() {
             shown_object(path, 6).as_slice(),
             b"null\n" | b"null\r\n"
         ));
-        assert_eq!(
-            matches!(shown_object(path, 16).as_slice(), b"null\n" | b"null\r\n"),
-            !padded
-        );
-        assert_eq!(
-            shown_object(path, 15)
-                .windows(b"6 0 R".len())
-                .any(|part| part == b"6 0 R"),
-            padded
-        );
+        // Deletion ownership is the catalog page tree: the orphan page and
+        // its reply are outside the document the viewer displays.
+        assert!(shown_object(path, 16)
+            .windows(b"(orphan reply)".len())
+            .any(|part| part == b"(orphan reply)"));
+        assert!(shown_object(path, 15)
+            .windows(b"6 0 R".len())
+            .any(|part| part == b"6 0 R"));
         assert_eq!(
             parse_annotations(path, &qpdf_path(), Some(&[1, 2, 3])).1,
             parse_annotations(path, &qpdf_path(), None).1
@@ -2798,14 +2793,13 @@ fn orphan_only_ownership_is_ignored_only_above_the_byte_ceiling() {
     }
 }
 
-#[cfg(unix)]
+/// A delete on a large, dense file reads its base through the index, which
+/// needs no qpdf library or command.
 #[test]
-fn delete_without_the_bundled_scan_keeps_the_whole_load_refusal() {
-    use std::os::unix::fs::PermissionsExt;
+fn delete_on_a_dense_large_file_needs_no_qpdf() {
     let pdf = temp_path("delete-no-library", "pdf");
     let mutations = temp_path("delete-no-library", "json");
-    let wrapper = temp_path("delete-no-library", "sh");
-    let _cleanup = TempFiles::disk_heavy(vec![pdf.clone(), mutations.clone(), wrapper.clone()]);
+    let _cleanup = TempFiles::disk_heavy(vec![pdf.clone(), mutations.clone()]);
     write_page_local_note_pdf(&pdf, true, true);
     let size = fs::metadata(&pdf).unwrap().len();
     fs::write(
@@ -2813,22 +2807,29 @@ fn delete_without_the_bundled_scan_keeps_the_whole_load_refusal() {
         br#"{"deletes":[{"pageIndex":0,"objectNumber":6,"generationNumber":0}]}"#,
     )
     .unwrap();
-    fs::write(
-        &wrapper,
-        format!("#!/bin/sh\nexec '{}' \"$@\"\n", qpdf_path().display()),
-    )
-    .unwrap();
-    fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o700)).unwrap();
-    let output = save_mutations_with_qpdf(
-        &pdf,
-        &mutations,
-        &["--append", "--append-in-place"],
-        &wrapper,
+    let output = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .arg("save-mutations")
+        .arg("--input")
+        .arg(&pdf)
+        .arg("--output")
+        .arg(&pdf)
+        .arg("--mutations-file")
+        .arg(&mutations)
+        .args([
+            "--modified-at",
+            "D:20261009120000Z",
+            "--append",
+            "--append-in-place",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
     );
-    assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("too-large"));
-    assert_eq!(fs::metadata(&pdf).unwrap().len(), size);
-    assert!(shown_object(&pdf, 6)
+    assert!(fs::metadata(&pdf).unwrap().len() > size);
+    assert!(!shown_object(&pdf, 6)
         .windows(11)
         .any(|part| part == b"legacy note"));
 }
@@ -2852,7 +2853,7 @@ fn existing_annotation_edits_match_whole_writes_and_scoped_readback() {
             .map(|size| temp_path(&format!("existing-{kind}-{size}"), "pdf"));
         let mutations = temp_path("existing-edits", "json");
         let report = temp_path("existing-edits-report", "json");
-        // The edit reads the ownership snapshot the seed's deletes wrote.
+        // The host still names an ownership cache, which saves leave unused.
         let cache = temp_path("existing-edits-ownership", "d");
         let _cleanup = TempFiles::disk_heavy(
             files
@@ -2959,13 +2960,12 @@ fn existing_annotation_edits_match_whole_writes_and_scoped_readback() {
                 pdf.display(),
                 String::from_utf8_lossy(&output.stderr)
             );
+            // Only the edited page changes; a rewrite keeps the omitted shape.
             let effects: Value = serde_json::from_slice(&fs::read(&report).unwrap()).unwrap();
-            if index != 0 {
-                assert_eq!(
-                    effects["annotationDeleteEffects"]["affectedPageIndices"],
-                    json!(scope)
-                );
-            }
+            assert_eq!(
+                effects["annotationDeleteEffects"]["affectedPageIndices"],
+                json!([0])
+            );
             // qpdf orders dictionaries differently from the byte loader. Compare
             // their canonical saved dictionaries and exact appearance/font bytes;
             // absolute xref offsets also differ with the input padding.
@@ -3042,87 +3042,71 @@ fn existing_annotation_edits_match_whole_writes_and_scoped_readback() {
         }
         assert_eq!(appended[0], appended[1], "{kind}: whole vs padded");
         assert_eq!(appended[0], appended[2], "{kind}: whole vs heavy");
-        assert!(
-            fs::read_dir(&cache).unwrap().count() > 0,
-            "{kind}: no snapshot"
-        );
+        // Saves keep no ownership snapshot; the host's cache path goes unused.
+        assert!(!cache.exists(), "{kind}: a save wrote a snapshot");
     }
 }
 
 #[cfg(unix)]
+/// Ambiguous names and a missing bundled library once sent a large save to a
+/// whole qpdf load these dense arrays exceed. The indexed reader holds the
+/// whole document at either size, and a large save writes, or refuses, as a
+/// small one does.
 #[test]
-fn existing_targets_keep_whole_fallback_for_ambiguous_names_and_missing_library() {
+fn existing_targets_save_as_the_small_file_does_for_ambiguous_names_and_missing_library() {
     use serde_json::json;
-    use std::os::unix::fs::PermissionsExt;
-    let pdf = temp_path("existing-fallback", "pdf");
+    let small = temp_path("existing-fallback-small", "pdf");
+    let large = temp_path("existing-fallback-large", "pdf");
     let mutations = temp_path("existing-fallback", "json");
-    let wrapper = temp_path("existing-fallback", "sh");
-    let _cleanup = TempFiles::disk_heavy(vec![pdf.clone(), mutations.clone(), wrapper.clone()]);
+    let _cleanup = TempFiles::disk_heavy(vec![small.clone(), large.clone(), mutations.clone()]);
     let heavy = format!("[{}]", "0 ".repeat(900_000));
     let shape = b"<</Type/Annot/Subtype/Square/Rect[10 10 30 30]/NM(evb-shape:duplicate)/P 3 0 R>>";
     let markup = b"<</Type/Annot/Subtype/Highlight/Rect[10 10 30 30]/QuadPoints[10 30 30 30 10 10 30 10]/NM(duplicate-markup)/P 3 0 R>>";
     let text = b"<</Type/Annot/Subtype/FreeText/Rect[10 10 80 30]/DA(/Helv 12 Tf 0 g)/Contents(before)/NM(duplicate-box)/P 3 0 R>>";
-    write_scanned_annotation_pdf(
-        &pdf,
-        STRUCTURAL_LOADER_STREAM_BYTES,
-        &[
-            shape,
-            shape,
-            markup,
-            markup,
-            text,
-            text,
-            heavy.as_bytes(),
-            heavy.as_bytes(),
-            heavy.as_bytes(),
-            heavy.as_bytes(),
-            heavy.as_bytes(),
-        ],
-        &[5, 6, 7, 8, 9, 10],
-    );
-    fs::write(
-        &wrapper,
-        format!("#!/bin/sh\nexec '{}' \"$@\"\n", qpdf_path().display()),
-    )
-    .unwrap();
-    fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o700)).unwrap();
-    let size = fs::metadata(&pdf).unwrap().len();
-    for (payload, qpdf) in [
-        (
-            json!({"shapes":{"totalPages":1,"shapes":[],"deletedStableKeys":["evb-shape:duplicate"]}}),
-            qpdf_path(),
-        ),
-        (
-            json!({"textBoxes":[{"pageIndex":0,"stableKey":"duplicate-box","text":"after","rect":[10,10,80,30],"rotation":0,"fontSize":12,"color":[0,0,0]}]}),
-            qpdf_path(),
-        ),
-        (
-            json!({"markup":{"hints":[{"pageIndex":0,"appAnnotationId":"duplicate-markup","source":"editor","subtype":"Highlight","markerRect":{"left":0.05,"top":0.7,"width":0.1,"height":0.2}}]}}),
-            qpdf_path(),
-        ),
-        (
-            json!({"shapes":{"totalPages":1,"shapes":[],"deletedAnnotationIds":["5R"]}}),
-            wrapper.clone(),
-        ),
-        (
-            json!({"markup":{"hints":[{"pageIndex":0,"annotationId":"7R","source":"pdf","subtype":"Underline","markerRect":{"left":0.05,"top":0.7,"width":0.1,"height":0.2}}]}}),
-            wrapper.clone(),
-        ),
-        (
-            json!({"textBoxes":[{"pageIndex":0,"annotationId":"9R","stableKey":"duplicate-box","text":"after","rect":[10,10,80,30],"rotation":0,"fontSize":12,"color":[0,0,0]}]}),
-            wrapper.clone(),
-        ),
+    for payload in [
+        json!({"shapes":{"totalPages":1,"shapes":[],"deletedStableKeys":["evb-shape:duplicate"]}}),
+        json!({"textBoxes":[{"pageIndex":0,"stableKey":"duplicate-box","text":"after","rect":[10,10,80,30],"rotation":0,"fontSize":12,"color":[0,0,0]}]}),
+        json!({"markup":{"hints":[{"pageIndex":0,"appAnnotationId":"duplicate-markup","source":"editor","subtype":"Highlight","markerRect":{"left":0.05,"top":0.7,"width":0.1,"height":0.2}}]}}),
+        json!({"shapes":{"totalPages":1,"shapes":[],"deletedAnnotationIds":["5R"]}}),
+        json!({"markup":{"hints":[{"pageIndex":0,"annotationId":"7R","source":"pdf","subtype":"Underline","markerRect":{"left":0.05,"top":0.7,"width":0.1,"height":0.2}}]}}),
+        json!({"textBoxes":[{"pageIndex":0,"annotationId":"9R","stableKey":"duplicate-box","text":"after","rect":[10,10,80,30],"rotation":0,"fontSize":12,"color":[0,0,0]}]}),
     ] {
+        // Each case starts from fresh files.
+        for (path, image_bytes) in [(&small, 0), (&large, STRUCTURAL_LOADER_STREAM_BYTES)] {
+            write_scanned_annotation_pdf(
+                path,
+                image_bytes,
+                &[
+                    shape,
+                    shape,
+                    markup,
+                    markup,
+                    text,
+                    text,
+                    heavy.as_bytes(),
+                    heavy.as_bytes(),
+                    heavy.as_bytes(),
+                    heavy.as_bytes(),
+                    heavy.as_bytes(),
+                ],
+                &[5, 6, 7, 8, 9, 10],
+            );
+        }
         fs::write(&mutations, payload.to_string()).unwrap();
-        let output =
-            save_mutations_with_qpdf(&pdf, &mutations, &["--append", "--append-in-place"], &qpdf);
-        assert!(!output.status.success());
-        assert!(
-            String::from_utf8_lossy(&output.stderr).contains("too-large"),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
+        let outcomes = [&small, &large].map(|path| {
+            let size = fs::metadata(path).unwrap().len();
+            let output = append_mutations_in_place(path, &mutations);
+            if !output.status.success() {
+                assert_eq!(fs::metadata(path).unwrap().len(), size, "{payload}");
+            }
+            (output.status.success(), output.stderr)
+        });
+        assert_eq!(outcomes[0], outcomes[1], "{payload}");
+        assert_eq!(
+            parsed_annotation_entries(&large),
+            parsed_annotation_entries(&small),
+            "{payload}"
         );
-        assert_eq!(fs::metadata(&pdf).unwrap().len(), size);
     }
 }
 

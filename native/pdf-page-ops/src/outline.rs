@@ -5,7 +5,6 @@ use evb_native_support::pdf_catalog::{
     BookmarkSourceTarget, MAX_BOOKMARK_ACTION_SIZE,
 };
 use lopdf::dictionary;
-use std::collections::BTreeSet;
 
 mod actions;
 pub(crate) mod names;
@@ -609,37 +608,6 @@ fn set_catalog_outlines(catalog: &mut Dictionary, outlines: Option<ObjectId>) {
     }
 }
 
-/// The pages a bookmark rewrite reads, or `None` when a destination names a
-/// page object, which only a walk of the whole page tree places.
-pub(crate) fn bookmark_pages(bookmarks: Option<&BookmarksMutation>) -> Option<BTreeSet<u32>> {
-    fn collect(items: &[BookmarkEntry], pages: &mut BTreeSet<u32>) -> Option<()> {
-        for item in items {
-            let target = item.original_destination.as_ref().map(|d| &d.source_target);
-            match (&item.named_dest, item.page_index, target) {
-                (Some(_), ..) | (None, None, None) => {}
-                (None, Some(index), _)
-                | (None, None, Some(&BookmarkSourceTarget::PageIndex(index))) => {
-                    pages.insert(index);
-                }
-                (None, None, Some(BookmarkSourceTarget::Reference { .. })) => return None,
-            }
-            collect(&item.items, pages)?;
-        }
-        Some(())
-    }
-    let mut pages = BTreeSet::new();
-    let Some(bookmarks) = bookmarks else {
-        return Some(pages);
-    };
-    let items = normalize_bookmark_entries(
-        &bookmarks.items,
-        bookmarks.total_pages,
-        &bookmarks.untitled_label,
-    );
-    collect(&items, &mut pages)?;
-    Some(pages)
-}
-
 fn normalized_bookmarks(
     source: &impl PdfObjectSource,
     page_resolver: &PageLookup<'_>,
@@ -700,42 +668,6 @@ pub(crate) fn outline_level_item_at(
         current = document.dictionary(current)?.get(b"Next")?.as_reference()?;
     }
     Ok(current)
-}
-
-/// Reads, through `load`, the outline items a later chunk at `path` rewrites:
-/// the outline root, each level's items up to the one the path names, and the
-/// extended level's last item. Nothing they reference is read.
-pub(crate) fn load_outline_path(
-    document: &mut Document,
-    path: &[u32],
-    mut load: impl FnMut(&mut Document, ObjectId) -> Result<()>,
-) -> Result<()> {
-    let catalog = document.dictionary(document.root_id()?)?;
-    let Ok(mut parent) = catalog.get(b"Outlines").and_then(Object::as_reference) else {
-        return Ok(());
-    };
-    let mut seen = BTreeSet::new();
-    let mut read = |document: &mut Document, id: ObjectId| -> Result<()> {
-        if !seen.insert(id) {
-            return Err("Bookmark outline repeats an item".into());
-        }
-        load(document, id)
-    };
-    read(document, parent)?;
-    for index in path {
-        let mut item = document.dictionary(parent)?.get(b"First")?.as_reference()?;
-        read(document, item)?;
-        for _ in 0..*index {
-            item = document.dictionary(item)?.get(b"Next")?.as_reference()?;
-            read(document, item)?;
-        }
-        parent = item;
-    }
-    let last = document.dictionary(parent)?.get(b"Last");
-    match last.and_then(Object::as_reference) {
-        Ok(last) => read(document, last),
-        Err(_) => Ok(()),
-    }
 }
 
 fn append_bookmarks(

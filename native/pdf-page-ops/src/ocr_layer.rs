@@ -693,36 +693,33 @@ fn evb_ocr_layer_lines(bytes: &[u8]) -> Option<Vec<OcrLayerLine>> {
 
 /// Reports, per requested page, the evidence OCR page selection and text
 /// extraction need about existing text, read with the scan the writer
-/// replaces text through, from one load of the document.
+/// replaces text through, from one indexed read of the document.
 pub(crate) fn write_ocr_text_visibility(
     input_path: &Path,
     page_numbers: &[u32],
     with_evb_ocr_text: bool,
-    qpdf_path: Option<&Path>,
     output: &mut impl Write,
 ) -> Result<()> {
-    let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
-        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    let report = inspect_ocr_text_visibility(
-        &mut incremental,
-        StructuralSource::for_path(input_path, qpdf_path),
+    let (file, len) = open_source_file(input_path)?;
+    output.write_all(&ocr_text_visibility_from_source(
+        file,
+        len,
         page_numbers,
         with_evb_ocr_text,
-    )?;
-    serde_json::to_writer(output, &report)?;
+    )?)?;
     Ok(())
 }
 
-/// The browser's `ocrTextVisibility` operation over a document read by range,
+/// The `ocrTextVisibility` operation over a document read by range,
 /// serialized as `ocr-text-visibility` prints it.
-#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 pub(crate) fn ocr_text_visibility_from_source<S: ByteSource>(
     source: S,
     len: u64,
     page_numbers: &[u32],
     with_evb_ocr_text: bool,
 ) -> Result<Vec<u8>> {
-    let mut source = SourcePdf::open(source, len)?;
+    let mut source = SourcePdf::open(source, len)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
     let mut incremental = source.take_append_base()?;
     let report = inspect_ocr_text_visibility(
         &mut incremental,
@@ -859,30 +856,58 @@ fn apply_ocr_text_layer<S>(
     Ok(())
 }
 
+/// Appends the text layer `instructions` describe to the PDF at
+/// `input_path`, whose pages it reads through the file's index, and replaces
+/// `output_path` with the result once it is verified.
 pub(crate) fn write_ocr_text_layer_path(
     input_path: &Path,
     output_path: &Path,
     instructions: &OcrTextLayerFile<PathBuf>,
-    qpdf_path: Option<&Path>,
 ) -> Result<()> {
-    let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
-        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    apply_ocr_text_layer(
-        &mut incremental,
-        StructuralSource::for_path(input_path, qpdf_path),
-        instructions,
-        |path: &PathBuf| load_ocr_source(path),
-    )?;
+    // The staged copy must hold the revision the layer was built on.
+    let source_witness = evb_native_support::output::PathRevisionWitness::capture(input_path)
+        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
+    let (file, len) = open_source_file(input_path)?;
+    let (mut incremental, _) = ocr_text_layer_base(file, len, instructions, |path: &PathBuf| {
+        load_ocr_source(path)
+    })?;
     let revision_bytes = build_incremental_revision(&mut incremental)?;
     let expected_object_ids = collect_incremental_append_object_ids(&incremental);
-    with_staged_incremental_output(input_path, output_path, |staged_output_path| {
-        write_incremental_revision(
-            staged_output_path,
-            &incremental,
-            &revision_bytes,
-            &expected_object_ids,
-        )
-    })
+    with_staged_incremental_output_for_revision(
+        input_path,
+        output_path,
+        Some(&source_witness),
+        |staged_output_path| {
+            write_incremental_revision(
+                staged_output_path,
+                &incremental,
+                &revision_bytes,
+                &expected_object_ids,
+            )
+        },
+    )
+}
+
+/// The append base `source` holds, with the text layer `instructions` write
+/// into it, and the document's page count.
+fn ocr_text_layer_base<S: ByteSource, P>(
+    source: S,
+    len: u64,
+    instructions: &OcrTextLayerFile<P>,
+    load_source: impl FnMut(&P) -> Result<Document>,
+) -> Result<(IncrementalDocument, u32)> {
+    let mut source = SourcePdf::open_append_base(source, len)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    let mut incremental = source.take_append_base()?;
+    let page_count = u32::try_from(incremental.previous_document.get_pages().len())
+        .map_err(|_| "PDF page count exceeds the response range")?;
+    apply_ocr_text_layer(
+        &mut incremental,
+        Some(StructuralSource::Ranges(&source)),
+        instructions,
+        load_source,
+    )?;
+    Ok((incremental, page_count))
 }
 
 /// The browser's `ocrTextLayer` operation: appends the text layer to the
@@ -900,15 +925,8 @@ pub(crate) fn ocr_text_layer_to_source<S: ByteSource>(
     let instructions: OcrTextLayerFile<usize> =
         parse_json_sidecar_bytes(instructions, "OCR text-layer instructions")?;
     validate_ocr_text_layer(&instructions)?;
-    let mut source = SourcePdf::open_append_base(source, len)?;
-    let mut incremental = source.take_append_base()?;
-    let page_count = u32::try_from(incremental.previous_document.get_pages().len())
-        .map_err(|_| "PDF page count exceeds the WASM response range")?;
-    apply_ocr_text_layer(
-        &mut incremental,
-        Some(StructuralSource::Ranges(&source)),
-        &instructions,
-        |&index| {
+    let (mut incremental, page_count) =
+        ocr_text_layer_base(source, len, &instructions, |&index| {
             let bytes = page_pdf(index)?;
             if bytes.is_empty() || bytes.len() as u64 > MAX_OCR_SOURCE_PDF_BYTES {
                 return Err(ocr_source_length_error(
@@ -917,8 +935,7 @@ pub(crate) fn ocr_text_layer_to_source<S: ByteSource>(
                 ));
             }
             checked_ocr_source(load_pdf_bytes(&bytes))
-        },
-    )?;
+        })?;
     let revision = appended_revision_bytes(&mut incremental)?;
     validate_incremental_append_bytes(
         &write(&revision)?,

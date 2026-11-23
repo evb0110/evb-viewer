@@ -623,7 +623,7 @@ fn appends_private_staged_mutations_in_place_and_rolls_back_failed_revisions() {
     document.save_to(&mut original_bytes).unwrap();
     write(&pdf_path, &original_bytes).unwrap();
 
-    append_native_mutations_in_place_with_qpdf(
+    append_native_mutations_in_place(
         &pdf_path,
         &pdf_path,
         &NativeMutationsFile {
@@ -636,7 +636,6 @@ fn appends_private_staged_mutations_in_place_and_rolls_back_failed_revisions() {
         },
         "D:20260609123456+03'00'",
         None,
-        None,
     )
     .unwrap();
 
@@ -644,7 +643,7 @@ fn appends_private_staged_mutations_in_place_and_rolls_back_failed_revisions() {
     assert!(after_success.starts_with(&original_bytes));
     assert!(after_success.len() > original_bytes.len());
 
-    let failed_revision = append_native_mutations_in_place_with_qpdf(
+    let failed_revision = append_native_mutations_in_place(
         &pdf_path,
         &pdf_path,
         &NativeMutationsFile {
@@ -656,7 +655,6 @@ fn appends_private_staged_mutations_in_place_and_rolls_back_failed_revisions() {
             ..NativeMutationsFile::default()
         },
         "D:20260609123456+03'00'",
-        None,
         None,
     );
     assert!(failed_revision.is_err());
@@ -700,12 +698,11 @@ fn windows_in_place_append_succeeds_when_delete_sharing_is_denied() {
         ..NativeMutationsFile::default()
     };
 
-    let staged_error = append_native_mutations_with_qpdf(
+    let staged_error = append_native_mutations_path(
         &pdf_path,
         &pdf_path,
         &mutations,
         "D:20260609123456Z",
-        None,
         None,
     )
     .expect_err("staged publication must require delete sharing");
@@ -715,12 +712,11 @@ fn windows_in_place_append_succeeds_when_delete_sharing_is_denied() {
     );
     assert_eq!(read(&pdf_path).unwrap(), original_bytes);
 
-    append_native_mutations_in_place_with_qpdf(
+    append_native_mutations_in_place(
         &pdf_path,
         &pdf_path,
         &mutations,
         "D:20260609123456Z",
-        None,
         None,
     )
     .unwrap();
@@ -747,7 +743,7 @@ fn rejects_private_staged_append_to_a_distinct_output_path() {
     write(&input_path, &original_bytes).unwrap();
     write(&output_path, &original_bytes).unwrap();
 
-    let error = append_native_mutations_in_place_with_qpdf(
+    let error = append_native_mutations_in_place(
         &input_path,
         &output_path,
         &NativeMutationsFile {
@@ -759,7 +755,6 @@ fn rejects_private_staged_append_to_a_distinct_output_path() {
             ..NativeMutationsFile::default()
         },
         "D:20260609123456Z",
-        None,
         None,
     )
     .unwrap_err();
@@ -3566,4 +3561,193 @@ fn appearance_projection_shares_font_subsets_and_preserves_fit_normalization() {
     }
     let normalized = build_text_box_appearance_pdf(parse_text_box_appearance_request(&serde_json::to_vec(&normalized).unwrap()).unwrap()).unwrap();
     assert_eq!(projected.data, normalized.data);
+}
+
+/// Two 200 by 100 pages; returns the document and both page ids.
+fn two_page_document() -> (Document, ObjectId, ObjectId) {
+    let mut document = Document::with_version("1.7");
+    let pages_id = document.new_object_id();
+    let page = |document: &mut Document| {
+        document.add_object(dictionary! {
+            "Type" => "Page", "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+        })
+    };
+    let first = page(&mut document);
+    let second = page(&mut document);
+    document.set_object(
+        pages_id,
+        dictionary! {"Type" => "Pages", "Kids" => vec![first.into(), second.into()], "Count" => 2},
+    );
+    let catalog = document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages_id});
+    document.trailer.set("Root", catalog);
+    (document, first, second)
+}
+
+fn set_annots(document: &mut Document, page: ObjectId, annots: &[ObjectId]) {
+    let annots: Vec<Object> = annots.iter().map(|id| Object::Reference(*id)).collect();
+    document
+        .get_dictionary_mut(page)
+        .unwrap()
+        .set("Annots", annots);
+}
+
+fn saved_bytes(document: &mut Document) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    document.save_to(&mut bytes).unwrap();
+    bytes
+}
+
+#[test]
+fn a_foreign_label_moved_and_edited_in_one_save_keeps_its_frame_rule() {
+    // Its appearance draws text only, so its /C is no fill and an edit drops
+    // it, as the eager reader decided; read by index, the appearance sits on
+    // the page the label leaves.
+    let (mut document, first, second) = two_page_document();
+    let appearance = document.add_object(Stream::new(
+        dictionary! {"Type" => "XObject", "Subtype" => "Form", "BBox" => vec![0.into(), 0.into(), 140.into(), 50.into()]},
+        b"BT /Helv 12 Tf 2 2 Td (label) Tj ET".to_vec(),
+    ));
+    let label = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "FreeText", "P" => first,
+        "Rect" => vec![20.into(), 30.into(), 160.into(), 80.into()],
+        "NM" => Object::string_literal("moved-label"),
+        "Contents" => Object::string_literal("label"),
+        "DA" => Object::string_literal("/Helv 12 Tf 0.2 0.3 0.4 rg"),
+        "C" => vec![0.2.into(), 0.3.into(), 0.4.into()],
+        "AP" => dictionary! {"N" => appearance},
+    });
+    set_annots(&mut document, first, &[label]);
+    let input = saved_bytes(&mut document);
+    let mutations = read_native_mutations_bytes(
+        serde_json::json!({
+            "geometryUpdates": [{"objectNumber": label.0, "generationNumber": label.1, "pageIndex": 1,
+                "markerRect": {"left": 0.1, "top": 0.2, "width": 0.7, "height": 0.5}}],
+            "textBoxes": [{"pageIndex": 1, "annotationId": format!("{} {} R", label.0, label.1),
+                "stableKey": "moved-label", "text": "moved", "rect": [20, 30, 160, 80],
+                "rotation": 0, "fontSize": 12, "color": [17, 24, 39]}],
+        })
+        .to_string()
+        .as_bytes(),
+    )
+    .unwrap();
+    let saved = append_native_mutations_to_bytes(&input, &mutations, "D:20261123000000Z").unwrap();
+    let saved = Document::load_mem(&saved.data).unwrap();
+    assert!(!get_page_annots(&saved, first)
+        .unwrap()
+        .contains(&Object::Reference(label)));
+    assert!(get_page_annots(&saved, second)
+        .unwrap()
+        .contains(&Object::Reference(label)));
+    assert!(saved.get_dictionary(label).unwrap().get(b"C").is_err());
+}
+
+#[test]
+fn a_note_with_a_rollover_appearance_parses_as_a_note() {
+    let (mut document, page) = create_test_document();
+    let form = |document: &mut Document, content: &[u8]| {
+        document.add_object(Stream::new(
+            dictionary! {"Type" => "XObject", "Subtype" => "Form", "BBox" => vec![0.into(), 0.into(), 20.into(), 20.into()]},
+            content.to_vec(),
+        ))
+    };
+    let normal = form(&mut document, b"0 0 1 rg 0 0 20 20 re f");
+    let rollover = form(&mut document, b"1 0 0 rg 0 0 20 20 re f");
+    let note = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Text", "P" => page,
+        "Rect" => vec![10.into(), 10.into(), 30.into(), 30.into()],
+        "NM" => Object::string_literal("rollover-note"),
+        "Contents" => Object::string_literal("a note"),
+        "AP" => dictionary! {"N" => normal, "R" => rollover},
+    });
+    set_annots(&mut document, page, &[note]);
+    let bytes = saved_bytes(&mut document);
+    let parsed = annotation_parse_from_source(&bytes[..], bytes.len() as u64, 1 << 20).unwrap();
+    let parsed = String::from_utf8(parsed).unwrap();
+    assert!(parsed.contains(r#""kind":"note""#), "{parsed}");
+    assert!(!parsed.contains(r#""kind":"foreign""#), "{parsed}");
+}
+
+#[test]
+fn a_save_report_scope_holds_the_parent_of_each_reply_it_holds() {
+    // An edit on the second page re-reads it, and its foreign reply lists
+    // under a note on the first page, which the scope must then hold too.
+    let (mut document, first, second) = two_page_document();
+    let note = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Text", "P" => first,
+        "Rect" => vec![10.into(), 10.into(), 30.into(), 30.into()],
+        "NM" => Object::string_literal("parent-note"),
+        "Contents" => Object::string_literal("parent"),
+    });
+    let reply = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Text", "P" => second, "IRT" => note,
+        "Rect" => vec![10.into(), 10.into(), 30.into(), 30.into()],
+        "Contents" => 123,
+    });
+    set_annots(&mut document, first, &[note]);
+    set_annots(&mut document, second, &[reply]);
+    let input_path = temp_pdf_path("report-scope-input");
+    let output_path = temp_pdf_path("report-scope-output");
+    let report_path = temp_pdf_path("report-scope-report");
+    let _cleanup = RemovePdfFilesOnDrop([input_path.clone(), output_path.clone()]);
+    let bytes = saved_bytes(&mut document);
+    write(&input_path, &bytes).unwrap();
+    write(&output_path, &bytes).unwrap();
+    let mutations = read_native_mutations_bytes(
+        br##"{"shapes":{"totalPages":2,"shapes":[{"type":"rectangle","pageIndex":1,"x":0.5,"y":0.2,"width":0.2,"height":0.1,"color":"#336699","opacity":1,"strokeWidth":2,"stableKey":"evb-shape:scope"}]}}"##,
+    )
+    .unwrap();
+    append_native_mutations_path(
+        &input_path,
+        &output_path,
+        &mutations,
+        "D:20261123000000Z",
+        Some(&report_path),
+    )
+    .unwrap();
+    let report: serde_json::Value = serde_json::from_slice(&read(&report_path).unwrap()).unwrap();
+    let _ = remove_file(&report_path);
+    assert_eq!(
+        report["annotationDeleteEffects"]["affectedPageIndices"],
+        serde_json::json!([0, 1])
+    );
+}
+
+#[test]
+fn a_delete_leaves_a_page_dictionary_outside_the_page_tree_alone() {
+    // A custom catalog key keeps an orphan /Page reachable; it is not part of
+    // the document, so a delete does not rewrite its /Annots.
+    let (mut document, page) = create_test_document();
+    let note = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Text", "P" => page,
+        "Rect" => vec![10.into(), 10.into(), 30.into(), 30.into()],
+        "NM" => Object::string_literal("kept-by-orphan"),
+        "Contents" => Object::string_literal("note"),
+    });
+    set_annots(&mut document, page, &[note]);
+    let orphan = document.add_object(dictionary! {
+        "Type" => "Page",
+        "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+        "Annots" => vec![Object::Reference(note)],
+    });
+    let root = document.trailer.get(b"Root").unwrap().as_reference().unwrap();
+    document
+        .get_dictionary_mut(root)
+        .unwrap()
+        .set("EVBKeep", Object::Reference(orphan));
+    let input = saved_bytes(&mut document);
+    let mutations = read_native_mutations_bytes(
+        serde_json::json!({"deletes": [{"pageIndex": 0, "objectNumber": note.0, "generationNumber": note.1}]})
+            .to_string()
+            .as_bytes(),
+    )
+    .unwrap();
+    let saved = append_native_mutations_to_bytes(&input, &mutations, "D:20261123000000Z").unwrap();
+    let saved = Document::load_mem(&saved.data).unwrap();
+    assert!(!get_page_annots(&saved, page)
+        .unwrap()
+        .contains(&Object::Reference(note)));
+    assert!(get_page_annots(&saved, orphan)
+        .unwrap()
+        .contains(&Object::Reference(note)));
 }

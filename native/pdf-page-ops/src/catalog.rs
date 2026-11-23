@@ -415,54 +415,6 @@ fn collect_existing_page_label_entries(
     Ok(entries)
 }
 
-/// A later chunk of a bookmark or page-label save, which extends what the
-/// earlier chunks wrote.
-pub(crate) fn is_catalog_continuation(continuation: &NativeMutationContinuation) -> bool {
-    matches!(
-        continuation.family,
-        NativeMutationContinuationFamily::Bookmarks | NativeMutationContinuationFamily::PageLabels
-    )
-}
-
-/// The page-local base for `edit`. A later page-label chunk also reads the
-/// label tree it extends, with everything that tree references; a later
-/// bookmark chunk reads its outline path through `edit.outline`.
-pub(crate) fn load_page_local_catalog(
-    path: &Path,
-    qpdf: &Path,
-    mutations: &NativeMutationsFile,
-    edit: &mut PageLocalEdit,
-) -> Result<Option<IncrementalDocument>> {
-    let base = load_qpdf_page_local_incremental_pdf(path, qpdf, edit)?;
-    if mutations.continuation.as_ref().map(|value| value.family)
-        != Some(NativeMutationContinuationFamily::PageLabels)
-    {
-        return Ok(base);
-    }
-    let Some(document) = base.as_ref().map(IncrementalDocument::get_prev_documents) else {
-        return Ok(base);
-    };
-    let catalog = document.dictionary(document.root_id()?)?;
-    let mut values = catalog
-        .get(b"PageLabels")
-        .ok()
-        .into_iter()
-        .collect::<Vec<_>>();
-    let read = edit.closure.len();
-    while let Some(value) = values.pop() {
-        match value {
-            Object::Reference(id) => drop(edit.closure.insert(*id)),
-            Object::Array(items) => values.extend(items),
-            Object::Dictionary(dictionary) => values.extend(dictionary.iter().map(|(_, v)| v)),
-            _ => {}
-        }
-    }
-    if edit.closure.len() == read {
-        return Ok(base);
-    }
-    load_qpdf_page_local_incremental_pdf(path, qpdf, edit)
-}
-
 /// Writes the page-label tree. A later chunk of a chunked save
 /// (`continuation`) extends the tree the earlier chunks wrote; any other save
 /// replaces it, and drops it when it says only the default decimal labels.

@@ -1004,7 +1004,7 @@ fn selected_and_complete_metadata_values_keep_object_resource_limits() {
         let mut document = Document::with_version("1.7");
         let pages = document.new_object_id();
         let (subtype, name) = if elements {
-            let values = vec![Object::Integer(1); 600_000];
+            let values = vec![Object::Integer(1); 1_100_000];
             (Object::Array(values.clone()), Object::Array(values))
         } else {
             let bytes = vec![b'x'; 33 * 1024 * 1024];
@@ -1050,10 +1050,8 @@ fn selected_and_complete_metadata_values_keep_object_resource_limits() {
     }
 }
 
-/// qpdf reads a name written with #00 as a bad token: a key becomes a
-/// QPDFFake key and a value becomes null. Below the structural ceiling that
-/// warning returns the read to lopdf, which keeps the NUL byte. Above it qpdf's
-/// reading is the only one, and no literal #00 reaches a key or a name.
+/// A name written with #00 reads as a NUL byte, as lopdf reads it, at every
+/// size, and no literal #00 reaches a key or a name.
 #[test]
 fn nul_escaped_names_in_a_managed_note_keep_their_reader_view_through_save_and_undo() {
     fn read_note(input: &Path, output: &Path) -> (u64, String, lopdf::Dictionary) {
@@ -1141,23 +1139,14 @@ fn nul_escaped_names_in_a_managed_note_keep_their_reader_view_through_save_and_u
                     .all(|key| !key.windows(3).any(|part| part == b"#00")),
                 "{keys:?}"
             );
-            if stream_bytes < 512 * 1024 * 1024 {
-                assert_eq!(
-                    dictionary.get(b"Managed\0Key").unwrap(),
-                    &Object::string_literal("kept")
-                );
-                assert_eq!(
-                    dictionary.get(b"Vendor").unwrap().as_name().unwrap(),
-                    b"A\0B"
-                );
-            } else {
-                let fake = keys
-                    .iter()
-                    .find(|key| key.starts_with(b"QPDFFake"))
-                    .unwrap();
-                assert_eq!(dictionary.get(fake).unwrap().as_str().unwrap(), b"kept");
-                assert!(dictionary.get(b"Vendor").is_err(), "{keys:?}");
-            }
+            assert_eq!(
+                dictionary.get(b"Managed\0Key").unwrap(),
+                &Object::string_literal("kept")
+            );
+            assert_eq!(
+                dictionary.get(b"Vendor").unwrap().as_name().unwrap(),
+                b"A\0B"
+            );
         };
         let (object_number, recovery, source) = read_note(&input, &output);
         assert_reader_view(&source);
@@ -1316,27 +1305,15 @@ fn conformance_keeps_unreachable_signatures_and_validates_optional_catalog_dicti
             .arg(metadata_qpdf_path())
             .output()
             .unwrap();
-        if stream_bytes < 512 * 1024 * 1024 {
-            assert!(
-                !result.status.success(),
-                "A warned projection must preserve the eager input diagnostic: {}",
-                String::from_utf8_lossy(&result.stdout)
-            );
-            let error: Value = serde_json::from_slice(&result.stderr).unwrap();
-            assert_eq!(error["code"], "too-large");
-            assert!(error["message"]
-                .as_str()
-                .unwrap()
-                .contains("stream body exceeds its declared bounds"));
-        } else {
-            assert!(
-                result.status.success(),
-                "{}",
-                String::from_utf8_lossy(&result.stderr)
-            );
-            let catalog: Value = serde_json::from_slice(&result.stdout).unwrap();
-            assert_eq!(catalog["bookmarks"][0]["title"], "Untitled");
-        }
+        // The indexed reader finds the damaged stream's end at its
+        // endstream, at either size.
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let catalog: Value = serde_json::from_slice(&result.stdout).unwrap();
+        assert_eq!(catalog["bookmarks"][0]["title"], "Untitled");
         // Conformance intentionally uses qpdf recovery, including above the
         // eager ceiling, and keeps the facts available despite this warning.
         let facts = metadata_command("pdf-conformance", &input, None);

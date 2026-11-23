@@ -166,7 +166,7 @@
         note.stable_key = duplicate_key.to_string();
         let mut editor = binding_editor();
         editor.stable_key = duplicate_key.to_string();
-        let error = append_native_mutations_in_place_with_qpdf(
+        let error = append_native_mutations_in_place(
             &pdf_path,
             &pdf_path,
             &NativeMutationsFile {
@@ -175,7 +175,6 @@
                 ..NativeMutationsFile::default()
             },
             "D:20260830130000Z",
-            None,
             Some(&report_path),
         )
         .unwrap_err()

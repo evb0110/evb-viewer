@@ -1289,12 +1289,11 @@ fn recreates_managed_markup_after_an_incremental_delete_retired_its_object() {
         ..NativeMutationsFile::default()
     };
 
-    append_native_mutations_with_qpdf(
+    append_native_mutations_path(
         &pdf_path,
         &pdf_path,
         &managed_highlight("initial-highlight"),
         "D:20260829120400+04'00'",
-        None,
         Some(&bindings_path),
     )
     .unwrap();
@@ -1303,7 +1302,7 @@ fn recreates_managed_markup_after_an_incremental_delete_retired_its_object() {
         .as_reference()
         .unwrap();
 
-    append_native_mutations_with_qpdf(
+    append_native_mutations_path(
         &pdf_path,
         &pdf_path,
         &NativeMutationsFile {
@@ -1318,7 +1317,6 @@ fn recreates_managed_markup_after_an_incremental_delete_retired_its_object() {
             ..NativeMutationsFile::default()
         },
         "D:20260829120500+04'00'",
-        None,
         Some(&bindings_path),
     )
     .expect("managed markup should be recreated under a fresh object ref");
@@ -2886,7 +2884,8 @@ fn embedded_shape_pdf_with_indirect_appearances(
         .map(|(stable_key, source_dict)| {
             let mut dict = source_dict.clone();
             let appearance = dict.remove(b"AP").expect("stale appearance fixture");
-            let appearance_ref = document.add_object(appearance);
+            let stream = appearance.as_dict().unwrap().get(b"N").unwrap().clone();
+            let appearance_ref = document.add_object(stream);
             dict.set(
                 "AP",
                 Object::Dictionary(dictionary! {

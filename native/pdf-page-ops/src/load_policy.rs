@@ -395,11 +395,8 @@ pub(crate) fn load_incremental_pdf_path(
     load_incremental_pdf_path_with_policy(path, qpdf_path, false, None)
 }
 
-pub(crate) use load_incremental_pdf_path as load_annotation_index_pdf_path;
-
-/// For callers that read and rewrite only dictionaries: page geometry, crop,
-/// the catalog and annotation-name index reads, and rotation and metadata
-/// saves. Their base streams are never read.
+/// For callers that read and rewrite only dictionaries: page geometry, crop
+/// and print appearances. Their base streams are never read.
 pub(crate) fn load_dictionary_incremental_pdf_path(
     path: &Path,
     qpdf_path: Option<&Path>,
@@ -476,13 +473,9 @@ fn load_incremental_pdf_path_with_policy(
         let (incremental, qpdf_warned) = projection
             .map(Ok)
             .unwrap_or_else(|| load_qpdf_structural_incremental_pdf(path, qpdf_path))?;
-        // Below the ceiling, retain eager diagnostics and original annotation
-        // recovery objects. Both structural backends share this one fallback.
-        if encoded_len > policy.max_encoded_bytes as u64
-            || !(qpdf_warned
-                || (purpose == Some(QpdfMetadataPurpose::Annotations)
-                    && needs_eager_parse(&incremental)))
-        {
+        // Below the ceiling, retain eager diagnostics. Both structural
+        // backends share this one fallback.
+        if encoded_len > policy.max_encoded_bytes as u64 || !qpdf_warned {
             validate_loaded_document(incremental.get_prev_documents(), policy)?;
             return Ok(incremental);
         }
@@ -1900,15 +1893,13 @@ mod tests {
         ));
         let input_path = stem.with_extension("pdf");
         let encrypted_path = stem.with_extension("encrypted.pdf");
-        let index_path = stem.with_extension("index.json");
-        let sidecar_paths = ["sizes", "eager-sizes", "parse", "eager-parse"]
-            .map(|extension| stem.with_extension(extension));
+        let sidecar_paths =
+            ["sizes", "eager-sizes"].map(|extension| stem.with_extension(extension));
         let qpdf_path = stem.with_extension("qpdf");
         let _cleanup = RemoveOnDrop(
             [
                 input_path.clone(),
                 encrypted_path.clone(),
-                index_path.clone(),
                 qpdf_path.clone(),
             ]
             .into_iter()
@@ -1985,30 +1976,15 @@ mod tests {
         assert!(String::from_utf8(geometry)
             .unwrap()
             .contains(r#""width":200.0"#));
-        write_annotation_name_index_path(&input_path, &index_path, Some(&qpdf_path)).unwrap();
 
-        // Page-size metadata and a parse of a page without notes or stamps read
-        // the same view and print what an eager load (no qpdf) prints.
-        let [sizes, eager_sizes, parse, eager_parse] = &sidecar_paths;
+        // Page-size metadata reads the same view and prints what an eager
+        // load (no qpdf) prints.
+        let [sizes, eager_sizes] = &sidecar_paths;
         write_page_sizes_path(&input_path, sizes, Some(&qpdf_path), true).unwrap();
         write_page_sizes_path(&input_path, eager_sizes, None, true).unwrap();
-        write_annotation_parse_path(
-            &input_path,
-            parse,
-            "D:20261009120000Z",
-            Some(&qpdf_path),
-            None,
-        )
-        .unwrap();
-        write_annotation_parse_path(&input_path, eager_parse, "D:20261009120000Z", None, None)
-            .unwrap();
         assert_eq!(
             std::fs::read(sizes).unwrap(),
             std::fs::read(eager_sizes).unwrap()
-        );
-        assert_eq!(
-            std::fs::read(parse).unwrap(),
-            std::fs::read(eager_parse).unwrap()
         );
 
         // An encrypted file stays eager, so it keeps its error classification.

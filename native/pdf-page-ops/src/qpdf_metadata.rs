@@ -6,10 +6,7 @@ use super::*;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum QpdfMetadataPurpose {
     Geometry,
-    Annotations,
-    Catalog,
     Conformance,
-    AnnotationIndex,
 }
 
 /// None means only that the supplied qpdf executable has no adjacent library.
@@ -31,55 +28,6 @@ pub(crate) fn load_qpdf_metadata_pdf_path(
     }
 }
 
-/// The retained-memory estimate of one loaded object, as the qpdf JSON reader
-/// charges it.
-pub(crate) fn retained_cost(object: &Object) -> Result<usize> {
-    let mut pending = vec![(object, 0)];
-    let mut elements = 0usize;
-    let mut bytes = 0usize;
-    while let Some((object, depth)) = pending.pop() {
-        elements += 1;
-        if elements > MAX_QPDF_OBJECT_ELEMENTS || depth > MAX_PDF_STRUCTURAL_NESTING {
-            return Err(resource_limited(
-                "Selected qpdf object exceeds its element or nesting ceiling",
-            ));
-        }
-        bytes = bytes
-            .checked_add(QPDF_ESTIMATED_BYTES_PER_VALUE)
-            .ok_or_else(|| resource_limited("PDF metadata retained size overflow"))?;
-        match object {
-            Object::Name(value) | Object::String(value, _) => {
-                bytes = bytes
-                    .checked_add(value.len())
-                    .ok_or_else(|| resource_limited("PDF metadata retained size overflow"))?;
-            }
-            Object::Array(values) => pending.extend(values.iter().map(|value| (value, depth + 1))),
-            Object::Dictionary(dict) => {
-                for (key, value) in dict.iter() {
-                    bytes = bytes
-                        .checked_add(key.len())
-                        .ok_or_else(|| resource_limited("PDF metadata retained size overflow"))?;
-                    pending.push((value, depth + 1));
-                }
-            }
-            Object::Stream(stream) => {
-                for (key, value) in stream.dict.iter() {
-                    bytes = bytes
-                        .checked_add(key.len())
-                        .ok_or_else(|| resource_limited("PDF metadata retained size overflow"))?;
-                    pending.push((value, depth + 1));
-                }
-            }
-            _ => {}
-        }
-    }
-    Ok(bytes)
-}
-
-fn resource_limited(message: &str) -> Box<dyn Error> {
-    domain_error(NativeErrorCode::TooLarge, message)
-}
-
 #[cfg(not(target_family = "wasm"))]
 mod platform {
     use super::*;
@@ -93,6 +41,57 @@ mod platform {
         ffi::{c_char, c_int, c_uint, c_void, CStr, CString},
         io::BufRead,
     };
+
+    /// The retained-memory estimate of one loaded object, as the qpdf JSON reader
+    /// charges it.
+    fn retained_cost(object: &Object) -> Result<usize> {
+        let mut pending = vec![(object, 0)];
+        let mut elements = 0usize;
+        let mut bytes = 0usize;
+        while let Some((object, depth)) = pending.pop() {
+            elements += 1;
+            if elements > MAX_QPDF_OBJECT_ELEMENTS || depth > MAX_PDF_STRUCTURAL_NESTING {
+                return Err(resource_limited(
+                    "Selected qpdf object exceeds its element or nesting ceiling",
+                ));
+            }
+            bytes = bytes
+                .checked_add(QPDF_ESTIMATED_BYTES_PER_VALUE)
+                .ok_or_else(|| resource_limited("PDF metadata retained size overflow"))?;
+            match object {
+                Object::Name(value) | Object::String(value, _) => {
+                    bytes = bytes
+                        .checked_add(value.len())
+                        .ok_or_else(|| resource_limited("PDF metadata retained size overflow"))?;
+                }
+                Object::Array(values) => {
+                    pending.extend(values.iter().map(|value| (value, depth + 1)))
+                }
+                Object::Dictionary(dict) => {
+                    for (key, value) in dict.iter() {
+                        bytes = bytes.checked_add(key.len()).ok_or_else(|| {
+                            resource_limited("PDF metadata retained size overflow")
+                        })?;
+                        pending.push((value, depth + 1));
+                    }
+                }
+                Object::Stream(stream) => {
+                    for (key, value) in stream.dict.iter() {
+                        bytes = bytes.checked_add(key.len()).ok_or_else(|| {
+                            resource_limited("PDF metadata retained size overflow")
+                        })?;
+                        pending.push((value, depth + 1));
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(bytes)
+    }
+
+    fn resource_limited(message: &str) -> Box<dyn Error> {
+        domain_error(NativeErrorCode::TooLarge, message)
+    }
 
     type Handle = c_uint;
     type Data = *mut c_void;
@@ -253,10 +252,6 @@ mod platform {
         next_key: unsafe extern "C" fn(Data) -> *const c_char,
         dictionary: unsafe extern "C" fn(Data, Handle) -> Handle,
         release: unsafe extern "C" fn(Data, Handle),
-        page_count: unsafe extern "C" fn(Data) -> c_int,
-        page: unsafe extern "C" fn(Data, usize) -> Handle,
-        new_null: unsafe extern "C" fn(Data) -> Handle,
-        make_indirect: unsafe extern "C" fn(Data, Handle) -> Handle,
         _library: Library,
     }
 
@@ -313,10 +308,6 @@ mod platform {
                 next_key: symbol!(c"qpdf_oh_dict_next_key"),
                 dictionary: symbol!(c"qpdf_oh_get_dict"),
                 release: symbol!(c"qpdf_oh_release"),
-                page_count: symbol!(c"qpdf_get_num_pages"),
-                page: symbol!(c"qpdf_get_page_n"),
-                new_null: symbol!(c"qpdf_oh_new_null"),
-                make_indirect: symbol!(c"qpdf_make_indirect_object"),
                 _library: library,
             })
         }
@@ -475,42 +466,6 @@ mod platform {
             Ok(object)
         }
 
-        /// Physical page order from qpdf's page-tree walk, as `--show-pages`
-        /// reports it.
-        fn page_ids(&self) -> Result<Vec<ObjectId>> {
-            let count = unsafe { (self.api.page_count)(self.data) };
-            self.checkpoint()?;
-            let count = usize::try_from(count)
-                .map_err(|_| corrupt("Bundled qpdf could not walk the page tree"))?;
-            if count > crate::load_policy::MAX_PATH_INPUT_PDF_PAGES {
-                return Err(limited("PDF page count exceeds the native path-load limit"));
-            }
-            let mut ids = Vec::with_capacity(count);
-            for index in 0..count {
-                let page = self.handle(unsafe { (self.api.page)(self.data, index) })?;
-                let number = unsafe { (self.api.object_id)(self.data, page.value) };
-                let generation = unsafe { (self.api.generation)(self.data, page.value) };
-                self.check()?;
-                ids.push((u32::try_from(number)?, u16::try_from(generation)?));
-            }
-            self.checkpoint()?;
-            Ok(ids)
-        }
-
-        /// The highest object number qpdf knows from the cross-reference
-        /// data, the JSON writer's `maxobjectid`. qpdf numbers a new indirect
-        /// object one above it; the object stays in this reader's memory.
-        fn max_object_number(&self) -> Result<u32> {
-            let null = self.handle(unsafe { (self.api.new_null)(self.data) })?;
-            let fresh = self.handle(unsafe { (self.api.make_indirect)(self.data, null.value) })?;
-            let number = unsafe { (self.api.object_id)(self.data, fresh.value) };
-            self.check()?;
-            u32::try_from(number)
-                .ok()
-                .and_then(|number| number.checked_sub(1))
-                .ok_or_else(|| corrupt("Bundled qpdf returned an invalid object number"))
-        }
-
         fn object_handle(&self, id: ObjectId) -> Result<ObjectHandle<'_>> {
             let number = c_int::try_from(id.0)
                 .map_err(|_| limited("PDF object number exceeds qpdf's supported range"))?;
@@ -601,14 +556,7 @@ mod platform {
             elements: &mut usize,
             encoded: &mut usize,
         ) -> Result<Option<Object>> {
-            if !matches!(
-                context,
-                Context::PageTree
-                    | Context::AnnotationEntry
-                    | Context::AnnotationIndex
-                    | Context::Outline
-                    | Context::Root
-            ) {
+            if !matches!(context, Context::PageTree | Context::Root) {
                 return Ok(None);
             }
             let kind = unsafe { (self.api.object_type)(self.data, handle) };
@@ -616,93 +564,23 @@ mod platform {
             if kind != 9 {
                 return Ok(None);
             }
-            let index = context == Context::AnnotationIndex;
-            if context == Context::AnnotationEntry {
-                let reply = unsafe { (self.api.has_key)(self.data, handle, c"/IRT".as_ptr()) } != 0;
-                self.check()?;
-                if reply {
-                    return Ok(None);
-                }
-                let subtype = self.handle(unsafe {
-                    (self.api.get_key)(self.data, handle, c"/Subtype".as_ptr())
-                })?;
-                let mut pointer = std::ptr::null();
-                let mut length = 0;
-                let name =
-                    unsafe { (self.api.name)(self.data, subtype.value, &mut pointer, &mut length) }
-                        != 0;
-                self.check()?;
-                if name {
-                    let bytes = self.value_bytes(pointer, length, &mut 0)?;
-                    let name = bytes
-                        .strip_prefix(b"/")
-                        .ok_or_else(|| corrupt("PDF name is missing its slash"))?;
-                    if !crate::annotation_parse::parsed_annotation_subtype(
-                        &String::from_utf8_lossy(name),
-                    )
-                    .is_empty()
-                    {
-                        return Ok(None);
-                    }
-                }
-            }
-            // Select only through the actual page-tree or Annots ownership
-            // context. Private dictionaries always keep their complete graph.
+            // Select only through the actual page-tree context. Private
+            // dictionaries always keep their complete graph.
             let keys = if context == Context::PageTree {
-                if matches!(
-                    self.purpose,
-                    QpdfMetadataPurpose::Annotations | QpdfMetadataPurpose::AnnotationIndex
-                ) {
-                    &[
-                        c"/Type",
-                        c"/Kids",
-                        c"/Parent",
-                        c"/Count",
-                        c"/MediaBox",
-                        c"/CropBox",
-                        c"/Rotate",
-                        c"/UserUnit",
-                        c"/Annots",
-                    ][..]
-                } else {
-                    &[
-                        c"/Type",
-                        c"/Kids",
-                        c"/Parent",
-                        c"/Count",
-                        c"/MediaBox",
-                        c"/CropBox",
-                        c"/Rotate",
-                        c"/UserUnit",
-                    ][..]
-                }
-            } else if context == Context::Root {
-                match self.purpose {
-                    QpdfMetadataPurpose::Catalog => &[
-                        c"/Type",
-                        c"/Pages",
-                        c"/Outlines",
-                        c"/PageLabels",
-                        c"/Dests",
-                        c"/Names",
-                        c"/AcroForm",
-                        c"/AF",
-                        c"/StructTreeRoot",
-                        c"/OCProperties",
-                    ][..],
-                    QpdfMetadataPurpose::Conformance => {
-                        &[c"/Type", c"/AcroForm", c"/StructTreeRoot"][..]
-                    }
-                    _ => &[c"/Type", c"/Pages"][..],
-                }
-            } else if context == Context::Outline {
                 &[
-                    c"/Title", c"/A", c"/Dest", c"/First", c"/Next", c"/F", c"/C",
+                    c"/Type",
+                    c"/Kids",
+                    c"/Parent",
+                    c"/Count",
+                    c"/MediaBox",
+                    c"/CropBox",
+                    c"/Rotate",
+                    c"/UserUnit",
                 ][..]
-            } else if index {
-                &[c"/Subtype", c"/NM", c"/IRT", c"/Popup", c"/Parent"][..]
+            } else if self.purpose == QpdfMetadataPurpose::Conformance {
+                &[c"/Type", c"/AcroForm", c"/StructTreeRoot"][..]
             } else {
-                &[c"/Subtype", c"/NM"][..]
+                &[c"/Type", c"/Pages"][..]
             };
             let mut dictionary = Dictionary::new();
             for key in keys {
@@ -712,20 +590,6 @@ mod platform {
                 }
                 let value =
                     self.handle(unsafe { (self.api.get_key)(self.data, handle, key.as_ptr()) })?;
-                let child_context = if context == Context::PageTree && *key == c"/Annots" {
-                    if self.purpose == QpdfMetadataPurpose::AnnotationIndex {
-                        Context::AnnotationIndex
-                    } else {
-                        Context::AnnotationEntry
-                    }
-                } else if (context == Context::Root && *key == c"/Outlines")
-                    || (context == Context::Outline
-                        && matches!(key.to_bytes(), b"/First" | b"/Next"))
-                {
-                    Context::Outline
-                } else {
-                    Context::Value
-                };
                 charge_bytes(key.to_bytes().len(), encoded)?;
                 let object = self.typed(
                     value.value,
@@ -733,7 +597,7 @@ mod platform {
                     depth + 1,
                     elements,
                     encoded,
-                    child_context,
+                    Context::Value,
                 )?;
                 dictionary.set(&key.to_bytes()[1..], object);
             }
@@ -940,12 +804,6 @@ mod platform {
         Root,
         PageTree,
         Value,
-        AnnotationEntry,
-        Annotation,
-        AnnotationIndex,
-        Catalog,
-        Outline,
-        Names,
         Conformance,
     }
 
@@ -1022,78 +880,26 @@ mod platform {
                     if let Ok(unit) = dict.get(b"UserUnit") {
                         self.enqueue(unit, Context::Value, depth)?;
                     }
-                    if matches!(
-                        self.reader.purpose,
-                        QpdfMetadataPurpose::Annotations | QpdfMetadataPurpose::AnnotationIndex
-                    ) {
-                        if let Ok(annots) = dict.get(b"Annots") {
-                            self.enqueue(
-                                annots,
-                                if self.reader.purpose == QpdfMetadataPurpose::AnnotationIndex {
-                                    Context::AnnotationIndex
-                                } else {
-                                    Context::AnnotationEntry
-                                },
-                                depth,
-                            )?;
-                        }
-                    }
                 }
                 return Ok(());
             }
             if context == Context::Root {
-                for (key, value) in dict.iter() {
-                    let child_context = match (self.reader.purpose, key.as_slice()) {
-                        (QpdfMetadataPurpose::Catalog, b"Outlines") => Context::Outline,
-                        (QpdfMetadataPurpose::Catalog, b"Names") => Context::Names,
-                        (QpdfMetadataPurpose::Catalog, b"PageLabels" | b"Dests") => {
-                            Context::Catalog
+                if self.reader.purpose == QpdfMetadataPurpose::Conformance {
+                    for (key, value) in dict.iter() {
+                        if matches!(key.as_slice(), b"AcroForm" | b"StructTreeRoot") {
+                            self.enqueue(value, Context::Conformance, depth)?;
                         }
-                        (QpdfMetadataPurpose::Conformance, b"AcroForm" | b"StructTreeRoot") => {
-                            Context::Conformance
-                        }
-                        _ => continue,
-                    };
-                    self.enqueue(value, child_context, depth)?;
-                }
-                // Inline optional graphs may queue destination page values.
-                // Queue Pages last so physical identities are discovered first.
-                if self.reader.purpose != QpdfMetadataPurpose::Conformance {
-                    if let Ok(pages) = dict.get(b"Pages") {
-                        self.enqueue(pages, Context::PageTree, depth)?;
                     }
+                } else if let Ok(pages) = dict.get(b"Pages") {
+                    self.enqueue(pages, Context::PageTree, depth)?;
                 }
                 return Ok(());
             }
-            for (key, value) in dict.iter() {
-                if context == Context::AnnotationIndex
-                    && !matches!(key.as_slice(), b"Subtype" | b"NM")
-                {
-                    continue;
+            // A conformance dictionary is read for its own keys only.
+            if context != Context::Conformance {
+                for (_, value) in dict.iter() {
+                    self.enqueue(value, context, depth)?;
                 }
-                if context == Context::Names && key.as_slice() != b"Dests" {
-                    continue;
-                }
-                if context == Context::Conformance {
-                    continue;
-                }
-                self.enqueue(
-                    value,
-                    if context == Context::AnnotationEntry {
-                        Context::Annotation
-                    } else if context == Context::AnnotationIndex {
-                        Context::Value
-                    } else if context == Context::Names {
-                        Context::Catalog
-                    } else if context == Context::Outline
-                        && !matches!(key.as_slice(), b"First" | b"Next")
-                    {
-                        Context::Value
-                    } else {
-                        context
-                    },
-                    depth,
-                )?;
             }
             Ok(())
         }
@@ -1136,27 +942,12 @@ mod platform {
                 {
                     continue;
                 }
-                // Entry projections may have been read before a note's full
-                // recovery graph reaches the same object. Full reads dominate.
-                if (context == Context::AnnotationEntry
-                    && (self.visited.contains(&(id, Context::Annotation))
-                        || self.visited.contains(&(id, Context::Value))))
-                    || (context == Context::Outline
-                        && (self.visited.contains(&(id, Context::Catalog))
-                            || self.visited.contains(&(id, Context::Value))))
-                {
-                    continue;
-                }
                 if self.visited.len() > MAX_QPDF_OBJECT_ELEMENTS {
                     return Err(limited("PDF metadata graph exceeds its object ceiling"));
                 }
                 let object = self.reader.object(id, context)?;
                 self.enqueue(&object, context, 0)?;
-                // Names keeps a full dictionary but follows only Dests. Retain
-                // it after walking this same object's selected outline edges.
-                if context != Context::Outline || !self.visited.contains(&(id, Context::Names)) {
-                    self.insert(id, object)?;
-                }
+                self.insert(id, object)?;
             }
             Ok(())
         }
@@ -1278,42 +1069,5 @@ mod platform {
             IncrementalDocument::from_document(projection.document, initial.len(), last);
         incremental.unavailable_base_streams = unavailable;
         Ok(Some((incremental, reader.diagnostic_bytes.get() != 0)))
-    }
-
-    mod qpdf_page_local;
-    pub(super) use qpdf_page_local::{load_page_local, scan_deletes};
-}
-
-/// The base objects a page-local edit reads, through the bundled library.
-/// None means only that the supplied qpdf executable has no adjacent library.
-pub(crate) fn load_qpdf_page_local_objects(
-    path: &Path,
-    qpdf_path: &Path,
-    edit: &PageLocalEdit,
-) -> Result<Option<(Document, LocatedPages)>> {
-    #[cfg(not(target_family = "wasm"))]
-    {
-        platform::load_page_local(path, qpdf_path, edit)
-    }
-    #[cfg(target_family = "wasm")]
-    {
-        let _ = (path, qpdf_path, edit);
-        Ok(None)
-    }
-}
-
-pub(crate) fn scan_qpdf_annotation_deletes(
-    path: &Path,
-    qpdf: &Path,
-    targets: &[ObjectId],
-) -> Result<Option<DeleteScan>> {
-    #[cfg(not(target_family = "wasm"))]
-    {
-        platform::scan_deletes(path, qpdf, targets)
-    }
-    #[cfg(target_family = "wasm")]
-    {
-        let _ = (path, qpdf, targets);
-        Ok(None)
     }
 }

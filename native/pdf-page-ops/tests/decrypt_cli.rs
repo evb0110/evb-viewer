@@ -420,7 +420,7 @@ fn visibility_refuses_encrypted_bytes() {
         let expected = if password.is_empty() {
             "encrypted"
         } else {
-            "corrupt-xref"
+            "needs-password"
         };
         assert_eq!(error_envelope(&result)["code"], expected);
         assert!(result.stdout.is_empty());

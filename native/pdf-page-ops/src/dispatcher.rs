@@ -211,11 +211,11 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
                 }
                 page_number = Some(parsed);
             }
+            // Saves read the page tree through the file's index and keep no
+            // ownership cache; the directory a host still names goes unused.
             "--annotation-ownership-cache" if command == "save-mutations" => {
-                set_annotation_ownership_cache(PathBuf::from(
-                    args.next()
-                        .ok_or("Missing --annotation-ownership-cache value")?,
-                ))
+                args.next()
+                    .ok_or("Missing --annotation-ownership-cache value")?;
             }
             "--qpdf" | "--qpdf-path" => {
                 qpdf_path = Some(PathBuf::from(args.next().ok_or("Missing --qpdf value")?))
@@ -393,12 +393,7 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
             )
         }
         Operation::ReadDocumentCatalog(..) => {
-            let incremental = load_readonly_metadata_pdf_path(
-                &config.input_path,
-                config.qpdf_path.as_deref(),
-                QpdfMetadataPurpose::Catalog,
-            )?;
-            let source = &incremental;
+            let source = &SourcePdf::open_path(&config.input_path)?.document;
             let catalog = match &config.operation {
                 Operation::ReadDocumentCatalog(Some(path)) => {
                     let mutations = read_native_mutations(path)?;
@@ -428,7 +423,6 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
                 &config.input_path,
                 &pages,
                 *with_evb_ocr_text,
-                config.qpdf_path.as_deref(),
                 &mut std::io::stdout().lock(),
             );
         }
@@ -565,26 +559,13 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
         Operation::OcrTextLayer { instructions_file } => {
             let instructions = read_ocr_text_layer_file(instructions_file)
                 .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
-            return write_ocr_text_layer_path(
-                &config.input_path,
-                output_path,
-                &instructions,
-                config.qpdf_path.as_deref(),
-            );
+            return write_ocr_text_layer_path(&config.input_path, output_path, &instructions);
         }
         Operation::AnnotationNameIndex => {
-            return write_annotation_name_index_path(
-                &config.input_path,
-                output_path,
-                config.qpdf_path.as_deref(),
-            )
+            return write_annotation_name_index_path(&config.input_path, output_path)
         }
         Operation::EmbeddedShapeIndex => {
-            return write_embedded_shape_index_path(
-                &config.input_path,
-                output_path,
-                config.qpdf_path.as_deref(),
-            )
+            return write_embedded_shape_index_path(&config.input_path, output_path)
         }
         Operation::ParseAnnotations {
             modified_at,
@@ -599,7 +580,6 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
                 &config.input_path,
                 output_path,
                 modified_at,
-                config.qpdf_path.as_deref(),
                 pages.as_deref(),
             );
         }
@@ -639,21 +619,19 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
             _ => false,
         };
         if append_in_place {
-            return append_native_mutations_in_place_with_qpdf(
+            return append_native_mutations_in_place(
                 &config.input_path,
                 output_path,
                 &mutations,
                 modified_at,
-                config.qpdf_path.as_deref(),
                 identity_bindings_path,
             );
         }
-        return append_native_mutations_with_qpdf(
+        return append_native_mutations_path(
             &config.input_path,
             output_path,
             &mutations,
             modified_at,
-            config.qpdf_path.as_deref(),
             identity_bindings_path,
         );
     }
@@ -667,7 +645,6 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
             output_path,
             &mutations,
             modified_at,
-            config.qpdf_path.as_deref(),
             identity_bindings_path,
         );
     }
@@ -735,7 +712,7 @@ fn hydrate_save_original_appearance_source(
     else {
         return Err("Original appearance requires --source with its immutable PDF".into());
     };
-    hydrate_text_box_original_appearances_path(mutations, path, config.qpdf_path.as_deref())
+    hydrate_text_box_original_appearances_from_source(mutations, SourcePdf::open_path(path)?)
 }
 
 #[cfg(test)]

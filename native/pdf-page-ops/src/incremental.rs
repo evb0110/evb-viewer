@@ -177,7 +177,7 @@ pub(crate) fn with_staged_incremental_output(
     with_staged_incremental_output_for_revision(input_path, output_path, None, write_revisions)
 }
 
-fn with_staged_incremental_output_for_revision(
+pub(crate) fn with_staged_incremental_output_for_revision(
     input_path: &Path,
     output_path: &Path,
     source_witness: Option<&PathRevisionWitness>,
@@ -341,11 +341,58 @@ pub(crate) struct IndexedAppend {
     pub(crate) identity_bindings: Vec<AnnotationIdentityBinding>,
 }
 
+/// The base an append of `mutations` extends: the PDF `source` holds, read
+/// through its cross-reference index, with the objects and streams the
+/// mutations reuse: images an undo restores, and the appearances that decide
+/// how an edited label keeps its frame. Streams are read by range.
+pub(crate) fn open_mutation_base<S: ByteSource>(
+    source: S,
+    len: u64,
+    mutations: &NativeMutationsFile,
+) -> Result<IncrementalDocument> {
+    if !mutations.page_rotations.is_empty() {
+        validate_page_tree_source(&source, len)?;
+    }
+    let restored_images = mutations
+        .placed_image_geometry_updates
+        .iter()
+        .filter_map(|update| update.source_image.as_ref())
+        .filter_map(|image| {
+            Some((
+                u32::try_from(image.object_number).ok()?,
+                u16::try_from(image.generation_number).ok()?,
+            ))
+        })
+        .collect::<Vec<_>>();
+    let mut source = SourcePdf::open_append_base_naming(source, len, &restored_images)?;
+    let mut incremental = source.take_append_base()?;
+    let streams = StructuralSource::Ranges(&source);
+    materialize_stamp_recovery_sources(
+        &mut incremental,
+        Some(streams),
+        &mutations.placed_image_geometry_updates,
+    )?;
+    crate::free_text_frame::materialize_free_text_appearances(
+        &mut incremental,
+        streams,
+        mutations,
+    )?;
+    Ok(incremental)
+}
+
+fn open_mutation_base_path(
+    path: &Path,
+    mutations: &NativeMutationsFile,
+) -> Result<IncrementalDocument> {
+    let (file, len) = open_source_file(path)?;
+    open_mutation_base(file, len, mutations)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))
+}
+
 /// Applies one validated mutation payload to the PDF `source` holds and
 /// appends its revision through `write`, which writes it after the base's
 /// `len` bytes and returns what the file then holds there: that is what is
-/// checked, not the bytes meant for it. Only objects and the streams a
-/// mutation reuses are read from the base, by range.
+/// checked, not the bytes meant for it.
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 pub(crate) fn append_native_mutations_to_source<S: ByteSource>(
     source: S,
@@ -354,16 +401,7 @@ pub(crate) fn append_native_mutations_to_source<S: ByteSource>(
     modified_at: &str,
     write: impl FnOnce(&[u8]) -> Result<Vec<u8>>,
 ) -> Result<IndexedAppend> {
-    if !mutations.page_rotations.is_empty() {
-        validate_page_tree_source(&source, len)?;
-    }
-    let mut source = SourcePdf::open_append_base(source, len)?;
-    let mut incremental = source.take_append_base()?;
-    materialize_stamp_recovery_sources(
-        &mut incremental,
-        Some(StructuralSource::Ranges(&source)),
-        &mutations.placed_image_geometry_updates,
-    )?;
+    let mut incremental = open_mutation_base(source, len, mutations)?;
     let page_count = u32::try_from(incremental.get_prev_documents().get_pages().len())
         .map_err(|_| "PDF page count exceeds the WASM response range")?;
     let mut identity_bindings = Vec::new();
@@ -439,45 +477,77 @@ pub(crate) fn append_native_mutations(
     mutations: &NativeMutationsFile,
     modified_at: &str,
 ) -> Result<()> {
-    append_native_mutations_with_qpdf(input_path, output_path, mutations, modified_at, None, None)
+    append_native_mutations_path(input_path, output_path, mutations, modified_at, None)
 }
 
-pub(crate) fn append_native_mutations_with_qpdf(
+/// Appends one revision to `output_path`, which must already hold a copy of
+/// the input, through an unpublished sibling of it.
+pub(crate) fn append_native_mutations_path(
     input_path: &Path,
     output_path: &Path,
     mutations: &NativeMutationsFile,
     modified_at: &str,
-    qpdf_path: Option<&Path>,
+    identity_bindings_path: Option<&Path>,
+) -> Result<()> {
+    stage_native_mutations(
+        input_path,
+        output_path,
+        mutations,
+        modified_at,
+        Some(output_path),
+        identity_bindings_path,
+    )
+}
+
+/// The non-append CLI form: the requested output is seeded from the input
+/// and takes the same appended revision, so no caller loads a PDF whole.
+pub(crate) fn write_native_mutations_path(
+    input_path: &Path,
+    output_path: &Path,
+    mutations: &NativeMutationsFile,
+    modified_at: &str,
+    identity_bindings_path: Option<&Path>,
+) -> Result<()> {
+    stage_native_mutations(
+        input_path,
+        output_path,
+        mutations,
+        modified_at,
+        None,
+        identity_bindings_path,
+    )
+}
+
+/// Writes the revision into a staged copy of the input that replaces
+/// `output_path` once it is verified. `seeded_destination`, when given, is an
+/// output that already holds the input and must still hold it.
+fn stage_native_mutations(
+    input_path: &Path,
+    output_path: &Path,
+    mutations: &NativeMutationsFile,
+    modified_at: &str,
+    seeded_destination: Option<&Path>,
     identity_bindings_path: Option<&Path>,
 ) -> Result<()> {
     let source_witness = PathRevisionWitness::capture(input_path)
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
-    let mut incremental = load_native_mutation_base(input_path, qpdf_path, mutations)
-        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    assert_plaintext_base(
-        incremental.get_prev_documents(),
-        "Encrypted PDFs are not supported by native page ops",
-    )?;
-    materialize_reused_base_streams(&mut incremental, input_path, qpdf_path, mutations)?;
-
-    let previous_len = incremental.previous_len();
-    let previous_last_byte = incremental.previous_last_byte();
-    let previous_xref_start = incremental.previous_xref_start();
-    if !append_paths_refer_to_same_file(input_path, output_path) {
-        assert_append_output_seeded(input_path, output_path, previous_len)?;
+    let mut incremental = open_mutation_base_path(input_path, mutations)?;
+    if let Some(destination) = seeded_destination {
+        let previous_len = incremental.previous_len();
+        let previous_last_byte = incremental.previous_last_byte();
+        let previous_xref_start = incremental.previous_xref_start();
+        if !append_paths_refer_to_same_file(input_path, destination) {
+            assert_append_output_seeded(input_path, destination, previous_len)?;
+        }
+        for path in [input_path, destination] {
+            assert_append_path_unchanged(
+                path,
+                previous_len,
+                previous_last_byte,
+                previous_xref_start,
+            )?;
+        }
     }
-    assert_append_path_unchanged(
-        input_path,
-        previous_len,
-        previous_last_byte,
-        previous_xref_start,
-    )?;
-    assert_append_path_unchanged(
-        output_path,
-        previous_len,
-        previous_last_byte,
-        previous_xref_start,
-    )?;
 
     with_staged_incremental_output_for_revision(
         input_path,
@@ -486,12 +556,10 @@ pub(crate) fn append_native_mutations_with_qpdf(
         |staged_output_path| {
             write_native_mutations_revision(
                 &mut incremental,
-                input_path,
                 staged_output_path,
                 mutations,
                 modified_at,
-                true,
-                Some(output_path),
+                seeded_destination,
                 identity_bindings_path,
             )
         },
@@ -505,12 +573,11 @@ pub(crate) fn append_native_mutations_with_qpdf(
 /// a durable copy-on-write backup and recovery journal. Native still validates
 /// the admitted file and rolls back a partial revision on every write or
 /// postcondition failure, but it does not create another sibling clone.
-pub(crate) fn append_native_mutations_in_place_with_qpdf(
+pub(crate) fn append_native_mutations_in_place(
     input_path: &Path,
     output_path: &Path,
     mutations: &NativeMutationsFile,
     modified_at: &str,
-    qpdf_path: Option<&Path>,
     identity_bindings_path: Option<&Path>,
 ) -> Result<()> {
     if input_path != output_path {
@@ -522,82 +589,31 @@ pub(crate) fn append_native_mutations_in_place_with_qpdf(
 
     let source_witness = PathRevisionWitness::capture(input_path)
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
-    let mut incremental = load_native_mutation_base(input_path, qpdf_path, mutations)
-        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    assert_plaintext_base(
-        incremental.get_prev_documents(),
-        "Encrypted PDFs are not supported by native page ops",
-    )?;
-    materialize_reused_base_streams(&mut incremental, input_path, qpdf_path, mutations)?;
-
-    let previous_len = incremental.previous_len();
-    let previous_last_byte = incremental.previous_last_byte();
-    let previous_xref_start = incremental.previous_xref_start();
+    let mut incremental = open_mutation_base_path(input_path, mutations)?;
     source_witness
         .assert_current()
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
     assert_append_path_unchanged(
         input_path,
-        previous_len,
-        previous_last_byte,
-        previous_xref_start,
+        incremental.previous_len(),
+        incremental.previous_last_byte(),
+        incremental.previous_xref_start(),
     )?;
-
-    remember_annotation_ownership_input(input_path);
     write_native_mutations_revision(
         &mut incremental,
-        input_path,
         output_path,
         mutations,
         modified_at,
-        true,
         None,
         identity_bindings_path,
-    )?;
-    record_annotation_ownership(&incremental, output_path);
-    Ok(())
-}
-
-/// Reads reused stamp streams that a structural load left unread.
-fn materialize_reused_base_streams(
-    incremental: &mut IncrementalDocument,
-    input_path: &Path,
-    qpdf_path: Option<&Path>,
-    mutations: &NativeMutationsFile,
-) -> Result<()> {
-    materialize_stamp_recovery_sources(
-        incremental,
-        StructuralSource::for_path(input_path, qpdf_path),
-        &mutations.placed_image_geometry_updates,
-    )?;
-    Ok(())
-}
-
-/// Rotations, page labels and bookmarks read and rewrite only dictionaries.
-/// Annotation writers can read appearance, font or image streams.
-pub(crate) fn is_dictionary_only_mutation(mutations: &NativeMutationsFile) -> bool {
-    (!mutations.page_rotations.is_empty()
-        || mutations.page_labels.is_some()
-        || mutations.bookmarks.is_some())
-        && mutations.updates.is_empty()
-        && mutations.geometry_updates.is_empty()
-        && mutations.notes.is_empty()
-        && mutations.free_text_notes.is_empty()
-        && mutations.text_boxes.is_empty()
-        && mutations.deletes.is_empty()
-        && mutations.shapes.is_none()
-        && mutations.markup.is_none()
-        && mutations.placed_images.is_empty()
-        && mutations.placed_image_geometry_updates.is_empty()
+    )
 }
 
 fn write_native_mutations_revision(
     incremental: &mut IncrementalDocument,
-    input_path: &Path,
     output_path: &Path,
     mutations: &NativeMutationsFile,
     modified_at: &str,
-    seeded_output: bool,
     destination_fence: Option<&Path>,
     identity_bindings_path: Option<&Path>,
 ) -> Result<()> {
@@ -621,11 +637,7 @@ fn write_native_mutations_revision(
     let previous_len = incremental.previous_len();
     let previous_last_byte = incremental.previous_last_byte();
     let previous_xref_start = incremental.previous_xref_start();
-    if seeded_output {
-        assert_append_output_length(output_path, previous_len)?;
-    } else {
-        assert_append_output_seeded(input_path, output_path, previous_len)?;
-    }
+    assert_append_output_length(output_path, previous_len)?;
     if let Some(destination_path) = destination_fence {
         assert_append_path_unchanged(
             destination_path,
@@ -666,94 +678,6 @@ fn write_native_mutations_revision(
         }
     }
     result
-}
-
-/// The non-append CLI form still has path-backed semantics. Seed its requested
-/// output and use the same incremental writer as the explicit append form so a
-/// legacy caller cannot force a whole-document read for a large PDF.
-pub(crate) fn write_native_mutations_path(
-    input_path: &Path,
-    output_path: &Path,
-    mutations: &NativeMutationsFile,
-    modified_at: &str,
-    qpdf_path: Option<&Path>,
-    identity_bindings_path: Option<&Path>,
-) -> Result<()> {
-    // Keep the old whole-document writer for compatibility-sized inputs. Its
-    // object-graph behavior is part of the byte-input contract; only the
-    // large path needs the qpdf-backed incremental route below.
-    let encoded_len = fs::metadata(input_path)
-        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?
-        .len();
-    if encoded_len <= MAX_ENCODED_PDF_BYTES as u64 {
-        let mut document = load_pdf_path(input_path)
-            .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-        assert_plaintext_base(
-            &document,
-            "Encrypted PDFs are not supported by native page ops",
-        )?;
-        let mut identity_bindings = Vec::new();
-        if identity_bindings_path.is_some() {
-            apply_native_mutations_with_bindings(
-                &mut document,
-                mutations,
-                modified_at,
-                &mut identity_bindings,
-            )?;
-        } else {
-            apply_native_mutations(&mut document, mutations, modified_at)?;
-        }
-        let identity_bindings_report = identity_bindings_path
-            .map(|_| serialize_annotation_identity_bindings_report(&identity_bindings))
-            .transpose()?;
-        // The rewrite numbers its cross-reference to the last object it keeps.
-        document.max_id = document.objects.keys().next_back().map_or(0, |id| id.0);
-        let mut staged = AtomicOutput::create(output_path)
-            .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
-        document
-            .save_to(
-                staged
-                    .file_mut()
-                    .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?,
-            )
-            .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
-        staged
-            .publish_if_unchanged()
-            .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
-        if let (Some(path), Some(bytes)) =
-            (identity_bindings_path, identity_bindings_report.as_deref())
-        {
-            fs::write(path, bytes)?;
-        }
-        return Ok(());
-    }
-
-    let source_witness = PathRevisionWitness::capture(input_path)
-        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
-    let mut incremental = load_native_mutation_base(input_path, qpdf_path, mutations)
-        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    assert_plaintext_base(
-        incremental.get_prev_documents(),
-        "Encrypted PDFs are not supported by native page ops",
-    )?;
-    materialize_reused_base_streams(&mut incremental, input_path, qpdf_path, mutations)?;
-    with_staged_incremental_output_for_revision(
-        input_path,
-        output_path,
-        Some(&source_witness),
-        |staged_output_path| {
-            write_native_mutations_revision(
-                &mut incremental,
-                input_path,
-                staged_output_path,
-                mutations,
-                modified_at,
-                true,
-                None,
-                identity_bindings_path,
-            )
-        },
-    )
 }
 
 pub(crate) fn write_incremental_revision(
@@ -1867,62 +1791,5 @@ mod xref_stream_canary_tests {
         let appended = b"4294967295 0 obj\n<</Type/XRef/Size 4294967295/W[1 1 1]/Index[4294967295 2]/Length 6>>\nstream\n\x01\x00\x00\x01\x00\x00\nendstream\nendobj\nstartxref\n0\n%%EOF\n";
         let error = parse_incremental_xref_stream(appended, 0).unwrap_err();
         assert!(error.to_string().contains("object-number limit"));
-    }
-}
-
-#[cfg(test)]
-mod page_local_admission_tests {
-    use super::*;
-    use serde_json::{json, Value};
-
-    fn admitted(value: Value) -> bool {
-        page_local_edit(&serde_json::from_value(value).unwrap()).is_some()
-    }
-
-    #[test]
-    fn admits_scan_resolved_edits_beside_existing_note_saves() {
-        let markup = json!({"subtype":"Highlight","pageIndex":7,"markerRect":{"left":0.1,"top":0.2,"width":0.3,"height":0.02},"appAnnotationId":"new-highlight","source":"editor"});
-        let shape = json!({"type":"rectangle","pageIndex":7,"x":0.1,"y":0.2,"width":0.3,"height":0.1,"color":"#123456","opacity":1,"strokeWidth":2,"stableKey":"new-shape"});
-        let text_box = json!({"pageIndex":7,"stableKey":"new-box","text":"new text","rect":[10,20,80,60],"rotation":0,"fontSize":12,"color":[0,0,0]});
-        for subtype in ["Highlight", "Underline", "StrikeOut", "Squiggly"] {
-            let mut hint = markup.clone();
-            hint["subtype"] = json!(subtype);
-            assert!(admitted(json!({"markup":{"hints":[hint]}})));
-        }
-        for tool in ["rectangle", "circle", "line", "arrow"] {
-            let mut item = shape.clone();
-            item["type"] = json!(tool);
-            assert!(admitted(json!({"shapes":{"totalPages":8,"shapes":[item]}})));
-        }
-        assert!(admitted(json!({"textBoxes":[text_box.clone()]})));
-        let mut item = text_box.clone();
-        item["originalAppearance"] = json!({"recoveryData":"00"});
-        assert!(!admitted(json!({"textBoxes":[item]})));
-        for patch in [json!({"annotationId":"12R"}), json!({"source":"pdf"})] {
-            let mut item = markup.clone();
-            item.as_object_mut()
-                .unwrap()
-                .extend(patch.as_object().unwrap().clone());
-            assert!(admitted(json!({"markup":{"hints":[item]}})));
-        }
-        for patch in [
-            json!({"rewriteShapeState":true}),
-            json!({"deletedAnnotationIds":["12R"]}),
-            json!({"deletedStableKeys":["old"]}),
-            json!({"shapes":[{"annotationId":"12R", "type":"rectangle","pageIndex":7,"x":0.1,"y":0.2,"width":0.3,"height":0.1,"color":"#123456","opacity":1,"strokeWidth":2}]}),
-        ] {
-            let mut shapes = json!({"totalPages":8,"shapes":[shape.clone()]});
-            shapes
-                .as_object_mut()
-                .unwrap()
-                .extend(patch.as_object().unwrap().clone());
-            assert!(admitted(json!({"shapes":shapes})));
-        }
-        assert!(admitted(
-            json!({"textBoxes":[text_box],"deletes":[{"pageIndex":7,"objectNumber":12,"generationNumber":0}]})
-        ));
-        assert!(admitted(
-            json!({"placedImageGeometryUpdates":[{"pageIndex":7,"annotationId":"12R","x":0.1,"y":0.2,"width":0.3,"height":0.1}]})
-        ));
     }
 }
