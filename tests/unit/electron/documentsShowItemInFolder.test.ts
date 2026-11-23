@@ -44,7 +44,10 @@ vi.mock('@electron/menu', () => ({
     updateRecentFilesMenu: vi.fn(),
 }));
 
-vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
+vi.mock('@electron/utils/pathValidator', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@electron/utils/pathValidator')>()),
+    resolveAllowedReadPath: mocks.resolveAllowedReadPath,
+}));
 
 vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => ({
     debug: vi.fn(),

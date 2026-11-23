@@ -1245,16 +1245,30 @@ describe('pinned document revisions', () => {
         const other = await writeTemp('other.pdf', SAME_SIZE_OTHER);
         const aside = join(tempRoot, 'aside.pdf');
         let checks = 0;
+        let swapBlockedOnWindows = false;
         // Another program points the path at other bytes right after the first check and back right before the last.
+        // On Windows, the open read handle in `copyAdmittedFile` itself blocks renaming over the file (`EPERM`/`EBUSY`).
         fileChecks.after = async (path) => {
             if (path !== pdf || ++checks !== 1) return;
             await link(pdf, aside);
-            await rename(other, pdf);
+            try {
+                await rename(other, pdf);
+            } catch (error) {
+                const code = (error as NodeJS.ErrnoException).code;
+                if (process.platform === 'win32' && (code === 'EPERM' || code === 'EBUSY')) {
+                    swapBlockedOnWindows = true;
+                    await rm(aside, {force: true});
+                    return;
+                }
+                throw error;
+            }
         };
         fileChecks.before = async (path) => {
             if (path !== pdf || checks !== 1) return;
             checks += 1;
-            await rename(aside, pdf);
+            if (!swapBlockedOnWindows) {
+                await rename(aside, pdf);
+            }
         };
 
         const read = await readPin(pinned);
