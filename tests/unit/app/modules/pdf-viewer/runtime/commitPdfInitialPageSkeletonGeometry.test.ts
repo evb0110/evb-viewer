@@ -1,5 +1,7 @@
 import { requirePageNumber } from '@contracts/pageNumbers';
 import {
+    afterEach,
+    beforeEach,
     describe,
     expect,
     it,
@@ -7,6 +9,7 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import { commitPdfPageSkeletonGeometry } from '@app/modules/pdf-viewer/runtime/lifecycle/commitPdfInitialPageSkeletonGeometry';
+import { observePdfOpeningPageGeometry } from '@app/modules/pdf-viewer/runtime/lifecycle/observePdfOpeningPageGeometry';
 import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
 import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 
@@ -187,5 +190,196 @@ describe('commitPdfPageSkeletonGeometry', () => {
             },
         )).toBe(false);
         expect(opening.committedGeometry()).toBeNull();
+    });
+});
+
+/** A browser-like observer: `observe` reports the current size, `resize` reports a change. */
+function installResizeObservers() {
+    const original = globalThis.ResizeObserver;
+    const live = new Set<{callback: () => void; elements: Set<Element>}>();
+    globalThis.ResizeObserver = class {
+        private readonly record = {
+            callback: () => {},
+            elements: new Set<Element>(),
+        };
+        constructor(callback: ResizeObserverCallback) {
+            this.record.callback = () => callback([], this as unknown as ResizeObserver);
+            live.add(this.record);
+        }
+        observe(element: Element) {
+            this.record.elements.add(element);
+            queueMicrotask(() => this.record.elements.has(element) && this.record.callback());
+        }
+        unobserve(element: Element) {
+            this.record.elements.delete(element);
+        }
+        disconnect() {
+            this.record.elements.clear();
+        }
+    } as unknown as typeof ResizeObserver;
+    return {
+        isObserved: (element: Element) => [...live].some(record => record.elements.has(element)),
+        resize(element: Element) {
+            [...live].filter(record => record.elements.has(element)).forEach(record => record.callback());
+        },
+        restore: () => {
+            globalThis.ResizeObserver = original;
+        },
+    };
+}
+
+function createOpeningPageContainer(size: {width: number; height: number}) {
+    const pageContainer = createElementShim({
+        isConnected: true,
+        getBoundingClientRect: () => ({...size}),
+    });
+    return {
+        pageContainer,
+        resizeTo(next: {width: number; height: number}) {
+            size.width = next.width;
+            size.height = next.height;
+        },
+    };
+}
+
+describe('observePdfOpeningPageGeometry', () => {
+    let observers: ReturnType<typeof installResizeObservers>;
+    beforeEach(() => {
+        observers = installResizeObservers();
+    });
+    afterEach(() => {
+        observers.restore();
+    });
+
+    it('commits a zero-sized opening page once it is resized, then stops observing', async () => {
+        const page = createOpeningPageContainer({
+            width: 0,
+            height: 0,
+        });
+        const commit = vi.fn(() => true);
+        observePdfOpeningPageGeometry({
+            pageContainer: page.pageContainer,
+            isCurrent: () => true,
+            commit,
+        });
+        await Promise.resolve();
+        expect(commit).not.toHaveBeenCalled();
+        expect(observers.isObserved(page.pageContainer)).toBe(true);
+
+        page.resizeTo({
+            width: 600,
+            height: 800,
+        });
+        observers.resize(page.pageContainer);
+
+        expect(commit).toHaveBeenCalledOnce();
+        expect(observers.isObserved(page.pageContainer)).toBe(false);
+    });
+
+    it('commits at the first observation when the page gained its size before observing', async () => {
+        const page = createOpeningPageContainer({
+            width: 600,
+            height: 800,
+        });
+        const commit = vi.fn(() => true);
+        observePdfOpeningPageGeometry({
+            pageContainer: page.pageContainer,
+            isCurrent: () => true,
+            commit,
+        });
+
+        await Promise.resolve();
+
+        expect(commit).toHaveBeenCalledOnce();
+        expect(observers.isObserved(page.pageContainer)).toBe(false);
+    });
+
+    it('keeps waiting while a sized page cannot commit yet, without a deadlock', async () => {
+        const page = createOpeningPageContainer({
+            width: 600,
+            height: 800,
+        });
+        let canCommit = false;
+        const commit = vi.fn(() => canCommit);
+        observePdfOpeningPageGeometry({
+            pageContainer: page.pageContainer,
+            isCurrent: () => true,
+            commit,
+        });
+        await Promise.resolve();
+        expect(commit).toHaveBeenCalledOnce();
+        expect(observers.isObserved(page.pageContainer)).toBe(true);
+
+        canCommit = true;
+        observers.resize(page.pageContainer);
+
+        expect(commit).toHaveBeenCalledTimes(2);
+        expect(observers.isObserved(page.pageContainer)).toBe(false);
+    });
+
+    it('stops without committing once the opening moved to another page or generation', async () => {
+        const page = createOpeningPageContainer({
+            width: 0,
+            height: 0,
+        });
+        let current = true;
+        const commit = vi.fn(() => true);
+        observePdfOpeningPageGeometry({
+            pageContainer: page.pageContainer,
+            isCurrent: () => current,
+            commit,
+        });
+        await Promise.resolve();
+
+        current = false;
+        page.resizeTo({
+            width: 600,
+            height: 800,
+        });
+        observers.resize(page.pageContainer);
+
+        expect(commit).not.toHaveBeenCalled();
+        expect(observers.isObserved(page.pageContainer)).toBe(false);
+    });
+
+    it('stops at once when another path commits the geometry, without waiting for a resize', async () => {
+        const page = createOpeningPageContainer({
+            width: 0,
+            height: 0,
+        });
+        const geometryCommitted = ref(false);
+        const commit = vi.fn(() => true);
+        observePdfOpeningPageGeometry({
+            pageContainer: page.pageContainer,
+            isCurrent: () => !geometryCommitted.value,
+            commit,
+        });
+        await Promise.resolve();
+        expect(observers.isObserved(page.pageContainer)).toBe(true);
+
+        // The canvas mount commits the opening geometry first.
+        geometryCommitted.value = true;
+
+        expect(observers.isObserved(page.pageContainer)).toBe(false);
+        expect(commit).not.toHaveBeenCalled();
+    });
+
+    it('stops when its owner unmounts', async () => {
+        const page = createOpeningPageContainer({
+            width: 0,
+            height: 0,
+        });
+        const commit = vi.fn(() => true);
+        const stop = observePdfOpeningPageGeometry({
+            pageContainer: page.pageContainer,
+            isCurrent: () => true,
+            commit,
+        });
+
+        stop();
+        await Promise.resolve();
+
+        expect(observers.isObserved(page.pageContainer)).toBe(false);
+        expect(commit).not.toHaveBeenCalled();
     });
 });

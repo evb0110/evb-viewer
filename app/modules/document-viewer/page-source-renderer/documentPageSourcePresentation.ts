@@ -138,7 +138,6 @@ export function createDocumentPageSourcePresentation(options: {
     // An <img> finishing its load is invisible to Vue; this map makes getVisual re-derive when the
     // opening-shell handoff remounts an already-ready page with a fresh image element.
     const loadedSurfaceImages = shallowReactive(new Map<number, HTMLImageElement>());
-    let nextViewportRenderRequestId = 0;
     const beginPending = (_pageNumber: number, state: IDocumentPageSourceVisualState) => {
         state.error = null;
         state.failurePresentation = null;
@@ -281,8 +280,7 @@ export function createDocumentPageSourcePresentation(options: {
                     && openSurface.createOwnedRenderFence(options.openSurfaceRenderOwner, {
                         generation: surfaceGeneration,
                         documentRevision: snapshot.identity?.documentRevision ?? '',
-                        rendererVersion: lifecycleFence.loadGeneration,
-                        rendererRequestId: ++nextViewportRenderRequestId,
+                        requestId: state.generation,
                         pageNumber,
                     });
                 if (navigationFence) {
@@ -345,8 +343,7 @@ export function createDocumentPageSourcePresentation(options: {
             && openSurface.createOwnedRenderFence(options.openSurfaceRenderOwner, {
                 generation: lifecycleFence.openSurfaceGeneration,
                 documentRevision: snapshot.identity?.documentRevision ?? '',
-                rendererVersion: lifecycleFence.loadGeneration,
-                rendererRequestId: ++nextViewportRenderRequestId,
+                requestId: state.generation,
                 pageNumber,
             });
         const viewport = options.readViewport();
@@ -491,7 +488,7 @@ export function createDocumentPageSourcePresentation(options: {
         renderControllers.set(pageNumber, renderController);
         const renderAttempt: { generation: number | null } = {generation: null};
         try {
-            const outcome = await options.renderSession?.runPageRender(pageNumber, async (renderGeneration) => {
+            const outcome = await options.renderSession?.runPageRender(pageNumber, async ({requestId: renderGeneration}) => {
                 renderAttempt.generation = renderGeneration;
                 const nextState = previous ?? createVisualState(renderGeneration, priority, widthPx);
                 if (!preserveExistingVisual) {
@@ -516,7 +513,7 @@ export function createDocumentPageSourcePresentation(options: {
                 return;
             }
             const {
-                generation: renderGeneration,
+                attempt: {requestId: renderGeneration},
                 value: lease,
             } = outcome;
             let candidate: HTMLImageElement | null = null;

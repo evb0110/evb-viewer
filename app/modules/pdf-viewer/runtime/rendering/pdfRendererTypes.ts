@@ -73,7 +73,7 @@ export interface ICancelableRenderTask {
 export interface IPdfCanvasDomCommit {
     openSurfaceGeneration: number;
     documentRevision: string;
-    renderVersion: number;
+    /** The raster attempt's identity, which the open surface fence carries. */
     requestId: number;
     pageNumber: TPageNumber;
 }

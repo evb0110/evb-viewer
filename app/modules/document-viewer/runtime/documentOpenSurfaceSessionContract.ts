@@ -87,16 +87,10 @@ export interface IDocumentOpenSurfaceSession {
     createRenderFence(
         input: Omit<IDocumentOpenSurfaceRenderFence, 'viewportIntentId'>,
     ): IDocumentOpenSurfaceRenderFence | null;
+    /** `requestId` is the renderer's attempt identity, carried as is. */
     createOwnedRenderFence(
         owner: IDocumentOpenSurfaceRenderOwner,
-        input: Omit<IDocumentOpenSurfaceRenderFence, 'viewportIntentId' | 'renderVersion' | 'requestId'> & {
-            readonly rendererVersion: number;
-            readonly rendererRequestId: number;
-        },
-    ): IDocumentOpenSurfaceRenderFence | null;
-    createOwnedResidentRenderFence(
-        owner: IDocumentOpenSurfaceRenderOwner,
-        input: Omit<IDocumentOpenSurfaceRenderFence, 'viewportIntentId' | 'renderVersion' | 'requestId'>,
+        input: Omit<IDocumentOpenSurfaceRenderFence, 'viewportIntentId' | 'renderVersion'>,
     ): IDocumentOpenSurfaceRenderFence | null;
     commitCanvas(fence: IDocumentOpenSurfaceRenderFence): boolean;
     commitViewport(commit: IDocumentOpenSurfaceViewportCommit): boolean;

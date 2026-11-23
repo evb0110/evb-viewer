@@ -71,22 +71,41 @@ describe('createPdfRasterQualityRefineGate', () => {
         expect(gate.canRefineVisibleRaster()).toBe(true);
     });
 
-    it('waits a whole idle window again while a live transaction blocks the refine', () => {
+    it('holds the refine without polling while a live transaction blocks it', () => {
         let activeTransaction = true;
         const {
             gate,
             requestReconcileFrame,
         } = createGate({hasActiveTransaction: () => activeTransaction});
 
-        // The idle window is long gone; only the transaction is holding the
-        // refine back, so there is no deadline left to come back on.
+        // The idle window is long gone; only the transaction holds the refine.
         vi.advanceTimersByTime(QUALITY_REFINE_INPUT_IDLE_MS + 40);
         expect(gate.canRefineVisibleRaster()).toBe(false);
 
-        vi.advanceTimersByTime(QUALITY_REFINE_INPUT_IDLE_MS - 1);
+        // No timer asks again: the transaction's end republishes the demand.
+        vi.advanceTimersByTime(QUALITY_REFINE_INPUT_IDLE_MS * 10);
         expect(requestReconcileFrame).not.toHaveBeenCalled();
+        expect(vi.getTimerCount()).toBe(0);
 
-        vi.advanceTimersByTime(1);
+        activeTransaction = false;
+        expect(gate.canRefineVisibleRaster()).toBe(true);
+    });
+
+    it('keeps the quiet window under a transaction, then waits for the transaction alone', () => {
+        let activeTransaction = true;
+        const {
+            gate,
+            requestReconcileFrame,
+        } = createGate({hasActiveTransaction: () => activeTransaction});
+
+        vi.advanceTimersByTime(60);
+        expect(gate.canRefineVisibleRaster()).toBe(false);
+        vi.advanceTimersByTime(QUALITY_REFINE_INPUT_IDLE_MS - 60);
+        expect(requestReconcileFrame).toHaveBeenCalledTimes(1);
+
+        // The window closed while the transaction still runs: nothing re-arms.
+        expect(gate.canRefineVisibleRaster()).toBe(false);
+        vi.advanceTimersByTime(QUALITY_REFINE_INPUT_IDLE_MS * 10);
         expect(requestReconcileFrame).toHaveBeenCalledTimes(1);
 
         activeTransaction = false;

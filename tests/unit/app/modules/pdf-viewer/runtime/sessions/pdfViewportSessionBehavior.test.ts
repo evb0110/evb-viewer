@@ -150,6 +150,48 @@ function appendPageBox(
     return element;
 }
 
+/**
+ * Records what a session observes; `deliver` reports a layout change to the
+ * observers of `element`, as the browser does after layout.
+ */
+function installGeometryObservers() {
+    const original = globalThis.ResizeObserver;
+    const observers = new Set<{callback: ResizeObserverCallback; elements: Set<Element>; observer: ResizeObserver}>();
+    globalThis.ResizeObserver = class {
+        private readonly record;
+        constructor(callback: ResizeObserverCallback) {
+            this.record = {
+                callback,
+                elements: new Set<Element>(),
+                observer: this as unknown as ResizeObserver,
+            };
+            observers.add(this.record);
+        }
+        observe(element: Element) {
+            this.record.elements.add(element);
+        }
+        unobserve(element: Element) {
+            this.record.elements.delete(element);
+        }
+        disconnect() {
+            this.record.elements.clear();
+        }
+    } as unknown as typeof ResizeObserver;
+    return {
+        isObserved: (element: Element) => [...observers].some(record => record.elements.has(element)),
+        deliver(element: Element) {
+            for (const record of observers) {
+                if (record.elements.has(element)) {
+                    record.callback([{target: element} as ResizeObserverEntry], record.observer);
+                }
+            }
+        },
+        restore() {
+            globalThis.ResizeObserver = original;
+        },
+    };
+}
+
 function createDocumentFixture(pageCount = 100) {
     const subscribers: Array<(transition: IPdfDocumentTransition) => void | Promise<void>> = [];
     const pageMetrics = ref(Array.from({ length: pageCount }, () => ({
@@ -273,6 +315,8 @@ function createViewportFixture(input: {
     const viewportWrites = createTestPdfViewportWritePort();
     const port = input.viewportWritePort ?? viewportWrites.port;
     let rendering: ReturnType<typeof createPdfRenderingSession> | undefined;
+    // The viewport hands superseded rasters to the renderer, as the feature controller wires it.
+    const cancelSupersededRasters = vi.fn(() => rendering?.cancelSupersededRasters());
     let viewport: ReturnType<typeof createPdfViewportSession> | undefined;
     const root = document.createElement('div');
     const app = createApp(defineComponent({
@@ -297,6 +341,9 @@ function createViewportFixture(input: {
                 outputScale,
                 isPageFreshlyRenderedForNavigation:
                     input.isPageFreshlyRenderedForNavigation ?? (() => true),
+                cancelSupersededRasters,
+                adoptResidentCanvas: pageNumber => rendering?.adoptResidentCanvas(pageNumber),
+                reconcileCommittedVisual: () => rendering?.reconcileCommittedVisual(),
                 selectionMarkupStyle: computed(() => null),
                 classState: {
                     isAnySaving: computed(() => false),
@@ -361,6 +408,7 @@ function createViewportFixture(input: {
                 await disposer();
             }
         },
+        cancelSupersededRasters,
         documentSession,
         emittedPages,
         fitMode,
@@ -1425,6 +1473,7 @@ describe('PdfViewportSession behavior', () => {
     });
 
     it('remeasures continuous facing visibility as newly mounted rows settle without user scroll', async () => {
+        const geometry = installGeometryObservers();
         const fixture = createViewportFixture({
             bufferPages: 0,
             continuousScroll: true,
@@ -1483,9 +1532,13 @@ describe('PdfViewportSession behavior', () => {
                 start: 9,
                 end: 12,
             });
+            // Row 11-12 settles 20px shorter; the browser reports its resize.
             settlingRow.forEach(element => defineDimension(element, 'offsetTop', 790));
-            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            const settledRowAbove = fixture.container.querySelector('.page_container[data-page="11"]')!;
+            expect(geometry.isObserved(settledRowAbove)).toBe(true);
+            geometry.deliver(settledRowAbove);
 
+            // Derived at the notification, with no frame drained.
             expect(fixture.viewport.visibleRange.value).toEqual({
                 start: 9,
                 end: 14,
@@ -1502,6 +1555,87 @@ describe('PdfViewportSession behavior', () => {
                 13,
                 14,
             ]);
+
+            // An unmounted page is no longer observed.
+            fixture.viewport.markPageUnmounted(requirePageNumber(11));
+            expect(geometry.isObserved(settledRowAbove)).toBe(false);
+        } finally {
+            fixture.app.unmount();
+            geometry.restore();
+        }
+    });
+
+    it('shows and demands the rows a vanished horizontal scrollbar exposes', async () => {
+        const fixture = createViewportFixture({
+            bufferPages: 0,
+            continuousScroll: true,
+            pageCount: 30,
+            zoomMode: 'custom',
+        });
+        try {
+            defineDimension(fixture.container, 'offsetWidth', 815);
+            await fixture.viewport.whenLayoutPlaced();
+            // A horizontal scrollbar appears; its fit settles the layout.
+            defineDimension(fixture.container, 'clientHeight', 785);
+            await fixture.viewport.whenLayoutPlaced();
+            for (const [page, top] of [[1, 0], [2, 795]] as const) {
+                appendPageBox(fixture.container, page, {
+                    height: 790,
+                    top,
+                });
+                fixture.viewport.markPageMounted(requirePageNumber(page));
+            }
+            expect(fixture.viewport.visibleRange.value).toEqual({
+                start: 1,
+                end: 1,
+            });
+
+            // The scrollbar goes away: the viewport is 15px taller and shows
+            // the top of page 2, with no scroll, no row resize and no new layout.
+            defineDimension(fixture.container, 'clientHeight', 800);
+            await fixture.viewport.whenLayoutPlaced();
+
+            expect(fixture.viewport.visibleRange.value).toEqual({
+                start: 1,
+                end: 2,
+            });
+            expect(fixture.viewport.demand.value.requiredPages).toEqual([
+                1,
+                2,
+            ]);
+        } finally {
+            fixture.app.unmount();
+        }
+    });
+
+    it('republishes render demand when the viewport transaction ends, so a held refine runs', async () => {
+        const fixture = createViewportFixture({
+            bufferPages: 0,
+            isPageFreshlyRenderedForNavigation: () => false,
+            pageCount: 100,
+        });
+        try {
+            fixture.documentSession.basePageHeight.value = 100;
+            fixture.documentSession.pageMetrics.value = Array.from({length: 100}, () => ({
+                width: 600,
+                height: 100,
+            }));
+            fixture.documentSession.pageMetricsVersion.value += 1;
+            fixture.viewport.markPageMounted(requirePageNumber(1));
+            fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+            expect(fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(64))).toBe(true);
+            await vi.waitFor(() => {
+                expect(fixture.viewport.viewportWork.activeWorkKind.value).toBe('navigation');
+            });
+            const published: number[] = [];
+            const stop = watch(fixture.viewport.demand, demand => published.push(demand.revision), {flush: 'sync'});
+
+            fixture.viewport.singlePageScroll.cancelProgrammaticNavigation('test-transaction-end');
+
+            expect(fixture.viewport.viewportWork.activeWorkKind.value).toBeNull();
+            // The renderer's one demand subscription sees the end at once.
+            expect(published.length).toBeGreaterThan(0);
+            stop();
         } finally {
             fixture.app.unmount();
         }
@@ -1586,7 +1720,7 @@ describe('PdfViewportSession behavior', () => {
                 1,
                 64,
             ]));
-            const cancellationRevision = fixture.viewport.cancelRasterRevision.value;
+            const cancellations = fixture.cancelSupersededRasters.mock.calls.length;
             if (interaction === 'wheel') {
                 // The chassis reports the packet to the write port first.
                 fixture.viewport.viewportWritePort.observeUserInteraction(fixture.container);
@@ -1595,7 +1729,7 @@ describe('PdfViewportSession behavior', () => {
                 fixture.container.scrollTop = 200;
                 fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
             }
-            expect(fixture.viewport.cancelRasterRevision.value).toBe(cancellationRevision + 1);
+            expect(fixture.cancelSupersededRasters).toHaveBeenCalledTimes(cancellations + 1);
 
         } finally {
             fixture.viewport.singlePageScroll.cancelProgrammaticNavigation('test-cleanup');
@@ -1630,7 +1764,7 @@ describe('PdfViewportSession behavior', () => {
             await vi.waitFor(() => {
                 expect(fixture.viewport.demand.value.requiredPages).toContain(64);
             });
-            const cancellationRevision = fixture.viewport.cancelRasterRevision.value;
+            const cancellations = fixture.cancelSupersededRasters.mock.calls.length;
 
             // The compositor applies one more inertial delta before scroll
             // suppression reaches it.
@@ -1638,7 +1772,7 @@ describe('PdfViewportSession behavior', () => {
             fixture.container.scrollTop = 200;
             fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
 
-            expect(fixture.viewport.cancelRasterRevision.value).toBe(cancellationRevision);
+            expect(fixture.cancelSupersededRasters).toHaveBeenCalledTimes(cancellations);
             expect(fixture.viewport.demand.value.destinationPage).toBe(64);
             expect(fixture.viewport.demand.value.requiredPages).toContain(64);
         } finally {

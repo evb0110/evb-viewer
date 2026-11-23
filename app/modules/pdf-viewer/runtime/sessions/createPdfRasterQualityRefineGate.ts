@@ -6,6 +6,7 @@ export interface ICreatePdfRasterQualityRefineGateOptions {
     getClampedVisibleRefineMode: () => TPdfClampedVisibleRefineMode | undefined;
     /** The view write port's physical-interaction epoch. */
     getInteractionEpoch: () => number;
+    /** Whether a viewport transaction is live; its end republishes the demand. */
     hasActiveTransaction: () => boolean;
     requestReconcileFrame: () => void;
 }
@@ -59,17 +60,15 @@ export function createPdfRasterQualityRefineGate(
             const scheduling = typeof navigator === 'undefined'
                 ? undefined
                 : (navigator as Navigator & {scheduling?: {isInputPending?: () => boolean}}).scheduling;
-            if (
-                remainingIdleMs <= 0
-                && !options.hasActiveTransaction()
-                && !(typeof scheduling?.isInputPending === 'function' && scheduling.isInputPending())
-            ) {
-                return true;
+            const isInputPending = typeof scheduling?.isInputPending === 'function' && scheduling.isInputPending();
+            if (remainingIdleMs <= 0 && !isInputPending) {
+                // A live viewport transaction holds the refine without a
+                // timer: its end republishes the demand, which reconciles.
+                return !options.hasActiveTransaction();
             }
             // While the idle window is still open, come back exactly when it
-            // closes. A refine blocked by a live transaction or pending input
-            // has no such deadline, so it waits a full idle window before
-            // asking again.
+            // closes; pending input has no such deadline, so it waits a full
+            // idle window before asking again.
             idleTimer ??= window.setTimeout(() => {
                 idleTimer = null;
                 options.requestReconcileFrame();

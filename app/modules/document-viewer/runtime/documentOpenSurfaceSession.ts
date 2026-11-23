@@ -310,12 +310,8 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         revisionSwap.value !== null,
     ));
     let nextViewportIntent = 0;
-    let nextRenderOwnerVersion = 0;
-    const renderOwnerStates = new WeakMap<IDocumentOpenSurfaceRenderOwner, {
-        latestRendererVersion: number;
-        latestRendererRequestId: number;
-        nextSurfaceRequestId: number;
-    }>();
+    // The renderer that paints this surface now; a claim supersedes the last.
+    let renderOwner: IDocumentOpenSurfaceRenderOwner | null = null;
     const ownedRenderFences = new WeakMap<IDocumentOpenSurfaceRenderFence, IDocumentOpenSurfaceRenderOwner>();
     const diagnostics = createDocumentOpenSurfaceDiagnostics(() => ({
         snapshot: snapshot.value,
@@ -495,26 +491,6 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             },
         });
         return accepted ? fence : null;
-    }
-
-    function createRenderOwnerFence(
-        owner: IDocumentOpenSurfaceRenderOwner,
-        input: Omit<IDocumentOpenSurfaceRenderFence, 'viewportIntentId' | 'renderVersion' | 'requestId'>,
-    ) {
-        const state = renderOwnerStates.get(owner);
-        if (!state || owner.renderVersion !== nextRenderOwnerVersion) {
-            return null;
-        }
-        state.nextSurfaceRequestId += 1;
-        const fence = createRenderFence({
-            ...input,
-            renderVersion: owner.renderVersion,
-            requestId: state.nextSurfaceRequestId,
-        });
-        if (fence) {
-            ownedRenderFences.set(fence, owner);
-        }
-        return fence;
     }
 
     function shouldRetargetOwnedOpeningPageShell(pageNumber: number) {
@@ -881,40 +857,30 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             return true;
         },
         claimRenderOwner() {
-            const owner = Object.freeze({renderVersion: ++nextRenderOwnerVersion});
-            renderOwnerStates.set(owner, {
-                latestRendererVersion: Number.NEGATIVE_INFINITY,
-                latestRendererRequestId: Number.NEGATIVE_INFINITY,
-                nextSurfaceRequestId: 0,
-            });
-            return owner;
+            renderOwner = Object.freeze({renderVersion: (renderOwner?.renderVersion ?? 0) + 1});
+            return renderOwner;
         },
         createRenderFence,
+        // The fence carries the renderer's own attempt identity, ordered
+        // after every attempt of an earlier owner.
         createOwnedRenderFence(owner, input) {
-            const state = renderOwnerStates.get(owner);
-            if (!state) {
+            if (owner !== renderOwner) {
                 return null;
             }
-            const isOlderRendererRequest = input.rendererVersion < state.latestRendererVersion
-                || input.rendererVersion === state.latestRendererVersion
-                && input.rendererRequestId < state.latestRendererRequestId;
-            if (isOlderRendererRequest) {
-                return null;
-            }
-            state.latestRendererVersion = input.rendererVersion;
-            state.latestRendererRequestId = input.rendererRequestId;
-            return createRenderOwnerFence(owner, {
-                generation: input.generation,
-                documentRevision: input.documentRevision,
-                pageNumber: input.pageNumber,
+            const fence = createRenderFence({
+                ...input,
+                renderVersion: owner.renderVersion,
             });
+            if (fence) {
+                ownedRenderFences.set(fence, owner);
+            }
+            return fence;
         },
-        createOwnedResidentRenderFence: createRenderOwnerFence,
         commitCanvas(fence) {
             const current = snapshot.value;
             const isReadyNavigation = current.phase === 'ready';
             const owner = ownedRenderFences.get(fence);
-            if (owner && owner.renderVersion !== nextRenderOwnerVersion) {
+            if (owner && owner !== renderOwner) {
                 diagnostics.reportRejected('commit-canvas', 'superseded-render-owner', {fence});
                 return false;
             }
@@ -926,9 +892,11 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 diagnostics.reportRejected('commit-canvas', 'geometry-not-committed', {fence});
                 return false;
             }
+            // Attempts are ordered per page: another page's older attempt is
+            // the resident canvas a navigation returns to.
             const previous = current.committedRender;
             if (
-                previous
+                previous?.pageNumber === fence.pageNumber
                 && (
                     fence.renderVersion < previous.renderVersion
                     || fence.renderVersion === previous.renderVersion && fence.requestId < previous.requestId

@@ -16,7 +16,10 @@ import type {
     IDocumentPageSource,
     IDocumentRenderLease,
 } from '@app/modules/document-viewer/public';
-import type { IDocumentViewerRenderSession } from '@app/modules/document-viewer/runtime/createDocumentViewerRenderCoordinator';
+import type {
+    IDocumentPageRenderAttempt,
+    IDocumentViewerRenderSession,
+} from '@app/modules/document-viewer/runtime/createDocumentViewerRenderCoordinator';
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { SerializableError } from '@contracts/serializableError';
@@ -97,22 +100,21 @@ function createPresentationHarness() {
     const renderSession: IDocumentViewerRenderSession = {
         ownerId: 'presentation-test',
         pageSlots: createDocumentPageSlotRegistry().createOwner('presentation-test'),
-        beginPageRender: () => ++nextRenderGeneration,
-        commitPageRender: () => true,
-        failPageRender: () => true,
-        getPageVisual: () => 'skeleton',
         resolveMountedPages: () => [],
         dispose: vi.fn(),
         releasePage: vi.fn(),
         runPageRender: async <T>(
-            _pageNumber: number,
-            render: (generation: number) => Promise<T>,
+            pageNumber: number,
+            render: (attempt: IDocumentPageRenderAttempt) => Promise<T>,
         ) => {
-            const generation = ++nextRenderGeneration;
+            const attempt = {
+                pageNumber,
+                requestId: ++nextRenderGeneration,
+            };
             return {
                 committed: true,
-                generation,
-                value: await render(generation),
+                attempt,
+                value: await render(attempt),
             };
         },
     };

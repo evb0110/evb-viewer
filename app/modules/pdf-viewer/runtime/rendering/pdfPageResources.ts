@@ -72,6 +72,8 @@ export interface IPdfShownRaster extends IPdfRasterTarget {
     readonly documentToken: string;
     /** The render version that authorizes these pixels. */
     readonly version: number;
+    /** The identity of the raster attempt that painted them. */
+    readonly requestId: number;
 }
 
 /** The one owner of a page's in-flight text and annotation layer work. */
@@ -175,6 +177,7 @@ export function createPdfPageResources() {
                     container: receipt.container,
                     documentToken: receipt.documentToken,
                     version: receipt.version,
+                    requestId: job.requestId,
                     targetScale: job.targetScale,
                     targetOutputScale: job.targetOutputScale,
                     targetViewRotation: job.targetViewRotation,

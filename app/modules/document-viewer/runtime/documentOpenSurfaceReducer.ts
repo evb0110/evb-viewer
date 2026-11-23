@@ -306,6 +306,16 @@ function renderFenceMatches(left: IDocumentViewportRenderFence, right: IDocument
         && left.requestId === right.requestId;
 }
 
+/** An older attempt of the same page, under the same intent, than `current`. */
+function isOlderRenderAttempt(fence: IDocumentViewportRenderFence, current: IDocumentViewportRenderFence | null) {
+    return current !== null
+        && current.generation === fence.generation
+        && current.viewportIntentId === fence.viewportIntentId
+        && current.pageNumber === fence.pageNumber
+        && (fence.renderVersion < current.renderVersion
+            || fence.renderVersion === current.renderVersion && fence.requestId < current.requestId);
+}
+
 function fenceTargetsCurrentIntent(
     state: IDocumentViewportSessionState,
     fence: IDocumentViewportRenderFence | IDocumentViewportCommitFence,
@@ -731,7 +741,9 @@ export function reduceDocumentViewportSession(
             });
         }
         case 'render-started':
-            if (!fenceTargetsCurrentIntent(state, event.fence)) {
+            // A started attempt stays the page's pending fence until a newer
+            // attempt of that page and intent replaces it.
+            if (!fenceTargetsCurrentIntent(state, event.fence) || isOlderRenderAttempt(event.fence, state.renderFence)) {
                 return reject(state);
             }
             return accept({

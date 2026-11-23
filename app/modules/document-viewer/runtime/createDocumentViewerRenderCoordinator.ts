@@ -1,22 +1,25 @@
 import type { IDocumentPageSlotRegistry } from '@app/modules/document-viewer/page-slots/createDocumentPageSlotRegistry';
 
-export type TDocumentPageVisual = 'skeleton' | 'fresh';
+/**
+ * One render of a page. It carries its identity from the renderer to the
+ * open surface; only the page's latest attempt in a live session commits.
+ */
+export interface IDocumentPageRenderAttempt {
+    readonly pageNumber: number;
+    readonly requestId: number;
+}
 
 export interface IDocumentViewerRenderSession {
     readonly ownerId: string;
     readonly pageSlots: ReturnType<IDocumentPageSlotRegistry['createOwner']>;
-    beginPageRender(pageNumber: number): number;
-    commitPageRender(pageNumber: number, generation: number): boolean;
-    failPageRender(pageNumber: number, generation: number): boolean;
     runPageRender<T>(
         pageNumber: number,
-        render: (generation: number) => Promise<T>,
+        render: (attempt: IDocumentPageRenderAttempt) => Promise<T>,
     ): Promise<{
         committed: boolean;
-        generation: number;
+        attempt: IDocumentPageRenderAttempt;
         value: T
     }>;
-    getPageVisual(pageNumber: number): TDocumentPageVisual;
     releasePage(pageNumber: number): void;
     resolveMountedPages(options: {
         currentPage: number;
@@ -32,59 +35,30 @@ export interface IDocumentViewerRenderSession {
 export function createDocumentViewerRenderCoordinator(pageSlots: IDocumentPageSlotRegistry) {
     function createSession(ownerId: string): IDocumentViewerRenderSession {
         const ownedSlots = pageSlots.createOwner(ownerId);
-        const visuals = new Map<number, {
-            generation: number;
-            visual: TDocumentPageVisual
-        }>();
+        const latestAttempts = new Map<number, IDocumentPageRenderAttempt>();
+        let nextRequestId = 0;
         let disposed = false;
 
         return {
             ownerId,
             pageSlots: ownedSlots,
-            beginPageRender(pageNumber) {
-                if (disposed) {
-                    return -1;
-                }
-                const generation = (visuals.get(pageNumber)?.generation ?? 0) + 1;
-                visuals.set(pageNumber, {
-                    generation,
-                    visual: 'skeleton',
-                });
-                return generation;
-            },
-            commitPageRender(pageNumber, generation) {
-                const state = visuals.get(pageNumber);
-                if (disposed || state?.generation !== generation) {
-                    return false;
-                }
-                state.visual = 'fresh';
-                return true;
-            },
-            failPageRender(pageNumber, generation) {
-                const state = visuals.get(pageNumber);
-                if (disposed || state?.generation !== generation) {
-                    return false;
-                }
-                state.visual = 'skeleton';
-                return true;
-            },
             async runPageRender(pageNumber, render) {
-                const generation = this.beginPageRender(pageNumber);
-                try {
-                    const value = await render(generation);
-                    return {
-                        committed: this.commitPageRender(pageNumber, generation),
-                        generation,
-                        value,
-                    };
-                } catch (error) {
-                    this.failPageRender(pageNumber, generation);
-                    throw error;
+                const attempt: IDocumentPageRenderAttempt = Object.freeze({
+                    pageNumber,
+                    requestId: ++nextRequestId,
+                });
+                if (!disposed) {
+                    latestAttempts.set(pageNumber, attempt);
                 }
+                const value = await render(attempt);
+                return {
+                    committed: !disposed && latestAttempts.get(pageNumber) === attempt,
+                    attempt,
+                    value,
+                };
             },
-            getPageVisual: pageNumber => visuals.get(pageNumber)?.visual ?? 'skeleton',
             releasePage(pageNumber) {
-                visuals.delete(pageNumber);
+                latestAttempts.delete(pageNumber);
             },
             resolveMountedPages({
                 currentPage,
@@ -161,7 +135,7 @@ export function createDocumentViewerRenderCoordinator(pageSlots: IDocumentPageSl
                     return;
                 }
                 disposed = true;
-                visuals.clear();
+                latestAttempts.clear();
                 ownedSlots.dispose();
             },
         };
