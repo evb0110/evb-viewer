@@ -2970,6 +2970,164 @@ fn per_page_ocr_mode_writes_atomic_png_and_metadata() {
     assert!(metadata_json["forwardTransform"]["matrix"].is_array());
 }
 
+#[test]
+fn per_page_ocr_mode_pnm_output_matches_png_pixels_for_clean_and_polarity_only() {
+    let scratch = Scratch::new("ocr-pnm-parity");
+    let ordinary_input = scratch.path("ordinary.png");
+    let mut ordinary = GrayImage::new(100, 80, 232);
+    for y in (15..65).step_by(10) {
+        for x in 12..88 {
+            ordinary.set(x, y, 22);
+            ordinary.set(x, y + 1, 22);
+        }
+    }
+    fs::write(&ordinary_input, encode_gray(&ordinary).unwrap()).unwrap();
+
+    let dark_cover_input = scratch.path("dark-cover.png");
+    let mut dark_cover = GrayImage::new(512, 512, 24);
+    for y in (40..176).step_by(24) {
+        for stroke_y in y..y + 6 {
+            for x in 32..224 {
+                dark_cover.set(x, stroke_y, 220);
+            }
+        }
+    }
+    fs::write(&dark_cover_input, encode_gray(&dark_cover).unwrap()).unwrap();
+
+    let cases = [
+        (
+            "clean",
+            &ordinary_input,
+            r#"{"dpi":300,"despeckle":true,"outputMode":"bw","cropContent":true,"matchPageSize":true,"pageAlignment":"top-center","normalizeIllumination":false}"#,
+        ),
+        (
+            "polarity-ordinary",
+            &ordinary_input,
+            r#"{"dpi":300,"despeckle":false,"outputMode":"bw","ocrPolarityOnly":true,"layout":"force-single","cropContent":false,"matchPageSize":false,"pageAlignment":"top-center","normalizeIllumination":false}"#,
+        ),
+        (
+            "polarity-dark-cover",
+            &dark_cover_input,
+            r#"{"dpi":300,"despeckle":false,"outputMode":"bw","ocrPolarityOnly":true,"layout":"force-single","cropContent":false,"matchPageSize":false,"pageAlignment":"top-center","normalizeIllumination":false}"#,
+        ),
+    ];
+
+    for (label, input, options) in cases {
+        let png_out = scratch.path(&format!("{label}.png"));
+        let png_meta = scratch.path(&format!("{label}-png.json"));
+        let pnm_out = scratch.path(&format!("{label}.pnm"));
+        let pnm_meta = scratch.path(&format!("{label}-pnm.json"));
+
+        for (out, meta) in [(&png_out, &png_meta), (&pnm_out, &pnm_meta)] {
+            let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+                .args([
+                    "--input",
+                    input.to_str().unwrap(),
+                    "--output",
+                    out.to_str().unwrap(),
+                    "--metadata",
+                    meta.to_str().unwrap(),
+                    "--ocr-mode",
+                    "--options",
+                    options,
+                ])
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{label} failed: stderr={}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+        }
+
+        let png_gray = decode_gray(&fs::read(&png_out).unwrap(), 1_000_000, 2000).unwrap();
+        let pnm_bytes = fs::read(&pnm_out).unwrap();
+        let expected_header = format!("P5\n{} {}\n255\n", png_gray.width(), png_gray.height());
+        assert!(
+            pnm_bytes.starts_with(expected_header.as_bytes()),
+            "{label}: expected P5 PGM header {expected_header:?}"
+        );
+        let pnm_pixels = &pnm_bytes[expected_header.len()..];
+        let mut expected_pixels = Vec::with_capacity(png_gray.width() * png_gray.height());
+        for y in 0..png_gray.height() {
+            expected_pixels.extend_from_slice(png_gray.row(y));
+        }
+        assert_eq!(
+            pnm_pixels,
+            expected_pixels.as_slice(),
+            "{label}: PNM pixels must match PNG pixels byte-for-byte"
+        );
+        assert_eq!(
+            fs::read(&pnm_meta).unwrap(),
+            fs::read(&png_meta).unwrap(),
+            "{label}: metadata must match"
+        );
+    }
+}
+
+#[test]
+fn analyze_manifest_produces_identical_detection_for_direct_ppm_and_png_inputs() {
+    let scratch = Scratch::new("analyze-ppm-vs-png");
+    let mut rgb = RgbImage::new(240, 320, [242, 240, 234]);
+    for y in (40..280).step_by(16) {
+        for x in 28..212 {
+            rgb.set(x, y, [24, 24, 26]);
+            rgb.set(x, y + 1, [24, 24, 26]);
+        }
+    }
+    let png_path = scratch.path("page-1.png");
+    let ppm_path = scratch.path("page-1.ppm");
+    fs::write(&png_path, encode_rgb(&rgb).unwrap()).unwrap();
+    let mut ppm = format!("P6\n{} {}\n255\n", rgb.width(), rgb.height()).into_bytes();
+    ppm.extend_from_slice(rgb.data());
+    fs::write(&ppm_path, ppm).unwrap();
+
+    let run_analyze = |label: &str, input: &std::path::Path| -> Value {
+        let meta_path = scratch.path(&format!("{label}-meta.json"));
+        let manifest_path = scratch.path(&format!("{label}-manifest.json"));
+        let manifest = serde_json::json!({
+            "version": 3,
+            "operation": "analyze",
+            "analysisPurpose": "page-plan",
+            "renderMode": "preview",
+            "canvasScope": "page",
+            "pages": [{
+                "inputPath": input,
+                "sourcePageIndex": 0,
+                "pageMetadataPath": meta_path,
+                "options": {
+                    "dpi": 150.0,
+                    "sourceDpi": 150.0,
+                    "outputMode": "auto",
+                    "layout": "auto",
+                    "normalizeIllumination": true,
+                    "despeckle": true,
+                    "cropContent": true,
+                    "matchPageSize": false,
+                    "pageAlignment": "top-center",
+                    "rotationDegrees": 0
+                },
+                "outputs": []
+            }]
+        });
+        fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+            .args(["--manifest", manifest_path.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{label}: stderr={}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        serde_json::from_slice(&fs::read(&meta_path).unwrap()).unwrap()
+    };
+
+    let png_meta = run_analyze("png", &png_path);
+    let ppm_meta = run_analyze("ppm", &ppm_path);
+    assert_eq!(ppm_meta, png_meta);
+}
+
 fn direct_ocr_fixture(input: &std::path::Path) {
     let mut image = GrayImage::new(100, 80, 240);
     for y in (15..65).step_by(10) {

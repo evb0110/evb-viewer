@@ -316,6 +316,7 @@ fn fit_ocr_word_geometry(
             .all(|(show, word)| utf16be(&word.text) == *show))
     .then(|| geometry.words.iter());
     let mut operations = Vec::with_capacity(content.operations.len());
+    let mut parsed_fonts: HashMap<Vec<u8>, crate::text_layer::OcrFontMetrics> = HashMap::new();
     let mut font_name = None;
     let mut direction = 1.0;
     for mut operation in content.operations {
@@ -341,9 +342,14 @@ fn fit_ocr_word_geometry(
                 let text = word_text(bytes);
                 if let Some(word) = words.as_mut().and_then(Iterator::next) {
                     let name = font_name.as_ref().ok_or("OCR word has no selected font")?;
-                    let font = fonts.get(name).ok_or("OCR word font is missing")?;
-                    let (advance, ascent, descent) =
-                        crate::text_layer::ocr_word_metrics(source, font, text)?;
+                    if !parsed_fonts.contains_key(name) {
+                        let font = fonts.get(name).ok_or("OCR word font is missing")?;
+                        parsed_fonts.insert(
+                            name.clone(),
+                            crate::text_layer::OcrFontMetrics::parse(source, font)?,
+                        );
+                    }
+                    let (advance, ascent, descent) = parsed_fonts[name].word_metrics(text)?;
                     let size = word.height * scale_y * 1000.0 / (ascent - descent);
                     let x = view.x1
                         + (word.x + if direction < 0.0 { word.width } else { 0.0 }) * scale_x;
@@ -1395,6 +1401,231 @@ BT\n/F 34 Tf\n1 0 0 1 1000 2863 Tm\n<017F0069> Tj\nET\nQ\n% EVB_VIEWER_OCR_LAYER
         ] {
             let pdf = scanned_page_pdf(UNDER_SCAN, image);
             assert_eq!(painted_and_hidden(&pdf), (true, false));
+        }
+    }
+
+    #[test]
+    fn fit_ocr_word_geometry_caches_font_metrics_with_identical_fitted_operators() {
+        let mut document = Document::with_version("1.5");
+        let add_type0_font = |document: &mut Document,
+                              default_width: i64,
+                              widths: Vec<Object>,
+                              ascent: i64,
+                              descent: i64| {
+            let descriptor_id = document.add_object(dictionary! {
+                "Type" => "FontDescriptor",
+                "Ascent" => ascent,
+                "Descent" => descent,
+            });
+            let cid_font_id = document.add_object(dictionary! {
+                "Type" => "Font",
+                "Subtype" => "CIDFontType2",
+                "DW" => default_width,
+                "W" => widths,
+                "FontDescriptor" => descriptor_id,
+            });
+            document.add_object(dictionary! {
+                "Type" => "Font",
+                "Subtype" => "Type0",
+                "Encoding" => "Identity-H",
+                "DescendantFonts" => vec![cid_font_id.into()],
+            })
+        };
+        // F1: custom CID widths for 'A' (65 -> 700), 'B' (66 -> 500), default 600.
+        let font1_id = add_type0_font(
+            &mut document,
+            600,
+            vec![65.into(), Object::Array(vec![700.into(), 500.into()])],
+            800,
+            -200,
+        );
+        // F2: different ascent/descent and default width 500, 'x' (120 -> 450).
+        let font2_id = add_type0_font(
+            &mut document,
+            500,
+            vec![120.into(), 120.into(), 450.into()],
+            900,
+            -100,
+        );
+        let word_show = |text: &str| {
+            ContentOperation::new(
+                "TJ",
+                vec![Object::Array(vec![Object::String(
+                    utf16be(text),
+                    StringFormat::Hexadecimal,
+                )])],
+            )
+        };
+        let operations = vec![
+            ContentOperation::new("BT", vec![]),
+            ContentOperation::new("Tf", vec![Object::Name(b"F1".to_vec()), 12.into()]),
+            ContentOperation::new(
+                "Tm",
+                vec![1.into(), 0.into(), 0.into(), 1.into(), 0.into(), 0.into()],
+            ),
+            word_show("AB "),
+            word_show("AC"),
+            ContentOperation::new("Tf", vec![Object::Name(b"F2".to_vec()), 12.into()]),
+            ContentOperation::new(
+                "Tm",
+                vec![
+                    (-1).into(),
+                    0.into(),
+                    0.into(),
+                    1.into(),
+                    0.into(),
+                    0.into(),
+                ],
+            ),
+            word_show("xy"),
+            ContentOperation::new("Tf", vec![Object::Name(b"F1".to_vec()), 12.into()]),
+            ContentOperation::new(
+                "Tm",
+                vec![1.into(), 0.into(), 0.into(), 1.into(), 0.into(), 0.into()],
+            ),
+            word_show("BA "),
+            ContentOperation::new("ET", vec![]),
+        ];
+        let content_id = document.add_object(Stream::new(
+            dictionary! {},
+            Content { operations }.encode().unwrap(),
+        ));
+        let page_id = document.add_object(dictionary! {
+            "Type" => "Page",
+            "MediaBox" => vec![0.into(), 0.into(), 600.into(), 800.into()],
+            "Resources" => dictionary! {
+                "Font" => dictionary! {
+                    "F1" => font1_id,
+                    "F2" => font2_id,
+                },
+            },
+            "Contents" => content_id,
+        });
+        let geometry = OcrWordGeometry {
+            raster_width_px: 1200.0,
+            raster_height_px: 1600.0,
+            words: vec![
+                OcrWordBox {
+                    text: "AB".into(),
+                    x: 100.0,
+                    y: 200.0,
+                    width: 120.0,
+                    height: 40.0,
+                },
+                OcrWordBox {
+                    text: "AC".into(),
+                    x: 240.0,
+                    y: 200.0,
+                    width: 130.0,
+                    height: 40.0,
+                },
+                OcrWordBox {
+                    text: "xy".into(),
+                    x: 400.0,
+                    y: 300.0,
+                    width: 95.0,
+                    height: 36.0,
+                },
+                OcrWordBox {
+                    text: "BA".into(),
+                    x: 100.0,
+                    y: 420.0,
+                    width: 110.0,
+                    height: 44.0,
+                },
+            ],
+        };
+        struct FittedWord {
+            font: Vec<u8>,
+            size: f64,
+            tz: f64,
+            direction: f64,
+            x: f64,
+            y: f64,
+        }
+        let fonts = page_fonts(&document, page_id).unwrap();
+        let expected: Vec<FittedWord> = [
+            (&b"F1"[..], 1.0, &geometry.words[0]),
+            (&b"F1"[..], 1.0, &geometry.words[1]),
+            (&b"F2"[..], -1.0, &geometry.words[2]),
+            (&b"F1"[..], 1.0, &geometry.words[3]),
+        ]
+        .into_iter()
+        .map(|(name, direction, word)| {
+            let text = utf16be(&word.text);
+            let (advance, ascent, descent) =
+                crate::text_layer::OcrFontMetrics::parse(&document, &fonts[name])
+                    .unwrap()
+                    .word_metrics(&text)
+                    .unwrap();
+            let scale_x = 600.0 / 1200.0;
+            let scale_y = 800.0 / 1600.0;
+            let size = word.height * scale_y * 1000.0 / (ascent - descent);
+            let tz = word.width * scale_x * 100_000.0 / (advance * size);
+            let x = (word.x + if direction < 0.0 { word.width } else { 0.0 }) * scale_x;
+            let y = 800.0 - (word.y + word.height) * scale_y - descent * size / 1000.0;
+            FittedWord {
+                font: name.to_vec(),
+                size,
+                tz,
+                direction,
+                x,
+                y,
+            }
+        })
+        .collect();
+
+        fit_ocr_word_geometry(&mut document, page_id, &geometry).unwrap();
+        assert_eq!(page_words(&document, page_id), ["AB ", "AC ", "xy ", "BA "]);
+
+        let decoded = Content::decode(&document.get_page_content(page_id)).unwrap();
+        let fitted: Vec<FittedWord> = decoded
+            .operations
+            .windows(4)
+            .filter(|window| window[3].operator == "TJ")
+            .map(|window| {
+                assert_eq!(window[0].operator, "Tf");
+                assert_eq!(window[1].operator, "Tz");
+                assert_eq!(window[2].operator, "Tm");
+                FittedWord {
+                    font: window[0].operands[0].as_name().unwrap().to_vec(),
+                    size: object_to_f64(&window[0].operands[1]).unwrap(),
+                    tz: object_to_f64(&window[1].operands[0]).unwrap(),
+                    direction: object_to_f64(&window[2].operands[0]).unwrap(),
+                    x: object_to_f64(&window[2].operands[4]).unwrap(),
+                    y: object_to_f64(&window[2].operands[5]).unwrap(),
+                }
+            })
+            .collect();
+        assert_eq!(fitted.len(), expected.len());
+        for (actual, expected) in fitted.iter().zip(expected) {
+            assert_eq!(actual.font, expected.font);
+            assert_eq!(
+                actual.size.to_bits(),
+                object_to_f64(&number_object(expected.size))
+                    .unwrap()
+                    .to_bits()
+            );
+            assert_eq!(
+                actual.tz.to_bits(),
+                object_to_f64(&number_object(expected.tz))
+                    .unwrap()
+                    .to_bits()
+            );
+            assert_eq!(
+                actual.direction.to_bits(),
+                object_to_f64(&number_object(expected.direction))
+                    .unwrap()
+                    .to_bits()
+            );
+            assert_eq!(
+                actual.x.to_bits(),
+                object_to_f64(&number_object(expected.x)).unwrap().to_bits()
+            );
+            assert_eq!(
+                actual.y.to_bits(),
+                object_to_f64(&number_object(expected.y)).unwrap().to_bits()
+            );
         }
     }
 

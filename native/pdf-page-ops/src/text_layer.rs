@@ -518,35 +518,54 @@ fn parse_font_metrics(document: &Document, font: &Object) -> Result<FontMetrics>
 
 use crate::split_pages::PdfMatrix as TextMatrix;
 
-/// Advances and vertical extents in PDF's 1000-unit font space. OCR fits the
-/// existing word show to its ink rectangle without changing its Unicode/font.
-pub(crate) fn ocr_word_metrics(
-    document: &Document,
-    font: &Object,
-    bytes: &[u8],
-) -> Result<(f64, f64, f64)> {
-    let metrics = parse_font_metrics(document, font)?;
-    let width = metrics
-        .glyphs(bytes)?
-        .iter()
-        .try_fold(0.0, |sum, (code, _)| {
-            metrics.width(*code).map(|width| sum + width)
-        })?;
-    let font = document.resolved(font)?.as_dict()?;
-    let descendant = resolved_array(document, font.get(b"DescendantFonts")?)
-        .and_then(|fonts| fonts.first())
-        .and_then(|font| resolved_dictionary(document, font))
-        .ok_or("OCR word font has no descendant")?;
-    let descriptor = resolved_dictionary(document, descendant.get(b"FontDescriptor")?)
-        .ok_or("OCR word font has no descriptor")?;
-    let ascent = resolved_number(document, descriptor.get(b"Ascent")?)
-        .ok_or("OCR word font has no ascent")?;
-    let descent = resolved_number(document, descriptor.get(b"Descent")?)
-        .ok_or("OCR word font has no descent")?;
-    if width <= 0.0 || !ascent.is_finite() || !descent.is_finite() || ascent <= descent {
-        return Err("OCR word font has unusable metrics".into());
+/// Font widths and vertical extents cached once per font resource while
+/// fitting OCR words on a page.
+pub(crate) struct OcrFontMetrics {
+    metrics: FontMetrics,
+    ascent: f64,
+    descent: f64,
+}
+
+impl OcrFontMetrics {
+    pub(crate) fn parse(document: &Document, font: &Object) -> Result<Self> {
+        let metrics = parse_font_metrics(document, font)?;
+        let font = document.resolved(font)?.as_dict()?;
+        let descendant = resolved_array(document, font.get(b"DescendantFonts")?)
+            .and_then(|fonts| fonts.first())
+            .and_then(|font| resolved_dictionary(document, font))
+            .ok_or("OCR word font has no descendant")?;
+        let descriptor = resolved_dictionary(document, descendant.get(b"FontDescriptor")?)
+            .ok_or("OCR word font has no descriptor")?;
+        let ascent = resolved_number(document, descriptor.get(b"Ascent")?)
+            .ok_or("OCR word font has no ascent")?;
+        let descent = resolved_number(document, descriptor.get(b"Descent")?)
+            .ok_or("OCR word font has no descent")?;
+        if !ascent.is_finite() || !descent.is_finite() || ascent <= descent {
+            return Err("OCR word font has unusable metrics".into());
+        }
+        Ok(Self {
+            metrics,
+            ascent,
+            descent,
+        })
     }
-    Ok((width, ascent, descent))
+
+    /// Advances and vertical extents in PDF's 1000-unit font space. OCR fits
+    /// the existing word show to its ink rectangle without changing its
+    /// Unicode/font.
+    pub(crate) fn word_metrics(&self, bytes: &[u8]) -> Result<(f64, f64, f64)> {
+        let width = self
+            .metrics
+            .glyphs(bytes)?
+            .iter()
+            .try_fold(0.0, |sum, (code, _)| {
+                self.metrics.width(*code).map(|width| sum + width)
+            })?;
+        if width <= 0.0 {
+            return Err("OCR word font has unusable metrics".into());
+        }
+        Ok((width, self.ascent, self.descent))
+    }
 }
 
 #[derive(Clone)]

@@ -5,15 +5,41 @@ import type {
     IRetainedRawRaster,
     IScanCleanupRasterDependencies,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
+import {SCAN_CLEANUP_MAX_DIMENSION_PX} from '@contracts/scan-cleanup/inputLimits';
 import {
     readScanCleanupPngDimensions as readPngDimensions,
     resolveScanCleanupRasterRenderLimits as resolveRasterRenderLimits,
+    SCAN_CLEANUP_RASTER_MAX_PIXELS,
 } from '@evb/scan-cleanup/core/rasterValidation';
+import {
+    encodePngFromPpm,
+    readPpmDimensions,
+} from '@evb/scan-cleanup/core/rasterLayerDimensions';
 import {getErrorMessage} from '@electron/utils/error';
 import {createLogger} from '@electron/utils/createLogger';
 
 const logger = createLogger('scan-cleanup-raster-retention-io');
 const PREVIEW_MAX_IMAGE_BYTES = 32 * 1024 * 1024;
+const PPM_HEADER_MAX_BYTES = 4_096;
+const MAX_PREVIEW_PPM_BYTES = SCAN_CLEANUP_RASTER_MAX_PIXELS * 3 + PPM_HEADER_MAX_BYTES;
+
+function isPpmSignature(bytes: Uint8Array) {
+    return bytes.byteLength >= 2 && bytes[0] === 0x50 && bytes[1] === 0x36;
+}
+
+async function isPpmFile(
+    path: string,
+    open: NonNullable<IScanCleanupRasterDependencies['open']>,
+) {
+    const handle = await open(path, 'r');
+    try {
+        const magic = Buffer.alloc(2);
+        const {bytesRead} = await handle.read(magic, 0, 2, 0);
+        return bytesRead === 2 && isPpmSignature(magic);
+    } finally {
+        await handle.close();
+    }
+}
 export function logScanCleanupMessage(level: 'debug' | 'error' | 'info' | 'warn', message: string) {
     if (level === 'error') {
         logger.error(message, {code: 'MAIN_SCAN_CLEANUP_FAILED'});
@@ -258,7 +284,26 @@ export async function readPreviewBytes(
         throw new Error('Scan cleanup raster I/O requires injected stat and readFile capabilities');
     }
     const file = await dependencies.stat(path);
-    if (file.size < 1 || file.size > PREVIEW_MAX_IMAGE_BYTES) {
+    if (file.size < 1) {
+        throw new Error(`Scan cleanup preview image exceeds ${PREVIEW_MAX_IMAGE_BYTES} bytes`);
+    }
+    if (file.size <= MAX_PREVIEW_PPM_BYTES && dependencies.open && await isPpmFile(path, dependencies.open)) {
+        try {
+            const {bytes} = await encodePngFromPpm(path, {
+                maxPixels: SCAN_CLEANUP_RASTER_MAX_PIXELS,
+                maxDimensionPx: SCAN_CLEANUP_MAX_DIMENSION_PX,
+                maxOutputBytes: PREVIEW_MAX_IMAGE_BYTES,
+                open: dependencies.open,
+            });
+            return bytes;
+        } catch (error) {
+            if (error instanceof RangeError && error.message.includes('Encoded PNG exceeds')) {
+                throw new Error(`Scan cleanup preview image exceeds ${PREVIEW_MAX_IMAGE_BYTES} bytes`, {cause: error});
+            }
+            throw error;
+        }
+    }
+    if (file.size > PREVIEW_MAX_IMAGE_BYTES) {
         throw new Error(`Scan cleanup preview image exceeds ${PREVIEW_MAX_IMAGE_BYTES} bytes`);
     }
     const contents = await dependencies.readFile(path);
@@ -281,17 +326,32 @@ export async function readPreviewMetadata(
         throw new Error('Scan cleanup raster is empty');
     }
     const handle = await dependencies.open(path, 'r');
+    let header: Buffer;
+    let bytesRead: number;
     try {
-        const header = Buffer.alloc(24);
-        const {bytesRead} = await handle.read(header, 0, header.byteLength, 0);
-        if (bytesRead !== header.byteLength) throw new Error('Scan cleanup raster produced a truncated PNG');
-        return {
-            ...readPngDimensions(header, undefined, 'preview'),
-            sizeBytes: file.size,
-        };
+        header = Buffer.alloc(24);
+        ({bytesRead} = await handle.read(header, 0, header.byteLength, 0));
     } finally {
         await handle.close();
     }
+    if (bytesRead >= 2 && isPpmSignature(header)) {
+        const dimensions = await readPpmDimensions(path, dependencies.open);
+        if (dimensions.width * dimensions.height > SCAN_CLEANUP_RASTER_MAX_PIXELS) {
+            throw new Error(
+                `Scan cleanup preview PPM dimensions ${dimensions.width}x${dimensions.height} exceed limits`,
+            );
+        }
+        return {
+            width: dimensions.width,
+            height: dimensions.height,
+            sizeBytes: file.size,
+        };
+    }
+    if (bytesRead !== header.byteLength) throw new Error('Scan cleanup raster produced a truncated PNG');
+    return {
+        ...readPngDimensions(header, undefined, 'preview'),
+        sizeBytes: file.size,
+    };
 }
 
 interface IRawRasterMaterializer {
