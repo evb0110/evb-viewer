@@ -208,11 +208,14 @@ after a computer restart; a change whose write has not completed can be lost.
 A storage failure is reported and does not discard already stored work.
 
 Save, close or quit preparation, page operations, OCR apply and moving a tab to
-another window wait for the document's drafts. Page operations also write
-pending annotations and metadata into the working bytes before editing those
-bytes. Recovery keeps stored drafts until replay completes; a failed replay
-does not replace them. Workspace layout recording does not write drafts.
-Older recovery data and caches are not read; saved documents remain supported.
+another window wait for the document's drafts. A Save still writes the edits
+when their drafts could not be stored, and a Save whose file was written is
+never reported failed because its drafts could not be updated afterwards. Page
+operations also write pending annotations and metadata into the working bytes
+before editing those bytes. Recovery keeps stored drafts until replay
+completes; a failed replay does not replace them. Workspace layout recording
+does not write drafts. Older recovery data and caches are not read; saved
+documents remain supported.
 
 **T3. Output is complete and usable.** A saved or exported file opens in this
 viewer and in a stock reader, with all pages and the saved annotations.

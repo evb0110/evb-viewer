@@ -1,5 +1,4 @@
 import {encode} from 'fast-png';
-import type {Page} from 'puppeteer-core';
 import {validateCanonicalAnnotationRecovery} from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
 import {
     appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, mkdtempSync, rmSync, watch, writeFileSync,
@@ -48,24 +47,6 @@ const FIXTURE_PATH = resolve(process.cwd(), 'tests/fixtures/electron/test-scanne
 
 // Fail serialization at the document capture boundary, before draft storage.
 // Patching the workspace expose no longer reaches the document-owned capture.
-async function rejectRecoverySerialization(page: Page, marker: string, message: string, restoreKey: string) {
-    await page.evaluate((input: {marker: string; message: string; restoreKey: string}) => {
-        Reflect.set(window, '__protectionCaptureRejected', false);
-        const stringify = JSON.stringify;
-        Reflect.set(window, input.restoreKey, () => {JSON.stringify = stringify;});
-        JSON.stringify = ((value: unknown, ...args: unknown[]) => {
-            const encoded = Reflect.apply(stringify, JSON, [value, ...args]) as string | undefined;
-            if (value && typeof value === 'object' && 'entities' in value && 'drafts' in value
-                && encoded?.includes(input.marker)) {
-                Reflect.set(window, '__protectionCaptureRejected', true);
-                Reflect.set(window, '__rejectedProtectionRecovery', value);
-                throw new Error(input.message);
-            }
-            return encoded;
-        }) as typeof JSON.stringify;
-    }, {marker, message, restoreKey});
-}
-
 // Placement also commits drafts now; hold only the editor text being protected.
 function writeTextProtectionHoldHook(directory: string, message: string) {
     const gate = join(directory, 'checkpoint');
@@ -727,17 +708,15 @@ if (process.type === 'browser') {
         ]);
     }, 240_000);
 
-    // T2/A4: failed protection cannot start publication; correction preserves the accepted text and geometry.
-    it.each([
-        'ENOSPC',
-        'capture-rejected',
-    ] as const)('refuses Save before publication when its recovery protection fails: %s', async fault => {
+    // T2/T3: a Save writes the edits when their drafts cannot be stored, whose own commit holds them; the storage
+    // failure is still told, naming its cause.
+    it('writes the edits when their recovery protection fails', async () => {
         outputDirectory = mkdtempSync(join(tmpdir(), 'evb-save-protection-'));
         const folder = join(outputDirectory, ...Array.from({length: 6}, (_, index) => `recovery-component-${index}-${'x'.repeat(80)}`));
         mkdirSync(folder, {recursive: true});
         const sourcePath = join(folder, 'protected-source.pdf');
         const otherPath = join(folder, 'unrelated-source.pdf');
-        const fixture = await createMultiPageTextFixturePdf(`save-protection-${fault}-${Date.now()}.pdf`, 3);
+        const fixture = await createMultiPageTextFixturePdf(`save-protection-${Date.now()}.pdf`, 3);
         copyFileSync(fixture, sourcePath);
         copyFileSync(fixture, otherPath);
         const sourceBytes = readFileSync(sourcePath);
@@ -745,13 +724,11 @@ if (process.type === 'browser') {
         const hook = join(outputDirectory, 'protection-fault.cjs');
         writeFileSync(hook, `const fs=require('node:fs'),fsp=require('node:fs/promises');
 if(process.type==='browser'){
- const target=${JSON.stringify(sourcePath)},gate=${JSON.stringify(gate)},fault=${JSON.stringify(fault)};
- const open=fsp.open,rename=fsp.rename;
- fsp.open=async(path,...args)=>{if(fault==='ENOSPC'&&fs.existsSync(gate+'.arm')&&String(path).includes('document-store')&&/drafts-[^/]+\\.json\\.[^/]+\\.tmp$/.test(String(path))){fs.writeFileSync(gate+'.rejected','');throw Object.assign(new Error('ENOSPC: recovery checkpoint volume is full'),{code:'ENOSPC'})}return open(path,...args)};
- fsp.rename=async(from,to)=>{await rename(from,to);if(fs.existsSync(gate+'.arm')&&String(from)===target&&String(to).endsWith('.evb-replaced')){fs.writeFileSync(gate+'.displaced','');await new Promise(()=>{})}};
+ const gate=${JSON.stringify(gate)},open=fsp.open;
+ fsp.open=async(path,...args)=>{if(fs.existsSync(gate+'.arm')&&String(path).includes('document-store')&&/drafts-[^/]+\\.json\\.[^/]+\\.tmp$/.test(String(path))){fs.writeFileSync(gate+'.rejected','');throw Object.assign(new Error('ENOSPC: recovery checkpoint volume is full'),{code:'ENOSPC'})}return open(path,...args)};
  require('node:module').syncBuiltinESMExports();
 }`);
-        session = await startElectronE2ESession(`e2e-save-protection-${fault}-${Date.now()}`, {
+        session = await startElectronE2ESession(`e2e-save-protection-${Date.now()}`, {
             clean: true,
             initialOpenPaths: [
                 sourcePath,
@@ -759,18 +736,13 @@ if(process.type==='browser'){
             ],
             extraEnv: {NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --require=${JSON.stringify(hook)}`},
         });
-        const clickTab = (fileName: string) => clickFoundAsUser(session!.page, (name: string) => Array.from(
-            document.querySelectorAll<HTMLElement>('.editor-pane .tab[data-tab-id]'),
-        ).find(tab => tab.querySelector('.tab-label')?.textContent?.includes(name)), fileName, {description: `${fileName} tab`});
-        const rejectActiveCapture = (text: string, cause: string) => rejectRecoverySerialization(
-            session!.page, text, cause, '__restoreProtectionCapture',
-        );
         await waitForPdfLoaded(session.page, 60_000);
-        await clickTab(basename(sourcePath));
+        await clickFoundAsUser(session.page, (name: string) => Array.from(
+            document.querySelectorAll<HTMLElement>('.editor-pane .tab[data-tab-id]'),
+        ).find(tab => tab.querySelector('.tab-label')?.textContent?.includes(name)), basename(sourcePath), {description: 'protected-source.pdf tab'});
         await waitForActiveDocumentSource(session.page, sourcePath, 30_000);
         await waitForViewerInteractive(session.page, 30_000);
-        const marker = `Accepted ${fault} protected text`;
-        if (fault === 'capture-rejected') await rejectActiveCapture(marker, 'Accepted text recovery capture rejected');
+        const marker = 'Accepted text without recovery protection';
         writeFileSync(`${gate}.arm`, '');
         await createCanonicalTextBoxWithPointer(session.page, marker, {
             x: 0.3,
@@ -780,73 +752,21 @@ if(process.type==='browser'){
         await session.page.waitForFunction((text: string) => Array.from(
             document.querySelectorAll<HTMLElement>('.editor-pane.is-active [data-annotation-kind="text-box"]'),
         ).some(entity => entity.textContent?.trim() === text && !entity.classList.contains('is-editing')), {timeout: 30_000}, marker);
-        await expect.poll(async () => fault === 'ENOSPC' ? existsSync(`${gate}.rejected`)
-            : await session!.page.evaluate(() => Reflect.get(window, '__protectionCaptureRejected') === true), {timeout: 30_000}).toBe(true);
-        const rectangle = await session.page.evaluate(({text, fault}) => {
-            const recovery = fault === 'capture-rejected'
-                ? Reflect.get(window, '__rejectedProtectionRecovery') as ReturnType<typeof validateCanonicalAnnotationRecovery>
-                : (window as IE2EWindow).__evbTestApi?.getActiveWorkspaceHandle()?.captureCanonicalAnnotationRecovery?.();
+        await expect.poll(() => existsSync(`${gate}.rejected`), {timeout: 30_000}).toBe(true);
+        const failures = () => session!.page.$$eval('.app-toast-failure', nodes => nodes.map(node => node.textContent ?? ''));
+        await expect.poll(async () => (await failures()).some(text => text.includes('ENOSPC')), {timeout: 30_000}).toBe(true);
+        const rectangle = await session.page.evaluate((text: string) => {
+            const recovery = (window as IE2EWindow).__evbTestApi?.getActiveWorkspaceHandle()?.captureCanonicalAnnotationRecovery?.();
             const entity = recovery?.entities.find(candidate => candidate.kind === 'text-box' && candidate.text === text);
             if (entity?.kind !== 'text-box') throw new Error('Accepted text has no canonical rectangle');
             return entity.rect;
-        }, {text: marker, fault});
-        await clickVisibleToolbarButton(session.page, 'Save');
-        // Old code reaches displacement; fixed code reports failure without reaching that gate.
-        await expect.poll(async () => existsSync(`${gate}.displaced`) || await session!.page.$('.app-toast-failure').then(Boolean), {timeout: 60_000}).toBe(true);
-        const observation = {
-            fault,
-            displaced: existsSync(`${gate}.displaced`),
-            rejectionInjected: fault === 'ENOSPC' ? existsSync(`${gate}.rejected`) : await session.page.evaluate(() => Reflect.get(window, '__protectionCaptureRejected') === true),
-            originalUnchanged: existsSync(sourcePath) && readFileSync(sourcePath).equals(sourceBytes),
-            dirty: await session.page.$('.editor-pane.is-active .tab.is-active.is-dirty').then(Boolean),
-            rendered: await session.page.$$eval('.editor-pane.is-active [data-annotation-kind="text-box"]', (nodes, text) => nodes.some(node => node.textContent?.trim() === text), marker),
-            cause: await session.page.$$eval('.app-toast-failure', nodes => nodes.map(node => node.textContent ?? '').join('\n')),
-            beside: readdirSync(folder),
-        };
-        console.info('SAVE_PROTECTION_RESULT', JSON.stringify(observation));
-        console.info(await session.captureFailureArtifacts(`save-protection-${fault}`));
-        if (observation.displaced) {
-            const crashed = session;
-            const pid = getSessionInfo(crashed.name)?.electronPid;
-            if (typeof pid !== 'number') throw new Error('The owned Electron main pid is missing');
-            process.kill(pid, 'SIGKILL');
-            await crashed.browser.disconnect();
-            await stopSingleSession(crashed.name, {
-                preserveWorkspaceCheckpoint: true,
-                crashElectronBeforeStop: true,
-            });
-            session = null;
-        }
-        expect(observation.rejectionInjected).toBe(true);
-        expect(observation.displaced).toBe(false);
-        expect(observation.originalUnchanged).toBe(true);
-        expect(observation.dirty).toBe(true);
-        expect(observation.rendered).toBe(true);
-        expect(observation.cause).toContain(fault === 'ENOSPC' ? 'ENOSPC' : 'Accepted text recovery capture rejected');
-        expect(observation.beside.sort()).toEqual([
-            'protected-source.pdf',
-            'unrelated-source.pdf',
-        ]);
+        }, marker);
 
-        // Correct this document's cause, then leave a failing capture in a different dirty document.
-        rmSync(`${gate}.arm`);
-        if (fault === 'capture-rejected') await session!.page.evaluate(() => Reflect.get(window, '__restoreProtectionCapture')());
-        await clickTab(basename(otherPath));
-        await waitForActiveDocumentSource(session!.page, otherPath, 30_000);
-        await waitForViewerInteractive(session!.page, 30_000);
-        await rejectActiveCapture('Unrelated accepted text', 'Unrelated document recovery capture rejected');
-        await createCanonicalTextBoxWithPointer(session!.page, 'Unrelated accepted text', {
-            x: 0.3,
-            y: 0.3,
-        });
-        await session!.page.waitForFunction(() => Reflect.get(window, '__protectionCaptureRejected') === true);
-        await clickTab(basename(sourcePath));
-        await waitForActiveDocumentSource(session!.page, sourcePath, 30_000);
-        await waitForViewerInteractive(session!.page, 30_000);
-        await clickVisibleToolbarButton(session!.page, 'Save');
+        await clickVisibleToolbarButton(session.page, 'Save');
         await expect.poll(() => readPdfTextAnnotationRecords(sourcePath), {timeout: 30_000})
             .toEqual(expect.arrayContaining([expect.objectContaining({contents: marker})]));
-        await session!.page.waitForSelector('.editor-pane.is-active .tab.is-active.is-dirty', {hidden: true});
+        await session.page.waitForSelector('.editor-pane.is-active .tab.is-active.is-dirty', {hidden: true});
+        expect((await failures()).filter(text => text.includes('Failed to save file'))).toEqual([]);
         const pdf = await PDFDocument.load(readFileSync(sourcePath));
         const page = pdf.getPage(0);
         const freeText = page.node.Annots()?.asArray().map(entry => pdf.context.lookupMaybe(entry, PDFDict))
@@ -865,7 +785,10 @@ if(process.type==='browser'){
         // PDF real numbers are f32; compare the exact persisted geometry at that precision.
         expect(savedRectangle!.map(Math.fround)).toEqual(expectedRectangle.map(Math.fround));
         expect(readFileSync(otherPath)).toEqual(sourceBytes);
-        console.info(await session!.captureFailureArtifacts(`save-protection-${fault}-corrected`));
+        expect(readdirSync(folder).sort()).toEqual([
+            'protected-source.pdf',
+            'unrelated-source.pdf',
+        ]);
     }, 240_000);
 
     it('restores committed FreeText through restart and Save As', async () => {

@@ -11,10 +11,9 @@ import {
 } from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import {parseDocumentRevisionToken} from '@contracts/documentRevision';
 import {isRecord} from '@contracts/runtimeGuards';
-import {mapWorkspaceRecoveryRasters} from '@contracts/workspaceCheckpoint';
+import {isWorkspaceRecoveryRaster} from '@contracts/workspaceCheckpoint';
 
 export const CANONICAL_ANNOTATION_RECOVERY_VERSION = 3 as const;
-const MAX_RECOVERY_BYTES = 4 * 1024 * 1024;
 const MAX_DRAFT_TEXT_CHARS = 1_000_000;
 // The names a changed field can have: those of the semantic fingerprint, over every kind.
 const SEMANTIC_FIELD_NAMES: ReadonlySet<string> = new Set([
@@ -172,7 +171,8 @@ function hasKindFields(entity: Record<string, unknown>) {
                 && isNullableString(entity.color) && (entity.opacity === null || isFiniteNumber(entity.opacity));
         case 'placed-image':
             return isRect(entity.rect) && isFiniteNumber(entity.rotation)
-                && isRecord(entity.image) && isFiniteNumber(entity.image.byteLength) && typeof entity.image.sha256 === 'string';
+                && isRecord(entity.image) && isFiniteNumber(entity.image.byteLength) && typeof entity.image.sha256 === 'string'
+                && (entity.image.kind !== 'raster' || isWorkspaceRecoveryRaster(entity.image));
         case 'shape':
             return typeof entity.tool === 'string' && isRect(entity.rect) && typeof entity.strokeColor === 'string'
                 && isFiniteNumber(entity.strokeWidth) && isNullableString(entity.fill) && isFiniteNumber(entity.opacity)
@@ -200,29 +200,6 @@ function assertChangedFieldsValid(changedFields: unknown, entityIds: ReadonlySet
 }
 
 /**
- * The stored entities, drafts and held field values keep their budget, measured alike at capture and admission;
- * changed-field names are bounded on their own.
- */
-function assertRecoveryWithinBudget(recovery: Omit<ICanonicalAnnotationRecovery, 'draftErrors'>) {
-    const {annotationReadRevision: _readRevision, changedFields: _changedFields, ...snapshot} = recovery;
-    let encoded: string;
-    try {
-        encoded = JSON.stringify(mapWorkspaceRecoveryRasters(snapshot, image => ({
-            ...image,
-            dataBase64: '',
-        })));
-    } catch (error) {
-        throw new AnnotationRecoveryAdmissionError(`Recovery state is not serializable: ${String(error)}`);
-    }
-    const bytes = new TextEncoder().encode(encoded).byteLength;
-    if (bytes > MAX_RECOVERY_BYTES) {
-        throw new AnnotationRecoveryAdmissionError(
-            `Recovery state exceeds the ${MAX_RECOVERY_BYTES}-byte annotation budget`,
-        );
-    }
-}
-
-/**
  * The pending Save plan as drafts: the annotations whose state the working bytes do not hold, with the fields that
  * differ, and the annotations open editors' drafts name, which may hold the bytes' state.
  */
@@ -239,7 +216,7 @@ export function captureCanonicalAnnotationRecovery(
         const entity = entities.has(draft.annotationId) ? null : store.get(draft.annotationId);
         if (entity) entities.set(entity.identity.id, entity);
     });
-    const recovery: ICanonicalAnnotationRecovery = {
+    return {
         version: CANONICAL_ANNOTATION_RECOVERY_VERSION,
         annotationReadRevision: store.readRevision,
         changedFields: Object.fromEntries(changes.map(({entity, changedFields}) => [entity.identity.id, changedFields])),
@@ -251,8 +228,6 @@ export function captureCanonicalAnnotationRecovery(
         entities: [...entities.values()],
         drafts: clone(drafts),
     };
-    assertRecoveryWithinBudget(recovery);
-    return recovery;
 }
 
 /**
@@ -314,14 +289,6 @@ export function validateCanonicalAnnotationRecovery(value: unknown): ICanonicalA
             return;
         }
         validatedDrafts.push(draft);
-    });
-    // Capture measured every draft; an incompatible one is still stored and counts the same.
-    assertRecoveryWithinBudget({
-        version,
-        annotationMutationGeneration,
-        entities: validatedEntities,
-        drafts: drafts as readonly IAnnotationRecoveryDraft[],
-        ...(version === CANONICAL_ANNOTATION_RECOVERY_VERSION && heldFields !== undefined ? {heldFields} : {}),
     });
     const recovery: ICanonicalAnnotationRecovery = {
         version,

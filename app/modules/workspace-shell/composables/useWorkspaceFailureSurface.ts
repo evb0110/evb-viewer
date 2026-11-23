@@ -49,7 +49,6 @@ export type TWorkspaceSaveFailureReason =
     | 'persist-rejected'
     | 'document-changed'
     | 'working-copy-missing'
-    | 'recovery-settlement-failed'
     | 'unexpected-error';
 
 /**
@@ -121,7 +120,6 @@ export const useWorkspaceFailureSurface = () => {
             'document-changed': t('errors.save.documentChanged'),
             'too-large-for-edit': t('errors.save.tooLargeForEdit'),
             'working-copy-missing': t('errors.save.workingCopyMissing'),
-            'recovery-settlement-failed': t('errors.save.recoverySettlementDescription'),
         };
         return messages[reason] ?? t('errors.save.notCompleted');
     }
@@ -140,7 +138,7 @@ export const useWorkspaceFailureSurface = () => {
         const priorPresentation = isFailurePresentation(existingReceipt) ? existingReceipt : undefined;
         // These say what happened better than any raw detail.
         const toldByReason = diagnostics?.cause !== undefined && describeBrowserEngineLimit(diagnostics.cause, t) !== null;
-        const description = reason === 'recovery-settlement-failed' || toldByReason
+        const description = toldByReason
             ? describeSaveFailure(reason, diagnostics)
             : detail ?? priorPresentation?.description ?? describeSaveFailure(reason, diagnostics);
         const receipt = priorPresentation?.failure ?? (isFailurePresentation(existingReceipt) ? undefined : existingReceipt) ?? getFailureReceipt(diagnostics?.cause) ?? BrowserLogger.error(
@@ -157,15 +155,12 @@ export const useWorkspaceFailureSurface = () => {
         const presentation: FailurePresentation = {
             ...priorPresentation,
             failure: receipt,
-            title: t(reason === 'recovery-settlement-failed'
-                ? 'errors.save.recoverySettlementTitle'
-                : 'errors.file.save'),
+            title: t('errors.file.save'),
             description,
             ...(saveAs && (diagnostics?.reason === 'original-changed' || HELD_OR_DENIED_MESSAGE.test(diagnostics?.message ?? '')) ? {actions: [{
                 label: t('toolbar.saveAs'),
                 onClick: saveAs,
             }]} : {}),
-            ...(reason === 'recovery-settlement-failed' && detail ? {technicalDetails: detail} : {}),
             ...(diagnostics ? {technicalDetails: getNonEmptyDetails([
                 diagnostics.message,
                 diagnostics.validation?.errors.join('\n'),

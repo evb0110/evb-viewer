@@ -938,73 +938,52 @@ describe('AnnotationStore public API', () => {
         });
     });
 
-    describe('the 4 MiB recovery budget', () => {
-        const budget = 4 * 1024 * 1024;
-        const noteTextLimit = 64 * 1024;
-        const encodedBytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength;
-        // The entities and drafts, which the budget measures, without the read revision and changed-field names.
-        const snapshotBytes = ({annotationReadRevision: _readRevision, changedFields: _changedFields, ...snapshot}: ICanonicalAnnotationRecovery) => encodedBytes(snapshot);
-        // Saved notes, each edited within the note text limit, whose plan is captured at `bytes`.
-        function editedStoreOfSize(bytes: number) {
-            const notes = Array.from({length: 66}, (_, index) => note(`note-${index}`));
-            const edited = (suffixes: readonly string[]) => {
-                const store = new AnnotationStore();
-                readInto(store, notes, 'rev-1');
-                suffixes.forEach((suffix, index) => store.updateNote(asAnnotationId(`note-${index}`), {contents: `Typed${suffix}`}));
-                return {store, entries: notes};
-            };
-            let remaining = bytes - snapshotBytes(captureCanonicalAnnotationRecovery(edited(notes.map(() => '')).store));
-            return edited(notes.map(() => {
-                const length = Math.max(0, Math.min(remaining, noteTextLimit - 'Typed'.length));
-                remaining -= length;
-                return 'a'.repeat(length);
-            }));
+    describe('the recovery plan', () => {
+        const typed = `Typed${'a'.repeat(60_000)}`;
+        // Saved notes, each edited within the note text limit.
+        function editedStore(count: number) {
+            const notes = Array.from({length: count}, (_, index) => note(`note-${index}`));
+            const store = new AnnotationStore();
+            readInto(store, notes, 'rev-1');
+            notes.forEach((_entry, index) => store.updateNote(asAnnotationId(`note-${index}`), {contents: typed}));
+            return {store, entries: notes};
         }
 
-        it('captures a plan of edits that fills the budget, its changed-field names beside it', () => {
-            const {store} = editedStoreOfSize(budget);
-            const recovery = captureCanonicalAnnotationRecovery(store);
-
-            expect(snapshotBytes(recovery)).toBe(budget);
-            expect(encodedBytes(recovery)).toBeGreaterThan(budget);
-            expect(recovery.changedFields).toMatchObject({'note-0': ['contents'], 'note-65': ['contents']});
-            expect(() => captureCanonicalAnnotationRecovery(editedStoreOfSize(budget + 1).store))
-                .toThrow(`exceeds the ${budget}-byte annotation budget`);
-        });
-
-        it('replays the edits from the largest plan capture admits, and admits nothing past the budget', () => {
-            const {store, entries} = editedStoreOfSize(budget);
+        it('captures and replays edits past the 4 MiB the drafts once refused', () => {
+            const {store, entries} = editedStore(80);
             const stored = JSON.parse(JSON.stringify(captureCanonicalAnnotationRecovery(store)));
             const recovered = new AnnotationStore();
             readInto(recovered, entries, 'rev-2');
             restoreCanonicalAnnotationRecovery(recovered, stored);
 
-            expect(recovered.get(asAnnotationId('note-0'))).toMatchObject({contents: expect.stringMatching(/^Typeda+$/u)});
-            const past = {...stored, entities: stored.entities.map((entity: INoteEntity) => (
-                entity.identity.id === 'note-1' ? {...entity, contents: `${entity.contents}a`} : entity
-            ))};
-            expect(snapshotBytes(past)).toBe(budget + 1);
-            expect(() => restoreCanonicalAnnotationRecovery(new AnnotationStore(), past))
-                .toThrow(`exceeds the ${budget}-byte annotation budget`);
+            expect(new TextEncoder().encode(JSON.stringify(stored)).byteLength).toBeGreaterThan(4 * 1024 * 1024);
+            // Each stays unsaved, so Save writes it.
+            for (const id of ['note-0', 'note-79']) {
+                const recoveredNote = recovered.get(asAnnotationId(id));
+                expect(recoveredNote).toMatchObject({contents: typed});
+                expect(recoveredNote!.persistedRevision).toBeLessThan(recoveredNote!.revision);
+            }
         });
 
-        it('admits no snapshot capture refuses, incompatible drafts included', () => {
-            const {store} = editedStoreOfSize(0);
-            const draft = (index: number) => ({
-                annotationId: asAnnotationId(`missing-${String(index)}`),
-                kind: 'note' as const,
-                canonicalRevision: 0,
-                text: 'a'.repeat(1_000_000),
-                generation: 1,
+        it('admits a placed image\'s raster only in the shape its storage takes', () => {
+            const image = {...placedImage('pasted'), image: {
+                kind: 'raster', mimeType: 'image/png', dataBase64: 'iVBO', byteLength: 3, sha256: 'a'.repeat(64), width: 1, height: 1,
+            }};
+            const planOf = (entity: unknown) => ({
+                ...captureCanonicalAnnotationRecovery(new AnnotationStore()),
+                entities: [entity],
+                changedFields: {pasted: ['kind', 'pageIndex', 'deleted', 'author', 'rect', 'rotation', 'image']},
             });
-            const drafts = Array.from({length: 5}, (_, index) => draft(index));
-            expect(() => captureCanonicalAnnotationRecovery(store, drafts)).toThrow(`exceeds the ${budget}-byte annotation budget`);
-            const stored = {...JSON.parse(JSON.stringify(captureCanonicalAnnotationRecovery(store))), drafts};
-            expect(() => restoreCanonicalAnnotationRecovery(new AnnotationStore(), stored)).toThrow(`exceeds the ${budget}-byte annotation budget`);
+
+            restoreCanonicalAnnotationRecovery(new AnnotationStore(), planOf(image));
+            expect(() => restoreCanonicalAnnotationRecovery(new AnnotationStore(), planOf({...image, image: {...image.image, mimeType: 'image/gif'}})))
+                .toThrow('Recovery entity is invalid');
+            expect(() => restoreCanonicalAnnotationRecovery(new AnnotationStore(), planOf({...image, image: {...image.image, dataBase64: 7}})))
+                .toThrow('Recovery entity is invalid');
         });
 
         it('refuses changed-field names past their own bound, and held fields of no captured entity', () => {
-            const {store} = editedStoreOfSize(0);
+            const {store} = editedStore(1);
             const recovery = captureCanonicalAnnotationRecovery(store);
 
             expect(() => restoreCanonicalAnnotationRecovery(new AnnotationStore(), {

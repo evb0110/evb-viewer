@@ -633,9 +633,9 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                     // whose captured dirty state still describes a clean file.
                     // It also joins a pending re-read, so dirty geometry is in the written page frame.
                     await deps.pdf.commitEditorsForSave?.({joinRead: true});
-                    // A Save the app does not live to finish is rolled back at the next start; the drafts committed
-                    // first hold the edits it was writing, so they reopen unsaved instead of being lost.
-                    await deps.lifecycle.commitDrafts();
+                    // A Save the app does not live to finish is rolled back at the next start; the drafts committed first
+                    // hold its edits. A draft write that failed was told, and this Save's own commit holds them then.
+                    await deps.lifecycle.commitDrafts('reported');
 
                     plan = createWorkspaceSavePlan({
                         request,
@@ -700,22 +700,16 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                 // The document still holds the revision this save committed.
                 const holdsCommit = () => deps.document.sessionKey.value === queuedTarget.expectedDocumentSessionKey
                     && deps.document.workingCopyPath.value === committedPath && (!committedRevision || deps.document.revisionToken.value === committedRevision);
-                try {
-                    if (!holdsCommit()) return false;
-                    completeSuccessfulSaveState(getCompletionBaseline(plan, result, deps), result.completion, deps);
-                    await deps.lifecycle.commitDrafts();
-                    if (!holdsCommit()) return false;
-                    if (result.persisted.outPath) deps.lifecycle.loadRecentFiles();
-                    if (committedRevision) onCommitted?.(committedRevision);
-                    saveSucceeded = true;
-                    return true;
-                } catch (error) {
-                    if (!(error instanceof DOMException && error.name === 'AbortError') && holdsCommit()) {
-                        failureSurface.reportSaveFailure(operationId, 'recovery-settlement-failed', getErrorMessage(error),
-                            getFailureReceipt(error) ?? BrowserLogger.error('workspace', 'PDF saved but recovery settlement failed', error, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'}));
-                    }
-                    return false;
-                }
+                if (!holdsCommit()) return false;
+                completeSuccessfulSaveState(getCompletionBaseline(plan, result, deps), result.completion, deps);
+                // The PDF holds this Save, so settling its drafts never fails it; drafts it could not settle stay stale.
+                await deps.lifecycle.commitDrafts('reported')
+                    .catch((error: unknown) => BrowserLogger.warn('workspace', 'Drafts stay unsettled after a published Save', {error}));
+                if (!holdsCommit()) return false;
+                if (result.persisted.outPath) deps.lifecycle.loadRecentFiles();
+                if (committedRevision) onCommitted?.(committedRevision);
+                saveSucceeded = true;
+                return true;
             } finally {
                 const durationMs = Math.round(nowMs() - startedAtMs);
                 const log = durationMs >= SLOW_SAVE_TOTAL_WARN_MS

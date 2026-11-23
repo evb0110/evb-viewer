@@ -49,9 +49,12 @@ The renderer has one draft writer per document. Annotation state, editor text,
 note windows, metadata and byte revisions mark it stale; it starts immediately
 and repeats with the latest state if it changed during the write. Edits, typing,
 undo and redo do not wait for it. Save, page operations, OCR apply, tab moves
-and close or quit preparation wait for it. Drafts are cleared when the working
-bytes hold that state, and kept while it cannot be captured. Recovered drafts
-hold the writer until replay finishes; a failed replay leaves them intact.
+and close or quit preparation wait for it. A Save goes on when its drafts could
+not be stored, since its own commit holds the edits; the writer reports that
+failure. Drafts have no size budget beyond the unsaved state they hold. Drafts
+are cleared when the working bytes hold that state, and kept while it cannot be
+captured. Recovered drafts hold the writer until replay finishes; a failed
+replay leaves them intact and held, and a Save is refused while they are held.
 Workspace checkpoints write layout and references, never drafts or PDF bytes.
 
 ## Save

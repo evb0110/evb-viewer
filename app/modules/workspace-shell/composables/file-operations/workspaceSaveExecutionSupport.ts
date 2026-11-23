@@ -333,7 +333,7 @@ export interface IWorkspaceSaveDependencies {
         /** What a Save's lease waits for after its durable result: the new revision's job, ended. */
         acceptAdoption?: (adoption: NonNullable<IPdfPersistResult['adoption']>) => Promise<unknown> | undefined;
         /** The document's draft writer: Save waits for it before it writes and after it publishes. */
-        commitDrafts: () => Promise<void>;
+        commitDrafts: (failedWrite?: 'reject' | 'reported') => Promise<void>;
     };
     /** The document lease: the one queue every Save and recovery copy waits in. */
     runWithDocumentOperationLease: TRunWithDocumentOperationLease;

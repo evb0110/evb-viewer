@@ -53,8 +53,7 @@ export function createWorkspaceDocumentRecovery(options: IWorkspaceDocumentRecov
         const recovery = capture();
         const {documentInstanceId, workingCopyPath, revisionInfo} = controller.snapshot.value.identity;
         if (recovery === null || !documentInstanceId || !workingCopyPath || !revisionInfo) return;
-        // Refused for an outdated revision: the new revision marks the drafts stale again.
-        await getWindowTabsCapability().setDocumentDrafts({
+        const stored = await getWindowTabsCapability().setDocumentDrafts({
             artifactId: 'document-drafts',
             documentInstanceId,
             workingCopyRef: workingCopyPath,
@@ -62,6 +61,13 @@ export function createWorkspaceDocumentRecovery(options: IWorkspaceDocumentRecov
             annotationMutationGeneration: recovery?.annotationMutationGeneration ?? 0,
             ...(recovery ? {payload: recovery} : {}),
         });
+        if (stored) return;
+        // Refused for a revision a newer one replaced meanwhile: the drafts are written again for that one.
+        if (controller.snapshot.value.identity.revisionInfo?.token !== revisionInfo.token) {
+            stale = true;
+            return;
+        }
+        throw new Error('Document drafts could not be stored for the current revision');
     }
 
     let stale = false;
@@ -82,7 +88,7 @@ export function createWorkspaceDocumentRecovery(options: IWorkspaceDocumentRecov
             stale = false;
             try {
                 await write();
-                failure = null;
+                if (!stale) failure = null;
             } catch (error) {
                 stale = true;
                 // A refusal is told once, not again for every burst that repeats it.
@@ -99,13 +105,17 @@ export function createWorkspaceDocumentRecovery(options: IWorkspaceDocumentRecov
         running ??= run();
     }
 
-    /** Resolves once the drafts hold the unsaved state as it is now; rejects when it could not be stored. */
-    async function commitDrafts() {
+    /**
+     * Resolves once the drafts hold the unsaved state as it is now. Rejects while recovered drafts that were not applied
+     * stay stored, and when the state could not be stored, unless `failedWrite` is 'reported': the writer told that
+     * failure, and a caller whose own commit holds the edits, as a Save's does, goes on without the drafts.
+     */
+    async function commitDrafts(failedWrite: 'reject' | 'reported' = 'reject') {
         if (hold?.failedInstance === undefined) await hold?.released.promise;
         if (held()) throw new Error('Recovered annotation drafts that were not applied stay stored');
         if (stale) running ??= run();
         while (running) await running;
-        if (stale && !held() && failure !== null) throw failure;
+        if (failedWrite === 'reject' && stale && !held() && failure !== null) throw failure;
     }
 
     watch(() => pdfDocumentAnnotations.application.value.store, (store, _previous, onCleanup) => {
