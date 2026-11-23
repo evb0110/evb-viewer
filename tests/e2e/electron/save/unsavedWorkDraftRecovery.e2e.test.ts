@@ -18,7 +18,7 @@ import {clickAnnotationTool, createStickyNoteWithPointer, selectAllFocusedAnnota
 import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {getActiveWorkspaceWorkingCopyPath, readDocumentBytes} from '@tests/e2e/electron/helpers/electronApiHelpers';
 import {
-    createMultiPageTextFixturePdf, readPdfPageSnapshots,
+    createBlankFixturePdf, createMultiPageTextFixturePdf, readPdfPageSnapshots, readPdfTextAnnotationRecords,
 } from '@tests/e2e/electron/helpers/fixtures';
 import {
     readWorkspaceStateValues, requireWorkspaceCommand, waitForWorkspaceToolbarIdle,
@@ -329,3 +329,62 @@ it('keeps a restored tab\'s unsaved changes for a later start when its working c
         rmSync(sourcePath, {force: true});
     }
 });
+
+it('saves unsaved notes whose pending Save plan is past 4 MiB', async () => {
+    const sourcePath = await createBlankFixturePdf(`large-plan-save-${Date.now()}.pdf`, 1);
+    const session = await startElectronE2ESession(`e2e-large-plan-save-${Date.now()}`, {
+        clean: true,
+        initialOpenPaths: [sourcePath],
+    });
+    try {
+        await waitForPdfLoaded(session.page, 60_000);
+        await waitForViewerInteractive(session.page, 60_000);
+        await createStickyNoteWithPointer(session.page, 'Pasted minutes', {x: 0.2, y: 0.2});
+        const pasted = 'Minutes of the meeting, pasted in full. '.repeat(1_500);
+        // Copies of that note, each holding a long pasted text, make the document's unsaved notes outgrow 4 MiB.
+        // They enter as recovered drafts do, in replays of 2 MiB each, which any build admits.
+        const copies = await session.page.evaluate(async ({count, contents}: {count: number; contents: string}) => {
+            const handle = (window as IE2EWindow).__evbTestApi?.getActiveWorkspaceHandle();
+            const plan = handle?.captureCanonicalAnnotationRecovery?.();
+            const template = plan?.entities.find(entity => entity.kind === 'note');
+            if (!handle?.restoreCanonicalAnnotationRecovery || !plan || !template) return null;
+            const {metadata: _metadata, ...annotations} = plan;
+            const changed = plan.changedFields?.[template.identity.id] ?? [];
+            for (let first = 0; first < count; first += 32) {
+                const entities = Array.from({length: Math.min(32, count - first)}, (_, index) => ({
+                    ...template,
+                    identity: {id: `pasted-note-${String(first + index)}`},
+                    contents,
+                }));
+                await handle.restoreCanonicalAnnotationRecovery({
+                    ...annotations,
+                    drafts: [],
+                    heldFields: {},
+                    entities,
+                    changedFields: Object.fromEntries(entities.map(entity => [entity.identity.id, changed])),
+                });
+            }
+            return count;
+        }, {count: 80, contents: pasted});
+        if (copies === null) throw new Error('The created note is not among the unsaved annotations');
+
+        const readFailures = () => session.page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>('.app-toast-failure'))
+            .map(toast => toast.innerText.trim()));
+        await clickAsUser(session.page, 'button.save-split-primary');
+        // Save ends by writing the PDF or by telling why it could not.
+        await expect.poll(async () => (await readFailures()).length > 0 || (await readPdfTextAnnotationRecords(sourcePath)).length > 0,
+            {timeout: 120_000, interval: 500}).toBe(true);
+        await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: 120_000});
+        const failures = await readFailures();
+        const saved = (await readPdfTextAnnotationRecords(sourcePath)).filter(record => record.subtype === '/Text');
+        console.info('LARGE_PLAN_SAVE', JSON.stringify({copies, saved: saved.length, failures}));
+        expect(failures).toEqual([]);
+        // Each note's whole text is in the PDF.
+        expect(saved.map(record => record.contents).sort()).toEqual([...Array.from({length: copies}, () => pasted), 'Pasted minutes'].sort());
+        const state = await readWorkspaceStateValues<{dirtyState?: {fileDirty?: boolean}}>(session.page, ['dirtyState']);
+        expect(state.dirtyState?.fileDirty).toBe(false);
+    } finally {
+        await session.stop();
+        rmSync(sourcePath, {force: true});
+    }
+}, 240_000);

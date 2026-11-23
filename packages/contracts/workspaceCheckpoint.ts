@@ -26,26 +26,8 @@ const recoveryRasterSchema = v.object({
     width: v.pipe(v.number(), v.safeInteger(), v.minValue(1), v.maxValue(32_768)),
     height: v.pipe(v.number(), v.safeInteger(), v.minValue(1), v.maxValue(32_768)),
 });
-export type IWorkspaceRecoveryRaster = v.InferOutput<typeof recoveryRasterSchema>;
-
-/** Raster bytes have their own durable storage; only their metadata consumes the JSON budget. */
-export function mapWorkspaceRecoveryRasters(
-    payload: unknown,
-    transform: (image: IWorkspaceRecoveryRaster, entityIndex: number) => IWorkspaceRecoveryRaster,
-): unknown {
-    if (!isRecord(payload) || !Array.isArray(payload.entities)) return payload;
-    return {
-        ...payload,
-        entities: payload.entities.map((entity: unknown, index: number) => {
-            if (!isRecord(entity) || entity.kind !== 'placed-image'
-                || !isRecord(entity.image) || entity.image.kind !== 'raster') return entity;
-            return {
-                ...entity,
-                image: transform(v.parse(recoveryRasterSchema, entity.image), index),
-            };
-        }),
-    };
-}
+/** Whether `value` is a placed image's raster in the shape its drafts store. */
+export const isWorkspaceRecoveryRaster = (value: unknown) => v.is(recoveryRasterSchema, value);
 
 const editRevisionSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
 

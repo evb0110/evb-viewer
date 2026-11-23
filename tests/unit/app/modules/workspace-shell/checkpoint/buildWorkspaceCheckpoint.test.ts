@@ -1,4 +1,5 @@
 import {
+    computed,
     ref,
     shallowRef,
 } from 'vue';
@@ -37,6 +38,10 @@ import {
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {getWindowTabsCapability} from '@app/utils/platformWindowTabs';
 import { cast } from '@tests/helpers/cast';
+import {
+    createDeps,
+    useWorkspaceSaveServiceForTest,
+} from '@tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveServiceFixture';
 import {
     createWorkspaceExposeFixture,
     setTestDocumentDirty,
@@ -364,6 +369,7 @@ function createRecovery(options: {
         phase: options.phase ?? 'presented',
         identity: {documentInstanceId: 'instance-1', workingCopyPath: '/managed/drafts.pdf', revisionInfo: {token: '1'}},
     });
+    const reportFailure = vi.fn();
     const recovery = createWorkspaceDocumentRecovery({
         controller: cast({snapshot}),
         pdfViewer: () => viewer,
@@ -383,12 +389,107 @@ function createRecovery(options: {
             pageLabelState: {pageLabelRanges: ref([])},
             captureRecovery: () => (options.bookmarks ? {bookmarks: {revision: 1, dirty: true, items: []}} : {}),
         }),
-        reportFailure: vi.fn(),
+        reportFailure,
     });
-    return {store, recovery, viewer};
+    return {store, recovery, viewer, reportFailure, snapshot};
 }
 
 describe('createWorkspaceDocumentRecovery', () => {
+    const typedNote = (id: string) => ({...cast<INoteEntity>({
+        kind: 'note', pageIndex: requirePageIndex(0), revision: 0, persistedRevision: -1, deleted: false,
+        createdAt: null, modifiedAt: null, author: null, contents: id, position: {left: 0.1, top: 0.1, width: 0.02, height: 0.02},
+        color: '#ffff00', open: false,
+    }), identity: {id: asAnnotationId(id)}});
+
+    it('lets Save write live edits its drafts could not store, but never over recovered drafts not applied', async () => {
+        const setDocumentDrafts = vi.spyOn(getWindowTabsCapability(), 'setDocumentDrafts').mockRejectedValue(new Error('No space left on device'));
+        const {store, recovery, reportFailure} = createRecovery();
+        store.createNote(typedNote('typed'));
+        const {deps} = createDeps({hasPendingUnsavedChanges: computed(() => true), commitDrafts: recovery.commitDrafts});
+        const service = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(service.handleSave()).resolves.toBe(true);
+        expect(deps.saveWorkingCopy).toHaveBeenCalledTimes(1);
+        expect(service.hasSaveFailure.value).toBe(false);
+        // The writer told the failure once; moving the tab, which carries the drafts, still needs them.
+        expect(reportFailure).toHaveBeenCalledTimes(1);
+        await expect(recovery.commitDrafts()).rejects.toThrow('No space left on device');
+
+        recovery.holdDrafts()(false);
+        await expect(service.handleSave()).resolves.toBe(false);
+        expect(deps.saveWorkingCopy).toHaveBeenCalledTimes(1);
+        expect(service.hasSaveFailure.value).toBe(true);
+        setDocumentDrafts.mockRestore();
+    });
+
+    it('tells a refusal for the current revision once, holds strict callers on it, and stores the drafts for the next revision', async () => {
+        const setDocumentDrafts = vi.spyOn(getWindowTabsCapability(), 'setDocumentDrafts').mockResolvedValue(true);
+        const {store, recovery, reportFailure, snapshot} = createRecovery();
+        await recovery.commitDrafts();
+        setDocumentDrafts.mockClear();
+        setDocumentDrafts.mockResolvedValue(false);
+        const refused = 'Document drafts could not be stored for the current revision';
+
+        store.createNote(typedNote('typed'));
+        await expect(recovery.commitDrafts()).rejects.toThrow(refused);
+        await expect(recovery.commitDrafts('reported')).resolves.toBeUndefined();
+        store.createNote(typedNote('typed-again'));
+        await expect(recovery.commitDrafts()).rejects.toThrow(refused);
+        expect(reportFailure).toHaveBeenCalledTimes(1);
+
+        setDocumentDrafts.mockResolvedValue(true);
+        snapshot.value = {...snapshot.value, identity: {...snapshot.value.identity, revisionInfo: {token: '2'}}};
+        await recovery.commitDrafts();
+        const stored = setDocumentDrafts.mock.calls.at(-1)?.[0];
+        expect(stored?.workingByteRevision).toBe('2');
+        expect((stored?.payload as {entities?: Array<{identity: {id: string}}>} | undefined)?.entities?.map(entity => entity.identity.id))
+            .toEqual(expect.arrayContaining(['typed', 'typed-again']));
+        expect(reportFailure).toHaveBeenCalledTimes(1);
+        setDocumentDrafts.mockRestore();
+    });
+
+    it('writes the drafts again, telling nothing, when their revision is replaced while they are written', async () => {
+        const setDocumentDrafts = vi.spyOn(getWindowTabsCapability(), 'setDocumentDrafts').mockResolvedValue(true);
+        const {store, recovery, reportFailure, snapshot} = createRecovery();
+        await recovery.commitDrafts();
+        setDocumentDrafts.mockClear();
+        setDocumentDrafts.mockImplementation(async (drafts) => {
+            if (drafts.workingByteRevision !== '1') return true;
+            snapshot.value = {...snapshot.value, identity: {...snapshot.value.identity, revisionInfo: {token: '2'}}};
+            return false;
+        });
+
+        store.createNote(typedNote('typed'));
+        await recovery.commitDrafts();
+        expect(setDocumentDrafts.mock.calls.map(([drafts]) => drafts.workingByteRevision)).toEqual(['1', '2']);
+        expect(setDocumentDrafts.mock.calls.at(-1)?.[0].payload).toBeDefined();
+        expect(reportFailure).not.toHaveBeenCalled();
+        setDocumentDrafts.mockRestore();
+    });
+
+    it('reports a published Save saved when its drafts cannot be settled after it', async () => {
+        const setDocumentDrafts = vi.spyOn(getWindowTabsCapability(), 'setDocumentDrafts').mockResolvedValue(true);
+        const {store, recovery, reportFailure} = createRecovery();
+        store.createNote(typedNote('saved'));
+        const {deps} = createDeps({
+            hasPendingUnsavedChanges: computed(() => true),
+            commitDrafts: recovery.commitDrafts,
+            saveWorkingCopy: vi.fn(async () => {
+                // An edit during Save stays unsaved, and storage fails for it.
+                setDocumentDrafts.mockRejectedValue(new Error('No space left on device'));
+                store.createNote(typedNote('typed-while-saving'));
+                return {success: true, outPath: requireDocumentRef('/tmp/work.pdf'), saveMode: 'rewrite' as const, didSaveAs: false};
+            }),
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(service.handleSave()).resolves.toBe(true);
+        expect(service.hasSaveFailure.value).toBe(false);
+        expect(reportFailure).toHaveBeenCalledTimes(1);
+        await expect(recovery.commitDrafts()).rejects.toThrow('No space left on device');
+        setDocumentDrafts.mockRestore();
+    });
+
     it('replays drafts captured during another read once the recovered bytes are read, and keeps them stored when that read fails', async () => {
         const captured = new AnnotationStore();
         captured.replaceFromDocument([highlight], [], undefined, [], [], false, requireDocumentRevisionToken('0'));
