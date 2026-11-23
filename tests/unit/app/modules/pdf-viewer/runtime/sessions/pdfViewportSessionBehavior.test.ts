@@ -3631,6 +3631,169 @@ describe('PdfViewportSession behavior', () => {
             }
         });
 
+        it('places the reading point once at the custom zoom the reload began with', async () => {
+            const fixture = createViewportFixture({
+                pageCount: 20,
+                zoom: ref(1.5),
+                zoomMode: 'custom',
+            });
+            const stop = watch(fixture.viewport.demand, (demand) => {
+                if (demand.mandatoryRaster) {
+                    fixture.viewport.settleMandatoryRaster(demand.mandatoryRaster.id, true);
+                }
+            }, {flush: 'post'});
+            try {
+                const firstPage = appendPageBox(fixture.container, 1, {
+                    height: 900,
+                    top: 0,
+                });
+                fixture.container.scrollTop = 4_000;
+                const read = fixture.viewport.singlePageScroll.captureCurrentSemanticAnchor()!;
+                const admission = fixture.viewport.admitReload(page => page);
+                await fixture.documentSession.emit(transition('invalidated', reloadPlan));
+                await fixture.documentSession.emit(transition('loading', reloadPlan));
+                // The owner's zoom moved while the document reloaded.
+                fixture.zoom.value = 1;
+                await nextTick();
+                const writesBeforeReady = fixture.viewportWrites.writes.length;
+
+                await fixture.documentSession.emit(transition('ready', reloadPlan));
+
+                expect(await admission.finished).toBe('placed');
+                expect(fixture.zoom.value).toBe(1.5);
+                // The relayout the restored zoom asked for yields to the reload's one placement.
+                expect(fixture.viewportWrites.writes.slice(writesBeforeReady).map(write => write.reason))
+                    .toEqual(['document-restore']);
+                expect(firstPage.style.width).toBe('900px');
+                expect(firstPage.style.height).toBe('1350px');
+                expect(fixture.viewport.currentPage.value).toBe(read.page);
+                expect(fixture.viewport.singlePageScroll.captureCurrentSemanticAnchor()).toMatchObject({
+                    page: read.page,
+                    pageYFraction: expect.closeTo(read.pageYFraction, 2),
+                });
+            } finally {
+                stop();
+                await fixture.dispose();
+            }
+        });
+
+        it('places an in-place page rotation reload and rasters the page it placed', async () => {
+            const fixture = createViewportFixture({pageCount: 20});
+            const mandatoryRanges: Array<{
+                start: number;
+                end: number;
+            }> = [];
+            const stop = watch(fixture.viewport.demand, (demand) => {
+                if (demand.mandatoryRaster) {
+                    mandatoryRanges.push({...demand.mandatoryRaster.range});
+                    fixture.viewport.settleMandatoryRaster(demand.mandatoryRaster.id, true);
+                }
+            }, {flush: 'post'});
+            try {
+                fixture.container.scrollTop = 4_000;
+                const read = fixture.viewport.singlePageScroll.captureCurrentSemanticAnchor()!;
+                const rotationPlan = {
+                    isReload: true,
+                    isSelectiveReload: true,
+                    pagesToInvalidate: [read.page],
+                    preserveVisibleContent: true,
+                    preservePageStructure: true,
+                };
+                const admission = fixture.viewport.admitReload(page => page);
+                await fixture.documentSession.emit(transition('invalidated', rotationPlan));
+                await fixture.documentSession.emit(transition('loading', rotationPlan));
+                const writesBeforeReady = fixture.viewportWrites.writes.length;
+                const rangesBeforeReady = mandatoryRanges.length;
+
+                await fixture.documentSession.emit(transition('ready', rotationPlan));
+
+                expect(await admission.finished).toBe('placed');
+                expect(fixture.viewportWrites.writes.slice(writesBeforeReady).map(write => write.reason))
+                    .toEqual(['document-restore']);
+                expect(fixture.viewport.currentPage.value).toBe(read.page);
+                expect(mandatoryRanges[rangesBeforeReady]).toEqual({
+                    start: read.page,
+                    end: read.page,
+                });
+                expect(fixture.viewport.visibleRange.value.start).toBeLessThanOrEqual(read.page);
+                expect(fixture.viewport.visibleRange.value.end).toBeGreaterThanOrEqual(read.page);
+            } finally {
+                stop();
+                await fixture.dispose();
+            }
+        });
+
+        it('updates visible range and required pages when a paged selective reload mounts a mapped page at the same scroll offset', async () => {
+            const fixture = createViewportFixture({
+                bufferPages: 0,
+                continuousScroll: false,
+                pageCount: 20,
+            });
+            const pageBox = (page: number) => {
+                const el = document.createElement('div');
+                el.className = 'page_container';
+                el.dataset.page = String(page);
+                Object.defineProperties(el, {
+                    offsetTop: {value: 0},
+                    offsetLeft: {value: 0},
+                    offsetWidth: {value: 600},
+                    offsetHeight: {value: 900},
+                });
+                return el;
+            };
+            let mountedEl = pageBox(1);
+            fixture.container.replaceChildren(mountedEl);
+            fixture.viewport.markPageMounted(requirePageNumber(1));
+            const stopMount = watch(
+                () => `${fixture.viewport.currentPage.value}:${fixture.viewport.viewModel.pagesToRender.value.join(',')}`,
+                () => {
+                    const nextPage = fixture.viewport.currentPage.value;
+                    if (
+                        !fixture.viewport.viewModel.pagesToRender.value.includes(nextPage)
+                        || Number(mountedEl.dataset.page) === nextPage
+                    ) {
+                        return;
+                    }
+                    const oldPage = requirePageNumber(Number(mountedEl.dataset.page));
+                    mountedEl = pageBox(nextPage);
+                    fixture.container.replaceChildren(mountedEl);
+                    fixture.viewport.markPageUnmounted(oldPage);
+                    fixture.viewport.markPageMounted(requirePageNumber(nextPage));
+                },
+                {flush: 'post'},
+            );
+            const stopRaster = watch(fixture.viewport.demand, (demand) => {
+                if (demand.mandatoryRaster) {
+                    fixture.viewport.settleMandatoryRaster(demand.mandatoryRaster.id, true);
+                }
+            }, {flush: 'post'});
+            try {
+                const selectiveReorderPlan = {
+                    isReload: true,
+                    isSelectiveReload: true,
+                    pagesToInvalidate: [12],
+                    preserveVisibleContent: true,
+                    preservePageStructure: false,
+                };
+                const admission = fixture.viewport.admitReload(page => (page === 1 ? 12 : page));
+                await fixture.documentSession.emit(transition('invalidated', selectiveReorderPlan));
+                await fixture.documentSession.emit(transition('loading', selectiveReorderPlan));
+                await fixture.documentSession.emit(transition('ready', selectiveReorderPlan));
+
+                expect(await admission.finished).toBe('placed');
+                expect(fixture.viewport.currentPage.value).toBe(12);
+                expect(fixture.viewport.visibleRange.value).toEqual({
+                    start: 12,
+                    end: 12,
+                });
+                expect(fixture.viewport.demand.value.requiredPages).toEqual([12]);
+            } finally {
+                stopMount();
+                stopRaster();
+                await fixture.dispose();
+            }
+        });
+
         it('leaves the view where the reader moved it during the reload', async () => {
             const {
                 fixture, outcome, read, placedWrites,
