@@ -2,6 +2,7 @@ import {
     parsePageNumber, requirePageNumber,
 } from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
+import {queuePostFlushCb} from 'vue';
 import {tryOnScopeDispose} from '@vueuse/core';
 import {clamp} from 'es-toolkit/math';
 import type {IUsePdfSinglePageScrollOptions} from '@app/modules/pdf-viewer/runtime/navigation/pdfSinglePageScrollTypes';
@@ -31,6 +32,7 @@ import {
     type IPdfViewportIntent,
     type IPdfViewportPositionCommit,
     type IPdfViewportWorkCancellation,
+    type TPdfRelayoutReceipt,
 } from '@app/modules/pdf-viewer/runtime/viewport/createViewportAuthority';
 import {
     isPdfNavigationReady,
@@ -40,6 +42,7 @@ import {
 } from '@app/modules/pdf-viewer/runtime/viewport/pdfNavigationRequestResolver';
 import {getPageScrollBounds} from '@app/modules/pdf-viewer/runtime/navigation/singlePageScrollGeometry';
 import {logPdfRenderTrace} from '@app/utils/pdfRenderTrace';
+import {BrowserLogger} from '@app/utils/browserLogger';
 import {runGuardedTask} from '@app/utils/asyncGuard';
 import {
     getRequestAnchor,
@@ -71,6 +74,23 @@ interface IPdfSinglePageWheelEvent {
     deltaY: number;
     timeStamp: number;
     preventDefault: () => void;
+}
+
+/**
+ * The layout change being flushed, whose receipt every caller of that flush
+ * shares, fenced by the document and the reader's input it began under.
+ * `anchor` is null while a navigation owns the view; `transform` then maps
+ * the point the reader sees, such as through a page's turn. `flush` names
+ * the latest post flush asked to place it.
+ */
+interface IPdfPendingRelayout {
+    anchor: IPdfSemanticAnchor | null;
+    transform: (anchor: IPdfSemanticAnchor) => IPdfSemanticAnchor;
+    documentRevision: number;
+    interactionEpoch: number;
+    flush: number;
+    receipt: Promise<TPdfRelayoutReceipt>;
+    settle: (receipt: TPdfRelayoutReceipt) => void;
 }
 
 interface IPdfViewportIntentDocument {
@@ -113,14 +133,9 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             : null;
     });
     const resolvedTargets = new Map<string, IResolvedPdfNavigationTarget>();
-    let activeNavigationExecution: {
-        ticket: IDocumentNavigationTicket;
-        promise: Promise<unknown>;
-    } | null = null;
+    let activeNavigationTicket: IDocumentNavigationTicket | null = null;
     let navigationRestartRequested = false;
-    let stopSettledAnchorObservation: (() => void) | undefined;
-    // The anchor of the layout change being flushed; undefined when none is.
-    const pendingRelayoutAnchor = shallowRef<IPdfSemanticAnchor | null | undefined>();
+    let pendingRelayout: IPdfPendingRelayout | null = null;
     let heldRelayoutAnchor: {
         anchor: IPdfSemanticAnchor;
         left: number;
@@ -334,7 +349,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             requireIntentDocument(intent);
             const container = options.viewerContainer.value;
             if (!container) {
-                return;
+                return null;
             }
             const applied = options.viewportWritePort.apply(container, {
                 intent: options.viewportWritePort.beginIntent(intent.id),
@@ -352,6 +367,9 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 actualTop: container.scrollTop,
                 applied,
             });
+            if (!applied) {
+                return null;
+            }
             // The authority clears its pending target immediately after apply.
             // Project the just-written scroll position into visibleRange first so
             // virtualization transfers ownership to the target row instead of
@@ -371,10 +389,25 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         },
         onPositionCommitted: (commit) => {
             options.onViewportPositionCommitted?.(commit);
-            if (commit.intentKind === 'navigate' || commit.intentKind === 'search' || commit.intentKind === 'wheel-page') {
-                reapplySettledNavigationAnchor(commit.navigationTicket);
-            }
         },
+        // The point is placed again only when the released layout moved it
+        // or the view no longer shows the committed offsets.
+        settleHandoff: (_intent, placement) => new Promise((resolve) => {
+            afterLayoutPatch(() => {
+                let target = null;
+                try {
+                    const container = options.viewerContainer.value;
+                    const shows = (left: number, top: number) => container !== null
+                        && Math.abs(left - container.scrollLeft) < 1 && Math.abs(top - container.scrollTop) < 1;
+                    target = resolvePlacementForLayout(placement.anchor);
+                    if (target && shows(target.left, target.top) && shows(placement.commit.left, placement.commit.top)) {
+                        target = null;
+                    }
+                } finally {
+                    resolve(target);
+                }
+            });
+        }),
         awaitVisual: async (intent, signal) => {
             const page = requireIntentPage(intent, signal);
             const container = options.viewerContainer.value;
@@ -458,8 +491,6 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             resolvedTargets.delete(intentId);
         },
     });
-    // Restores after Vue has patched the new layout, before the browser paints.
-    watch(pendingRelayoutAnchor, restoreRelayoutAnchor, {flush: 'post'});
     options.bindCurrentPageProjection?.(viewportAuthority.currentPage);
 
     function requestFor(page: number, scrollOptions?: IScrollToPageOptions) {
@@ -537,51 +568,8 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         return viewportAuthority.submit(intent);
     }
 
-    function reapplySettledNavigationAnchor(allowedTicket?: IDocumentNavigationTicket) {
-        stopSettledAnchorObservation?.();
-        const anchor = viewportAuthority.committedAnchor.value;
-        if (!anchor || typeof ResizeObserver === 'undefined') return;
-        const interactionEpoch = options.viewportWritePort.getInteractionEpoch();
-        const documentRevision = options.getDocumentRevision();
-        // The physical track publishes its size after virtualization releases
-        // outgoing geometry. Observe that layout instead of polling every frame.
-        stopSettledAnchorObservation = watch([
-            options.viewerContainer,
-            viewportAuthority.committedAnchor,
-            navigationTicket,
-            () => options.getDocumentRevision(),
-        ], ([
-            container,
-            committedAnchor,
-            ticket,
-            revision,
-        ], _previous, onCleanup) => {
-            if (!container || committedAnchor !== anchor || revision !== documentRevision
-                || (ticket && ticket.signal !== allowedTicket?.signal)) return;
-            const observer = new ResizeObserver(() => {
-                if (options.viewportWritePort.getInteractionEpoch() !== interactionEpoch) {
-                    observer.disconnect();
-                    return;
-                }
-                if (viewportAuthority.activeIntent.value !== null) return;
-                // Late layout refines the committed placement; it is not a new one.
-                writeAnchor(anchor, 'navigation-layout', true);
-            });
-            const track = container.querySelector<HTMLElement>('[data-pdf-page-track]') ?? container;
-            observer.observe(container);
-            observer.observe(track);
-            // In standalone mode the track is the scrollport. Its row/spacer
-            // sizes still announce a late change to the destination's offset.
-            for (const child of track.children) observer.observe(child);
-            onCleanup(() => observer.disconnect());
-        }, {
-            immediate: true,
-            flush: 'post',
-        });
-    }
-
     function startNavigationTicket(ticket: IDocumentNavigationTicket) {
-        if (activeNavigationExecution?.ticket === ticket) {
+        if (activeNavigationTicket === ticket) {
             navigationRestartRequested = true;
             return false;
         }
@@ -590,24 +578,21 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         // A cancelled attempt is replayed only by the readiness watch below:
         // every input that can cancel a live ticket (document, geometry,
         // readiness) is one of its sources.
-        const execution = submitNavigationIntent(ticket).catch(error => {
+        activeNavigationTicket = ticket;
+        void submitNavigationIntent(ticket).catch(error => {
             runGuardedTask(() => { throw error; }, {
                 category: 'background-diagnostic',
                 scope: 'pdf-navigation',
                 message: `PDF viewport navigation ${ticket.id} failed`,
             });
         }).finally(() => {
-            if (activeNavigationExecution?.ticket !== ticket) return;
-            activeNavigationExecution = null;
+            if (activeNavigationTicket !== ticket) return;
+            activeNavigationTicket = null;
             if (navigationRestartRequested) {
                 navigationRestartRequested = false;
                 if (isNavigationTicketCurrent(ticket)) startNavigationTicket(ticket);
             }
         });
-        activeNavigationExecution = {
-            ticket,
-            promise: execution,
-        };
         return true;
     }
 
@@ -712,40 +697,125 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
     /**
      * Every layout change goes through here: zoom, fit, view mode, rotation
      * and viewport resize. The anchor is taken before the change, while the
-     * DOM still shows the old layout, and restored once Vue has patched the
-     * new one, before the browser paints. A navigation that has not placed
-     * its page yet resolves against the new layout on its own.
+     * DOM still shows the old layout, and placed once Vue has patched the
+     * new one, before the browser paints. The returned receipt settles in
+     * that same flush. A navigation in flight owns the view: the change
+     * refines its placed destination, or the navigation, not placed yet,
+     * resolves against the new layout on its own.
      */
-    function relayout(change?: () => void, anchor?: IPdfSemanticAnchor | null | ((point: IPdfSemanticAnchor) => IPdfSemanticAnchor)) {
-        if (pendingRelayoutAnchor.value === undefined && isNavigationRuntimeReady()) {
-            const ticket = currentNavigationTicket();
-            pendingRelayoutAnchor.value = ticket
-                ? (isPlacedNavigationAnchor(viewportAuthority.committedAnchor.value)
-                    ? viewportAuthority.committedAnchor.value
-                    : null)
-                : typeof anchor === 'function' ? captureRelayoutAnchor() : anchor ?? captureRelayoutAnchor();
+    function relayout(
+        change?: () => void,
+        anchor?: IPdfSemanticAnchor | null | ((point: IPdfSemanticAnchor) => IPdfSemanticAnchor),
+    ): Promise<TPdfRelayoutReceipt> {
+        const interactionEpoch = options.viewportWritePort.getInteractionEpoch();
+        // The reader's input since a pending change began owns that change's
+        // point; this change starts afresh from what the reader now sees (R2).
+        if (pendingRelayout && pendingRelayout.interactionEpoch !== interactionEpoch) {
+            pendingRelayout.settle({outcome: 'superseded'});
+            pendingRelayout = null;
         }
-        // Compose transforms on the pending point, including several rotations
-        // before Vue flushes. An explicit navigation keeps its own destination.
-        if (typeof anchor === 'function' && pendingRelayoutAnchor.value && !currentNavigationTicket()) {
-            pendingRelayoutAnchor.value = anchor(pendingRelayoutAnchor.value);
+        if (!pendingRelayout && isNavigationRuntimeReady()) {
+            const {
+                promise, resolve,
+            } = Promise.withResolvers<TPdfRelayoutReceipt>();
+            pendingRelayout = {
+                anchor: currentNavigationTicket() !== null || viewportAuthority.activeIntent.value !== null
+                    ? null
+                    : typeof anchor === 'function' ? captureRelayoutAnchor() : anchor ?? captureRelayoutAnchor(),
+                transform: point => point,
+                documentRevision: options.getDocumentRevision(),
+                interactionEpoch,
+                flush: 0,
+                receipt: promise,
+                settle: resolve,
+            };
         }
+        const pending = pendingRelayout;
+        if (!pending) {
+            change?.();
+            return Promise.resolve({outcome: 'cancelled'});
+        }
+        // Compose transforms, including several rotations before Vue flushes,
+        // on the pending point, or on the point the reader sees while a
+        // navigation keeps its own destination.
+        if (typeof anchor === 'function') {
+            if (pending.anchor) {
+                pending.anchor = anchor(pending.anchor);
+            } else {
+                const previous = pending.transform;
+                pending.transform = point => anchor(previous(point));
+            }
+        }
+        // Each call asks the post flush after its own change: a change made
+        // inside a post flush is patched by a later pass of the same flush.
+        const flush = ++pending.flush;
+        afterLayoutPatch(() => {
+            if (pendingRelayout !== pending || pending.flush !== flush) {
+                return;
+            }
+            pendingRelayout = null;
+            let receipt: TPdfRelayoutReceipt = {outcome: 'cancelled'};
+            try {
+                receipt = placePendingRelayout(pending);
+            } finally {
+                pending.settle(receipt);
+            }
+        });
         change?.();
+        return pending.receipt;
     }
 
-    function restoreRelayoutAnchor(anchor: IPdfSemanticAnchor | null | undefined) {
-        if (anchor === undefined) {
-            return;
+    /**
+     * Runs `place` in the post flush, after Vue patched the layout and before
+     * the browser paints. A failure is reported and never escapes into the
+     * flush that runs the other callbacks.
+     */
+    function afterLayoutPatch(place: () => void) {
+        queuePostFlushCb(() => {
+            try {
+                place();
+            } catch (error) {
+                if (!(error instanceof DOMException && error.name === 'AbortError')) {
+                    BrowserLogger.error('pdf-viewer', 'Failed to place the PDF viewport after a layout change', error, {code: 'RENDERER_PDF_VIEWPORT_PLACEMENT_FAILED'});
+                }
+            }
+        });
+    }
+
+    function resolvePlacementForLayout(anchor: IPdfSemanticAnchor) {
+        const container = options.viewerContainer.value;
+        const snapshot = refreshGeometry();
+        return container && snapshot
+            ? {
+                anchor,
+                ...resolveNavigationScrollForViewport(snapshot, anchor),
+            }
+            : null;
+    }
+
+    function placePendingRelayout(pending: IPdfPendingRelayout): TPdfRelayoutReceipt {
+        if (!isNavigationRuntimeReady() || options.getDocumentRevision() !== pending.documentRevision) {
+            return {outcome: 'cancelled'};
         }
-        pendingRelayoutAnchor.value = undefined;
-        if (!anchor || !isNavigationRuntimeReady()) {
-            return;
+        // The reader's input since the change was asked for owns the view (R2),
+        // as does an admitted reload that has not placed its mapped point.
+        if (options.viewportWritePort.getInteractionEpoch() !== pending.interactionEpoch
+            || viewportAuthority.isWorkPlacementPending()) {
+            return {outcome: 'superseded'};
         }
-        if (isPlacedNavigationAnchor(anchor)) {
-            writeAnchor(anchor, 'relayout');
-        } else if (viewportAuthority.activeIntent.value === null) {
-            place(anchor, 'relayout');
+        const refined = viewportAuthority.refineLayout(resolvePlacementForLayout, pending.transform);
+        if (refined) {
+            return refined;
         }
+        if (!pending.anchor) {
+            // The navigation this change belonged to ended before the flush.
+            return {outcome: 'superseded'};
+        }
+        const commit = placeAnchor(pending.anchor, 'relayout');
+        return commit ? {
+            outcome: 'placed',
+            commit,
+        } : {outcome: 'cancelled'};
     }
 
     /** Writes the anchor's scroll for the current layout and projects the visible range. */
@@ -777,14 +847,18 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
      * A ticket's execution ends in the same write and report.
      */
     function place(point: IPdfSemanticAnchor, kind: 'relayout' | 'document-restore' | 'navigate') {
+        return placeAnchor(point, kind) !== null;
+    }
+
+    function placeAnchor(point: IPdfSemanticAnchor, kind: 'relayout' | 'document-restore' | 'navigate') {
         if (!isNavigationRuntimeReady()) {
-            return false;
+            return null;
         }
         // A point carried through a page edit can name a deleted final page.
         const anchor = {...point, page: toBoundedPageNumber(point.page)};
         const written = writeAnchor(anchor, kind, kind === 'navigate');
         if (!written) {
-            return false;
+            return null;
         }
         const {
             container,
@@ -812,7 +886,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             left: container.scrollLeft,
             top: container.scrollTop,
             anchor: committed,
-        }) !== null;
+        });
     }
 
     function isUnplacedOpeningTicket(ticket: IDocumentNavigationTicket | null) {
@@ -826,7 +900,6 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
     }
 
     function observeNativeUserScroll(anchorOverride: IPdfSemanticAnchor | undefined, observeWritePort: boolean) {
-        stopSettledAnchorObservation?.();
         const ticket = currentNavigationTicket();
         const holdOpeningTicket = isUnplacedOpeningTicket(ticket);
         if (ticket && isNavigationTicketCurrent(ticket) && !holdOpeningTicket) {
@@ -887,19 +960,6 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 }, viewportAuthority.committedAnchor.value)
                 : resolvePagedAnchorFromViewport(container, toBoundedPageNumber(viewportAuthority.currentPage.value))
             : viewportAuthority.committedAnchor.value;
-    }
-
-    /**
-     * A navigation placed its page and now waits for the raster. Layout that
-     * keeps changing meanwhile, such as a sidebar still sliding in, must carry
-     * that destination with it; left alone, the old pixel offset reads as
-     * later and later pages while the fit scale shrinks.
-     */
-    function isPlacedNavigationAnchor(anchor: IPdfSemanticAnchor | null | undefined) {
-        return anchor !== null
-            && anchor !== undefined
-            && viewportAuthority.phase.value === 'awaiting-visual'
-            && viewportAuthority.committedAnchor.value === anchor;
     }
 
     /**
@@ -1027,7 +1087,9 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
 
 
     tryOnScopeDispose(() => {
-        stopSettledAnchorObservation?.();
+        // A closed view places nothing; a pending layout change still answers.
+        pendingRelayout?.settle({outcome: 'cancelled'});
+        pendingRelayout = null;
         viewportAuthority.dispose();
     });
 
@@ -1048,7 +1110,10 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         flush: 'post',
         immediate: true,
     });
-    const navigationAnchorPage = computed(() => viewportAuthority.pendingTargetPage.value ?? ticketTargetPage.value);
+    // Where the view holds its handoff; nowhere once the navigation releases it.
+    const navigationAnchorPage = computed(() => viewportAuthority.handoffReleased.value
+        ? null
+        : viewportAuthority.pendingTargetPage.value ?? ticketTargetPage.value);
     // Where rendering must land now. Reload work and a retained surface ticket
     // keep the page they asked for while a page edit installs a shorter
     // document, so project that request into the current page count.

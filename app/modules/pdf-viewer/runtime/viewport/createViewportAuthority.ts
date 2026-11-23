@@ -40,6 +40,12 @@ interface IPdfViewportResolvedCommit {
     top: number;
 }
 
+/** An intent's latest placement: its point and the position committed for it. */
+export interface IPdfViewportPlacement {
+    anchor: IPdfSemanticAnchor;
+    commit: IPdfViewportPositionCommit;
+}
+
 export interface IPdfViewportPositionCommit {
     intentId: string;
     intentKind: TPdfViewportIntentKind;
@@ -51,6 +57,21 @@ export interface IPdfViewportPositionCommit {
     top: number;
     navigationTicket?: IDocumentNavigationTicket;
 }
+
+/**
+ * What a layout change did, known in the flush that patched the new layout,
+ * before the browser paints it. `placed`: the layout's own placement, or the
+ * refined commit of the navigation it belongs to. `superseded`: an unplaced
+ * navigation resolves against the new layout itself, or reader input or a
+ * newer navigation took the view first. `cancelled`: nothing could be placed
+ * (no document, geometry or container, or the view closed).
+ */
+export type TPdfRelayoutReceipt =
+    | {
+        outcome: 'placed';
+        commit: IPdfViewportPositionCommit;
+    }
+    | {outcome: 'superseded' | 'cancelled'};
 
 /**
  * Work that moves the viewport without a placement intent of its own: a
@@ -66,6 +87,9 @@ interface IPdfViewportWork {
     readonly id: number;
     readonly kind: TPdfViewportWorkKind;
     readonly page: number | null;
+    readonly interactionEpoch: number;
+    /** The work committed its placement; later layout changes place freely. */
+    placed: boolean;
 }
 
 interface IViewportAuthorityDependencies {
@@ -84,13 +108,23 @@ interface IViewportAuthorityDependencies {
     awaitMetrics(intent: IPdfViewportIntent, signal: AbortSignal): Promise<unknown>;
     refine?(intent: IPdfViewportIntent, commit: IPdfViewportResolvedCommit, signal: AbortSignal): Promise<IPdfViewportResolvedCommit>;
     refineAfterVisual?(intent: IPdfViewportIntent, commit: IPdfViewportResolvedCommit, signal: AbortSignal): Promise<IPdfViewportResolvedCommit>;
+    /** The offsets written; null when the view refused the write, which places nothing. */
     apply(
         intent: IPdfViewportIntent,
         commit: IPdfViewportResolvedCommit,
     ): {
         left: number;
         top: number;
-    } | undefined;
+    } | null | undefined;
+    /**
+     * Settles once the layout that ends the handoff is patched, before paint:
+     * the placement to write through it, or null when it moved nothing.
+     */
+    settleHandoff?(
+        intent: IPdfViewportIntent,
+        placement: IPdfViewportPlacement,
+        signal: AbortSignal,
+    ): Promise<IPdfViewportResolvedCommit | null>;
     onPositionCommitted?(commit: IPdfViewportPositionCommit): void;
     awaitVisual(intent: IPdfViewportIntent, signal: AbortSignal): Promise<void>;
     beforeApply?(intent: IPdfViewportIntent, signal: AbortSignal): Promise<void>;
@@ -152,8 +186,15 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
     const phase = ref<TPdfViewportPhase>('idle');
     const activeIntent = shallowRef<IPdfViewportIntent | null>(null);
     const committedAnchor = shallowRef<IPdfSemanticAnchor | null>(null);
+    // The intent whose handoff has ended: the view lays out its destination
+    // and the outgoing pages alike while the intent places through that.
+    const releasedIntent = shallowRef<IPdfViewportIntent | null>(null);
+    const handoffReleased = computed(() => activeIntent.value !== null && releasedIntent.value === activeIntent.value);
     const pendingTargetPage = computed(() => {
         const intent = activeIntent.value;
+        if (handoffReleased.value) {
+            return null;
+        }
         return intent?.documentContext?.page
             ?? (intent?.navigation?.target && 'page' in intent.navigation.target
                 ? intent.navigation.target.page
@@ -162,9 +203,12 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
     const currentPage = ref(1);
     let controller: AbortController | null = null;
     const terminal = new Map<string, 'settled' | 'cancelled'>();
+    // Each intent's latest placement: the first commit, then every refinement.
+    const placements = new WeakMap<IPdfViewportIntent, IPdfViewportPlacement>();
     const work = shallowRef<IPdfViewportWork | null>(null);
     let workSequence = 0;
     const ownsNavigation = computed(() => pendingTargetPage.value !== null
+        || handoffReleased.value
         || deps.hasPendingNavigationTicket?.() === true);
     const activeWorkKind = computed(() => (ownsNavigation.value ? 'navigation' as const : work.value?.kind ?? null));
     const targetPage = computed(() => pendingTargetPage.value ?? (ownsNavigation.value ? null : work.value?.page ?? null));
@@ -189,12 +233,20 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
             id: ++workSequence,
             kind,
             page,
+            interactionEpoch: deps.getInteractionEpoch(),
+            placed: false,
         };
         return work.value.id;
     }
 
     function isWorkCurrent(workId: number) {
         return work.value?.id === workId && !ownsNavigation.value;
+    }
+
+    /** Admitted work still owes its placement, and the reader has not moved since. */
+    function isWorkPlacementPending() {
+        return work.value !== null && !work.value.placed && !ownsNavigation.value
+            && work.value.interactionEpoch === deps.getInteractionEpoch();
     }
 
     function settleWork(workId: number) {
@@ -246,6 +298,7 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
             return;
         }
         activeIntent.value = null;
+        releasedIntent.value = null;
         controller = null;
     }
 
@@ -266,7 +319,10 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
     function commitPosition(
         intent: IPdfViewportIntent,
         commit: IPdfViewportResolvedCommit,
-        applied: ReturnType<IViewportAuthorityDependencies['apply']>,
+        applied: {
+            left: number;
+            top: number;
+        } | undefined,
     ) {
         commitAnchor(commit.anchor, intent.navigation || intent.kind === 'document-restore' ? commit.anchor.page : undefined);
         const positionCommit: IPdfViewportPositionCommit = Object.freeze({
@@ -280,8 +336,70 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
             top: applied?.top ?? commit.top,
             ...(intent.navigationTicket ? {navigationTicket: intent.navigationTicket} : {}),
         });
+        placements.set(intent, {
+            anchor: commit.anchor,
+            commit: positionCommit,
+        });
         deps.onPositionCommitted?.(positionCommit);
         return positionCommit;
+    }
+
+    // A refused write places nothing: the intent ends instead of committing.
+    function applyPlacement(intent: IPdfViewportIntent, commit: IPdfViewportResolvedCommit, signal: AbortSignal) {
+        const applied = deps.apply(intent, commit);
+        if (applied === null) {
+            throw createViewportAbortError();
+        }
+        assertCurrent(intent, signal);
+        commitPosition(intent, commit, applied);
+        assertCurrent(intent, signal);
+    }
+
+    /**
+     * A layout change is not new work; it belongs to the operation in flight.
+     * A placed navigation is refined: its point, placed against the new
+     * layout, becomes its latest commit, which `submit` returns. An unplaced
+     * one resolves against the new layout itself; while a staged one waits
+     * for its raster, the previous place the reader sees is kept. Null when
+     * nothing is in flight: the caller places the layout's own point.
+     */
+    function refineLayout(
+        resolveForLayout: (anchor: IPdfSemanticAnchor) => IPdfViewportResolvedCommit | null,
+        // Maps the shown point through the change, such as a page's turn.
+        transformShown: (anchor: IPdfSemanticAnchor) => IPdfSemanticAnchor = anchor => anchor,
+    ): TPdfRelayoutReceipt | null {
+        const intent = activeIntent.value;
+        if (!intent) {
+            return ownsNavigation.value ? {outcome: 'superseded'} : null;
+        }
+        const signal = controller?.signal;
+        if (!signal || !isCurrent(intent, signal)) {
+            return {outcome: 'superseded'};
+        }
+        const placement = placements.get(intent);
+        if (!placement) {
+            const shownAnchor = phase.value === 'awaiting-visual' && committedAnchor.value
+                ? transformShown(committedAnchor.value)
+                : null;
+            const shown = shownAnchor && resolveForLayout(shownAnchor);
+            if (shownAnchor && shown && deps.apply(intent, shown) !== null && isCurrent(intent, signal)) {
+                committedAnchor.value = shownAnchor;
+            }
+            return {outcome: 'superseded'};
+        }
+        const commit = resolveForLayout(placement.anchor);
+        if (!commit) {
+            return {outcome: 'cancelled'};
+        }
+        const applied = deps.apply(intent, commit);
+        // The write can synchronously deliver newer input; it owns the view.
+        if (applied === null || !isCurrent(intent, signal)) {
+            return {outcome: applied === null ? 'cancelled' : 'superseded'};
+        }
+        return {
+            outcome: 'placed',
+            commit: commitPosition(intent, commit, applied),
+        };
     }
 
     async function submit(intent: Omit<IPdfViewportIntent, 'interactionEpoch'>) {
@@ -358,12 +476,9 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
             await awaitWithAbort(deps.beforeApply?.(next, signal), signal);
             assertCurrent(next, signal);
             phase.value = 'applying';
-            const applied = deps.apply(next, commit);
             // `apply` may synchronously trigger a newer command or physical
             // input. Do not publish the old anchor after that change.
-            assertCurrent(next, signal);
-            const positionCommit = commitPosition(next, commit, applied);
-            assertCurrent(next, signal);
+            applyPlacement(next, commit, signal);
             if (next.navigationTicket) {
                 phase.value = 'awaiting-visual';
                 // A ticket whose raster failed cannot be reported as arrived;
@@ -374,10 +489,7 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
                 if (deps.refineAfterVisual && !stagedNavigationVisual) {
                     const refined = await awaitWithAbort(deps.refineAfterVisual(next, commit, signal), signal);
                     assertCurrent(next, signal);
-                    const refinedApplied = deps.apply(next, refined);
-                    assertCurrent(next, signal);
-                    commitPosition(next, refined, refinedApplied);
-                    assertCurrent(next, signal);
+                    applyPlacement(next, refined, signal);
                     commit = refined;
                 }
             } else if (!stagedNavigationVisual) {
@@ -385,6 +497,18 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
                 await awaitWithAbort(deps.awaitVisual(next, signal), signal);
             }
             assertCurrent(next, signal);
+            // Ending the handoff lays the outgoing pages it held out at the
+            // current scale, which can move the destination. The intent
+            // places its point through that before it arrives and settles.
+            const placed = placements.get(next);
+            if (deps.settleHandoff && placed) {
+                releasedIntent.value = next;
+                const settled = await awaitWithAbort(deps.settleHandoff(next, placed, signal), signal);
+                assertCurrent(next, signal);
+                if (settled) {
+                    applyPlacement(next, settled, signal);
+                }
+            }
             if (next.navigationTicket && deps.reportNavigation) {
                 const accepted = deps.reportNavigation(next.navigationTicket, {
                     kind: 'arrived',
@@ -396,10 +520,12 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
                 }
             }
             finish(next, 'settled');
+            // The final commit: refinements and the handoff release replace
+            // the first placement.
             return {
                 outcome: 'settled' as const,
                 intent: next,
-                positionCommit,
+                positionCommit: placements.get(next)?.commit ?? null,
             };
         } catch (error) {
             if (!isAbortError(error) && next.navigationTicket && isCurrent(next, signal) && deps.reportNavigation) {
@@ -445,6 +571,9 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
         if (anchor) {
             commitAnchor(anchor, input.intentKind === 'relayout' ? undefined : input.page);
         }
+        if (input.intentKind === 'document-restore' && work.value) {
+            work.value.placed = true;
+        }
         const commit = Object.freeze({
             ...position,
             page: anchor ? currentPage.value : input.page,
@@ -467,6 +596,8 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
         pendingTargetPage,
         currentPage: readonly(currentPage),
         submit,
+        refineLayout,
+        handoffReleased,
         commitSettledPosition,
         observeUserScroll,
         // The point a settled position shows; it moves nothing and keeps the page.
@@ -477,6 +608,7 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
         targetPage,
         beginWork,
         isWorkCurrent,
+        isWorkPlacementPending,
         settleWork,
         cancelWork,
         getTerminalOutcome: (intentId: string) => terminal.get(intentId) ?? null,

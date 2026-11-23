@@ -6,7 +6,11 @@ import type {
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
 
-import { requirePageNumber } from '@contracts/pageNumbers';
+import {
+    requirePageIndex,
+    requirePageNumber,
+} from '@contracts/pageNumbers';
+import {getLayoutPageTop} from '@app/modules/document-viewer/public';
 import {
     requireDocumentRevisionToken,
     type TDocumentRevisionToken,
@@ -1829,6 +1833,47 @@ describe('PdfViewportSession behavior', () => {
         }
     });
 
+    it('keeps the reading point when late metrics grow the rows above it', async () => {
+        const fixture = createViewportFixture({
+            pageCount: 100,
+            zoomMode: 'custom',
+        });
+        try {
+            await nextTick();
+            fixture.container.scrollTop = 27_400;
+            fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+            await nextTick();
+            const page = fixture.viewport.currentPage.value;
+            expect(page).toBeGreaterThan(20);
+            const before = fixture.viewport.singlePageScroll.captureCurrentSemanticAnchor()!;
+            const layoutBefore = fixture.viewport.viewModel.pageLayout.value!;
+            const scrollBefore = fixture.container.scrollTop;
+
+            // A sparse PDF learns that its first ten pages are twice as tall.
+            fixture.documentSession.pageMetrics.value = fixture.documentSession.pageMetrics.value.map((metric, index) => (
+                index < 10 ? {
+                    ...metric,
+                    height: 1_800,
+                } : metric
+            ));
+            fixture.documentSession.pageMetricsVersion.value += 1;
+            await nextTick();
+
+            const layoutAfter = fixture.viewport.viewModel.pageLayout.value!;
+            const shift = getLayoutPageTop(layoutAfter, requirePageIndex(page - 1))!
+                - getLayoutPageTop(layoutBefore, requirePageIndex(page - 1))!;
+            expect(shift).toBeGreaterThan(0);
+            expect(fixture.container.scrollTop).toBeCloseTo(scrollBefore + shift, 0);
+            expect(fixture.viewport.currentPage.value).toBe(page);
+            expect(fixture.viewport.singlePageScroll.captureCurrentSemanticAnchor()).toMatchObject({
+                page: before.page,
+                pageYFraction: expect.closeTo(before.pageYFraction, 3),
+            });
+        } finally {
+            fixture.app.unmount();
+        }
+    });
+
     it('does not publish a pane-deactivation scroll reset as user navigation', async () => {
         const fixture = createViewportFixture({
             bufferPages: 0,
@@ -3400,6 +3445,64 @@ describe('PdfViewportSession behavior', () => {
                 expect(view.fixture.viewport.currentPage.value).toBe(6);
             } finally {
                 metrics.resolve(true);
+                await view.fixture.dispose();
+            }
+        });
+        it('refines a placed navigation through a zoom while its raster is pending', async () => {
+            const opening = beginOpening('relayout-during-navigation.pdf');
+            const view = createOpeningFixture(opening.surface);
+            try {
+                await paintOpening(view, opening, 1);
+                await expect(opening.openingTicket.finished).resolves.toMatchObject({kind: 'arrived'});
+                const {viewport} = view.fixture;
+
+                const ticket = viewport.singlePageScroll.scrollToPage(requirePageNumber(6));
+                if (!ticket || ticket === true) throw new Error('Expected a navigation ticket');
+                await vi.waitFor(() => {
+                    expect(viewport.singlePageScroll.viewportAuthority.phase.value).toBe('awaiting-visual');
+                    expect(viewport.currentPage.value).toBe(6);
+                });
+                const placedTop = view.fixture.container.scrollTop;
+                expect(placedTop).toBeGreaterThan(0);
+
+                // The reader zooms in before page 6 has pixels. The new layout
+                // is placed in the flush that patches it, as the navigation's
+                // own commit; nothing else writes the destination later.
+                const receipt = await viewport.singlePageScroll.relayout(() => {
+                    view.fixture.zoomMode.value = 'custom';
+                    view.fixture.zoom.value = 2;
+                });
+                const refinedTop = view.fixture.container.scrollTop;
+                expect(receipt).toMatchObject({
+                    outcome: 'placed',
+                    commit: {
+                        intentId: ticket.id,
+                        intentKind: 'navigate',
+                        page: 6,
+                        top: refinedTop,
+                    },
+                });
+                expect(refinedTop).toBeGreaterThan(placedTop * 1.3);
+                expect(opening.surface.navigationTicket.value).toBe(ticket);
+
+                let rasterId = 0;
+                await vi.waitFor(() => {
+                    const raster = viewport.demand.value.mandatoryRaster;
+                    expect(raster?.range.start).toBeLessThanOrEqual(6);
+                    expect(raster?.range.end).toBeGreaterThanOrEqual(6);
+                    rasterId = raster!.id;
+                });
+                commitOpeningCanvas(opening.surface, opening.generation, 6);
+                view.paintedPages.add(6);
+                viewport.settleMandatoryRaster(rasterId, true);
+                await expect(ticket.finished).resolves.toMatchObject({
+                    kind: 'arrived',
+                    page: 6,
+                });
+                await yieldToBrowser();
+                expect(view.fixture.container.scrollTop).toBe(refinedTop);
+                expect(viewport.currentPage.value).toBe(6);
+            } finally {
                 await view.fixture.dispose();
             }
         });
