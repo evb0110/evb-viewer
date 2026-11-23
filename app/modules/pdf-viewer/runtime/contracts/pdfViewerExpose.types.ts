@@ -94,7 +94,6 @@ export interface IDocumentViewerExpose {
     scrollToPage: (page: number, options?: IScrollToPageOptions) => void;
     /** The point of a page at the viewport center, as a relayout keeps it. */
     captureReadingAnchor?: () => IPdfSemanticAnchor | null;
-    getUserViewportInteractionEpoch?: () => number;
     /**
      * The reader's moves of this view, PDF or DjVu alike, as the chassis's
      * viewport write port counts them: scrolls, wheels, pointer presses and

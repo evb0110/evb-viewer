@@ -244,6 +244,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
 
     const viewportAuthority = createViewportAuthorityService({
         getDocumentRevision: options.getDocumentRevision,
+        getInteractionEpoch: () => options.viewportWritePort.getInteractionEpoch(),
         getGeometryRevision: options.getGeometryRevision,
         resolveIndicatorPage: (anchor, previousPage) => {
             const container = options.viewerContainer.value;
@@ -824,7 +825,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         );
     }
 
-    function observeNativeUserScroll(anchorOverride?: IPdfSemanticAnchor) {
+    function observeNativeUserScroll(anchorOverride: IPdfSemanticAnchor | undefined, observeWritePort: boolean) {
         stopSettledAnchorObservation?.();
         const ticket = currentNavigationTicket();
         const holdOpeningTicket = isUnplacedOpeningTicket(ticket);
@@ -844,7 +845,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         if (!holdOpeningTicket) {
             viewportAuthority.observeUserScroll(anchor);
         }
-        if (container) options.viewportWritePort.observeUserScroll(container);
+        if (container && observeWritePort) options.viewportWritePort.observeUserScroll(container);
         return viewportAuthority.currentPage.value;
     }
 
@@ -901,9 +902,14 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             && viewportAuthority.committedAnchor.value === anchor;
     }
 
+    /**
+     * `observeWritePort: false` is for input the chassis already reported to
+     * the write port (wheel packets, mousedown), so one packet counts once.
+     */
     function cancelProgrammaticNavigation(
         reason = 'explicit-cancel',
         anchorOverride?: IPdfSemanticAnchor,
+        {observeWritePort = true}: {observeWritePort?: boolean} = {},
     ) {
         wheelFlipGate.reset();
         logPdfRenderTrace('navigation-retained-anchor-cleared', () => ({
@@ -912,7 +918,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             pendingPage: viewportAuthority.pendingTargetPage.value,
             currentPage: viewportAuthority.currentPage.value,
         }));
-        const page = observeNativeUserScroll(anchorOverride);
+        const page = observeNativeUserScroll(anchorOverride, observeWritePort);
         // Physical input is authoritative even when the browser cannot move
         // the viewport (for example, while a programmatic scroll and canvas
         // commit are still settling). Publish the live anchor at the input

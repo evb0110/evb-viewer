@@ -34,6 +34,7 @@ describe('ViewportAuthority', () => {
         let releaseVisual!: () => void;
         const authority = createViewportAuthority({
             getDocumentRevision: () => 1,
+            getInteractionEpoch: () => 0,
             getGeometryRevision: () => 1,
             resolve: async request => ({
                 anchor: request.anchor ?? anchor,
@@ -64,9 +65,64 @@ describe('ViewportAuthority', () => {
         expect(authority.currentPage.value).toBe(2);
     });
 
+    it('records the port interaction epoch and yields only to reader scroll', async () => {
+        let epoch = 4;
+        let releaseVisual!: () => void;
+        const authority = createViewportAuthority({
+            getDocumentRevision: () => 1,
+            getInteractionEpoch: () => epoch,
+            getGeometryRevision: () => 1,
+            resolve: async () => ({
+                anchor: {
+                    ...anchor,
+                    page: 3,
+                },
+                left: 0,
+                top: 1_800,
+            }),
+            awaitMetrics: async () => {},
+            apply: () => {},
+            awaitVisual: () => new Promise<void>((resolve) => {
+                releaseVisual = resolve;
+            }),
+        });
+
+        const flip = authority.submit({
+            ...intent('wheel-flip', 3),
+            kind: 'wheel-page',
+        });
+        await vi.waitFor(() => expect(releaseVisual).toBeTypeOf('function'));
+        // Later packets of the gesture that flipped the page advance the
+        // port's epoch; they must not withdraw the flip they produced.
+        epoch += 1;
+        releaseVisual();
+        await expect(flip).resolves.toMatchObject({
+            outcome: 'settled',
+            positionCommit: {interactionEpoch: 4},
+        });
+        expect(authority.currentPage.value).toBe(3);
+
+        // The reader scrolling the view ends the next one.
+        const next = authority.submit(intent('navigate-5', 5));
+        await vi.waitFor(() => expect(authority.phase.value).toBe('awaiting-visual'));
+        authority.observeUserScroll(anchor);
+        await expect(next).resolves.toMatchObject({outcome: 'cancelled'});
+        // A settled position records the epoch current when it lands.
+        expect(authority.commitSettledPosition({
+            intentId: 'relayout-1',
+            intentKind: 'relayout',
+            documentRevision: 1,
+            geometryRevision: 1,
+            page: 1,
+            left: 0,
+            top: 0,
+        })).toMatchObject({interactionEpoch: 5});
+    });
+
     it('bounds terminal outcomes while retaining the newest intent result', async () => {
         const authority = createViewportAuthority({
             getDocumentRevision: () => 1,
+            getInteractionEpoch: () => 0,
             getGeometryRevision: () => 1,
             resolve: async request => ({
                 anchor: {
@@ -93,6 +149,7 @@ describe('ViewportAuthority', () => {
         const onPositionCommitted = vi.fn();
         const authority = createViewportAuthority({
             getDocumentRevision: () => 3,
+            getInteractionEpoch: () => 0,
             getGeometryRevision: () => 5,
             resolve: async () => ({
                 anchor,
@@ -135,6 +192,7 @@ describe('ViewportAuthority', () => {
         const events: string[] = [];
         const authority = createViewportAuthority({
             getDocumentRevision: () => 1,
+            getInteractionEpoch: () => 0,
             getGeometryRevision: () => 1,
             resolve: async request => ({
                 anchor: {
@@ -174,6 +232,7 @@ describe('ViewportAuthority', () => {
         const events: string[] = [];
         const authority = createViewportAuthority({
             getDocumentRevision: () => 1,
+            getInteractionEpoch: () => 0,
             getGeometryRevision: () => 1,
             resolve: async request => ({
                 anchor: {
@@ -211,6 +270,7 @@ describe('ViewportAuthority', () => {
         });
         const authority = createViewportAuthority({
             getDocumentRevision: () => 1,
+            getInteractionEpoch: () => 0,
             getGeometryRevision: () => 1,
             resolve: async request => ({
                 anchor: request.anchor ?? anchor,
@@ -254,6 +314,7 @@ describe('ViewportAuthority', () => {
         const writes: string[] = [];
         const authority = createViewportAuthority({
             getDocumentRevision: () => 1,
+            getInteractionEpoch: () => 0,
             getGeometryRevision: () => 1,
             resolve: async request => ({
                 anchor: {
@@ -281,6 +342,7 @@ describe('ViewportAuthority', () => {
         const writes: string[] = [];
         const authority = createViewportAuthority({
             getDocumentRevision: () => 1,
+            getInteractionEpoch: () => 0,
             getGeometryRevision: () => 1,
             resolve: async request => ({
                 anchor: {
@@ -313,6 +375,7 @@ describe('ViewportAuthority', () => {
         const writes: number[] = [];
         const authority = createViewportAuthority({
             getDocumentRevision: () => 1,
+            getInteractionEpoch: () => 0,
             getGeometryRevision: () => 1,
             resolve: async request => ({
                 anchor: {
@@ -346,6 +409,7 @@ describe('ViewportAuthority', () => {
         const events: string[] = [];
         const authority = createViewportAuthority({
             getDocumentRevision: () => 1,
+            getInteractionEpoch: () => 0,
             getGeometryRevision: () => 1,
             shouldStageNavigationVisual: () => true,
             resolve: async () => ({
@@ -405,6 +469,7 @@ describe('ViewportAuthority', () => {
         const writes: string[] = [];
         const authority = createViewportAuthority({
             getDocumentRevision: () => 1,
+            getInteractionEpoch: () => 0,
             getGeometryRevision: () => 1,
             resolve: async request => ({
                 anchor: {
@@ -436,6 +501,7 @@ describe('ViewportAuthority', () => {
         const writes: string[] = [];
         const authority = createViewportAuthority({
             getDocumentRevision: () => 1,
+            getInteractionEpoch: () => 0,
             getGeometryRevision: () => 1,
             resolveIndicatorPage: (_anchor, previousPage) => previousPage,
             resolve: async () => ({
@@ -465,6 +531,7 @@ describe('ViewportAuthority', () => {
         // newer interaction. The cancelled command must not publish its page.
         const authority = createViewportAuthority({
             getDocumentRevision: () => 1,
+            getInteractionEpoch: () => 0,
             getGeometryRevision: () => 1,
             resolve: async () => ({
                 anchor,
@@ -494,6 +561,7 @@ describe('ViewportAuthority', () => {
         let reentered = false;
         const authority = createViewportAuthority({
             getDocumentRevision: () => 1,
+            getInteractionEpoch: () => 0,
             getGeometryRevision: () => 1,
             resolve: async request => ({
                 anchor: {
@@ -531,6 +599,7 @@ describe('ViewportAuthority', () => {
         const writes: string[] = [];
         const authority = createViewportAuthority({
             getDocumentRevision: () => documentRevision,
+            getInteractionEpoch: () => 0,
             getGeometryRevision: () => 1,
             resolve: async () => ({
                 anchor,
@@ -561,6 +630,7 @@ describe('ViewportAuthority', () => {
         const ticket = surface.navigate(createPageNavigationRequest(1, 'search'))!;
         const authority = createViewportAuthority({
             getDocumentRevision: () => 1,
+            getInteractionEpoch: () => 0,
             getGeometryRevision: () => 1,
             resolve: async () => ({
                 anchor,
@@ -596,6 +666,7 @@ describe('ViewportAuthority', () => {
         };
         const authority = createViewportAuthority({
             getDocumentRevision: () => 1,
+            getInteractionEpoch: () => 0,
             getGeometryRevision: () => 1,
             isIntentCurrent: () => {
                 currentCheckCount += 1;

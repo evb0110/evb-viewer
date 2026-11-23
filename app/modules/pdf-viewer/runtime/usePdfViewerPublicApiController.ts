@@ -41,7 +41,6 @@ interface IUsePdfViewerPublicApiControllerOptions {
     viewerContainer: Ref<HTMLElement | null>;
     documentSession: TPdfDocumentView;
     viewportSession: TPdfViewportSession;
-    getUserViewportInteractionEpoch: () => number;
     cancelPendingSearchScroll: () => void;
     annotationSession: TPdfAnnotationSession;
     waitForViewerLoadSettled: NonNullable<IPdfViewerExpose['waitForViewerLoadSettled']>;
@@ -156,7 +155,6 @@ export const usePdfViewerPublicApiController = (
         getViewerContainer: () => options.viewerContainer.value,
         getEffectiveZoom: () => viewportSession.scale.effectiveScale.value,
         getCurrentPage: () => currentPage.value,
-        getUserViewportInteractionEpoch: options.getUserViewportInteractionEpoch,
         scrollToPage: (pageNumber, scrollOptions) => {
             options.cancelPendingSearchScroll();
             viewportSession.singlePageScroll.scrollToPage(

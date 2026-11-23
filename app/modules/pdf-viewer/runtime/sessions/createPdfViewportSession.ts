@@ -55,7 +55,6 @@ import { usePdfOpenVirtualSurfaceGeometry } from '@app/modules/pdf-viewer/runtim
 import { usePdfSinglePageNavigationController } from '@app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController';
 import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
 import { createPdfOpenSurfaceViewportCallbacks } from '@app/modules/pdf-viewer/runtime/viewport/createPdfOpenSurfaceViewportCallbacks';
-import { createPdfViewportUserNavigationEpochs } from '@app/modules/pdf-viewer/runtime/viewport/createPdfViewportUserNavigationEpochs';
 import { getRequestAnchor } from '@app/modules/pdf-viewer/runtime/navigation/pdfNavigationRequestAnchors';
 import { rotateAnnotationPoint } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
 import { resolvePdfPreparedOpeningFitScale } from '@app/modules/pdf-viewer/runtime/lifecycle/resolvePdfPreparedOpeningFitScale';
@@ -122,6 +121,22 @@ export interface ICreatePdfViewportSessionOptions {
     emitZoomState: (state: TPdfZoomState) => void;
     summarizeViewerStateForLog: () => unknown;
 }
+// Scroll offsets are fractional under device-pixel scaling, so an exact
+// comparison would read a rounding difference as user input.
+const SCROLL_CLAMP_TOLERANCE_PX = 1;
+/**
+ * The viewport disables browser scroll anchoring, so clamping to new bounds
+ * is the only offset change layout can produce on its own. Committed pages
+ * kept at their painted scale during a navigation handoff shrink when the
+ * handoff releases; that clamp must not read as the user taking the viewport
+ * from the navigation. Any other offset came from the user.
+ */
+function isStrictScrollClamp(previousTop: number | null, top: number, maxTop: number) {
+    const clampedMaxTop = Math.max(0, maxTop);
+    return previousTop !== null
+        && previousTop > clampedMaxTop + SCROLL_CLAMP_TOLERANCE_PX
+        && Math.abs(top - clampedMaxTop) <= SCROLL_CLAMP_TOLERANCE_PX;
+}
 export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptions) => {
     const documentSession = options.document;
     const {
@@ -135,10 +150,27 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     } = documentSession;
     const viewRotation = options.viewRotation ?? computed<TPdfViewRotation>(() => 0);
     const chassisAuthority = options.chassisAuthority;
-    const viewportWritePort = options.viewportWritePort;
     const pageSlots = createPdfPageSlotRegistry();
-    const navigationEpochs = createPdfViewportUserNavigationEpochs();
-    const { userViewportInteractionEpoch } = navigationEpochs;
+    // The last offset a scroll event or an authored write left, against
+    // which the next scroll is classified as a clamp.
+    let lastObservedScrollTop: number | null = null;
+    // Every write of this view records the offset it left at once. Layout can
+    // clamp that offset before the browser delivers the write's scroll event,
+    // and the one coalesced event must still read as a clamp.
+    const viewportWritePort: IPdfViewportWritePort = {
+        ...options.viewportWritePort,
+        apply(container, write) {
+            const applied = options.viewportWritePort.apply(container, write);
+            if (applied) {
+                lastObservedScrollTop = container.scrollTop;
+            }
+            return applied;
+        },
+    };
+    // Another document or viewport element has its own offsets.
+    watch(options.viewerContainer, () => {
+        lastObservedScrollTop = null;
+    }, {flush: 'sync'});
     const cancelRasterRevision = ref(0);
     const visualReadySignal = shallowRef<IPdfViewportPageSignal>({
         revision: 0,
@@ -302,10 +334,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
                 && documentSession.isCurrent(documentFence)
                 && scroll.getPageLayoutMetrics() === layout
                 && physicalScrollOrigin.value === origin,
-            onApplied: () => {
-                navigationEpochs.observeAuthoredScrollOffset(container.scrollTop);
-                projectViewportVisibleRange(container, numPages.value);
-            },
+            onApplied: () => projectViewportVisibleRange(container, numPages.value),
         });
     }
     /** Places the origin so `page` can be shown; `currentOrigin` is kept when it already can. */
@@ -648,7 +677,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             isLoading.value,
             Boolean(pdfDocument.value),
             numPages.value,
-            userViewportInteractionEpoch.value,
+            viewportWritePort.interactionEpochSignal.value,
             viewportAuthority.activeWorkKind.value !== null,
         ] as const,
         publishDemand,
@@ -816,20 +845,19 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             // Teleport can reset the native scroll offset while moving a pane.
             // The workspace marks that move explicitly, so only this lifecycle
             // event is excluded from viewport authority.
-            navigationEpochs.observeAuthoredScrollOffset(container.scrollTop);
+            lastObservedScrollTop = container.scrollTop;
             return;
         }
         // The compositor can apply one more inertial delta before scroll
         // suppression reaches it. That offset belongs to the superseded
         // gesture, not to the user taking the viewport.
-        const authored = wasAuthorityScroll || viewportWritePort.isCommandResidueLive();
-        if (authored) {
-            navigationEpochs.observeAuthoredScrollOffset(container.scrollTop);
-        }
-        if (authored || !navigationEpochs.markScrollInteraction({
-            top: container.scrollTop,
-            maxTop: container.scrollHeight - container.clientHeight,
-        })) {
+        const previousTop = lastObservedScrollTop;
+        lastObservedScrollTop = container.scrollTop;
+        if (
+            wasAuthorityScroll
+            || viewportWritePort.isCommandResidueLive()
+            || isStrictScrollClamp(previousTop, container.scrollTop, container.scrollHeight - container.clientHeight)
+        ) {
             projectViewportVisibleRange(container, numPages.value);
             return;
         }
@@ -838,7 +866,8 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         // (scrollbar drags, accessibility input, or automation). Clear the
         // retained navigation row at the scroll boundary so virtualization
         // follows the live offset instead of remaining pinned to an already
-        // settled destination.
+        // settled destination. Cancelling it is what advances the write
+        // port's interaction epoch for a scroll no wheel packet announced.
         singlePageScroll.cancelProgrammaticNavigation('viewer-scroll-interaction');
         const layout = scroll.getPageLayoutMetrics();
         const origin = physicalScrollOrigin.value;
@@ -947,10 +976,11 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             cancelRasterRevision.value += 1;
         }
     }
+    // Wheel packets and mousedown reach here after the chassis reported
+    // them to the write port, which counts the interaction.
     function markUserViewportInteraction() {
-        navigationEpochs.markPhysicalNavigation();
         cancelSupersededRaster();
-        singlePageScroll.cancelProgrammaticNavigation('user-viewport-interaction');
+        singlePageScroll.cancelProgrammaticNavigation('user-viewport-interaction', undefined, {observeWritePort: false});
     }
     function handleLinkDestination(dest: NonNullable<ILinkAnnotation['dest']>) {
         const request = createPageNavigationRequest(currentPage.value, 'bookmark');
@@ -1201,6 +1231,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             return;
         }
         if (transition.phase === 'invalidated') {
+            lastObservedScrollTop = null;
             singlePageScroll.viewportAuthority.suspend();
             cancelMandatoryRaster();
             // A page operation rewrites the file the viewer already has open.
@@ -1248,7 +1279,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         visualReadySignal: shallowReadonly(visualReadySignal),
         navigationCommittedSignal: shallowReadonly(navigationCommittedSignal),
         pageSlots,
-        userViewportInteractionEpoch,
         scroll,
         scale,
         relayoutRotation,

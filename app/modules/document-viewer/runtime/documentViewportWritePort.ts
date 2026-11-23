@@ -25,7 +25,14 @@ export interface IDocumentViewportWritePort {
     beginIntent(intentId: string): IDocumentViewportIntentFence;
     apply(container: HTMLElement, write: IDocumentViewportWrite): boolean;
     consumeAuthorityScroll(container: HTMLElement): boolean;
+    /**
+     * The view's only physical-interaction epoch. It advances on reader input
+     * and reader commands, never on the viewer's own writes, their echoes,
+     * clamps or the residue of a superseded gesture.
+     */
     getInteractionEpoch(): number;
+    /** The same epoch as a reactive value, for effects that re-run on reader input. */
+    readonly interactionEpochSignal: Readonly<Ref<number>>;
     observeUserInteraction(container?: HTMLElement): void;
     observeUserScroll(container: HTMLElement): void;
     /** A zoom wheel packet: the start of a zoom gesture is one reader interaction. */
@@ -125,6 +132,8 @@ export function createDocumentViewportWritePort(
     const readSource = options.readSource ?? (() => null);
     let retired = false;
     let interactionEpoch = 0;
+    // Writes read the plain counter so they never subscribe an effect.
+    const interactionEpochSignal = shallowRef(0);
     let sequence = 0;
     let activeIntent: IDocumentViewportIntentFence | null = null;
     const authorityWrites = new WeakMap<HTMLElement, {
@@ -343,6 +352,7 @@ export function createDocumentViewportWritePort(
             return;
         }
         interactionEpoch += 1;
+        interactionEpochSignal.value = interactionEpoch;
         activeIntent = null;
         if (container) {
             authorityWrites.delete(container);
@@ -439,6 +449,7 @@ export function createDocumentViewportWritePort(
             return true;
         },
         getInteractionEpoch: () => interactionEpoch,
+        interactionEpochSignal: readonly(interactionEpochSignal),
         observeUserInteraction,
         observeZoomPacket(packet, container) {
             if (retired) {

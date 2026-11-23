@@ -30,6 +30,7 @@ import {
     pdfDocumentSessionSlotKey,
 } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot';
 import { createDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
+import { observeDocumentViewportWheelInteraction } from '@app/modules/document-viewer/runtime/documentViewportWritePort';
 import type { TDocumentPageSourceKind } from '@app/modules/document-viewer/source/documentPageSource';
 import type { IDocumentWheelInteraction } from '@app/modules/document-viewer/input/documentWheelInteraction';
 import type {
@@ -68,17 +69,10 @@ interface IPdfRenderStateOptions {
     shouldShowSkeleton: (pageNumber: number) => boolean;
 }
 
-function readUserViewportInteractionEpoch(controller: TFeatureController) {
-    const readEpoch = controller.pdfViewerPublicApi.getUserViewportInteractionEpoch;
-    if (!readEpoch) {
-        throw new Error('The viewer public API no longer reports the user viewport interaction epoch.');
-    }
-    return readEpoch();
-}
-
 function createWheelInteraction(
     intent: IDocumentWheelInteraction['intent'],
     deltaPx: number,
+    timeStamp = 0,
 ): IDocumentWheelInteraction & {event: {preventDefault: ReturnType<typeof vi.fn>}} {
     const preventDefault = vi.fn();
     return {
@@ -91,7 +85,7 @@ function createWheelInteraction(
             defaultPrevented: false,
             deltaX: 0,
             deltaY: deltaPx,
-            timeStamp: 0,
+            timeStamp,
             preventDefault,
         },
     };
@@ -139,6 +133,7 @@ function mountFeatureController(props: Partial<IPdfViewerProps> = {}) {
         host.remove();
     });
     return {
+        chassisAuthority,
         controller: controller as TFeatureController,
         emitted,
         zoom: owner.zoomAccess,
@@ -224,15 +219,50 @@ describe('usePdfViewerFeatureController wiring', () => {
         expect(zoomUpdate.kind === 'custom' && zoomUpdate.scale).toBeGreaterThan(1);
     });
 
-    it('routes a plain wheel packet to the viewport session as a user interaction', () => {
+    // The chassis reports each packet to the view's write port before it
+    // reaches the renderer, as DocumentViewerChassis does.
+    function deliverWheel(harness: ReturnType<typeof mountFeatureController>, container: HTMLElement, interaction: IDocumentWheelInteraction) {
+        observeDocumentViewportWheelInteraction(harness.chassisAuthority.viewportWritePort, interaction, container);
+        harness.controller.handleViewerWheel(interaction);
+    }
+
+    it('counts a plain wheel packet as one reader interaction', () => {
         const harness = mountFeatureController({continuousScroll: true});
-        const before = readUserViewportInteractionEpoch(harness.controller);
+        const container = document.createElement('div');
+        harness.controller.handleViewerContainerRef(container);
+        const port = harness.chassisAuthority.viewportWritePort;
+        const before = port.getInteractionEpoch();
         const interaction = createWheelInteraction('scroll', 120);
 
-        harness.controller.handleViewerWheel(interaction);
+        deliverWheel(harness, container, interaction);
 
         expect(interaction.event.preventDefault).not.toHaveBeenCalled();
-        expect(readUserViewportInteractionEpoch(harness.controller)).toBeGreaterThan(before);
+        expect(port.getInteractionEpoch()).toBe(before + 1);
+    });
+
+    it('counts a pinch that zooms on every packet as one reader interaction', () => {
+        const harness = mountFeatureController({src: new Blob([], {type: 'application/pdf'})});
+        const container = document.createElement('div');
+        harness.controller.handleViewerContainerRef(container);
+        const port = harness.chassisAuthority.viewportWritePort;
+        const before = port.getInteractionEpoch();
+        const scales: number[] = [];
+
+        for (const timeStamp of [
+            1_000,
+            1_016,
+            1_032,
+        ]) {
+            deliverWheel(harness, container, createWheelInteraction('zoom', -120, timeStamp));
+            const state = harness.zoom.state;
+            scales.push(state.kind === 'custom' ? state.scale : Number.NaN);
+        }
+
+        expect(scales[0]).toBeGreaterThan(1);
+        expect(scales[1]).toBeGreaterThan(scales[0]!);
+        expect(scales[2]).toBeGreaterThan(scales[1]!);
+        expect(port.getInteractionEpoch()).toBe(before + 1);
+        expect(port.interactionEpochSignal.value).toBe(before + 1);
     });
 });
 
