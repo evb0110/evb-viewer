@@ -118,16 +118,26 @@ operation:
   printable annotation appearances drawn in, becomes a Form XObject on an A4
   sheet, one per sheet or two per spread.
 
-pdf-lib writes no PDF bytes; it remains a PDF object parser in the renderer.
 The browser build runs the same two crates as WASM, including their page
 operations and print layout; its streaming DjVu export
 (`app/platform/browser-api/streamingImagePdfWriter.ts`) is the one browser-only
-writer. The desktop incremental reader uses bundled libqpdf for object
-projections, with a `qpdf --json` structural fallback for large files. Browser
-incremental edits share the page-structure indexed reader, with unread streams
-unavailable until fetched by range. Every page edit uses the same page-tree
-validation; damaged trees are refused. The [page engine README](../../../native/pdf-page-ops/README.md) describes current
-verification and qpdf uses.
+writer. Desktop native mutation saves, OCR text-layer writes, and structural
+page edits (rotation, deletion, reordering, and insertion)—along with
+annotation, shape, catalog, and OCR-visibility reads—and browser native
+mutation saves and OCR text-layer writes share the indexed `SourcePdf`
+random-access reader (`src/pdf_source.rs`), reading by file on desktop and by
+byte range in the browser, with unread streams unavailable until fetched by
+range under bounded caps. Desktop appends to a staged or host-protected
+working copy, and the browser storage worker appends native mutation saves and
+OCR text-layer updates to the document's own file, verifying each revision
+before `packages/document-store` commits it through its manifest. Desktop crop
+and crop removal still use the dictionary loader, selecting eager parsing or
+qpdf's structural reader before appending. Browser page rotation, crop, and
+crop removal currently read and parse working-copy bytes eagerly in WASM and
+commit returned bytes through `browserDocumentStore.write`. Every page edit
+uses the same page-tree validation; damaged trees are refused. The
+[page engine README](../../../native/pdf-page-ops/README.md) describes current
+verification and remaining qpdf uses.
 
 ## Revisit when
 

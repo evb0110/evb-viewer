@@ -7,19 +7,6 @@ export {
     hasPdfEncryptMarkersInPdfText,
     PDF_ENCRYPT_SCAN_REGION_BYTES,
 } from '@pdf-core/pdfConformanceHelpers';
-export { loadPdfStructure } from '@pdf-core/loadPdfStructure';
-export {
-    isPdfUnexpectedObjectTypeError,
-    safePdfContextLookupArray,
-    safePdfContextLookupDict,
-    safePdfContextLookupStream,
-    safePdfDictLookupArray,
-    safePdfDictLookupDict,
-    safePdfDictLookupName,
-    safePdfDictLookupNumber,
-    safePdfPageAnnots,
-    safePdfPageInheritableDict,
-} from '@pdf-core/safePdfLookup';
 export {
     DEFAULT_TIFF_DECODE_LIMITS,
     DEFAULT_TIFF_DECODE_MAX_FRAMES,
