@@ -22,6 +22,7 @@ import {
     isBrowserPageOpsWasmFailure,
 } from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
 import {
+    createSyncBlobSource,
     runPageStructureEdit,
     type IPageStructureFiles,
 } from '@app/platform/browser/pdfPageEngine';
@@ -96,18 +97,6 @@ function createMemorySink(): TPageStructureSink {
     };
 }
 
-/** A document's objects read by range: each read is one synchronous slice of the Blob. */
-function blobSource(blob: Blob, reader: FileReaderSync) {
-    return {
-        size: blob.size,
-        read(into: Uint8Array, at: number) {
-            const bytes = reader.readAsArrayBuffer(blob.slice(at, at + into.byteLength));
-            if (bytes.byteLength !== into.byteLength) throw new Error('The document ended before its cross-reference said');
-            into.set(new Uint8Array(bytes));
-        },
-    };
-}
-
 async function handlePageStructureRequest(
     request: IBrowserPageOpsWorkerRequest<'pageStructure'>,
 ): Promise<IBrowserPageOpsWorkerResultMap['pageStructure']> {
@@ -116,7 +105,7 @@ async function handlePageStructureRequest(
     try {
         const reader = new FileReaderSync();
         const result = await runPageStructureEdit(edit, {
-            sources: sources.map(blob => blobSource(blob, reader)),
+            sources: sources.map(blob => createSyncBlobSource(blob, reader)),
             sink,
             // Read asynchronously: each read ends a task, which releases its buffer.
             async copy(copies) {
@@ -178,7 +167,7 @@ async function handleGetPageGeometryRequest(
     request: IBrowserPageOpsWorkerRequest<'getPageGeometry'>,
 ) {
     return getPageGeometryFromPdfBytes(
-        request.payload.data,
+        request.payload.source,
         request.payload.pageNumber,
     );
 }
@@ -225,6 +214,7 @@ async function handleRequest(
         case 'textBoxAppearance':
         case 'decrypt':
         case 'printLayout':
+        case 'readPageSizes':
         case 'ocrTextVisibility':
         case 'inspectScanCleanupPdf':
         case 'splitPages':
@@ -277,7 +267,11 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
 
     try {
         const data = await handleRequest(request);
-        if (request.type === 'ocrTextVisibility' || request.type === 'inspectScanCleanupPdf') {
+        if (
+            request.type === 'readPageSizes'
+            || request.type === 'ocrTextVisibility'
+            || request.type === 'inspectScanCleanupPdf'
+        ) {
             await postResponse({
                 id: request.id,
                 type: request.type,

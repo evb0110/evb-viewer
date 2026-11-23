@@ -7,6 +7,7 @@ import {PDF_DECRYPT_PASSWORD_SCHEMA} from '@contracts/pdfDecryptSchemas';
 import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
 import type {ICropMargins} from '@contracts/shared';
 import {PAGE_GEOMETRY_SCHEMA} from '@contracts/decodePageGeometry';
+import {PDF_NATIVE_PAGE_GEOMETRY_PAGE_SCHEMA} from '@contracts/documentsPlatformFeatureNativePageSchemas';
 import {decodeBrowserPdfCatalog} from '@contracts/browserPdfCatalog';
 import type {
     IBrowserPdfCatalog,
@@ -181,10 +182,11 @@ const workerRequestPayloadSchemas = {
         pages: v.array(positiveIntegerSchema),
     }),
     getPageGeometry: v.object({
-        data: pdfBytesSchema,
+        source: v.instance(Blob),
         pageNumber: positiveIntegerSchema,
     }),
     /** Reads take their document as a Blob the engine reads by range. */
+    readPageSizes: v.object({source: v.instance(Blob)}),
     parseAnnotations: v.object({source: v.instance(Blob)}),
     readCatalog: v.object({source: v.instance(Blob)}),
     conformance: v.object({source: v.instance(Blob)}),
@@ -284,6 +286,11 @@ const workerRequestSchema = v.union([
     }),
     v.object({
         id: workerRequestIdSchema,
+        type: v.literal('readPageSizes'),
+        payload: workerRequestPayloadSchemas.readPageSizes,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
         type: v.literal('parseAnnotations'),
         payload: workerRequestPayloadSchemas.parseAnnotations,
     }),
@@ -365,6 +372,15 @@ const catalogResultSchema = v.pipe(
     v.transform(value => value as IBrowserPdfCatalog),
 );
 
+const pageSizesTableSchema = v.pipe(
+    v.object({
+        pageCount: positiveIntegerSchema,
+        pages: v.array(PDF_NATIVE_PAGE_GEOMETRY_PAGE_SCHEMA),
+    }),
+    v.check(value => value.pages.length === value.pageCount),
+    v.check(value => value.pages.every((page, index) => page.pageNumber === index + 1)),
+);
+
 export const BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA = v.object({
     status: v.literal('failed'),
     error: NATIVE_ERROR_ENVELOPE_SCHEMA,
@@ -413,6 +429,10 @@ const workerResultSchemas = {
     crop: pageMutationResultSchema,
     removeCrop: pageMutationResultSchema,
     getPageGeometry: PAGE_GEOMETRY_SCHEMA,
+    readPageSizes: v.union([
+        pageSizesTableSchema,
+        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
+    ]),
     parseAnnotations: annotationParseResultSchema,
     readCatalog: catalogResultSchema,
     conformance: conformanceFactsSchema,
@@ -502,6 +522,12 @@ const workerSuccessResponseSchema = v.union([
         type: v.literal('getPageGeometry'),
         ok: v.literal(true),
         data: workerResultSchemas.getPageGeometry,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('readPageSizes'),
+        ok: v.literal(true),
+        data: workerResultSchemas.readPageSizes,
     }),
     v.object({
         id: workerRequestIdSchema,

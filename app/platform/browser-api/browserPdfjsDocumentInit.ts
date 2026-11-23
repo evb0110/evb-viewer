@@ -9,7 +9,7 @@ import {
 } from '@app/platform/browserDocumentStore';
 import { toUint8Array } from '@app/platform/browser-api/browserBytes';
 
-const PDFJS_RANGE_CHUNK_SIZE = Math.max(512 * 1024, BROWSER_DOCUMENT_CHUNK_SIZE);
+const PDFJS_RANGE_CHUNK_SIZE = Math.min(1024 * 1024, Math.max(512 * 1024, BROWSER_DOCUMENT_CHUNK_SIZE));
 
 type TPdfjsLib = typeof PdfjsLibNamespace;
 type TPdfjsDocumentInit = Parameters<TPdfjsLib['getDocument']>[0];
@@ -31,22 +31,55 @@ function createPdfjsDocumentInit(pdfjsLib: TPdfjsLib, data: Uint8Array) {
 
 interface IBrowserPdfjsRangeSource {
     size: number;
+    /** Verifies the backing revision is still current before serving cached bytes. */
+    assertCurrent?: () => Promise<void>;
     /** The bytes `begin..end`, whole, or a rejection. */
     read(begin: number, end: number): Promise<Uint8Array>;
 }
 
-/** A stored document read by path, refused once its content changes. */
+/**
+ * A stored document read by path through its revision-pinned Blob when
+ * available, refused once the revision changes, rolls back, or closes.
+ */
 async function storedDocumentRanges(path: string): Promise<IBrowserPdfjsRangeSource> {
+    if (
+        typeof browserDocumentStore.readableRevision === 'function'
+        && typeof browserDocumentStore.assertDocumentRevisionCurrent === 'function'
+    ) {
+        const {
+            blob,
+            token,
+            byteRevision,
+            instance,
+        } = await browserDocumentStore.readableRevision(path);
+        const assertCurrent = () => browserDocumentStore.assertDocumentRevisionCurrent(path, token, {
+            strict: true,
+            expectedInstance: instance,
+            ...(byteRevision === undefined ? {} : {expectedByteRevision: byteRevision}),
+        });
+        return {
+            size: blob.size,
+            assertCurrent,
+            read: async (begin, end) => {
+                await assertCurrent();
+                const bytes = new Uint8Array(await blob.slice(begin, end).arrayBuffer());
+                await assertCurrent();
+                return bytes;
+            },
+        };
+    }
     const {
         size,
         contentSignature,
     } = await browserDocumentStore.getContentSnapshot(path);
+    const assertCurrent = () => assertBrowserDocumentUnchanged(path, size, contentSignature);
     return {
         size,
+        assertCurrent,
         read: async (begin, end) => {
-            await assertBrowserDocumentUnchanged(path, size, contentSignature);
+            await assertCurrent();
             const bytes = await readCompleteBrowserDocumentRange(path, begin, end);
-            await assertBrowserDocumentUnchanged(path, size, contentSignature);
+            await assertCurrent();
             return bytes;
         },
     };
@@ -72,17 +105,35 @@ async function createPdfjsDocumentInitFromBrowserDocument(
     const source = typeof stored === 'string' ? await storedDocumentRanges(stored) : blobRanges(stored);
     const {size} = source;
     const initialLength = Math.min(size, PDFJS_RANGE_CHUNK_SIZE);
-    const initialData = await source.read(0, initialLength);
+
+    if (size <= PDFJS_RANGE_CHUNK_SIZE) {
+        const initialData = await source.read(0, initialLength);
+        if (initialData.byteLength !== initialLength) {
+            throw new Error(`Browser PDF source returned ${initialData.byteLength} bytes for initial ${initialLength} byte range`);
+        }
+        return createPdfjsDocumentInit(pdfjsLib, initialData);
+    }
+
+    const tailStart = Math.max(initialLength, size - PDFJS_RANGE_CHUNK_SIZE);
+    const tailLength = size - tailStart;
+    const [
+        initialData,
+        initialTailData,
+    ] = await Promise.all([
+        source.read(0, initialLength),
+        source.read(tailStart, size),
+    ]);
     if (initialData.byteLength !== initialLength) {
         throw new Error(`Browser PDF source returned ${initialData.byteLength} bytes for initial ${initialLength} byte range`);
     }
-
-    if (size <= PDFJS_RANGE_CHUNK_SIZE) {
-        return createPdfjsDocumentInit(pdfjsLib, initialData);
+    if (initialTailData.byteLength !== tailLength) {
+        throw new Error(`Browser PDF source returned ${initialTailData.byteLength} bytes for tail ${tailStart}..${size}`);
     }
 
     class BrowserDocumentRangeTransport extends pdfjsLib.PDFDataRangeTransport {
         private aborted = false;
+        private preloadedTail: Uint8Array | null = initialTailData;
+        private rangeReadTail: Promise<void> = Promise.resolve();
 
         public constructor() {
             super(size, initialData, false);
@@ -93,11 +144,12 @@ async function createPdfjsDocumentInitFromBrowserDocument(
                 return;
             }
 
-            void this.loadRange(begin, end);
+            this.rangeReadTail = this.rangeReadTail.then(() => this.loadRange(begin, end));
         };
 
         public override abort = () => {
             this.aborted = true;
+            this.preloadedTail = null;
         };
 
         /**
@@ -106,10 +158,25 @@ async function createPdfjsDocumentInitFromBrowserDocument(
          * no range needs a buffer of its whole length.
          */
         private async loadRange(begin: number, end: number) {
+            if (this.aborted) {
+                return;
+            }
             try {
                 for (let pieceBegin = begin; pieceBegin < end;) {
+                    if (this.aborted) {
+                        return;
+                    }
                     const pieceEnd = Math.min(end, pieceBegin + PDFJS_RANGE_CHUNK_SIZE);
-                    const piece = await source.read(pieceBegin, pieceEnd);
+                    let piece: Uint8Array;
+                    if (this.preloadedTail !== null && pieceBegin >= tailStart && pieceEnd <= size) {
+                        await source.assertCurrent?.();
+                        if (this.aborted) {
+                            return;
+                        }
+                        piece = this.preloadedTail.slice(pieceBegin - tailStart, pieceEnd - tailStart);
+                    } else {
+                        piece = await source.read(pieceBegin, pieceEnd);
+                    }
                     if (piece.byteLength !== pieceEnd - pieceBegin) {
                         throw new Error(`Browser PDF source returned ${piece.byteLength} bytes for ${pieceBegin}..${pieceEnd}`);
                     }
@@ -123,6 +190,7 @@ async function createPdfjsDocumentInitFromBrowserDocument(
             } catch (error) {
                 if (!this.aborted) {
                     this.aborted = true;
+                    this.preloadedTail = null;
                     options.onRangeReadFailure?.(error instanceof Error ? error : new Error(String(error)));
                     this.abort();
                 }
@@ -160,6 +228,9 @@ async function readCompleteBrowserDocumentRange(
     end: number,
 ) {
     const length = end - begin;
+    if (length === 0) {
+        return new Uint8Array(0);
+    }
     let cursor = begin;
     let output: Uint8Array | null = null;
     let outputOffset = 0;

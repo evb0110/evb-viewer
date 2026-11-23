@@ -91,12 +91,13 @@ export function removeCropPdfBytes(
 }
 
 export function getPageGeometryFromPdfBytes(
-    data: Uint8Array,
+    source: Uint8Array | Blob,
     pageNumber: number,
 ): Promise<IPageGeometry> {
+    const blob = source instanceof Blob ? source : new Blob([source as BlobPart]);
     return requireBrowserPageOpsWasmResult('page geometry', () =>
         tryRunBrowserPageOpsWithWasm('getPageGeometry', {
-            data,
+            source: blob,
             pageNumber,
         }),
     );

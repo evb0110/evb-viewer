@@ -254,4 +254,141 @@ describe('browserPdfjsDocumentInit', () => {
             vi.unstubAllGlobals();
         }
     });
+
+    it('preloads the tail chunk in parallel and verifies revision before serving tail ranges', async () => {
+        const onRangeReadFailure = vi.fn();
+        const size = 4 * 1024 * 1024;
+        browserDocumentStoreMock.getContentSnapshot.mockResolvedValue({
+            size,
+            contentSignature: 'content-token-1',
+        });
+        browserDocumentStoreMock.readRange.mockImplementation(async (_path: string, offset: number, length: number) =>
+            new Uint8Array(length).fill(offset === 0 ? 11 : 99));
+        const {
+            createPdfjsDocumentInitFromBrowserDocument,
+            getPdfjsLib,
+        } = await import('@app/platform/browser-api/browserPdfjsDocumentInit');
+
+        const init = await createPdfjsDocumentInitFromBrowserDocument(
+            await getPdfjsLib(),
+            'browser://documents/tail-preload.pdf',
+            {onRangeReadFailure},
+        );
+        const range = 'range' in init ? init.range : undefined;
+        if (!range) throw new Error('Expected a PDF.js range transport');
+        expect(init).toMatchObject({rangeChunkSize: 1024 * 1024});
+
+        const readsBeforeTailRequest = browserDocumentStoreMock.readRange.mock.calls.length;
+        // Serving a sub-range from the preloaded tail needs no additional readRange call.
+        range.requestDataRange?.(size - 64 * 1024, size);
+        await vi.waitFor(() => expect(range.onDataRange).toHaveBeenCalledTimes(1));
+        expect(browserDocumentStoreMock.readRange.mock.calls.length).toBe(readsBeforeTailRequest);
+        const [, deliveredChunk] = vi.mocked(range.onDataRange).mock.calls[0] as [number, Uint8Array, boolean];
+        expect(deliveredChunk.byteLength).toBe(64 * 1024);
+        expect(deliveredChunk[0]).toBe(99);
+        expect(deliveredChunk.at(-1)).toBe(99);
+
+        // Once the source signature changes, even preloaded tail reads fail closed.
+        browserDocumentStoreMock.getContentSnapshot.mockResolvedValue({
+            size,
+            contentSignature: 'content-token-2',
+        });
+        range.requestDataRange?.(size - 16 * 1024, size);
+        await vi.waitFor(() => expect(onRangeReadFailure).toHaveBeenCalledTimes(1));
+        expect(range.onDataRange).toHaveBeenCalledTimes(1);
+    });
+
+    it('serializes concurrent range requests so deliveries stay in request order', async () => {
+        let resolveFirst: ((value: Uint8Array) => void) | null = null;
+        const firstReady = new Promise<void>(resolve => {
+            browserDocumentStoreMock.readRange.mockImplementation(async (_path: string, offset: number, length: number) => {
+                if (offset === 1024 * 1024) {
+                    resolve();
+                    return new Promise<Uint8Array>(innerResolve => {
+                        resolveFirst = innerResolve;
+                    });
+                }
+                return new Uint8Array(length).fill(2);
+            });
+        });
+        const {
+            createPdfjsDocumentInitFromBrowserDocument,
+            getPdfjsLib,
+        } = await import('@app/platform/browser-api/browserPdfjsDocumentInit');
+
+        const size = 4 * 1024 * 1024;
+        browserDocumentStoreMock.getContentSnapshot.mockResolvedValue({
+            size,
+            contentSignature: 'content-token-1',
+        });
+        const init = await createPdfjsDocumentInitFromBrowserDocument(
+            await getPdfjsLib(),
+            'browser://documents/ordered.pdf',
+        );
+        const range = 'range' in init ? init.range : undefined;
+        if (!range) throw new Error('Expected a PDF.js range transport');
+
+        range.requestDataRange?.(1024 * 1024, 1024 * 1024 + 16);
+        range.requestDataRange?.(1024 * 1024 + 64, 1024 * 1024 + 80);
+        await firstReady;
+        await Promise.resolve();
+        // Second range must wait for the first range to deliver before reading/delivering.
+        expect(range.onDataRange).not.toHaveBeenCalled();
+
+        resolveFirst!(new Uint8Array(16).fill(1));
+        await vi.waitFor(() => expect(range.onDataRange).toHaveBeenCalledTimes(2));
+        expect(vi.mocked(range.onDataRange).mock.calls[0]?.[0]).toBe(1024 * 1024);
+        expect(vi.mocked(range.onDataRange).mock.calls[1]?.[0]).toBe(1024 * 1024 + 64);
+    });
+
+    it('destroys the loading task without unhandled rejection when a post-open range read fails', async () => {
+        let capturedRange: {requestDataRange?: (begin: number, end: number) => void} | undefined;
+        const destroy = vi.fn(async () => {});
+        pdfjsModule.getDocument.mockImplementation((init: {range?: {requestDataRange?: (begin: number, end: number) => void}}) => {
+            capturedRange = init.range;
+            return {
+                promise: Promise.resolve({loadingTask: {destroy}}),
+                destroy,
+            };
+        });
+        const unhandled: unknown[] = [];
+        const onUnhandled = (reason: unknown) => {
+            unhandled.push(reason);
+        };
+        process.on('unhandledRejection', onUnhandled);
+        try {
+            const {loadBrowserPdfjsDocument} = await import('@app/platform/browser-api/loadBrowserPdfjsDocument');
+            await loadBrowserPdfjsDocument('browser://documents/post-open-failure.pdf');
+            expect(capturedRange).toBeDefined();
+
+            browserDocumentStoreMock.getContentSnapshot.mockResolvedValue({
+                size: 3 * 1024 * 1024,
+                contentSignature: 'content-token-changed',
+            });
+            capturedRange!.requestDataRange?.(1024 * 1024, 1024 * 1024 + 16);
+            await vi.waitFor(() => expect(destroy).toHaveBeenCalledTimes(1));
+            await new Promise<void>(resolve => setImmediate(resolve));
+            expect(unhandled).toEqual([]);
+        } finally {
+            process.off('unhandledRejection', onUnhandled);
+        }
+    });
+
+    it('handles a 0-byte document consistently on the snapshot fallback path', async () => {
+        browserDocumentStoreMock.getContentSnapshot.mockResolvedValue({
+            size: 0,
+            contentSignature: 'empty-token',
+        });
+        const {
+            createPdfjsDocumentInitFromBrowserDocument,
+            getPdfjsLib,
+        } = await import('@app/platform/browser-api/browserPdfjsDocumentInit');
+
+        const init = await createPdfjsDocumentInitFromBrowserDocument(
+            await getPdfjsLib(),
+            'browser://documents/empty.pdf',
+        );
+        expect('data' in init && init.data).toEqual(new Uint8Array(0));
+        expect(browserDocumentStoreMock.readRange).not.toHaveBeenCalled();
+    });
 });

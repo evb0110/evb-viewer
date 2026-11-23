@@ -11,6 +11,8 @@ use evb_native_support::{
 use lopdf::dictionary;
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream, StringFormat};
 use page_geometry::write_page_geometry;
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+pub(crate) use page_sizes::read_page_geometry_table;
 use page_sizes::write_page_sizes_path;
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 use scan_cleanup_pdf::{inspect_scan_cleanup_pdf_bytes, render_scan_cleanup_raster_bytes};

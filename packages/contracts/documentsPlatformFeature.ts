@@ -416,6 +416,7 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
                 timeoutMs: longNativeIpcTimeoutMs,
             },
             ...electronImplementedOptional,
+            browser: {method: 'getPdfNativePageSizes'},
         },
         getDocumentRevision: defineIpcMethod(
             'getDocumentRevision', 'document:revision:get', documentRevisionArgs,

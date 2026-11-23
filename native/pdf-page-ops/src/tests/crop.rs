@@ -913,3 +913,375 @@ fn page_geometry_refuses_a_page_tree_whose_count_disagrees_with_its_leaves() {
     }
     remove_file(pdf).unwrap();
 }
+
+#[test]
+fn range_read_geometry_table_single_page_and_append_admission_skip_stream_payloads() {
+    use std::cell::RefCell;
+
+    struct GuardedSlice<'a> {
+        bytes: &'a [u8],
+        forbidden: (u64, u64),
+        read_bytes: RefCell<u64>,
+    }
+
+    impl crate::pdf_source::ByteSource for &GuardedSlice<'_> {
+        fn read_at(&self, offset: u64, dst: &mut [u8]) -> std::io::Result<()> {
+            let end = offset
+                .checked_add(dst.len() as u64)
+                .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "overflow"))?;
+            let (forbid_start, forbid_end) = self.forbidden;
+            assert!(
+                end <= forbid_start || offset >= forbid_end,
+                "range read touched stream payload bytes ({offset}..{end} overlaps {forbid_start}..{forbid_end})"
+            );
+            let start = usize::try_from(offset).unwrap();
+            let stop = usize::try_from(end).unwrap();
+            dst.copy_from_slice(&self.bytes[start..stop]);
+            *self.read_bytes.borrow_mut() += dst.len() as u64;
+            Ok(())
+        }
+
+        fn copy_range(
+            &self,
+            _offset: u64,
+            _len: u64,
+            _output: &mut impl std::io::Write,
+        ) -> std::io::Result<()> {
+            panic!("range-read metadata inspection must not copy stream ranges")
+        }
+    }
+
+    let mut document = Document::with_version("1.7");
+    let pages_id = document.new_object_id();
+    let payload_marker = b"EVB_FORBIDDEN_STREAM_PAYLOAD_START";
+    let mut payload = Vec::with_capacity(2 * 1024 * 1024);
+    payload.extend_from_slice(payload_marker);
+    payload.resize(2 * 1024 * 1024, b'Z');
+    let mut stream_dict = Dictionary::new();
+    stream_dict.set("Length", payload.len() as i64);
+    let content_id = document.add_object(Stream::new(stream_dict, payload));
+    let page1_id = document.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+        "Contents" => content_id,
+    });
+    let page2_id = document.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "MediaBox" => vec![0.into(), 0.into(), 500.into(), 700.into()],
+        "CropBox" => vec![20.into(), 30.into(), 420.into(), 630.into()],
+        "Rotate" => 90,
+        "UserUnit" => 2,
+        "Contents" => content_id,
+    });
+    document.objects.insert(
+        pages_id,
+        Object::Dictionary(dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![page1_id.into(), page2_id.into()],
+            "Count" => 2,
+        }),
+    );
+    let catalog_id = document.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+    });
+    document.trailer.set("Root", catalog_id);
+
+    let mut bytes = Vec::new();
+    document.save_to(&mut bytes).unwrap();
+    let marker_pos = bytes
+        .windows(payload_marker.len())
+        .position(|window| window == payload_marker)
+        .expect("stream payload must appear verbatim");
+    // Leave headroom for the 64 KiB header line scan and the 1 MiB terminal-xref tail window.
+    let forbidden = ((marker_pos + 128 * 1024) as u64, (marker_pos + 900 * 1024) as u64);
+    let guarded = GuardedSlice {
+        bytes: &bytes,
+        forbidden,
+        read_bytes: RefCell::new(0),
+    };
+    let len = bytes.len() as u64;
+
+    let table_json = crate::read_page_geometry_table(&guarded, len).unwrap();
+    let table: serde_json::Value = serde_json::from_slice(&table_json).unwrap();
+    assert_eq!(table["pageCount"], 2);
+    assert_eq!(table["pages"][0]["pageNumber"], 1);
+    assert_eq!(table["pages"][0]["widthPoints"], 612.0);
+    assert_eq!(table["pages"][0]["heightPoints"], 792.0);
+    assert_eq!(table["pages"][0]["rotation"], 0);
+    assert_eq!(table["pages"][0]["userUnit"], 1.0);
+    assert_eq!(table["pages"][1]["pageNumber"], 2);
+    assert_eq!(table["pages"][1]["xPoints"], 20.0);
+    assert_eq!(table["pages"][1]["yPoints"], 30.0);
+    assert_eq!(table["pages"][1]["widthPoints"], 400.0);
+    assert_eq!(table["pages"][1]["heightPoints"], 600.0);
+    assert_eq!(table["pages"][1]["rotation"], 90);
+    assert_eq!(table["pages"][1]["userUnit"], 2.0);
+    assert!(*guarded.read_bytes.borrow() < len / 4);
+
+    let single = crate::page_geometry::get_page_geometry_from_source(&guarded, len, 2).unwrap();
+    assert_eq!(single.rotation, 90);
+    assert_eq!(single.user_unit, 2.0);
+    assert_eq!(single.media_box.width(), 500.0);
+    assert_eq!(single.crop_box.unwrap().width(), 400.0);
+
+    let admission = crate::terminal_xref::append_admission_of_source(&guarded, len).unwrap();
+    let byte_admission = crate::terminal_xref::append_admission_of_bytes(&bytes).unwrap();
+    assert!(matches!(admission, crate::terminal_xref::AppendAdmission::Appendable));
+    assert!(matches!(byte_admission, crate::terminal_xref::AppendAdmission::Appendable));
+
+    // Corrupt startxref so append admission reports repairable by range too.
+    let mut damaged = bytes.clone();
+    let startxref_pos = damaged
+        .windows(b"startxref".len())
+        .rposition(|window| window == b"startxref")
+        .unwrap();
+    damaged.truncate(startxref_pos);
+    damaged.extend_from_slice(b"startxref\n9\n%%EOF\n");
+    let damaged_guarded = GuardedSlice {
+        bytes: &damaged,
+        forbidden,
+        read_bytes: RefCell::new(0),
+    };
+    let damaged_admission =
+        crate::terminal_xref::append_admission_of_source(&damaged_guarded, damaged.len() as u64)
+            .unwrap();
+    assert!(matches!(
+        damaged_admission,
+        crate::terminal_xref::AppendAdmission::Repairable(_)
+    ));
+}
+
+#[test]
+fn range_read_geometry_resolves_chained_indirect_references() {
+    let mut document = Document::with_version("1.7");
+    let pages_id = document.new_object_id();
+    let width_num_id = document.add_object(Object::Real(480.0));
+    let width_chain_id = document.add_object(Object::Reference(width_num_id));
+    let media_box_id = document.add_object(Object::Array(vec![
+        0.into(),
+        0.into(),
+        width_chain_id.into(),
+        640.into(),
+    ]));
+    let media_box_chain_id = document.add_object(Object::Reference(media_box_id));
+    let count_num_id = document.add_object(Object::Integer(1));
+    let count_chain_id = document.add_object(Object::Reference(count_num_id));
+    let rotate_num_id = document.add_object(Object::Integer(270));
+    let rotate_chain_id = document.add_object(Object::Reference(rotate_num_id));
+    let user_unit_num_id = document.add_object(Object::Real(1.5));
+    let user_unit_chain_id = document.add_object(Object::Reference(user_unit_num_id));
+    let page_id = document.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "MediaBox" => media_box_chain_id,
+        "Rotate" => rotate_chain_id,
+        "UserUnit" => user_unit_chain_id,
+    });
+    let kids_array_id = document.add_object(Object::Array(vec![page_id.into()]));
+    let kids_chain_id = document.add_object(Object::Reference(kids_array_id));
+    document.objects.insert(
+        pages_id,
+        Object::Dictionary(dictionary! {
+            "Type" => "Pages",
+            "Kids" => kids_chain_id,
+            "Count" => count_chain_id,
+        }),
+    );
+    let pages_chain_id = document.add_object(Object::Reference(pages_id));
+    let catalog_id = document.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_chain_id,
+    });
+    document.trailer.set("Root", catalog_id);
+
+    let mut bytes = Vec::new();
+    document.save_to(&mut bytes).unwrap();
+    let len = bytes.len() as u64;
+
+    crate::pdf_source::validate_page_tree_source(bytes.as_slice(), len).unwrap();
+
+    let table_json = crate::read_page_geometry_table(bytes.as_slice(), len).unwrap();
+    let table: serde_json::Value = serde_json::from_slice(&table_json).unwrap();
+    assert_eq!(table["pageCount"], 1);
+    assert_eq!(table["pages"][0]["widthPoints"], 480.0);
+    assert_eq!(table["pages"][0]["heightPoints"], 640.0);
+    assert_eq!(table["pages"][0]["rotation"], 270);
+    assert_eq!(table["pages"][0]["userUnit"], 1.5);
+
+    let single =
+        crate::page_geometry::get_page_geometry_from_source(bytes.as_slice(), len, 1).unwrap();
+    assert_eq!(single.media_box.width(), 480.0);
+    assert_eq!(single.media_box.height(), 640.0);
+    assert_eq!(single.rotation, 270);
+    assert_eq!(single.user_unit, 1.5);
+}
+
+#[test]
+fn read_page_geometry_table_stops_immediately_on_shared_kids_dag_or_count_mismatch() {
+    // 25-level binary DAG has 2^25 (~33.5M) virtual leaves while declaring /Count 1.
+    let mut dag_doc = Document::with_version("1.7");
+    let leaf_id = dag_doc.add_object(dictionary! {
+        "Type" => "Page",
+        "MediaBox" => vec![0.into(), 0.into(), 200.into(), 300.into()],
+    });
+    let mut child_id = leaf_id;
+    for _ in 0..25 {
+        let node_id = dag_doc.new_object_id();
+        dag_doc.objects.insert(
+            node_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![child_id.into(), child_id.into()],
+                "Count" => 1,
+            }),
+        );
+        child_id = node_id;
+    }
+    let catalog_id = dag_doc.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => child_id,
+    });
+    dag_doc.trailer.set("Root", catalog_id);
+
+    let mut dag_bytes = Vec::new();
+    dag_doc.save_to(&mut dag_bytes).unwrap();
+    let error = crate::read_page_geometry_table(dag_bytes.as_slice(), dag_bytes.len() as u64)
+        .expect_err("shared-subtree DAG exceeding /Count must fail immediately");
+    let native_error = error
+        .downcast_ref::<NativeError>()
+        .expect("DAG refusal must carry NativeError");
+    assert_eq!(native_error.code, NativeErrorCode::CorruptXref);
+
+    // Fewer reachable leaves than declared /Count (e.g. an empty middle branch claiming
+    // /Count 1, so both-ends validation passes but the full walk visits only 2 of 3 pages)
+    // must also fail with CorruptXref.
+    let mut short_doc = Document::with_version("1.7");
+    let pages_id = short_doc.new_object_id();
+    let left_page_id = short_doc.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "MediaBox" => vec![0.into(), 0.into(), 200.into(), 300.into()],
+    });
+    let empty_middle_id = short_doc.add_object(dictionary! {
+        "Type" => "Pages",
+        "Parent" => pages_id,
+        "Kids" => Vec::<Object>::new(),
+        "Count" => 1,
+    });
+    let right_page_id = short_doc.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "MediaBox" => vec![0.into(), 0.into(), 200.into(), 300.into()],
+    });
+    short_doc.objects.insert(
+        pages_id,
+        Object::Dictionary(dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![left_page_id.into(), empty_middle_id.into(), right_page_id.into()],
+            "Count" => 3,
+        }),
+    );
+    let short_catalog_id = short_doc.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+    });
+    short_doc.trailer.set("Root", short_catalog_id);
+
+    let mut short_bytes = Vec::new();
+    short_doc.save_to(&mut short_bytes).unwrap();
+    let short_error =
+        crate::read_page_geometry_table(short_bytes.as_slice(), short_bytes.len() as u64)
+            .expect_err("under-populated page tree must fail");
+    let short_native = short_error
+        .downcast_ref::<NativeError>()
+        .expect("count mismatch must carry NativeError");
+    assert_eq!(short_native.code, NativeErrorCode::CorruptXref);
+
+    // 45-level empty-subtree shared /Pages DAG (2^45 internal visits if revisited)
+    // alongside 1 valid leaf page with root /Count 1 must fail immediately with CorruptXref.
+    let mut empty_dag_doc = Document::with_version("1.7");
+    let leaf_page_id = empty_dag_doc.add_object(dictionary! {
+        "Type" => "Page",
+        "MediaBox" => vec![0.into(), 0.into(), 200.into(), 300.into()],
+    });
+    let mut dag_child_id = empty_dag_doc.add_object(dictionary! {
+        "Type" => "Pages",
+        "Kids" => Vec::<Object>::new(),
+        "Count" => 0,
+    });
+    for _ in 0..45 {
+        let node_id = empty_dag_doc.new_object_id();
+        empty_dag_doc.objects.insert(
+            node_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![dag_child_id.into(), dag_child_id.into()],
+                "Count" => 0,
+            }),
+        );
+        dag_child_id = node_id;
+    }
+    let empty_dag_root_id = empty_dag_doc.add_object(dictionary! {
+        "Type" => "Pages",
+        "Kids" => vec![leaf_page_id.into(), dag_child_id.into()],
+        "Count" => 1,
+    });
+    let empty_dag_catalog_id = empty_dag_doc.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => empty_dag_root_id,
+    });
+    empty_dag_doc.trailer.set("Root", empty_dag_catalog_id);
+
+    let mut empty_dag_bytes = Vec::new();
+    empty_dag_doc.save_to(&mut empty_dag_bytes).unwrap();
+    let empty_dag_error = crate::read_page_geometry_table(
+        empty_dag_bytes.as_slice(),
+        empty_dag_bytes.len() as u64,
+    )
+    .expect_err("empty-subtree shared /Pages DAG must fail immediately");
+    let empty_dag_native = empty_dag_error
+        .downcast_ref::<NativeError>()
+        .expect("empty-subtree DAG refusal must carry NativeError");
+    assert_eq!(empty_dag_native.code, NativeErrorCode::CorruptXref);
+
+    // Consistent-count leaf-duplicating DAG (17-level binary DAG -> 2^17 = 131,072
+    // duplicated leaves matching /Count 131072) must be rejected as a non-tree DAG.
+    let mut dup_dag_doc = Document::with_version("1.7");
+    let dup_leaf_id = dup_dag_doc.add_object(dictionary! {
+        "Type" => "Page",
+        "MediaBox" => vec![0.into(), 0.into(), 200.into(), 300.into()],
+    });
+    let mut dup_child_id = dup_leaf_id;
+    let mut dup_count: i64 = 1;
+    for _ in 0..17 {
+        dup_count *= 2;
+        let node_id = dup_dag_doc.new_object_id();
+        dup_dag_doc.objects.insert(
+            node_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![dup_child_id.into(), dup_child_id.into()],
+                "Count" => dup_count,
+            }),
+        );
+        dup_child_id = node_id;
+    }
+    let dup_catalog_id = dup_dag_doc.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => dup_child_id,
+    });
+    dup_dag_doc.trailer.set("Root", dup_catalog_id);
+
+    let mut dup_dag_bytes = Vec::new();
+    dup_dag_doc.save_to(&mut dup_dag_bytes).unwrap();
+    let dup_dag_error =
+        crate::read_page_geometry_table(dup_dag_bytes.as_slice(), dup_dag_bytes.len() as u64)
+            .expect_err("consistent-count shared /Kids DAG must be rejected");
+    let dup_dag_native = dup_dag_error
+        .downcast_ref::<NativeError>()
+        .expect("consistent-count DAG refusal must carry NativeError");
+    assert_eq!(dup_dag_native.code, NativeErrorCode::CorruptXref);
+}

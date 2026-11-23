@@ -36,5 +36,7 @@ export async function loadBrowserPdfjsDocument(stored: string | Blob): Promise<I
             // Preserve the original load or range-read failure.
         }
         throw error;
+    } finally {
+        rejectRangeReadFailure = null;
     }
 }

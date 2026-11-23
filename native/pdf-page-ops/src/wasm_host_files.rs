@@ -126,9 +126,13 @@ pub(crate) fn run_file_request(request: &[u8]) -> Result<Vec<u8>> {
     match operation {
         OP_SAVE_MUTATIONS => return save_mutations(tail, source_count),
         OP_OCR_TEXT_LAYER => return ocr_text_layer(tail, source_count),
-        OP_PARSE_ANNOTATIONS | OP_READ_CATALOG | OP_CONFORMANCE | OP_OCR_TEXT_VISIBILITY => {
-            return read_source(operation, &pages, tail, source_count)
-        }
+        OP_GET_PAGE_GEOMETRY
+        | OP_PARSE_ANNOTATIONS
+        | OP_READ_CATALOG
+        | OP_CONFORMANCE
+        | OP_OCR_TEXT_VISIBILITY
+        | OP_READ_PAGE_SIZES
+        | OP_APPEND_ADMISSION => return read_source(operation, &pages, tail, source_count),
         _ if !tail.is_empty() => return Err("Invalid page-op WASM file request length".into()),
         _ => {}
     }
@@ -167,13 +171,40 @@ pub(crate) fn run_file_request(request: &[u8]) -> Result<Vec<u8>> {
 
 /// Reads source 0, the one source a read takes.
 fn read_source(operation: u32, pages: &[u32], tail: &[u8], source_count: u32) -> Result<Vec<u8>> {
-    if source_count != 1
-        || (operation != OP_OCR_TEXT_VISIBILITY && !(pages.is_empty() && tail.is_empty()))
-    {
+    let valid_shape = source_count == 1
+        && match operation {
+            OP_OCR_TEXT_VISIBILITY => true,
+            OP_GET_PAGE_GEOMETRY => pages.len() == 1 && tail.is_empty(),
+            _ => pages.is_empty() && tail.is_empty(),
+        };
+    if !valid_shape {
         return Err("A read takes one source and no other input".into());
     }
     let len = host_source_len(0)?;
     match operation {
+        OP_GET_PAGE_GEOMETRY => encode_bytes(
+            RESPONSE_JSON,
+            serde_json::to_vec(&get_page_geometry_from_source(
+                HostSource(0),
+                len,
+                pages[0],
+            )?)?,
+        ),
+        OP_READ_PAGE_SIZES => {
+            encode_bytes(RESPONSE_JSON, read_page_geometry_table(HostSource(0), len)?)
+        }
+        OP_APPEND_ADMISSION => {
+            let verdict = match append_admission_of_source(HostSource(0), len)? {
+                AppendAdmission::Appendable => "appendable",
+                AppendAdmission::Repairable(_) => "repairable",
+                AppendAdmission::Limited(_) => "limited",
+                AppendAdmission::Unverified(_) => "unverified",
+            };
+            encode_bytes(
+                RESPONSE_JSON,
+                serde_json::to_vec(&serde_json::json!({ "verdict": verdict }))?,
+            )
+        }
         OP_PARSE_ANNOTATIONS => encode_bytes(
             RESPONSE_ANNOTATION_PARSE,
             annotation_parse_from_source(

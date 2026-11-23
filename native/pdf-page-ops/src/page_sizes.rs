@@ -575,6 +575,85 @@ pub(crate) fn write_page_sizes_path(
     write_page_sizes_sidecar_source(&source, output_path)
 }
 
+/// Reads the complete metadata-only page geometry table (effective crop box,
+/// rotation, and direct `/UserUnit` per page) by range from `bytes`, touching
+/// only the cross-reference index and page-tree objects.
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+pub(crate) fn read_page_geometry_table<S: ByteSource>(bytes: S, len: u64) -> Result<Vec<u8>> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct ExactPageGeometryEntry {
+        page_number: u32,
+        x_points: f64,
+        y_points: f64,
+        width_points: f64,
+        height_points: f64,
+        rotation: i64,
+        user_unit: f64,
+    }
+
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct ExactPageGeometryTable {
+        page_count: u32,
+        pages: Vec<ExactPageGeometryEntry>,
+    }
+
+    let document = crate::load_page_geometry_source(bytes, len)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    let page_resolver = PageTreeResolver::new(&document)?;
+    let declared_page_count = page_resolver.page_count();
+    if declared_page_count == 0 {
+        return Err(domain_error(
+            NativeErrorCode::CorruptXref,
+            "PDF contains no pages",
+        ));
+    }
+    let mut pages = Vec::new();
+    pages
+        .try_reserve_exact(declared_page_count as usize)
+        .map_err(|_| "Page-geometry table exceeds available memory")?;
+    let mut page_number = 0_u32;
+    page_resolver
+        .for_each_page_id_with_count(&document, |page_id| {
+            page_number = page_number
+                .checked_add(1)
+                .ok_or("Page-size page number overflow")?;
+            if page_number > declared_page_count || pages.len() >= declared_page_count as usize {
+                return Err(domain_error(
+                    NativeErrorCode::CorruptXref,
+                    format!(
+                        "PDF page tree declared {declared_page_count} pages but contains more than {declared_page_count}"
+                    ),
+                ));
+            }
+            let page_view = resolve_page_view(&document, page_id)?;
+            let rotation = resolve_page_rotation(&document, page_id)?;
+            let user_unit = resolve_page_user_unit(&document, page_id)?;
+            pages.push(ExactPageGeometryEntry {
+                page_number,
+                x_points: page_view.x1,
+                y_points: page_view.y1,
+                width_points: page_view.width(),
+                height_points: page_view.height(),
+                rotation,
+                user_unit,
+            });
+            Ok(())
+        })
+        .map_err(|error| {
+            if error.is::<crate::NativeError>() {
+                error
+            } else {
+                domain_error(NativeErrorCode::CorruptXref, error.to_string())
+            }
+        })?;
+    Ok(serde_json::to_vec(&ExactPageGeometryTable {
+        page_count: declared_page_count,
+        pages,
+    })?)
+}
+
 fn page_sizes_paths_alias(input_path: &Path, output_path: &Path) -> Result<bool> {
     if input_path == output_path {
         return Ok(true);
