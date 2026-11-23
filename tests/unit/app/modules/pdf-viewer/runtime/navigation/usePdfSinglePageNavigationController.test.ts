@@ -9,17 +9,25 @@ import {
     vi,
 } from 'vitest';
 import {
+    createApp,
     effectScope,
+    h,
     nextTick,
+    queuePostFlushCb,
     ref,
     shallowRef,
+    watch,
 } from 'vue';
 import {
     buildPageLayoutMetrics,
     createPageNavigationRequest,
+    createPdfViewportGeometryFromLayout,
     getLayoutPageTop,
+    resolveScrollForAnchor,
     type IPdfPageLayoutMetrics,
+    type IPdfSemanticAnchor,
 } from '@app/modules/document-viewer/public';
+import {BrowserLogger} from '@app/utils/browserLogger';
 import { usePdfSinglePageNavigationController } from '@app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController';
 import { getRequestAnchor } from '@app/modules/pdf-viewer/runtime/navigation/pdfNavigationRequestAnchors';
 import { createTestPdfViewportWritePort } from '@tests/helpers/createTestPdfViewportWritePort';
@@ -193,13 +201,6 @@ describe('usePdfSinglePageNavigationController', () => {
 
     it('refines a continuous page jump from the mounted page position', async () => {
         const scope = effectScope();
-        const observers = new Set<() => void>();
-        vi.stubGlobal('ResizeObserver', class {
-            constructor(callback: () => void) { this.callback = callback; }
-            callback: () => void;
-            observe() { observers.add(this.callback); }
-            disconnect() { observers.delete(this.callback); }
-        });
         let targetTop = 2_400;
         const viewer = document.createElement('div');
         Object.defineProperties(viewer, {
@@ -293,29 +294,34 @@ describe('usePdfSinglePageNavigationController', () => {
                 throw new Error('Expected navigation controller');
             }
             pageIndicator = controller.viewportAuthority.currentPage;
+            // Ending the handoff lays the outgoing page the virtual window held
+            // out at the current scale, which moves the target.
+            const released: boolean[] = [];
+            const stop = watch(controller.navigationAnchorPage, (page) => {
+                if (page !== null) return;
+                released.push(controller.isProgrammaticNavigationActive.value);
+                targetTop = 2_700;
+            }, {flush: 'sync'});
 
             expect(controller.scrollToPage(requirePageNumber(2))).toBe(true);
             await vi.waitFor(() => {
                 expect(pageIndicator.value).toBe(2);
             });
             expect(requireLayoutPageTop(layout, 1)).toBeLessThan(1_000);
-            expect(viewportWrites.writes.at(-1)?.top).toBe(2_380);
-            expect(viewer.scrollTop).toBe(2_380);
             await vi.waitFor(() => expect(controller.isProgrammaticNavigationActive.value).toBe(false));
+            // The handoff ends while the navigation still runs, and it places
+            // its page through the released layout before it settles.
+            expect(released).toEqual([true]);
+            expect(viewportWrites.writes.map(write => write.top)).toEqual([
+                2_380,
+                2_680,
+            ]);
             await nextTick();
-            targetTop = 2_700;
-            for (const notify of observers) notify();
             expect(viewer.scrollTop).toBe(2_680);
             expect(pageIndicator.value).toBe(2);
-            viewportWrites.port.observeUserInteraction(viewer);
-            controller.cancelProgrammaticNavigation('wheel');
-            viewer.scrollTop = 2_500;
-            targetTop = 2_900;
-            for (const notify of observers) notify();
-            expect(viewer.scrollTop).toBe(2_500);
+            stop();
         } finally {
             scope.stop();
-            vi.unstubAllGlobals();
         }
     });
 
@@ -733,8 +739,9 @@ describe('usePdfSinglePageNavigationController', () => {
             const before = controller.captureRelayoutAnchor()!;
             let expectedX = before.pageXFraction;
             let expectedY = before.pageYFraction;
+            const receipts: Array<Promise<unknown>> = [];
             if (turns === 0) {
-                controller.relayout(() => { layout = targetLayout; });
+                receipts.push(controller.relayout(() => { layout = targetLayout; }));
             }
             for (let step = 0; step < Math.abs(turns); step += 1) {
                 [
@@ -747,13 +754,29 @@ describe('usePdfSinglePageNavigationController', () => {
                     expectedY,
                     1 - expectedX,
                 ];
-                controller.relayout(() => { layout = targetLayout; }, anchor => ({
+                receipts.push(controller.relayout(() => { layout = targetLayout; }, anchor => ({
                     ...anchor,
                     pageXFraction: turns > 0 ? 1 - anchor.pageYFraction : anchor.pageYFraction,
                     pageYFraction: turns > 0 ? anchor.pageXFraction : 1 - anchor.pageXFraction,
-                }));
+                })));
             }
+            const answered: unknown[] = [];
+            for (const receipt of receipts) void receipt.then(result => answered.push(result));
+            const writesBefore = viewportWrites.writes.length;
             await nextTick();
+            // Every change of the flush is answered by its one placement, in
+            // that flush, before the browser paints the new layout.
+            expect(viewportWrites.writes).toHaveLength(writesBefore + 1);
+            expect(answered).toHaveLength(receipts.length);
+            expect(new Set(answered).size).toBe(1);
+            expect(answered[0]).toMatchObject({
+                outcome: 'placed',
+                commit: {
+                    intentKind: 'relayout',
+                    page: 3,
+                    top: viewer.scrollTop,
+                },
+            });
             expect(pageIndicator.value).toBe(3);
             const targetWidth = (Math.abs(turns) % 2 === 1 ? 2_400 : 600) * targetLayout.scale;
             const targetHeight = (Math.abs(turns) % 2 === 1 ? 600 : 2_400) * targetLayout.scale;
@@ -767,4 +790,330 @@ describe('usePdfSinglePageNavigationController', () => {
             scope.stop();
         }
     });
+
+    it.each([
+        {
+            cause: 'reader input',
+            outcome: 'superseded',
+        },
+        {
+            cause: 'a newer navigation',
+            outcome: 'superseded',
+        },
+        {
+            cause: 'the document closing',
+            outcome: 'cancelled',
+        },
+        {
+            cause: 'a document revision',
+            outcome: 'cancelled',
+        },
+        {
+            cause: 'the view closing',
+            outcome: 'cancelled',
+        },
+    ] as const)('answers a layout change that $cause took over before its flush without placing it', async ({
+        cause,
+        outcome,
+    }) => {
+        const view = createRelayoutView();
+        try {
+            await view.readAt(1_200);
+            const writesBefore = view.writes.length;
+
+            const receipt = view.controller.relayout(() => view.setScale(1.5));
+            if (cause === 'reader input') {
+                view.port.observeUserInteraction(view.viewer);
+            } else if (cause === 'a newer navigation') {
+                view.controller.scrollToPage(requirePageNumber(5));
+            } else if (cause === 'the document closing') {
+                view.isLoading.value = true;
+            } else if (cause === 'a document revision') {
+                view.documentRevision.value += 1;
+            } else {
+                view.scope.stop();
+            }
+
+            await expect(receipt).resolves.toEqual({outcome});
+            expect(view.writes.slice(writesBefore).map(write => write.reason)).not.toContain('relayout');
+            if (cause === 'reader input') expect(view.viewer.scrollTop).toBe(1_200);
+        } finally {
+            view.dispose();
+        }
+    });
+
+    it('starts a layout change afresh from the reader\'s point once the reader moved', async () => {
+        const view = createRelayoutView();
+        try {
+            await view.readAt(1_200);
+            // A resize is pending when a pinch starts on page 4.
+            const resize = view.controller.relayout(() => view.setScale(1.2));
+            view.port.observeUserInteraction(view.viewer);
+            const pinchPoint = {
+                page: 4,
+                pageXFraction: 0.25,
+                pageYFraction: 0.6,
+                viewportXFraction: 0.5,
+                viewportYFraction: 0.5,
+                affinity: 'center' as const,
+            };
+            const pinch = view.controller.relayout(undefined, pinchPoint);
+
+            await expect(resize).resolves.toEqual({outcome: 'superseded'});
+            await expect(pinch).resolves.toMatchObject({outcome: 'placed'});
+            expect(view.controller.viewportAuthority.committedAnchor.value).toMatchObject(pinchPoint);
+            expect(view.viewer.scrollTop).toBeCloseTo(view.scrollFor(pinchPoint).top, 0);
+        } finally {
+            view.dispose();
+        }
+    });
+
+    it('leaves an admitted reload to place its own point, and places freely after it did', async () => {
+        const view = createRelayoutView();
+        try {
+            await view.readAt(1_200);
+            const {viewportAuthority} = view.controller;
+            viewportAuthority.beginWork('reload', 2);
+            const writesBefore = view.writes.length;
+
+            await expect(view.controller.relayout(() => view.setScale(1.5))).resolves.toEqual({outcome: 'superseded'});
+            expect(view.writes).toHaveLength(writesBefore);
+
+            expect(view.controller.place(getRequestAnchor(undefined, 2), 'document-restore')).toBe(true);
+            await expect(view.controller.relayout(() => view.setScale(1))).resolves.toMatchObject({outcome: 'placed'});
+        } finally {
+            view.dispose();
+        }
+    });
+
+    it('commits nothing when the view refuses a write', async () => {
+        const view = createRelayoutView({refuseWrites: true});
+        try {
+            await view.readAt(1_200);
+            await expect(view.controller.relayout(() => view.setScale(1.5))).resolves.toEqual({outcome: 'cancelled'});
+            expect(view.controller.scrollToPage(requirePageNumber(5))).toBe(true);
+            await vi.waitFor(() => expect(view.controller.isProgrammaticNavigationActive.value).toBe(false));
+            expect(view.controller.viewportAuthority.currentPage.value).toBe(2);
+            expect(view.committed).toEqual([]);
+        } finally {
+            view.dispose();
+        }
+    });
+
+    it('turns the shown point with its page while a staged navigation waits for its raster', async () => {
+        const raster = createDeferred();
+        const view = createRelayoutView({
+            renderVisiblePages: async () => {
+                await raster.promise;
+                return true;
+            },
+            freshPages: new Set([1, 2, 3, 4]),
+        });
+        try {
+            const shown = {
+                page: 3,
+                pageXFraction: 0.2,
+                pageYFraction: 0.3,
+                viewportXFraction: 0.5,
+                viewportYFraction: 0.5,
+                affinity: 'center' as const,
+            };
+            view.controller.cancelProgrammaticNavigation('viewer-scroll-interaction', shown);
+            // A ticketless navigation stages: it places only once its raster is ready.
+            expect(view.controller.scrollToPage(requirePageNumber(6))).toBe(true);
+            await vi.waitFor(() => expect(view.controller.viewportAuthority.phase.value).toBe('awaiting-visual'));
+
+            const turned = {
+                ...shown,
+                pageXFraction: 1 - shown.pageYFraction,
+                pageYFraction: shown.pageXFraction,
+            };
+            await expect(view.controller.relayout(() => view.setScale(1, true), anchor => ({
+                ...anchor,
+                pageXFraction: 1 - anchor.pageYFraction,
+                pageYFraction: anchor.pageXFraction,
+            }))).resolves.toEqual({outcome: 'superseded'});
+            expect(view.controller.viewportAuthority.committedAnchor.value).toMatchObject(turned);
+            expect(view.viewer.scrollTop).toBeCloseTo(view.scrollFor(turned).top, 0);
+            expect(view.viewer.scrollLeft).toBeCloseTo(view.scrollFor(turned).left, 0);
+        } finally {
+            raster.resolve();
+            view.dispose();
+        }
+    });
+
+    it('places a layout change made inside a post flush against the layout Vue patched for it', async () => {
+        const view = createRelayoutView({renderedScale: true});
+        const trigger = ref(0);
+        try {
+            await view.readAt(1_200);
+            const placedAtScale: string[] = [];
+            view.onVisibleRangeUpdate(() => placedAtScale.push(view.renderedScale()));
+            const stop = watch(trigger, () => {
+                view.controller.relayout(() => view.setScale(2));
+            }, {flush: 'post'});
+            trigger.value += 1;
+            const receipt = view.controller.relayout();
+
+            await expect(receipt).resolves.toMatchObject({outcome: 'placed'});
+            expect(placedAtScale).toEqual(['2']);
+            stop();
+        } finally {
+            view.dispose();
+        }
+    });
+
+    it('answers a layout change whose placement throws without stranding other post-flush work', async () => {
+        const errors = vi.spyOn(BrowserLogger, 'error');
+        const view = createRelayoutView();
+        try {
+            await view.readAt(1_200);
+            const receipt = view.controller.relayout(() => view.setScale(1.5));
+            view.onVisibleRangeUpdate(() => {
+                throw new Error('visible range projection failed');
+            });
+            const sibling = vi.fn();
+            queuePostFlushCb(sibling);
+
+            await expect(receipt).resolves.toEqual({outcome: 'cancelled'});
+            await nextTick();
+            expect(sibling).toHaveBeenCalledOnce();
+            expect(errors).toHaveBeenCalledOnce();
+        } finally {
+            errors.mockRestore();
+            view.dispose();
+        }
+    });
 });
+
+/**
+ * Six 600x800 pages in continuous scroll, whose layout scale and rotation the
+ * test changes, behind a recording write port.
+ */
+function createRelayoutView(input: {
+    refuseWrites?: boolean;
+    renderVisiblePages?: () => Promise<boolean>;
+    freshPages?: Set<number>;
+    /** The scale comes from a Vue-rendered element, read when the layout is. */
+    renderedScale?: boolean;
+} = {}) {
+    const scope = effectScope();
+    const viewer = document.createElement('div');
+    Object.defineProperties(viewer, {
+        clientHeight: {value: 700},
+        clientWidth: {value: 900},
+        scrollHeight: {value: 50_000},
+        scrollWidth: {value: 5_000},
+        scrollLeft: {
+            value: 0,
+            writable: true,
+        },
+        scrollTop: {
+            value: 0,
+            writable: true,
+        },
+    });
+    for (let pageNumber = 1; pageNumber <= 6; pageNumber += 1) {
+        const page = document.createElement('div');
+        page.className = 'page_container page_container--rendered';
+        page.dataset.page = String(pageNumber);
+        page.innerHTML = '<div class="page_canvas"><canvas width="600" height="800"></canvas></div>';
+        viewer.append(page);
+    }
+    const scale = ref(1);
+    let rotated = false;
+    const root = document.createElement('div');
+    const app = input.renderedScale
+        ? createApp({render: () => h('div', {'data-scale': String(scale.value)})})
+        : null;
+    app?.mount(root);
+    const renderedScale = () => (root.firstElementChild as HTMLElement | null)?.dataset.scale ?? String(scale.value);
+    const buildLayout = () => {
+        const layout = buildPageLayoutMetrics({
+            pageMetrics: Array.from({length: 6}, () => ({
+                width: rotated ? 800 : 600,
+                height: rotated ? 600 : 800,
+            })),
+            totalPages: 6,
+            viewMode: 'single',
+            scale: Number(renderedScale()),
+            gap: 20,
+            paddingTop: 20,
+            paddingBottom: 20,
+        });
+        if (!layout) throw new Error('Expected PDF layout metrics');
+        return layout;
+    };
+    const isLoading = ref(false);
+    const documentRevision = ref(1);
+    const viewportWrites = createTestPdfViewportWritePort();
+    const port = input.refuseWrites ? {
+        ...viewportWrites.port,
+        apply: () => false,
+    } : viewportWrites.port;
+    const committed: unknown[] = [];
+    let onVisibleRangeUpdate = () => {};
+    const freshPages = input.freshPages;
+    const controller = scope.run(() => usePdfSinglePageNavigationController({
+        viewerContainer: ref(viewer),
+        numPages: ref(6),
+        currentPage: ref(1),
+        scaledMargin: ref(20),
+        viewMode: ref('single'),
+        continuousScroll: ref(true),
+        isLoading,
+        pdfDocument: shallowRef({numPages: 6} as IPdfDocument),
+        updateVisibleRange: () => onVisibleRangeUpdate(),
+        renderVisiblePages: input.renderVisiblePages ?? (async () => true),
+        isPageFreshlyRenderedForNavigation: page => freshPages?.has(page) ?? true,
+        visibleRange: ref({
+            start: 2,
+            end: 2,
+        }),
+        viewportWritePort: port,
+        getPageLayoutMetrics: buildLayout,
+        getPhysicalScrollOrigin: () => 0,
+        getDocumentRevision: () => documentRevision.value,
+        getGeometryRevision: () => 1,
+        onViewportPositionCommitted: (commit) => {
+            committed.push(commit);
+            return true;
+        },
+    }));
+    if (!controller) throw new Error('Expected navigation controller');
+    return {
+        scope,
+        viewer,
+        controller,
+        port: viewportWrites.port,
+        writes: viewportWrites.writes,
+        committed,
+        isLoading,
+        documentRevision,
+        renderedScale,
+        setScale(next: number, turn = false) {
+            scale.value = next;
+            if (turn) rotated = !rotated;
+        },
+        onVisibleRangeUpdate(callback: () => void) {
+            onVisibleRangeUpdate = callback;
+        },
+        /** The reader scrolls the view to this offset. */
+        async readAt(top: number) {
+            viewer.scrollTop = top;
+            controller.cancelProgrammaticNavigation('viewer-scroll-interaction');
+            await nextTick();
+        },
+        scrollFor(anchor: IPdfSemanticAnchor) {
+            return resolveScrollForAnchor(createPdfViewportGeometryFromLayout(buildLayout(), {
+                width: 900,
+                height: 700,
+                paddingInline: 20,
+            }, 1, 0), anchor);
+        },
+        dispose() {
+            scope.stop();
+            app?.unmount();
+        },
+    };
+}

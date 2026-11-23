@@ -1,7 +1,10 @@
 import {createViewportAuthority} from '@app/modules/pdf-viewer/runtime/viewport/createViewportAuthority';
 import {createPageNavigationRequest} from '@app/modules/document-viewer/public';
 import {createDocumentOpenSurfaceSession} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
-import type {IDocumentNavigationTicket} from '@app/modules/document-viewer/public';
+import type {
+    IDocumentNavigationTicket,
+    IPdfSemanticAnchor,
+} from '@app/modules/document-viewer/public';
 import type {IPdfViewportIntent} from '@app/modules/pdf-viewer/runtime/viewport/createViewportAuthority';
 import {
     describe,
@@ -26,6 +29,26 @@ function intent(id: string, page: number): Omit<IPdfViewportIntent, 'interaction
         kind: 'navigate',
         documentRevision: 1,
         navigation: createPageNavigationRequest(page, 'toolbar'),
+    };
+}
+
+/** A navigation with a surface ticket places before its raster is ready. */
+function ticketedIntent(id: string, page: number): Omit<IPdfViewportIntent, 'interactionEpoch'> {
+    const request = createPageNavigationRequest(page, 'toolbar');
+    return {
+        ...intent(id, page),
+        navigation: request,
+        navigationTicket: {
+            generation: 1,
+            documentRevision: 'revision-1',
+            id,
+            request,
+            signal: new AbortController().signal,
+            finished: Promise.resolve({
+                kind: 'arrived',
+                page,
+            }),
+        },
     };
 }
 
@@ -463,6 +486,275 @@ describe('ViewportAuthority', () => {
             ...(withTicket ? ['visual'] : []),
         ]);
         expect(writes).toEqual([920]);
+    });
+
+    it('returns the final commit after the placement is refined once its raster is ready', async () => {
+        const writes: number[] = [];
+        const committed: number[] = [];
+        const authority = createViewportAuthority({
+            getDocumentRevision: () => 1,
+            getInteractionEpoch: () => 0,
+            getGeometryRevision: () => 1,
+            resolve: async () => ({
+                anchor: {
+                    ...anchor,
+                    page: 2,
+                },
+                left: 0,
+                top: 900,
+            }),
+            awaitMetrics: async () => {},
+            awaitVisual: async () => {},
+            // The raster settles the mounted page 30 px lower than estimated.
+            refineAfterVisual: async (_request, commit) => ({
+                ...commit,
+                top: 930,
+            }),
+            apply: (_request, commit) => {
+                writes.push(commit.top);
+            },
+            onPositionCommitted: commit => committed.push(commit.top),
+        });
+        const result = await authority.submit(ticketedIntent('refined-after-visual', 2));
+
+        expect(writes).toEqual([
+            900,
+            930,
+        ]);
+        expect(committed).toEqual([
+            900,
+            930,
+        ]);
+        expect(result).toMatchObject({
+            outcome: 'settled',
+            positionCommit: {
+                top: 930,
+                page: 2,
+            },
+        });
+    });
+
+    it('refines a placed navigation for a layout change and settles on that commit', async () => {
+        let releaseVisual!: () => void;
+        let layoutScale = 1;
+        const writes: Array<{
+            id: string;
+            top: number;
+        }> = [];
+        const authority = createViewportAuthority({
+            getDocumentRevision: () => 1,
+            getInteractionEpoch: () => 0,
+            getGeometryRevision: () => 1,
+            resolve: async () => ({
+                anchor: {
+                    ...anchor,
+                    page: 4,
+                },
+                left: 0,
+                top: 3_000,
+            }),
+            awaitMetrics: async () => {},
+            awaitVisual: () => new Promise<void>((resolve) => {
+                releaseVisual = resolve;
+            }),
+            apply: (request, commit) => {
+                writes.push({
+                    id: request.id,
+                    top: commit.top,
+                });
+            },
+        });
+        const resolveForLayout = (placed: IPdfSemanticAnchor) => ({
+            anchor: placed,
+            left: 0,
+            top: 3_000 * layoutScale,
+        });
+
+        // Nothing in flight: the layout change places its own point.
+        expect(authority.refineLayout(resolveForLayout)).toBeNull();
+        const pending = authority.submit(ticketedIntent('placed-then-resized', 4));
+        await vi.waitFor(() => expect(writes).toHaveLength(1));
+        expect(authority.phase.value).toBe('awaiting-visual');
+
+        // A sidebar narrows the fit scale while the raster is pending. The
+        // change belongs to this navigation: it is placed again, as its commit.
+        layoutScale = 0.8;
+        const refined = authority.refineLayout(resolveForLayout);
+        expect(refined).toMatchObject({
+            outcome: 'placed',
+            commit: {
+                intentId: 'placed-then-resized',
+                intentKind: 'navigate',
+                page: 4,
+                top: 2_400,
+            },
+        });
+        expect(authority.activeIntent.value?.id).toBe('placed-then-resized');
+        releaseVisual();
+
+        await expect(pending).resolves.toMatchObject({
+            outcome: 'settled',
+            positionCommit: {top: 2_400},
+        });
+        expect(writes).toEqual([
+            {
+                id: 'placed-then-resized',
+                top: 3_000,
+            },
+            {
+                id: 'placed-then-resized',
+                top: 2_400,
+            },
+        ]);
+        expect(authority.getTerminalOutcome('placed-then-resized')).toBe('settled');
+    });
+
+    it('places a navigation through its handoff release before it arrives', async () => {
+        const events: string[] = [];
+        const authority = createViewportAuthority({
+            getDocumentRevision: () => 1,
+            getInteractionEpoch: () => 0,
+            getGeometryRevision: () => 1,
+            resolve: async () => ({
+                anchor: {
+                    ...anchor,
+                    page: 3,
+                },
+                left: 0,
+                top: 1_800,
+            }),
+            awaitMetrics: async () => {},
+            awaitVisual: async () => {},
+            apply: (_request, commit) => ({
+                left: commit.left,
+                top: commit.top,
+            }),
+            onPositionCommitted: commit => events.push(`commit ${String(commit.top)}`),
+            // The outgoing page above, laid out at the current scale once
+            // released, moves the page-top destination 120 px down.
+            settleHandoff: async (_request, placement) => {
+                events.push(`released ${String(authority.pendingTargetPage.value)} ${String(authority.activeIntent.value?.id)}`);
+                return {
+                    ...placement.commit,
+                    anchor: placement.anchor,
+                    top: placement.commit.top + 120,
+                };
+            },
+            reportNavigation: (_ticket, report) => {
+                events.push(report.kind);
+                return true;
+            },
+        });
+        const stop = watch(authority.activeIntent, (active) => {
+            if (!active) events.push('settled');
+        }, {flush: 'sync'});
+
+        const result = await authority.submit(ticketedIntent('page-top', 3));
+        stop();
+
+        expect(events).toEqual([
+            'commit 1800',
+            'released null page-top',
+            'commit 1920',
+            'arrived',
+            'settled',
+        ]);
+        expect(result).toMatchObject({
+            outcome: 'settled',
+            positionCommit: {
+                top: 1_920,
+                navigationTicket: expect.anything(),
+            },
+        });
+    });
+
+    it('commits nothing the view refused to write', async () => {
+        let refuse = false;
+        let releaseVisual!: () => void;
+        const committed: number[] = [];
+        const authority = createViewportAuthority({
+            getDocumentRevision: () => 1,
+            getInteractionEpoch: () => 0,
+            getGeometryRevision: () => 1,
+            resolve: async () => ({
+                anchor: {
+                    ...anchor,
+                    page: 2,
+                },
+                left: 0,
+                top: 900,
+            }),
+            awaitMetrics: async () => {},
+            awaitVisual: () => new Promise<void>((resolve) => {
+                releaseVisual = resolve;
+            }),
+            apply: (_request, commit) => (refuse ? null : {
+                left: commit.left,
+                top: commit.top,
+            }),
+            onPositionCommitted: commit => committed.push(commit.top),
+        });
+
+        const pending = authority.submit(ticketedIntent('refused-refine', 2));
+        await vi.waitFor(() => expect(committed).toEqual([900]));
+        refuse = true;
+        expect(authority.refineLayout(placed => ({
+            anchor: placed,
+            left: 0,
+            top: 700,
+        }))).toEqual({outcome: 'cancelled'});
+        expect(committed).toEqual([900]);
+        releaseVisual();
+        await expect(pending).resolves.toMatchObject({outcome: 'settled'});
+
+        await expect(authority.submit(ticketedIntent('refused-placement', 4))).resolves.toMatchObject({
+            outcome: 'cancelled',
+            positionCommit: null,
+        });
+        expect(committed).toEqual([900]);
+        expect(authority.currentPage.value).toBe(2);
+    });
+
+    it('lets an unplaced navigation resolve against a changed layout itself', async () => {
+        let releaseMetrics!: () => void;
+        const writes: number[] = [];
+        const authority = createViewportAuthority({
+            getDocumentRevision: () => 1,
+            getInteractionEpoch: () => 0,
+            getGeometryRevision: () => 1,
+            resolve: async () => ({
+                anchor: {
+                    ...anchor,
+                    page: 6,
+                },
+                left: 0,
+                top: 5_000,
+            }),
+            awaitMetrics: () => new Promise<void>((resolve) => {
+                releaseMetrics = resolve;
+            }),
+            awaitVisual: async () => {},
+            apply: (_request, commit) => {
+                writes.push(commit.top);
+            },
+        });
+        const resolveForLayout = vi.fn((placed: IPdfSemanticAnchor) => ({
+            anchor: placed,
+            left: 0,
+            top: 1,
+        }));
+
+        const pending = authority.submit(ticketedIntent('unplaced', 6));
+        await vi.waitFor(() => expect(releaseMetrics).toBeTypeOf('function'));
+        expect(authority.refineLayout(resolveForLayout)).toEqual({outcome: 'superseded'});
+        expect(resolveForLayout).not.toHaveBeenCalled();
+        releaseMetrics();
+
+        await expect(pending).resolves.toMatchObject({
+            outcome: 'settled',
+            positionCommit: {top: 5_000},
+        });
+        expect(writes).toEqual([5_000]);
     });
 
     it('serializes intents, executes aborts, and permits only latest commit', async () => {

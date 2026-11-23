@@ -894,7 +894,8 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     // with the layout or a navigation target, before Vue lays the track out.
     // A zoom, fit or view-mode change goes through relayout, which restores
     // the reading point at the new origin. Page metrics that reflow rows at
-    // the same scale keep the reading offset under a row-start origin.
+    // the same scale keep the reading offset under a row-start origin, and
+    // the reading point through rows that change above it.
     watch([
         viewModel.pageLayout,
         options.continuousScroll,
@@ -917,6 +918,12 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         if (!reflow) {
             placePhysicalScrollOrigin(layout, singlePageScroll.navigationAnchorPage.value ?? currentPage.value, 0);
             return;
+        }
+        // Rows above the reading page that grow or shrink, as late metrics of
+        // a sparse PDF do, move it: keep its point, which the DOM still shows.
+        const readingPageIndex = requirePageIndex(clampPageNumber(currentPage.value, layout.base.totalPages) - 1);
+        if (getLayoutPageTop(previous, readingPageIndex) !== getLayoutPageTop(layout, readingPageIndex)) {
+            void singlePageScroll.relayout(undefined, singlePageScroll.captureRelayoutAnchor());
         }
         const origin = physicalScrollOrigin.value;
         const documentTop = origin + container.scrollTop;
@@ -1026,7 +1033,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     // R3 keeps the centre point through a layout change and maps it through
     // its page's turn: every page's, or only that of the `pages` an edit turns.
     function relayoutRotation(change: () => void, rotation: number, pages?: readonly number[]) {
-        singlePageScroll.relayout(change, rotation % 360 === 0 ? undefined : (anchor) => {
+        return singlePageScroll.relayout(change, rotation % 360 === 0 ? undefined : (anchor) => {
             if (pages && !pages.includes(anchor.page)) {
                 return anchor;
             }
