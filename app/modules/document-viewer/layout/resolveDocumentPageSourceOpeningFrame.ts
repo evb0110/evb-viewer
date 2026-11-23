@@ -51,6 +51,43 @@ export function resolveAnchoredViewportHeight(
     return pageWidth + DOCUMENT_PAGE_GUTTER_PX * 2 > viewport.width ? viewport.height - (viewport.scrollbar ?? 0) : viewport.height;
 }
 
+/**
+ * The viewport's client size once it scrolls again. The opening, and the
+ * residue of a superseded gesture, suppress scrolling with an inline
+ * `overflow: hidden`, which hides the horizontal scrollbar a page wider than
+ * the viewport brings back. Otherwise the live client box already holds that
+ * bar, and a renderer that locks the horizontal axis shows none.
+ */
+export function readArrivedViewportClientSize(
+    viewport: HTMLElement,
+    isHorizontalScrollLocked = false,
+) {
+    const live = {
+        width: viewport.clientWidth,
+        height: viewport.clientHeight,
+    };
+    if (
+        viewport.style.overflow !== 'hidden'
+        || isHorizontalScrollLocked
+        || viewport.scrollWidth <= viewport.clientWidth
+    ) {
+        return live;
+    }
+    const style = getComputedStyle(viewport);
+    const px = (value: string) => Number.parseFloat(value) || 0;
+    // The stable gutter is one bar thick, or one on each side with both-edges.
+    const gutter = viewport.offsetWidth - viewport.clientWidth
+        - px(style.borderLeftWidth) - px(style.borderRightWidth);
+    const bar = Math.max(0, gutter / (style.getPropertyValue('scrollbar-gutter').includes('both-edges') ? 2 : 1));
+    // Only the part of the bar not shown yet takes height from the live box.
+    const shown = Math.max(0, viewport.offsetHeight - viewport.clientHeight
+        - px(style.borderTopWidth) - px(style.borderBottomWidth));
+    return {
+        width: live.width,
+        height: Math.max(0, live.height - Math.max(0, bar - shown)),
+    };
+}
+
 export function resolveDocumentPageSourceOpeningFrame(
     input: IDocumentPageSourceOpeningFrameInput,
 ): IDocumentPageSourceOpeningFrame | null {

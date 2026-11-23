@@ -155,6 +155,10 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
             : container.scrollWidth <= container.clientWidth + HORIZONTAL_SCROLL_CLAMP_EPSILON_PX;
     });
 
+    const isHorizontalScrollLocked = computed(() => (
+        fitWidthHorizontalScrollLocked.value || isActiveSpreadHorizontalScrollLocked.value
+    ));
+
     const viewerClass = computed(() => ({
         'pdfViewer--saving': options.classState.isAnySaving.value,
         'is-dragging': options.classState.isDragging.value,
@@ -259,6 +263,7 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
         containerStyle,
         viewerClass,
         isActiveSpreadHorizontalScrollLocked,
+        isHorizontalScrollLocked,
         resolveHorizontalScrollClampForActiveSpread,
         syncHorizontalScrollForZoomMode,
     };

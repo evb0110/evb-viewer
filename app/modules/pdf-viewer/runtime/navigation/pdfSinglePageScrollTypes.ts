@@ -11,6 +11,8 @@ import type {IPdfPageLayoutMetrics} from '@app/modules/document-viewer/public';
 
 export interface IUsePdfSinglePageScrollOptions {
     viewerContainer: Ref<HTMLElement | null>;
+    /** The renderer hides the horizontal axis: a page wider than the viewport brings no bar. */
+    isHorizontalScrollLocked?: () => boolean;
     numPages: Ref<number>;
     currentPage: Readonly<Ref<number>>;
     scaledMargin: Ref<number>;

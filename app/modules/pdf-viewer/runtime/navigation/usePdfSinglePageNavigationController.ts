@@ -11,6 +11,7 @@ import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-sou
 import {createPdfPageNavigationRequest} from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/createPdfPageNavigationRequest';
 import {
     createPdfViewportGeometryFromLayout,
+    readArrivedViewportClientSize,
     resolveAnchorFromScroll,
     resolvePageIndicatorFromScroll,
     resolveRetainedAnchorFromScroll,
@@ -199,6 +200,10 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         // placed without turning a late close/open tick into a RangeError.
         return Math.max(1, options.numPages.value, document.numPages);
     }
+    /** The client size the view is read and placed in: the one it has once it scrolls again. */
+    function readViewportSize(container: HTMLElement) {
+        return readArrivedViewportClientSize(container, options.isHorizontalScrollLocked?.() ?? false);
+    }
     function refreshGeometry() {
         const container = options.viewerContainer.value;
         const metrics = options.getPageLayoutMetrics?.() ?? null;
@@ -208,8 +213,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         }
         const geometryRevision = options.getGeometryRevision();
         geometry = createPdfViewportGeometryFromLayout(metrics, {
-            width: container.clientWidth,
-            height: container.clientHeight,
+            ...readViewportSize(container),
             paddingInline: options.scaledMargin.value,
         }, geometryRevision, options.getPhysicalScrollOrigin());
         return geometry;
@@ -225,7 +229,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
     ) {
         const container = options.viewerContainer.value;
         if (!options.continuousScroll.value && container) {
-            return resolvePagedAnchorFromViewport(container, pageNumber, viewportFraction);
+            return resolvePagedAnchorFromViewport(container, readViewportSize(container), pageNumber, viewportFraction);
         }
         return resolveAnchorFromScroll(snapshot, {
             left: container?.scrollLeft ?? 0,
@@ -236,7 +240,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
     function resolveScrollForViewport(snapshot: IPdfViewportGeometry, anchor: IPdfSemanticAnchor) {
         const container = options.viewerContainer.value;
         if (container && !options.continuousScroll.value) {
-            return resolvePagedScrollForAnchor(container, anchor, options.scaledMargin.value);
+            return resolvePagedScrollForAnchor(container, readViewportSize(container), anchor, options.scaledMargin.value);
         }
         return resolveScrollForAnchor(snapshot, anchor);
     }
@@ -244,7 +248,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
     function resolveNavigationScrollForViewport(snapshot: IPdfViewportGeometry, anchor: IPdfSemanticAnchor) {
         const container = options.viewerContainer.value;
         if (container && hasMeasurableMountedPage(container, requirePageNumber(anchor.page))) {
-            return resolvePagedScrollForAnchor(container, anchor, options.scaledMargin.value);
+            return resolvePagedScrollForAnchor(container, readViewportSize(container), anchor, options.scaledMargin.value);
         }
         return resolveScrollForViewport(snapshot, anchor);
     }
@@ -958,7 +962,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                     left: container.scrollLeft,
                     top: container.scrollTop,
                 }, viewportAuthority.committedAnchor.value)
-                : resolvePagedAnchorFromViewport(container, toBoundedPageNumber(viewportAuthority.currentPage.value))
+                : resolvePagedAnchorFromViewport(container, readViewportSize(container), toBoundedPageNumber(viewportAuthority.currentPage.value))
             : viewportAuthority.committedAnchor.value;
     }
 

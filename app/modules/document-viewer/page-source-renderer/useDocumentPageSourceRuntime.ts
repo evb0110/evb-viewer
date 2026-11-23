@@ -40,6 +40,7 @@ import { shouldProjectDocumentViewportScroll } from '@app/modules/document-viewe
 import { useDocumentViewportLayoutLifecycle } from '@app/modules/document-viewer/lifecycle/useDocumentViewportLayoutLifecycle';
 import { useDocumentWheelZoomSessionBoundaries } from '@app/modules/document-viewer/input/useDocumentWheelZoomSessionBoundaries';
 import { DOCUMENT_PAGE_GUTTER_PX } from '@app/modules/document-viewer/layout/documentPageGutterPx';
+import { readArrivedViewportClientSize } from '@app/modules/document-viewer/layout/resolveDocumentPageSourceOpeningFrame';
 import { injectDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
 import { clampDocumentManualZoom } from '@app/modules/document-viewer/zoomPolicy';
 import type {
@@ -982,13 +983,10 @@ export const useDocumentPageSourceRuntime = (options: {
                 }
                 const anchor = ticket?.request.target.kind === 'page' ? ticket.request.target.anchor : null;
                 const container = viewerContainer.value;
-                // Opening hides overflow until arrival. Project into the final
-                // client box, including a wide page's horizontal scrollbar.
+                const arrived = readArrivedViewportClientSize(container);
                 const restored = anchor ? resolveDocumentZoomAnchorScroll({
-                    clientWidth: container.clientWidth,
-                    clientHeight: container.offsetHeight - (container.scrollWidth > container.clientWidth
-                        ? container.offsetWidth - container.clientWidth
-                        : 0),
+                    clientWidth: arrived.width,
+                    clientHeight: arrived.height,
                     scrollLeft: container.scrollLeft,
                     scrollTop: physicalScroll.origin.value + container.scrollTop,
                 }, zoomAnchorPageLayouts.value, {
