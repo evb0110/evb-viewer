@@ -832,6 +832,244 @@ fn image_bytes<'a>(file_name: &'a str, data: &'a [u8]) -> PageSpec<InputSource<'
     }
 }
 
+#[test]
+fn cli_combines_over_300_inputs_under_tight_open_file_limit_and_preserves_order() {
+    let dir = temp_path("large-batch-fd-cap");
+    fs::create_dir_all(&dir).unwrap();
+
+    const PAGE_COUNT: usize = 320;
+    let mut input_paths = Vec::with_capacity(PAGE_COUNT);
+    let mut inputs_file_contents = String::new();
+    let mut jsonl_contents = format!(
+        "{{\"format\":\"evb-pdf-image-combine-jsonl\",\"schemaVersion\":1,\"pageCount\":{PAGE_COUNT}}}\n"
+    );
+    for index in 0..PAGE_COUNT {
+        let width = 1 + (index % 7);
+        let mut ppm = format!("P6\n{width} 1\n255\n").into_bytes();
+        for x in 0..width {
+            ppm.extend_from_slice(&[(index & 0xff) as u8, (x * 29) as u8, 0x40]);
+        }
+        let path = dir.join(format!("page-{index:04}.ppm"));
+        fs::write(&path, ppm).unwrap();
+        inputs_file_contents.push_str(&format!("{}\n", path.display()));
+        jsonl_contents.push_str(&format!("image\t72\t72\t{}\n", path.display()));
+        input_paths.push(path);
+    }
+
+    let inputs_file = dir.join("inputs.txt");
+    let jsonl_file = dir.join("manifest.jsonl");
+    let pdf_from_inputs = dir.join("from-inputs.pdf");
+    let pdf_from_jsonl = dir.join("from-jsonl.pdf");
+    let tiff_output = dir.join("from-inputs.tiff");
+    fs::write(&inputs_file, &inputs_file_contents).unwrap();
+    fs::write(&jsonl_file, &jsonl_contents).unwrap();
+
+    let run_with_fd_limit = |args: &[&str]| -> process::Output {
+        let binary = env!("CARGO_BIN_EXE_evb-pdf-image-combine");
+        #[cfg(unix)]
+        let mut command = {
+            let mut cmd = Command::new("sh");
+            cmd.args(["-c", "ulimit -n 128 && exec \"$@\"", "sh", binary]);
+            cmd.args(args);
+            cmd
+        };
+        #[cfg(not(unix))]
+        let mut command = {
+            let mut cmd = Command::new(binary);
+            cmd.args(args);
+            cmd
+        };
+        command
+            .env("EVB_PDF_COMBINE_MAX_PAGES", PAGE_COUNT.to_string())
+            .env("EVB_PDF_COMBINE_THREADS", "4")
+            .env("EVB_PDF_COMBINE_MAX_OPEN_FDS", "8")
+            .output()
+            .unwrap()
+    };
+
+    // 1. --inputs-file path with 320 inputs under RLIMIT_NOFILE=128.
+    let output = run_with_fd_limit(&[
+        "--output",
+        pdf_from_inputs.to_str().unwrap(),
+        "--inputs-file",
+        inputs_file.to_str().unwrap(),
+    ]);
+    assert!(
+        output.status.success(),
+        "320-input CLI combine failed under ulimit -n 128: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let pdf_bytes = fs::read(&pdf_from_inputs).unwrap();
+    let pdf_text = String::from_utf8_lossy(&pdf_bytes);
+    assert!(pdf_text.contains(&format!("/Count {PAGE_COUNT}")));
+    let widths: Vec<usize> = pdf_text
+        .match_indices("/Subtype /Image /Width ")
+        .map(|(idx, marker)| {
+            pdf_text[idx + marker.len()..]
+                .split_whitespace()
+                .next()
+                .unwrap()
+                .parse()
+                .unwrap()
+        })
+        .collect();
+    assert_eq!(widths.len(), PAGE_COUNT);
+    for (index, width) in widths.into_iter().enumerate() {
+        assert_eq!(width, 1 + (index % 7), "page {index} out of order");
+    }
+
+    // 2. --compact-manifest JSONL path with 320 inputs under RLIMIT_NOFILE=128.
+    let jsonl_output = run_with_fd_limit(&[
+        "--output",
+        pdf_from_jsonl.to_str().unwrap(),
+        "--compact-manifest",
+        jsonl_file.to_str().unwrap(),
+    ]);
+    assert!(
+        jsonl_output.status.success(),
+        "320-input JSONL CLI combine failed under ulimit -n 128: {}",
+        String::from_utf8_lossy(&jsonl_output.stderr)
+    );
+    let jsonl_pdf_bytes = fs::read(&pdf_from_jsonl).unwrap();
+    let jsonl_pdf_text = String::from_utf8_lossy(&jsonl_pdf_bytes);
+    assert!(jsonl_pdf_text.contains(&format!("/Count {PAGE_COUNT}")));
+
+    // 3. --format tiff with 320 inputs under RLIMIT_NOFILE=128.
+    let tiff_result = run_with_fd_limit(&[
+        "--format",
+        "tiff",
+        "--output",
+        tiff_output.to_str().unwrap(),
+        "--inputs-file",
+        inputs_file.to_str().unwrap(),
+    ]);
+    assert!(
+        tiff_result.status.success(),
+        "320-input TIFF export failed under ulimit -n 128: {}",
+        String::from_utf8_lossy(&tiff_result.stderr)
+    );
+    assert!(fs::metadata(&tiff_output).unwrap().len() > 0);
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn cli_rejects_same_file_and_hard_link_output_aliases_without_clobbering_input() {
+    let dir = temp_path("alias-protection");
+    fs::create_dir_all(&dir).unwrap();
+
+    let first_input = dir.join("first.ppm");
+    let second_input = dir.join("second.ppm");
+    let hardlink_output = dir.join("hardlink.pdf");
+    let first_bytes = b"P6\n1 1\n255\n\xaa\xbb\xcc";
+    let second_bytes = b"P6\n2 1\n255\n\x11\x22\x33\x44\x55\x66";
+    fs::write(&first_input, first_bytes).unwrap();
+    fs::write(&second_input, second_bytes).unwrap();
+    fs::hard_link(&second_input, &hardlink_output).unwrap();
+
+    // Same-file alias on a later page under concurrent workers.
+    let same_file = Command::new(env!("CARGO_BIN_EXE_evb-pdf-image-combine"))
+        .env("EVB_PDF_COMBINE_THREADS", "4")
+        .args(["--output", second_input.to_str().unwrap(), "--"])
+        .args([&first_input, &second_input])
+        .output()
+        .unwrap();
+    assert!(!same_file.status.success());
+    let envelope: serde_json::Value = serde_json::from_slice(&same_file.stderr).unwrap();
+    assert_eq!(envelope["code"], "native-failure");
+    assert!(
+        envelope["message"]
+            .as_str()
+            .unwrap()
+            .contains("Output aliases an input file"),
+        "{envelope}"
+    );
+    assert_eq!(fs::read(&second_input).unwrap(), second_bytes);
+    assert_no_sibling_temporary(&second_input);
+
+    // Hard-link alias on a later page under concurrent workers.
+    let hardlink = Command::new(env!("CARGO_BIN_EXE_evb-pdf-image-combine"))
+        .env("EVB_PDF_COMBINE_THREADS", "4")
+        .args(["--output", hardlink_output.to_str().unwrap(), "--"])
+        .args([&first_input, &second_input])
+        .output()
+        .unwrap();
+    assert!(!hardlink.status.success());
+    let envelope: serde_json::Value = serde_json::from_slice(&hardlink.stderr).unwrap();
+    assert_eq!(envelope["code"], "native-failure");
+    assert!(
+        envelope["message"]
+            .as_str()
+            .unwrap()
+            .contains("Output aliases an input file"),
+        "{envelope}"
+    );
+    assert_eq!(fs::read(&second_input).unwrap(), second_bytes);
+    assert_eq!(fs::read(&hardlink_output).unwrap(), second_bytes);
+    assert_no_sibling_temporary(&hardlink_output);
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn compact_manifest_streams_padded_single_frame_tiff_past_max_input_mb() {
+    use tiff::encoder::{colortype, TiffEncoder};
+
+    let dir = temp_path("compact-manifest-padded-tiff");
+    fs::create_dir_all(&dir).unwrap();
+
+    let tiff_path = dir.join("padded-single-frame.tiff");
+    {
+        let mut file = File::create(&tiff_path).unwrap();
+        {
+            let mut encoder = TiffEncoder::new(&mut file).unwrap();
+            encoder
+                .write_image::<colortype::RGB8>(
+                    2,
+                    2,
+                    &[255, 0, 0, 0, 255, 0, 0, 0, 255, 16, 32, 48],
+                )
+                .unwrap();
+        }
+        // Sparse-pad the TIFF past the 16 MiB `EVB_PDF_COMBINE_MAX_INPUT_MB`
+        // whole-file ceiling while keeping the IFD and strip valid.
+        file.set_len(17 * 1024 * 1024).unwrap();
+    }
+
+    let manifest_path = dir.join("manifest.tsv");
+    let output_path = dir.join("output.pdf");
+    fs::write(
+        &manifest_path,
+        format!("image\t72\t72\t{}\n", tiff_path.display()),
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_evb-pdf-image-combine"))
+        .env("EVB_PDF_COMBINE_MAX_INPUT_MB", "16")
+        .env("EVB_PDF_COMBINE_THREADS", "2")
+        .args([
+            "--output",
+            output_path.to_str().unwrap(),
+            "--compact-manifest",
+        ])
+        .arg(&manifest_path)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "compact-manifest single-frame TIFF padded past EVB_PDF_COMBINE_MAX_INPUT_MB failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let pdf = fs::read(&output_path).unwrap();
+    assert!(pdf.starts_with(b"%PDF-"));
+    let text = String::from_utf8_lossy(&pdf);
+    assert!(text.contains("/Count 1"));
+    assert!(text.contains("/Width 2 /Height 2"));
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
 fn temp_path(label: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)

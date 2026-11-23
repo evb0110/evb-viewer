@@ -29,7 +29,9 @@ pub(crate) fn deflate_up_filtered_slices(
             encoder.write_all(&filtered_row)?;
         }
     }
-    Ok(encoder.finish()?)
+    let mut compressed = encoder.finish()?;
+    compressed.shrink_to_fit();
+    Ok(compressed)
 }
 
 pub(crate) fn deflate_up_filtered_rgb_grayscale(
@@ -65,7 +67,9 @@ pub(crate) fn deflate_up_filtered_rgb_grayscale(
         std::mem::swap(&mut current_row, &mut previous_row);
     }
 
-    Ok(encoder.finish()?)
+    let mut compressed = encoder.finish()?;
+    compressed.shrink_to_fit();
+    Ok(compressed)
 }
 
 #[cfg(test)]

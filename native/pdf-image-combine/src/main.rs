@@ -1,23 +1,22 @@
 use std::{
-    cell::RefCell,
     env,
     fs::File,
     io::{BufRead, BufReader, BufWriter, Write},
     path::{Path, PathBuf},
-    rc::Rc,
     time::Instant,
 };
 
 use evb_native_support::{
     bounded_io::{deserialize_bounded_vec, read_file_bounded},
-    output::{AtomicOutput, ValidatedInputFiles},
+    output::AtomicOutput,
     NativeError, NativeErrorCode, MAX_WORKER_THREADS,
 };
 use evb_pdf_image_combine::{
-    combine_tiff_paths, compact_manifest_line::parse_compact_manifest_line_with,
-    encode_netpbm_path_as_jpeg, encode_netpbm_path_as_png_with_dpi, probe_netpbm_path, write_pdf,
-    FramePolicy, ImageCompression, ImageProcessing, ImageSpec, InputSource, PageSpec,
-    PdfBuildOptions, Result, DEFAULT_MAX_BILEVEL_PIXELS, DEFAULT_MAX_IMAGE_PIXELS,
+    combine_tiff_paths_with_limits, compact_manifest_line::parse_compact_manifest_line_with,
+    encode_netpbm_path_as_jpeg, encode_netpbm_path_as_png_with_dpi, probe_netpbm_path,
+    validate_output_path_non_blocking, write_pdf_paths, FramePolicy, ImageCompression,
+    ImageProcessing, ImageSpec, PageSpec, PdfBuildOptions, Result, DEFAULT_MAX_BILEVEL_PIXELS,
+    DEFAULT_MAX_IMAGE_PIXELS, DEFAULT_MAX_IN_FLIGHT_BYTES, DEFAULT_MAX_OPEN_INPUT_FDS,
     PDF_COMBINE_MAX_OUTPUT_BYTES,
 };
 use serde::Deserialize;
@@ -100,24 +99,30 @@ fn run(raw_args: Vec<String>) -> Result<()> {
                 .extension()
                 .is_some_and(|extension| extension.eq_ignore_ascii_case("ppm"))
         {
-            combine_tiff_paths(
+            let (max_open_fds, max_in_flight_bytes) = read_pipeline_limits();
+            combine_tiff_paths_with_limits(
                 &config.input_paths,
                 &config.output_path,
                 max_pixels,
                 1,
                 config.dpi,
+                max_open_fds,
+                max_in_flight_bytes,
             )?;
             return Ok(());
         }
         return Err("Single TIFF output requires exactly one PPM input".into());
     }
     if config.output_format == OutputFormat::Tiff {
-        combine_tiff_paths(
+        let (max_open_fds, max_in_flight_bytes) = read_pipeline_limits();
+        combine_tiff_paths_with_limits(
             &config.input_paths,
             &config.output_path,
             max_pixels,
             10_000,
             config.dpi,
+            max_open_fds,
+            max_in_flight_bytes,
         )?;
         return Ok(());
     }
@@ -155,22 +160,7 @@ fn run(raw_args: Vec<String>) -> Result<()> {
             return write_pdf_file_streaming(
                 stream,
                 &config.output_path,
-                &PdfBuildOptions {
-                    default_dpi: config.dpi,
-                    max_pages,
-                    max_pixels,
-                    max_bilevel_pixels: DEFAULT_MAX_BILEVEL_PIXELS,
-                    max_output_bytes: read_pdf_output_limit(),
-                    allow_large_output: is_file_backed_output_mode(),
-                    max_tiff_frames: 250,
-                    provenance_stamp_hex,
-                    worker_threads: read_limit(
-                        "EVB_PDF_COMBINE_THREADS",
-                        1,
-                        1,
-                        MAX_WORKER_THREADS as u64,
-                    ) as usize,
-                },
+                &build_pdf_options(config.dpi, max_pages, max_pixels, provenance_stamp_hex),
                 total,
                 |processed| {
                     if config.json_progress {
@@ -224,31 +214,53 @@ fn run(raw_args: Vec<String>) -> Result<()> {
     write_pdf_file(
         page_specs,
         &config.output_path,
-        &PdfBuildOptions {
-            default_dpi: config.dpi,
-            max_pages,
-            max_pixels,
-            max_bilevel_pixels: DEFAULT_MAX_BILEVEL_PIXELS,
-            max_output_bytes: read_pdf_output_limit(),
-            allow_large_output: is_file_backed_output_mode(),
-            max_tiff_frames: 250,
-            provenance_stamp_hex,
-            worker_threads: read_limit(
-                "EVB_PDF_COMBINE_THREADS",
-                // A prepared passthrough page may retain close to the per-image
-                // 512 MiB ceiling. Keep the safe default batch bounded to one;
-                // operators can explicitly trade memory for throughput.
-                1,
-                1,
-                MAX_WORKER_THREADS as u64,
-            ) as usize,
-        },
+        &build_pdf_options(config.dpi, max_pages, max_pixels, provenance_stamp_hex),
         |processed| {
             if config.json_progress {
                 print_progress(processed, total, started_at);
             }
         },
     )
+}
+
+fn read_pipeline_limits() -> (usize, u64) {
+    let max_open_fds = read_limit(
+        "EVB_PDF_COMBINE_MAX_OPEN_FDS",
+        DEFAULT_MAX_OPEN_INPUT_FDS as u64,
+        1,
+        1_024,
+    ) as usize;
+    let max_in_flight_bytes = read_limit(
+        "EVB_PDF_COMBINE_MAX_IN_FLIGHT_MB",
+        DEFAULT_MAX_IN_FLIGHT_BYTES / (1024 * 1024),
+        16,
+        4_096,
+    ) * 1024
+        * 1024;
+    (max_open_fds, max_in_flight_bytes)
+}
+
+fn build_pdf_options(
+    default_dpi: Option<u32>,
+    max_pages: usize,
+    max_pixels: u64,
+    provenance_stamp_hex: Option<String>,
+) -> PdfBuildOptions {
+    let (max_open_input_fds, max_in_flight_bytes) = read_pipeline_limits();
+    PdfBuildOptions {
+        default_dpi,
+        max_pages,
+        max_pixels,
+        max_bilevel_pixels: DEFAULT_MAX_BILEVEL_PIXELS,
+        max_output_bytes: read_pdf_output_limit(),
+        allow_large_output: is_file_backed_output_mode(),
+        max_tiff_frames: 250,
+        provenance_stamp_hex,
+        worker_threads: read_limit("EVB_PDF_COMBINE_THREADS", 1, 1, MAX_WORKER_THREADS as u64)
+            as usize,
+        max_open_input_fds,
+        max_in_flight_bytes,
+    }
 }
 
 fn write_pdf_file(
@@ -260,54 +272,29 @@ fn write_pdf_file(
     if page_specs.is_empty() {
         return Err("At least one image input is required".into());
     }
-    let mut paths = Vec::new();
-    for spec in &page_specs {
-        match spec {
-            PageSpec::Image { image, .. } => paths.push(image.source.clone()),
-            PageSpec::Layered {
-                background,
-                foreground_mask,
-                ..
-            } => {
-                paths.push(background.source.clone());
-                paths.push(foreground_mask.clone());
-            }
-            PageSpec::SoftLayered {
-                background,
-                foreground_alpha,
-                ..
-            } => {
-                paths.push(background.source.clone());
-                paths.push(foreground_alpha.clone());
-            }
-            PageSpec::AffineMaskedLayered {
-                background,
-                foreground,
-                foreground_mask,
-                ..
-            } => {
-                paths.push(background.source.clone());
-                paths.push(foreground.source.clone());
-                paths.push(foreground_mask.clone());
-            }
-            PageSpec::Mask {
-                foreground_mask, ..
-            } => paths.push(foreground_mask.clone()),
-        }
-    }
+    write_pdf_path_specs(
+        page_specs.into_iter().map(Ok),
+        output_path,
+        options,
+        on_processed,
+    )
+}
 
-    // Each admitted descriptor moves into the spec that reads it and closes
-    // once that page is prepared.
-    let mut files = ValidatedInputFiles::open(&paths, output_path)?.into_files();
-    let page_specs = page_specs
-        .into_iter()
-        .map(|spec| spec.map_sources(&mut |label| admitted_source(label, &mut files)))
-        .collect::<std::result::Result<Vec<_>, _>>()?;
-
+fn write_pdf_path_specs(
+    page_specs: impl IntoIterator<Item = Result<PageSpec<PathBuf>>>,
+    output_path: &Path,
+    options: &PdfBuildOptions,
+    on_processed: impl FnMut(usize),
+) -> Result<()> {
+    // Reject non-regular existing output paths (including unread FIFOs on Unix)
+    // before creating a sibling file; each input file is opened lazily and
+    // checked against `output_path` for same-file and hard-link aliasing inside
+    // the bounded streaming pipeline.
+    validate_output_path_non_blocking(output_path)?;
     let mut output = AtomicOutput::create(output_path)?;
     {
         let writer = BufWriter::new(output.file_mut()?);
-        let mut writer = write_pdf(writer, page_specs, options, on_processed)?;
+        let mut writer = write_pdf_paths(writer, output_path, page_specs, options, on_processed)?;
         writer.flush()?;
     }
     output.publish()?;
@@ -332,12 +319,11 @@ struct CompactManifestJsonlHeader {
 
 struct CompactManifestJsonlIterator {
     reader: BufReader<File>,
-    output_path: PathBuf,
     max_pages: usize,
     page_count: usize,
     page_number: usize,
     line_number: usize,
-    error: Rc<RefCell<Option<String>>>,
+    finished: bool,
 }
 
 enum CompactManifestLine {
@@ -373,141 +359,78 @@ fn read_compact_manifest_line(
 }
 
 impl Iterator for CompactManifestJsonlIterator {
-    type Item = PageSpec<InputSource<'static>>;
+    type Item = Result<PageSpec<PathBuf>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.page_number >= self.max_pages {
-            match read_compact_manifest_line(&mut self.reader) {
-                Ok(CompactManifestLine::End) => return None,
-                Ok(CompactManifestLine::Value(line)) => {
-                    if line.iter().any(|byte| !byte.is_ascii_whitespace()) {
-                        *self.error.borrow_mut() = Some(format!(
-                            "Compact image manifest exceeds the {}-page admission ceiling",
-                            self.max_pages
-                        ));
-                    }
-                    return None;
-                }
-                Ok(CompactManifestLine::TooLong) => {
-                    *self.error.borrow_mut() = Some(format!(
-                        "Compact image manifest record exceeds the {MAX_COMPACT_MANIFEST_LINE_BYTES}-byte admission ceiling"
-                    ));
-                    return None;
-                }
-                Err(error) => {
-                    *self.error.borrow_mut() = Some(error.to_string());
-                    return None;
-                }
-            }
+        if self.finished {
+            return None;
         }
         loop {
             let line = match read_compact_manifest_line(&mut self.reader) {
                 Ok(CompactManifestLine::End) => {
+                    self.finished = true;
                     if self.page_number != self.page_count {
-                        *self.error.borrow_mut() = Some(format!(
+                        return Some(Err(format!(
                             "Compact JSONL manifest declared {} pages but contained {}",
                             self.page_count, self.page_number
-                        ));
+                        )
+                        .into()));
                     }
                     return None;
                 }
                 Ok(CompactManifestLine::Value(line)) => line,
                 Ok(CompactManifestLine::TooLong) => {
-                    *self.error.borrow_mut() = Some(format!(
-                        "Compact image manifest record exceeds the {MAX_COMPACT_MANIFEST_LINE_BYTES}-byte admission ceiling"
-                    ));
-                    return None;
+                    self.finished = true;
+                    return Some(Err(NativeError::new(
+                        NativeErrorCode::TooLarge,
+                        format!(
+                            "Compact image manifest record exceeds the {MAX_COMPACT_MANIFEST_LINE_BYTES}-byte admission ceiling"
+                        ),
+                    )
+                    .into()));
                 }
                 Err(error) => {
-                    *self.error.borrow_mut() = Some(error.to_string());
-                    return None;
+                    self.finished = true;
+                    return Some(Err(error.into()));
                 }
             };
             self.line_number += 1;
             let line = match std::str::from_utf8(&line) {
                 Ok(line) => line,
                 Err(error) => {
-                    *self.error.borrow_mut() =
-                        Some(format!("Invalid compact JSONL manifest UTF-8: {error}"));
-                    return None;
+                    self.finished = true;
+                    return Some(Err(NativeError::new(
+                        NativeErrorCode::InvalidRequest,
+                        format!("Invalid compact JSONL manifest UTF-8: {error}"),
+                    )
+                    .into()));
                 }
             };
             let trimmed = line.trim_end_matches(['\r', '\n']);
             if trimmed.trim().is_empty() {
                 continue;
             }
-            self.page_number += 1;
-            match parse_compact_manifest_line(trimmed, self.line_number, self.page_number).and_then(
-                |spec| map_page_spec_to_files(spec, self.error.clone(), &self.output_path),
-            ) {
-                Ok(spec) => return Some(spec),
-                Err(error) => {
-                    *self.error.borrow_mut() = Some(error.to_string());
-                    return None;
-                }
+            // Keep scanning past blank lines after the ceiling so any extra
+            // record is rejected rather than silently dropped.
+            if self.page_number >= self.max_pages {
+                self.finished = true;
+                return Some(Err(NativeError::new(
+                    NativeErrorCode::TooLarge,
+                    format!(
+                        "Compact image manifest exceeds the {}-page admission ceiling",
+                        self.max_pages
+                    ),
+                )
+                .into()));
             }
+            self.page_number += 1;
+            let parsed = parse_compact_manifest_line(trimmed, self.line_number, self.page_number);
+            if parsed.is_err() {
+                self.finished = true;
+            }
+            return Some(parsed);
         }
     }
-}
-
-fn map_page_spec_to_files(
-    spec: PageSpec<PathBuf>,
-    error_slot: Rc<RefCell<Option<String>>>,
-    output_path: &Path,
-) -> Result<PageSpec<InputSource<'static>>> {
-    let mut paths = Vec::new();
-    match &spec {
-        PageSpec::Image { image, .. } => paths.push(image.source.clone()),
-        PageSpec::Layered {
-            background,
-            foreground_mask,
-            ..
-        } => {
-            paths.push(background.source.clone());
-            paths.push(foreground_mask.clone());
-        }
-        PageSpec::SoftLayered {
-            background,
-            foreground_alpha,
-            ..
-        } => {
-            paths.push(background.source.clone());
-            paths.push(foreground_alpha.clone());
-        }
-        PageSpec::AffineMaskedLayered {
-            background,
-            foreground,
-            foreground_mask,
-            ..
-        } => {
-            paths.push(background.source.clone());
-            paths.push(foreground.source.clone());
-            paths.push(foreground_mask.clone());
-        }
-        PageSpec::Mask {
-            foreground_mask, ..
-        } => paths.push(foreground_mask.clone()),
-    }
-    let mut files = ValidatedInputFiles::open(&paths, output_path)
-        .inspect_err(|error| {
-            *error_slot.borrow_mut() = Some(error.to_string());
-        })?
-        .into_files();
-    spec.map_sources(&mut |label| admitted_source(label, &mut files))
-        .map_err(|error| {
-            *error_slot.borrow_mut() = Some(error.to_string());
-            error.into()
-        })
-}
-
-fn admitted_source(
-    label: PathBuf,
-    files: &mut impl Iterator<Item = File>,
-) -> std::io::Result<InputSource<'static>> {
-    let file = files
-        .next()
-        .ok_or_else(|| std::io::Error::other("Missing validated input descriptor"))?;
-    Ok(InputSource::File { label, file })
 }
 
 fn write_pdf_file_streaming(
@@ -517,7 +440,9 @@ fn write_pdf_file_streaming(
     total: usize,
     on_processed: impl FnMut(usize),
 ) -> Result<()> {
-    let error_slot = Rc::new(RefCell::new(None));
+    if total == 0 {
+        return Err("At least one image input is required".into());
+    }
     let file = File::open(&stream.path)?;
     let mut reader = BufReader::new(file);
     match read_compact_manifest_line(&mut reader)? {
@@ -531,27 +456,13 @@ fn write_pdf_file_streaming(
     }
     let page_specs = CompactManifestJsonlIterator {
         reader,
-        output_path: output_path.to_path_buf(),
         max_pages: options.max_pages,
         page_count: stream.page_count,
         page_number: 0,
         line_number: 1,
-        error: error_slot.clone(),
+        finished: false,
     };
-    let mut output = AtomicOutput::create(output_path)?;
-    {
-        let writer = BufWriter::new(output.file_mut()?);
-        let mut writer = write_pdf(writer, page_specs, options, on_processed)?;
-        writer.flush()?;
-    }
-    if let Some(error) = error_slot.borrow_mut().take() {
-        return Err(error.into());
-    }
-    if total == 0 {
-        return Err("At least one image input is required".into());
-    }
-    output.publish()?;
-    Ok(())
+    write_pdf_path_specs(page_specs, output_path, options, on_processed)
 }
 
 fn parse_args(mut args: impl Iterator<Item = String>, max_pages: usize) -> Result<Config> {
@@ -1106,6 +1017,70 @@ mod tests {
         assert_eq!(native.code, NativeErrorCode::TooLarge);
         assert!(native.message.contains("1-page admission ceiling"));
         std::fs::remove_file(path).unwrap();
+    }
+
+    fn collect_jsonl_records(
+        body: &str,
+        max_pages: usize,
+        page_count: usize,
+    ) -> Vec<Result<PageSpec<PathBuf>>> {
+        let path = temp_manifest_path("jsonl-records");
+        std::fs::write(&path, body).unwrap();
+        let iterator = CompactManifestJsonlIterator {
+            reader: BufReader::new(File::open(&path).unwrap()),
+            max_pages,
+            page_count,
+            page_number: 0,
+            line_number: 1,
+            finished: false,
+        };
+        let records = iterator.collect();
+        std::fs::remove_file(path).unwrap();
+        records
+    }
+
+    #[test]
+    fn jsonl_manifest_rejects_a_record_after_blank_lines_past_the_page_ceiling() {
+        let records = collect_jsonl_records(
+            "image\t72\t72\t/tmp/one.ppm\n\n   \r\nimage\t72\t72\t/tmp/two.ppm\n",
+            1,
+            1,
+        );
+        assert_eq!(records.len(), 2);
+        assert!(records[0].is_ok());
+        let Err(error) = &records[1] else {
+            panic!("extra record past the ceiling was accepted");
+        };
+        let native = error.downcast_ref::<NativeError>().unwrap();
+        assert_eq!(native.code, NativeErrorCode::TooLarge);
+        assert!(native.message.contains("1-page admission ceiling"));
+
+        // Trailing blank lines after the last allowed record stay valid.
+        let records = collect_jsonl_records("image\t72\t72\t/tmp/one.ppm\n\n\n", 1, 1);
+        assert_eq!(records.len(), 1);
+        assert!(records[0].is_ok());
+    }
+
+    #[test]
+    fn jsonl_manifest_rejects_a_page_count_mismatch_at_the_page_ceiling() {
+        // The header declared one page; a second record that still fits the
+        // two-page ceiling must fail the EOF page-count check.
+        let records = collect_jsonl_records(
+            "image\t72\t72\t/tmp/one.ppm\nimage\t72\t72\t/tmp/two.ppm\n\n",
+            2,
+            1,
+        );
+        assert_eq!(records.len(), 3);
+        assert!(records[0].is_ok() && records[1].is_ok());
+        let Err(error) = &records[2] else {
+            panic!("page-count mismatch was accepted");
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("declared 1 pages but contained 2"),
+            "unexpected error: {error}"
+        );
     }
 
     #[test]

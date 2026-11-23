@@ -5,7 +5,7 @@ use std::{
     fs::File,
     io::{BufReader, Cursor, Read},
     path::Path,
-    sync::{Mutex, OnceLock},
+    sync::OnceLock,
 };
 use zune_jpeg::{
     zune_core::{colorspace::ColorSpace, options::DecoderOptions},
@@ -27,8 +27,17 @@ use crate::{
     jpx::{parse_jpx_metadata, validate_jpx_codestream},
     netpbm::{is_rgb_data_grayscale, parse_netpbm, read_netpbm_file, NetpbmData, OwnedNetpbm},
     pdf::{ImagePage, ImagePayload},
-    tiff_io::{visit_tiff_pdf_pages_from_bytes, visit_tiff_pdf_pages_from_file},
+    tiff_io::{
+        visit_tiff_pdf_pages_from_bytes_budgeted, visit_tiff_pdf_pages_from_file_budgeted,
+        TiffBudget,
+    },
     too_large_error, ImageProcessing, PdfBuildOptions, PdfPageSize, Result, DEFAULT_DPI,
+};
+#[cfg(not(target_family = "wasm"))]
+use crate::{
+    jpeg::preflight_jpeg_metadata,
+    netpbm::probe_pbm_p4_header,
+    tiff_io::{estimate_bilevel_encode_peak_bytes, estimate_up_filtered_flate_working_set_bytes},
 };
 
 const JPEG_GUARDRAIL_QUALITY_FLOOR: u8 = 75;
@@ -40,19 +49,7 @@ const DEFAULT_MAX_IMAGE_INPUT_MB: usize = 512;
 const MIN_IMAGE_INPUT_MB: usize = 16;
 const MAX_IMAGE_INPUT_MB: usize = 4_096;
 
-static IMAGE_DECODE_ADMISSION: Mutex<()> = Mutex::new(());
-
-fn with_image_decode_admission<T>(decode: impl FnOnce() -> Result<T>) -> Result<T> {
-    // PageEncoders can prepare eight pages in parallel. Full JPEG 2000 validation
-    // needs several image-sized buffers, so admit one decoder at a time instead of
-    // multiplying that peak across the worker pool.
-    let _admission = IMAGE_DECODE_ADMISSION
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    decode()
-}
-
-fn max_image_input_bytes() -> usize {
+pub(crate) fn max_image_input_bytes() -> usize {
     static LIMIT: OnceLock<usize> = OnceLock::new();
     *LIMIT.get_or_init(|| {
         env::var("EVB_PDF_COMBINE_MAX_INPUT_MB")
@@ -89,22 +86,150 @@ fn is_tiff_extension(extension: &str) -> bool {
     extension == "tif" || extension == "tiff"
 }
 
+#[cfg(not(target_family = "wasm"))]
+pub(crate) fn estimate_image_bytes_decode_bytes(
+    extension: &str,
+    bytes: &[u8],
+    compression: PdfImageCompression,
+    max_pixels: u64,
+) -> u64 {
+    match extension.to_ascii_lowercase().as_str() {
+        // The preflight sums APP2 ICC chunk lengths without copying them, so
+        // the reservation covers the chunk copies and assembled profile that
+        // `parse_jpeg_metadata` allocates during preparation. JPEGs without
+        // ICC data keep their decode-only estimate.
+        "jpg" | "jpeg" => preflight_jpeg_metadata(bytes)
+            .ok()
+            .filter(|meta| {
+                u64::from(meta.width).saturating_mul(u64::from(meta.height)) <= max_pixels
+            })
+            .map_or(0, |meta| {
+                u64::from(meta.width)
+                    .saturating_mul(u64::from(meta.height))
+                    .saturating_mul(u64::from(meta.components))
+                    .saturating_add(meta.icc_profile_working_bytes())
+            }),
+        "jp2" => parse_jpx_metadata(bytes)
+            .ok()
+            .filter(|meta| {
+                u64::from(meta.width).saturating_mul(u64::from(meta.height)) <= max_pixels
+            })
+            .map_or(0, |meta| {
+                u64::from(meta.width)
+                    .saturating_mul(u64::from(meta.height))
+                    .saturating_mul(u64::from(meta.components))
+                    .saturating_mul(5)
+            }),
+        "png" => read_png_metadata(
+            bytes,
+            PassthroughLimits {
+                max_pixels,
+                max_dimension: u32::MAX,
+                max_icc_profile_bytes: MAX_PNG_ICC_PROFILE_BYTES,
+            },
+        )
+        .ok()
+        .map_or(0, |meta| {
+            let pixels = u64::from(meta.width).saturating_mul(u64::from(meta.height));
+            match compression {
+                PdfImageCompression::Auto => {
+                    if meta.transparency.is_some()
+                        || matches!(
+                            meta.color_type,
+                            PngColorType::Indexed | PngColorType::GrayAlpha8 | PngColorType::Rgba8
+                        )
+                    {
+                        // Compositing onto white decodes into a 3 Bpp RGB buffer and may
+                        // also allocate a 1 Bpp grayscale copy while RGB is still live.
+                        pixels.saturating_mul(4)
+                    } else {
+                        // Fast IDAT passthrough allocates only the compressed IDAT bytes.
+                        bytes.len() as u64
+                    }
+                }
+                PdfImageCompression::Jpeg { .. }
+                | PdfImageCompression::JpegWithFlateFallback { .. } => {
+                    let factor = match meta.color_type {
+                        PngColorType::Gray8 if meta.transparency.is_none() => 1u64,
+                        PngColorType::Rgb8 | PngColorType::Indexed
+                            if meta.transparency.is_none() =>
+                        {
+                            4u64
+                        }
+                        _ => 3u64,
+                    };
+                    pixels.saturating_mul(factor)
+                }
+            }
+        }),
+        // The raster is borrowed from the reserved source bytes.
+        "pgm" | "ppm" => parse_netpbm(bytes, max_pixels).ok().map_or(0, |netpbm| {
+            estimate_netpbm_page_encode_bytes(
+                netpbm.width,
+                netpbm.height,
+                netpbm.channels,
+                compression,
+            )
+        }),
+        // `parse_pbm_p4` copies the bitmap before `BilevelStream::encode`.
+        "pbm" => estimate_pbm_bytes_encode_bytes(bytes, max_pixels),
+        _ => 0,
+    }
+}
+
+/// Peak heap, beyond the source raster, while one Netpbm raster becomes a PDF
+/// image stream: the shared Flate working set for automatic pages, the JPEG
+/// candidate for JPEG pages, and both when a Flate fallback is compared.
+#[cfg(not(target_family = "wasm"))]
+pub(crate) fn estimate_netpbm_page_encode_bytes(
+    width: u32,
+    height: u32,
+    channels: u8,
+    compression: PdfImageCompression,
+) -> u64 {
+    let bytes_per_row = u64::from(width).saturating_mul(u64::from(channels));
+    let raster_bytes = bytes_per_row.saturating_mul(u64::from(height));
+    let flate = estimate_up_filtered_flate_working_set_bytes(bytes_per_row, u64::from(height));
+    match compression {
+        PdfImageCompression::Auto => flate,
+        PdfImageCompression::Jpeg { .. } => raster_bytes,
+        PdfImageCompression::JpegWithFlateFallback { .. } => raster_bytes.saturating_add(flate),
+    }
+}
+
+/// Heap for a byte-backed PBM P4 page or mask: the bitmap copy made by
+/// `parse_pbm_p4` plus the shared bilevel encoding peak. Reads only the
+/// header.
+#[cfg(not(target_family = "wasm"))]
+pub(crate) fn estimate_pbm_bytes_encode_bytes(bytes: &[u8], max_pixels: u64) -> u64 {
+    probe_pbm_p4_header(bytes, max_pixels)
+        .ok()
+        .map_or(0, |header| {
+            (header.data_size as u64).saturating_add(estimate_bilevel_encode_peak_bytes(
+                header.width,
+                header.height,
+            ))
+        })
+}
+
 pub(crate) fn visit_image_pages_from_file(
     path: &Path,
     file: File,
     max_pixels: u64,
     default_dpi: Option<u32>,
     max_tiff_frames: usize,
+    budget: Option<TiffBudget<'_, '_>>,
     mut on_page: impl FnMut(ImagePage) -> Result<()>,
 ) -> Result<usize> {
     let extension = image_extension(path);
     if is_tiff_extension(&extension) {
-        return visit_tiff_pdf_pages_from_file(
+        return visit_tiff_pdf_pages_from_file_budgeted(
             file,
             &path.display().to_string(),
             max_pixels,
             default_dpi,
             max_tiff_frames,
+            budget,
             on_page,
         );
     }
@@ -123,9 +248,42 @@ pub(crate) fn visit_image_pages_from_file(
     Ok(1)
 }
 
-pub(crate) fn read_image_page_from_file(
+pub(crate) fn visit_image_pages_from_loaded_file_bytes(
     path: &Path,
-    file: File,
+    bytes: Vec<u8>,
+    max_pixels: u64,
+    default_dpi: Option<u32>,
+    max_tiff_frames: usize,
+    budget: Option<TiffBudget<'_, '_>>,
+    mut on_page: impl FnMut(ImagePage) -> Result<()>,
+) -> Result<usize> {
+    let extension = image_extension(path);
+    if is_tiff_extension(&extension) {
+        return visit_tiff_pdf_pages_from_bytes_budgeted(
+            &bytes,
+            max_pixels,
+            default_dpi,
+            max_tiff_frames,
+            budget,
+            on_page,
+        );
+    }
+
+    let page = match extension.as_str() {
+        "png" => read_png_page_from_bytes(&bytes, max_pixels, default_dpi)?,
+        "jpg" | "jpeg" => read_jpeg_page(bytes, max_pixels, default_dpi)?,
+        "jp2" => read_jpx_page(bytes, max_pixels, default_dpi)?,
+        "pgm" | "ppm" => read_netpbm_page(&bytes, max_pixels, default_dpi.unwrap_or(DEFAULT_DPI))?,
+        _ => return Err(format!("Unsupported image extension: {}", path.display()).into()),
+    };
+
+    on_page(page)?;
+    Ok(1)
+}
+
+pub(crate) fn read_image_page_from_loaded_file_bytes(
+    path: &Path,
+    bytes: Vec<u8>,
     options: &PdfBuildOptions,
     compression: PdfImageCompression,
     processing: ImageProcessing,
@@ -143,8 +301,8 @@ pub(crate) fn read_image_page_from_file(
                 compression,
                 PdfImageCompression::JpegWithFlateFallback { .. }
             );
-            read_netpbm_jpeg_page_from_file(
-                file,
+            read_netpbm_jpeg_page(
+                &bytes,
                 options.max_pixels,
                 options.default_dpi.unwrap_or(DEFAULT_DPI),
                 quality,
@@ -164,7 +322,7 @@ pub(crate) fn read_image_page_from_file(
                 PdfImageCompression::JpegWithFlateFallback { .. }
             );
             read_png_jpeg_page(
-                &read_file(file)?,
+                &bytes,
                 options.max_pixels,
                 options.default_dpi,
                 quality,
@@ -174,23 +332,49 @@ pub(crate) fn read_image_page_from_file(
                 use_flate_fallback,
             )
         }
-        ("jpg" | "jpeg", _) => {
-            read_jpeg_page(read_file(file)?, options.max_pixels, options.default_dpi)
-        }
+        ("jpg" | "jpeg", _) => read_jpeg_page(bytes, options.max_pixels, options.default_dpi),
         ("jp2", PdfImageCompression::Auto) => {
-            read_jpx_page(read_file(file)?, options.max_pixels, options.default_dpi)
+            read_jpx_page(bytes, options.max_pixels, options.default_dpi)
         }
-        ("pgm" | "ppm", _) => read_netpbm_page_from_file(
-            file,
+        ("pgm" | "ppm", _) => read_netpbm_page(
+            &bytes,
             options.max_pixels,
             options.default_dpi.unwrap_or(DEFAULT_DPI),
         ),
-        ("png", PdfImageCompression::Auto) => read_png_page_from_reader(
-            BufReader::new(file),
-            options.max_pixels,
-            options.default_dpi,
-        ),
+        ("png", PdfImageCompression::Auto) => {
+            read_png_page_from_bytes(&bytes, options.max_pixels, options.default_dpi)
+        }
         _ => Err(format!("Unsupported image extension: {}", path.display()).into()),
+    }
+}
+
+pub(crate) fn read_owned_netpbm_page(
+    owned: &OwnedNetpbm,
+    options: &PdfBuildOptions,
+    compression: PdfImageCompression,
+    processing: ImageProcessing,
+    page_size: Option<PdfPageSize>,
+    size_guardrail: Option<JpegSizeGuardrail>,
+) -> Result<ImagePage> {
+    let netpbm = owned_netpbm_data(owned);
+    match compression {
+        PdfImageCompression::Jpeg { quality }
+        | PdfImageCompression::JpegWithFlateFallback { quality } => read_netpbm_jpeg_page_data(
+            &netpbm,
+            options.max_pixels,
+            options.default_dpi.unwrap_or(DEFAULT_DPI),
+            quality,
+            processing,
+            page_size,
+            size_guardrail,
+            matches!(
+                compression,
+                PdfImageCompression::JpegWithFlateFallback { .. }
+            ),
+        ),
+        PdfImageCompression::Auto => {
+            read_netpbm_page_data(&netpbm, options.default_dpi.unwrap_or(DEFAULT_DPI))
+        }
     }
 }
 
@@ -200,6 +384,7 @@ pub(crate) fn visit_image_pages_from_bytes(
     max_pixels: u64,
     default_dpi: Option<u32>,
     max_tiff_frames: usize,
+    budget: Option<TiffBudget<'_, '_>>,
     mut on_page: impl FnMut(ImagePage) -> Result<()>,
 ) -> Result<usize> {
     let extension = file_name
@@ -208,11 +393,12 @@ pub(crate) fn visit_image_pages_from_bytes(
         .unwrap_or("")
         .to_ascii_lowercase();
     if is_tiff_extension(&extension) {
-        return visit_tiff_pdf_pages_from_bytes(
+        return visit_tiff_pdf_pages_from_bytes_budgeted(
             bytes,
             max_pixels,
             default_dpi,
             max_tiff_frames,
+            budget,
             on_page,
         );
     }
@@ -311,7 +497,7 @@ pub(crate) fn read_image_page_from_bytes(
     }
 }
 
-fn read_file(file: File) -> Result<Vec<u8>> {
+pub(crate) fn read_file(file: File) -> Result<Vec<u8>> {
     read_open_file_bounded(file, max_image_input_bytes(), "image input").map_err(Into::into)
 }
 
@@ -321,8 +507,16 @@ fn read_png_page_from_reader<R: std::io::Read>(
     default_dpi: Option<u32>,
 ) -> Result<ImagePage> {
     let bytes = read_bounded_reader(reader)?;
+    read_png_page_from_bytes(&bytes, max_pixels, default_dpi)
+}
+
+fn read_png_page_from_bytes(
+    bytes: &[u8],
+    max_pixels: u64,
+    default_dpi: Option<u32>,
+) -> Result<ImagePage> {
     let metadata = read_png_metadata(
-        bytes.as_slice(),
+        bytes,
         PassthroughLimits {
             max_pixels,
             max_dimension: u32::MAX,
@@ -337,11 +531,11 @@ fn read_png_page_from_reader<R: std::io::Read>(
             PngColorType::Indexed | PngColorType::GrayAlpha8 | PngColorType::Rgba8
         )
     {
-        return png_composited_flate_page(&bytes, metadata, max_pixels, default_dpi);
+        return png_composited_flate_page(bytes, metadata, max_pixels, default_dpi);
     }
 
     match read_png_passthrough(
-        bytes.as_slice(),
+        bytes,
         PassthroughLimits {
             max_pixels,
             max_dimension: u32::MAX,
@@ -349,7 +543,7 @@ fn read_png_page_from_reader<R: std::io::Read>(
         },
     ) {
         Ok(png) => Ok(png_flate_page(png, default_dpi)),
-        Err(_) => png_normalized_flate_page(&bytes, metadata, max_pixels, default_dpi),
+        Err(_) => png_normalized_flate_page(bytes, metadata, max_pixels, default_dpi),
     }
 }
 
@@ -487,9 +681,7 @@ fn png_normalized_flate_page(
 fn read_jpeg_page(bytes: Vec<u8>, max_pixels: u64, default_dpi: Option<u32>) -> Result<ImagePage> {
     let metadata = parse_jpeg_metadata(&bytes)?;
     assert_pixel_limit(metadata.width, metadata.height, max_pixels)?;
-    with_image_decode_admission(|| {
-        validate_jpeg_decodable(&bytes, metadata.width, metadata.height)
-    })?;
+    validate_jpeg_decodable(&bytes, metadata.width, metadata.height)?;
     let color_space = match metadata.components {
         1 => "DeviceGray",
         3 => "DeviceRGB",
@@ -518,7 +710,7 @@ fn read_jpeg_page(bytes: Vec<u8>, max_pixels: u64, default_dpi: Option<u32>) -> 
 fn read_jpx_page(bytes: Vec<u8>, max_pixels: u64, default_dpi: Option<u32>) -> Result<ImagePage> {
     let metadata = parse_jpx_metadata(&bytes)?;
     assert_pixel_limit(metadata.width, metadata.height, max_pixels)?;
-    with_image_decode_admission(|| validate_jpx_codestream(&bytes, metadata))?;
+    validate_jpx_codestream(&bytes, metadata)?;
     let dpi = default_dpi.unwrap_or(DEFAULT_DPI);
     Ok(ImagePage {
         width: metadata.width,
@@ -535,6 +727,7 @@ fn read_jpx_page(bytes: Vec<u8>, max_pixels: u64, default_dpi: Option<u32>) -> R
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn read_png_jpeg_page(
     bytes: &[u8],
     max_pixels: u64,
@@ -759,6 +952,7 @@ fn encode_prepared_netpbm_as_flate(prepared: &PreparedNetpbmPixels<'_>) -> Resul
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn read_netpbm_jpeg_page(
     bytes: &[u8],
     max_pixels: u64,
@@ -782,29 +976,6 @@ fn read_netpbm_jpeg_page(
     )
 }
 
-fn read_netpbm_jpeg_page_from_file(
-    file: File,
-    max_pixels: u64,
-    dpi: u32,
-    quality: u8,
-    processing: ImageProcessing,
-    page_size: Option<PdfPageSize>,
-    size_guardrail: Option<JpegSizeGuardrail>,
-    use_flate_fallback: bool,
-) -> Result<ImagePage> {
-    let owned = read_netpbm_file(file, max_pixels)?;
-    read_netpbm_jpeg_page_data(
-        &owned_netpbm_data(&owned),
-        max_pixels,
-        dpi,
-        quality,
-        processing,
-        page_size,
-        size_guardrail,
-        use_flate_fallback,
-    )
-}
-
 fn owned_netpbm_data(owned: &OwnedNetpbm) -> NetpbmData<'_> {
     NetpbmData {
         width: owned.width,
@@ -814,6 +985,7 @@ fn owned_netpbm_data(owned: &OwnedNetpbm) -> NetpbmData<'_> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn read_netpbm_jpeg_page_data(
     netpbm: &NetpbmData<'_>,
     max_pixels: u64,
@@ -1003,11 +1175,9 @@ pub fn recompress_jpeg(
         .set_max_width(metadata.width as usize)
         .set_max_height(metadata.height as usize)
         .jpeg_set_out_colorspace(color_space);
-    let pixels = with_image_decode_admission(|| {
-        JpegDecoder::new_with_options(Cursor::new(bytes), options)
-            .decode()
-            .map_err(|error| format!("JPEG scan data is not decodable: {error}").into())
-    })?;
+    let pixels = JpegDecoder::new_with_options(Cursor::new(bytes), options)
+        .decode()
+        .map_err(|error| format!("JPEG scan data is not decodable: {error}"))?;
     if pixels.len() != metadata.width as usize * metadata.height as usize * channels as usize {
         return Err("Decoded JPEG does not match its frame size".into());
     }
@@ -1314,39 +1484,86 @@ mod tests {
         io::{Read, Write},
         sync::{
             atomic::{AtomicUsize, Ordering},
-            Arc, Barrier,
+            Arc, Barrier, Condvar, Mutex,
         },
         thread,
-        time::Duration,
+        time::{Duration, Instant},
     };
 
+    #[cfg(not(target_family = "wasm"))]
     #[test]
-    fn full_image_decode_admission_is_single_slot() {
+    fn decode_budget_allows_parallel_decodes_within_byte_limit_and_caps_oversized_concurrency() {
+        let budget = crate::PipelineBudget::new(8, 2_048);
         let active = Arc::new(AtomicUsize::new(0));
         let maximum = Arc::new(AtomicUsize::new(0));
-        let start = Arc::new(Barrier::new(4));
-        let threads = (0..4)
-            .map(|_| {
+        let sync = Arc::new((Mutex::new((0usize, false)), Condvar::new()));
+
+        // Four 512-byte decodes fit inside 2_048 bytes and must all execute concurrently.
+        thread::scope(|scope| {
+            for seq in 0..4 {
+                let budget = &budget;
+                let active = Arc::clone(&active);
+                let maximum = Arc::clone(&maximum);
+                let sync = Arc::clone(&sync);
+                scope.spawn(move || {
+                    let _guard = budget.reserve_standalone_bytes(seq, 512).unwrap();
+                    let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+                    maximum.fetch_max(now, Ordering::SeqCst);
+                    {
+                        let (lock, cv) = &*sync;
+                        let mut state = lock.lock().unwrap();
+                        state.0 += 1;
+                        if state.0 == 4 {
+                            state.1 = true;
+                            cv.notify_all();
+                        } else {
+                            let deadline = Instant::now() + Duration::from_secs(5);
+                            while !state.1 {
+                                let remaining = deadline.saturating_duration_since(Instant::now());
+                                if remaining.is_zero() {
+                                    state.1 = true;
+                                    cv.notify_all();
+                                    break;
+                                }
+                                let (next_state, wait_res) =
+                                    cv.wait_timeout(state, remaining).unwrap();
+                                state = next_state;
+                                if wait_res.timed_out() && !state.1 {
+                                    state.1 = true;
+                                    cv.notify_all();
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    active.fetch_sub(1, Ordering::SeqCst);
+                });
+            }
+        });
+        assert_eq!(maximum.load(Ordering::SeqCst), 4);
+
+        // Two 1_536-byte decodes exceed 2_048 bytes combined, so at most one runs at a time.
+        let capped_budget = crate::PipelineBudget::new(8, 2_048);
+        let active = Arc::new(AtomicUsize::new(0));
+        let maximum = Arc::new(AtomicUsize::new(0));
+        let start = Arc::new(Barrier::new(2));
+        thread::scope(|scope| {
+            for seq in 0..2 {
+                let capped_budget = &capped_budget;
                 let active = Arc::clone(&active);
                 let maximum = Arc::clone(&maximum);
                 let start = Arc::clone(&start);
-                thread::spawn(move || {
+                scope.spawn(move || {
                     start.wait();
-                    with_image_decode_admission(|| {
-                        let now = active.fetch_add(1, Ordering::SeqCst) + 1;
-                        maximum.fetch_max(now, Ordering::SeqCst);
-                        thread::sleep(Duration::from_millis(10));
-                        active.fetch_sub(1, Ordering::SeqCst);
-                        Ok(())
-                    })
-                    .unwrap();
-                })
-            })
-            .collect::<Vec<_>>();
-        for thread in threads {
-            thread.join().unwrap();
-        }
-
+                    let _guard = capped_budget.reserve_standalone_bytes(seq, 1_536).unwrap();
+                    let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+                    maximum.fetch_max(now, Ordering::SeqCst);
+                    thread::sleep(Duration::from_millis(10));
+                    active.fetch_sub(1, Ordering::SeqCst);
+                    drop(_guard);
+                });
+            }
+        });
         assert_eq!(maximum.load(Ordering::SeqCst), 1);
     }
 
