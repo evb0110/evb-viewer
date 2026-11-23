@@ -1346,4 +1346,40 @@ describe('useDocumentViewportLayoutLifecycle reading point', () => {
         expect(reader.readLogicalTop()).toBeCloseTo(zoomedTop, 5);
         reader.stop();
     });
+
+    it('settles the layout receipt at once without a restore and after the restore frame with one', async () => {
+        const reader = createReader();
+        reader.userScroll(250);
+        const settled: string[] = [];
+        // An unchanged box queues no restore: nothing to wait for.
+        void reader.lifecycle.whenRestored().then(() => settled.push('unchanged'));
+        await nextTick();
+        expect(settled).toEqual(['unchanged']);
+
+        // A wider box lays the pages out larger; the watcher queues the restore.
+        reader.pageLayouts.value = pageLayoutsAt(1.5);
+        await nextTick();
+        void reader.lifecycle.whenRestored().then(() => settled.push('resized'));
+        await nextTick();
+        await nextTick();
+        expect(settled).toEqual(['unchanged']);
+        await reader.flush();
+
+        expect(settled).toEqual(['unchanged', 'resized']);
+        // The viewport centre the reader saw, 60% down page 3, is the centre in the new layout.
+        expect(reader.readLogicalTop()).toBeCloseTo(2 * 170 + 0.6 * 150 - 50, 5);
+        reader.stop();
+    });
+
+    it('settles a queued restore receipt when the view closes before its frame', async () => {
+        const reader = createReader();
+        reader.userScroll(250);
+        reader.pageLayouts.value = pageLayoutsAt(1.5);
+        await nextTick();
+        const receipt = reader.lifecycle.whenRestored();
+
+        reader.stop();
+
+        await expect(receipt).resolves.toBeUndefined();
+    });
 });

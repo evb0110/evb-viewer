@@ -4,6 +4,7 @@ import {
     type IDocumentNavigationTicket,
     type TDocumentNavigationOutcome,
 } from '@app/modules/document-viewer/navigation/documentNavigationRequest';
+import type { WatchStopHandle } from 'vue';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import type {
     IDocumentOpenSurfaceIdentity,
@@ -144,6 +145,30 @@ function resolveOpeningPresentation(
         return 'page-shell';
     }
     return snapshot.presentation === 'failed' ? 'idle' : snapshot.presentation;
+}
+
+/**
+ * Settles once the opening the surface shows has placed its first point: the
+ * placement commit of its navigation ticket, or the ticket's end when it
+ * places nothing. A surface that is not opening, or whose opening has no
+ * ticket yet, has nothing to wait for. `isLive` is reactive: the wait ends,
+ * and its watcher stops, once the view waiting is hidden or unmounted.
+ */
+export async function whenDocumentOpeningPlaced(
+    surface: Pick<IDocumentOpenSurfaceSession, 'navigationTicket' | 'snapshot' | 'viewportSession'>,
+    isLive: () => boolean = () => true,
+) {
+    const ticket = surface.viewportSession.value.lifecycle === 'opening' ? surface.navigationTicket.value : null;
+    const isSettled = () => !isLive() || surface.snapshot.value.committedViewport?.viewportIntentId === ticket?.id;
+    if (!ticket || isSettled()) return;
+    let stop: WatchStopHandle | undefined;
+    await Promise.race([
+        ticket.finished,
+        new Promise<void>((resolve) => {
+            stop = watch(isSettled, settled => settled && resolve(), {flush: 'sync'});
+        }),
+    ]);
+    stop?.();
 }
 
 export function isDocumentOpenEmptySurfaceTransition(snapshot: IDocumentOpenSurfaceSnapshot) {

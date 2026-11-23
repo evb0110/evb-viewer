@@ -45,11 +45,14 @@ import {
     provideDocumentContext,
     useDocumentContextRegistry,
 } from '@app/modules/workspace-shell/documentContext';
+import { createViewLayoutReceipt } from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
 
 interface IDocumentViewContextDeps {
     tabId: string;
     controller: IWorkspaceDocumentController;
     isActive: Ref<boolean>;
+    /** Shown in its pane, whether or not that pane has focus. */
+    isShown: Readonly<Ref<boolean>>;
     openSurface: IDocumentOpenSurfaceSession;
     /** Runs a user open as the document controller's open transaction in this view. */
     runDocumentOpen: (request: IWorkspaceOpenRequest, run: () => Promise<TDocumentOpenOutcome>) => Promise<boolean>;
@@ -555,6 +558,12 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         closeAllDropdowns: view.closeAllDropdowns,
         emitOpenInNewTab: deps.emitOpenInNewTab,
     });
+    const whenLayoutPlaced = createViewLayoutReceipt({
+        controller,
+        openSurface,
+        isShown: deps.isShown,
+        viewer: () => documentViewerRef.value,
+    });
     const viewContext = {
         document,
         tabId,
@@ -564,6 +573,7 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         preserveInitialStateForFirstSource,
         openSurface,
         isActive,
+        whenLayoutPlaced,
         runDocumentOpen: deps.runDocumentOpen,
         emitOpenInNewTab: deps.emitOpenInNewTab,
         view,

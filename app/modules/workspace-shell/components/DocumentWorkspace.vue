@@ -230,6 +230,7 @@ const context = createDocumentViewContext({
     tabId,
     controller: documentSession,
     isActive: computed(() => isActive),
+    isShown: computed(() => isActive || isRenderActive),
     openSurface: documentOpenSurface,
     runDocumentOpen: (request, run) => documentLifecycle.runOpen(request, run),
     emitOpenInNewTab: result => emit('open-in-new-tab', result),

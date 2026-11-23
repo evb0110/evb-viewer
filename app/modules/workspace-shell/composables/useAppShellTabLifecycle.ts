@@ -6,7 +6,6 @@ import type {
 import { uniq } from 'es-toolkit/array';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { until } from '@vueuse/core';
-import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import type { IEditorPaneState } from '@contracts/editorPanes';
 import { parseTabId } from '@contracts/windowTabs';
@@ -18,6 +17,7 @@ import {
     type IWorkspaceDocumentController,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { rememberReadingView } from '@app/modules/workspace-shell/document-sessions/recentReadingView';
+import type { TChangeWorkspaceLayout } from '@app/modules/workspace-shell/composables/workspaceLayoutChange';
 
 interface IUseAppShellTabLifecycleOptions {
     panes: Ref<IEditorPaneState[]>;
@@ -34,9 +34,11 @@ interface IUseAppShellTabLifecycleOptions {
     closeTab: (paneId: string, tabId: string) => void;
     closePane: (paneId: string) => void;
     requestDirtyTabCloseConfirmation: (tabId: string) => Promise<TDirtyCloseDecision>;
+    changeWorkspaceLayout: TChangeWorkspaceLayout;
 }
 
 type TEndRelease = ReturnType<IWorkspaceDocumentController['releaseJobs']> | null;
+type TLayoutFence = Parameters<Parameters<TChangeWorkspaceLayout>[0]>[0];
 
 interface ICloseHandoffTarget {
     paneId: string;
@@ -378,11 +380,23 @@ export const useAppShellTabLifecycle = (
         closeTab(paneId, tabId);
     }
 
-    function closeResolvedTabInState(paneId: string, tabId: string) {
-        const resolvedPane = getPaneByTabId(tabId) ?? getPaneById(paneId);
-        if (resolvedPane) {
-            closeTabInState(resolvedPane.paneId, tabId);
+    /**
+     * Removes the tab, then any pane left empty, and hands focus on. Removing
+     * a split pane's last tab removes its pane: the grid replaces the split
+     * with one slot and moves the remaining pane into it, as a split moves
+     * the source pane, so the close fences that layout change. The final tab of
+     * a closed document stays as the required empty-tab slot: it keeps its
+     * mounted workspace, so Start stays actionable in the close commit.
+     */
+    async function commitTabClose(paneId: string, tabId: string, handoff: ICloseHandoffTarget | null, keepsFinalTab: boolean, fence: TLayoutFence) {
+        const pane = getPaneByTabId(tabId) ?? getPaneById(paneId);
+        const closesTab = pane !== null && !(keepsFinalTab && panes.value.length === 1 && pane.tabIds.length === 1 && pane.tabIds[0] === tabId);
+        if (pane && closesTab && panes.value.length > 1 && pane.tabIds.length === 1) {
+            await fence();
         }
+        if (pane && closesTab) closeTabInState(pane.paneId, tabId);
+        cleanupEmptyPanes();
+        activateCloseHandoff(handoff);
     }
 
     function activateCloseHandoff(closeHandoffTarget: ICloseHandoffTarget | null) {
@@ -401,26 +415,17 @@ export const useAppShellTabLifecycle = (
         activateHandoffTarget(targetPane.paneId, targetTab.id);
     }
 
-    async function closeWorkspaceDocument(paneId: string, tabId: string, endRelease: TEndRelease) {
+    async function closeWorkspaceDocument(tabId: string, endRelease: TEndRelease) {
         const controller = getDocumentSession(tabId);
         // A Save or Cancel keeps the document, which publishes the revision its Close ended again first.
-        if (!controller || !await controller.close({decide: async () => {
+        return Boolean(controller && await controller.close({decide: async () => {
             const decision = await requestDirtyTabCloseConfirmation(tabId);
             endRelease?.(decision !== 'discard');
             return decision;
-        }})) {
-            return false;
-        }
-        const pane = getPaneByTabId(tabId) ?? getPaneById(paneId);
-        // The final tab is the product's required empty-tab slot. It keeps its
-        // mounted workspace, so Start stays actionable in the close commit.
-        if (panes.value.length !== 1 || pane?.tabIds.length !== 1 || pane.tabIds[0] !== tabId) {
-            closeResolvedTabInState(paneId, tabId);
-        }
-        return true;
+        }}));
     }
 
-    async function closeTabDuringTransition(paneId: string, tabId: string, endRelease: TEndRelease = null) {
+    async function closeTabDuringTransition(paneId: string, tabId: string, fence: TLayoutFence, endRelease: TEndRelease = null) {
         const tab = getTabById(tabId);
         if (!tab) {
             return;
@@ -440,7 +445,7 @@ export const useAppShellTabLifecycle = (
             if ((getDocumentSession(tabId)?.views.value.size ?? 0) < 2) {
                 const endRelease = getDocumentSession(tabId)?.releaseJobs() ?? null;
                 try {
-                    await closeTabDuringTransition(paneId, tabId, endRelease);
+                    await closeTabDuringTransition(paneId, tabId, fence, endRelease);
                 } finally {
                     endRelease?.(true);
                 }
@@ -448,24 +453,11 @@ export const useAppShellTabLifecycle = (
             }
         }
 
-        if (closesDocument && tabOccupied(tabId)) {
-            if (!await closeWorkspaceDocument(paneId, tabId, endRelease)) {
-                return;
-            }
-        } else {
-            closeResolvedTabInState(paneId, tabId);
+        const closesDocumentInTab = closesDocument && tabOccupied(tabId);
+        if (closesDocumentInTab && !await closeWorkspaceDocument(tabId, endRelease)) {
+            return;
         }
-
-        const paneCountBeforeCleanup = panes.value.length;
-        cleanupEmptyPanes();
-        activateCloseHandoff(closeHandoffTarget);
-        if (panes.value.length < paneCountBeforeCleanup) {
-            // Closing the last tab in a split changes the track width after the
-            // Vue patch. Keep the transition fence open through the same two
-            // painted frames used when creating the split so the retained
-            // document anchor can be restored after the collapse settles.
-            await waitForVisualFrames({frames: 2});
-        }
+        await commitTabClose(paneId, tabId, closeHandoffTarget, closesDocumentInTab, fence);
     }
 
     async function handleCloseTab(paneId: string, tabId: string) {
@@ -483,17 +475,19 @@ export const useAppShellTabLifecycle = (
         // The last view's Close ends its document's running jobs until it decides, so a reader that never returns
         // cannot hold the question (#1598). A linked view's close takes no lease and waits for nothing.
         const endRelease = closing && closing.views.value.size < 2 ? closing.releaseJobs() : null;
-        const transition = (async () => {
+        // A close that collapses a split ends once the views are placed, after
+        // its tab transition, so the views see the fence fall with it.
+        const transition = options.changeWorkspaceLayout(async (fence) => {
             if (endRelease) await waitForTabOperationsToSettle(tabId);
             await enqueueTabTransition(
-                () => closeTabDuringTransition(paneId, tabId, endRelease),
+                () => closeTabDuringTransition(paneId, tabId, fence, endRelease),
                 {
                     action: 'close-tab',
                     paneId,
                     tabId,
                 },
             );
-        })().finally(() => endRelease?.(true));
+        }).finally(() => endRelease?.(true));
         pendingCloseTransitions.set(tabId, transition);
         try {
             await transition;

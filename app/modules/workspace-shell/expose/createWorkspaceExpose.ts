@@ -367,6 +367,7 @@ export function createWorkspaceExpose(
             view.documentViewerRef.value?.scrollToPage(page);
         },
         captureReadingAnchor: () => view.documentViewerRef.value?.captureReadingAnchor?.() ?? null,
+        whenLayoutPlaced: viewContext.whenLayoutPlaced,
         followReader: () => {
             // The reader outranks a restored place: their navigation, or a move of
             // the view (scroll, wheel, press, view command) since this began, leaves

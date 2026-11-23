@@ -1296,6 +1296,15 @@ export const useDocumentPageSourceRuntime = (options: {
             getCurrentPage: () => currentPage.value,
             isDocumentLoading: () => isLoading.value,
             scrollToPage,
+            // A box the ResizeObserver has not delivered yet is measured now;
+            // the layout watcher then queues its restore in the next flush. An
+            // unchanged, hidden or closed view has no restore to wait for.
+            whenLayoutPlaced: async () => {
+                if (!props.value.isActive) return;
+                measureViewport();
+                await nextTick();
+                await layoutLifecycle.whenRestored();
+            },
             captureReadingAnchor: (): IPdfSemanticAnchor | null => {
                 const anchor = layoutLifecycle.readReadingPoint();
                 return anchor ? {

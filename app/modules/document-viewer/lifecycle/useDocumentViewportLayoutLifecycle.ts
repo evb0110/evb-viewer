@@ -61,7 +61,8 @@ export const useDocumentViewportLayoutLifecycle = (
     // again inside one restore frame. The epoch cannot tell those cancels
     // apart, so the generation fences the frames and ticks they cancel.
     let restoreGeneration = 0;
-    let restoreScheduled = false;
+    // The scheduled restore frame, settled once it ran or the view closed.
+    let restoreFrame: PromiseWithResolvers<void> | null = null;
     let disposed = false;
     let pointerAnchorReleaseTimer: ReturnType<typeof setTimeout> | null = null;
     let lastPointerAnchorPacketAt = 0;
@@ -174,29 +175,34 @@ export const useDocumentViewportLayoutLifecycle = (
             generation: restoreGeneration,
             pointerAnchor,
         };
-        if (restoreScheduled) {
+        if (restoreFrame) {
             return;
         }
-        restoreScheduled = true;
+        const frame = Promise.withResolvers<void>();
+        restoreFrame = frame;
         void nextTick(() => {
             requestAnimationFrame(() => {
-                restoreScheduled = false;
+                restoreFrame = null;
                 const pending = pendingRestore;
                 pendingRestore = null;
-                if (disposed) {
-                    return;
-                }
-                if (pending?.generation === restoreGeneration) {
-                    const isPointerRestore = activePointerAnchor !== null || pending.pointerAnchor !== null;
-                    // A layout transaction holds its centre point until it ends and commits,
-                    // except after a pointer zoom whose new centre replaces the pre-zoom one.
-                    applyAnchor(activePointerAnchor ?? pending.pointerAnchor ?? activeLayoutTransaction?.pointerAnchor ?? readingPoint, pending.epoch, {
-                        commit: activeLayoutTransaction === null || isPointerRestore,
-                    });
-                }
-                if (isResizeTransitionActive.value && !options.isResizing?.value) {
-                    isResizeTransitionActive.value = false;
-                    options.onResizeSettled?.();
+                try {
+                    if (disposed) {
+                        return;
+                    }
+                    if (pending?.generation === restoreGeneration) {
+                        const isPointerRestore = activePointerAnchor !== null || pending.pointerAnchor !== null;
+                        // A layout transaction holds its centre point until it ends and commits,
+                        // except after a pointer zoom whose new centre replaces the pre-zoom one.
+                        applyAnchor(activePointerAnchor ?? pending.pointerAnchor ?? activeLayoutTransaction?.pointerAnchor ?? readingPoint, pending.epoch, {
+                            commit: activeLayoutTransaction === null || isPointerRestore,
+                        });
+                    }
+                    if (isResizeTransitionActive.value && !options.isResizing?.value) {
+                        isResizeTransitionActive.value = false;
+                        options.onResizeSettled?.();
+                    }
+                } finally {
+                    frame.resolve();
                 }
             });
         });
@@ -382,6 +388,7 @@ export const useDocumentViewportLayoutLifecycle = (
     onScopeDispose(() => {
         disposed = true;
         pendingRestore = null;
+        restoreFrame?.resolve();
         if (pointerAnchorReleaseTimer !== null) clearTimeout(pointerAnchorReleaseTimer);
     });
 
@@ -395,6 +402,8 @@ export const useDocumentViewportLayoutLifecycle = (
         isResizeTransitionActive,
         preserveLayoutMutation,
         readReadingPoint: () => readingPoint,
+        /** Settles after the scheduled restore frame has placed the reading point, or at once when none is scheduled. */
+        whenRestored: () => restoreFrame?.promise ?? Promise.resolve(),
         resetReadingPoint,
         resume,
         suspend,
