@@ -64,6 +64,9 @@ function getTask(): TDjvuPdfWorkerTask {
                 type: 'estimatePdfSize',
                 imagePath: task.imagePath,
                 dpi: task.dpi,
+                ...(isFiniteNumber(task.combineThreads) && task.combineThreads > 0
+                    ? { combineThreads: Math.floor(task.combineThreads) }
+                    : {}),
             };
         case 'embedBookmarksInFile':
             if (
@@ -114,7 +117,10 @@ async function runTask(
                 } satisfies TDjvuPdfWorkerMessage);
             }, {signal});
         case 'estimatePdfSize': {
-            const pdfBytes = await buildOptimizedPdf([task.imagePath], task.dpi, undefined, {signal});
+            const pdfBytes = await buildOptimizedPdf([task.imagePath], task.dpi, undefined, {
+                signal,
+                ...(task.combineThreads === undefined ? {} : { combineThreads: task.combineThreads }),
+            });
             return pdfBytes.length;
         }
     }

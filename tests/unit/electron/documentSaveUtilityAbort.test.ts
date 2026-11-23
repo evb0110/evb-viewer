@@ -172,6 +172,7 @@ describe('runDocumentSaveUtilityProcess cancellation', () => {
                     ioWeight: 1,
                 },
                 release,
+                shrink: () => false,
             },
         });
 
@@ -211,6 +212,7 @@ describe('runDocumentSaveUtilityProcess cancellation', () => {
                     ioWeight: 1,
                 },
                 release,
+                shrink: () => false,
             },
         });
 
@@ -259,6 +261,7 @@ describe('runDocumentSaveUtilityProcess cancellation', () => {
                     ioWeight: 1,
                 },
                 release,
+                shrink: () => false,
             },
         });
 
@@ -299,6 +302,7 @@ describe('runDocumentSaveUtilityProcess cancellation', () => {
                     ioWeight: 1,
                 },
                 release,
+                shrink: () => false,
             },
         });
 
@@ -338,6 +342,7 @@ describe('runDocumentSaveUtilityProcess cancellation', () => {
                     ioWeight: 1,
                 },
                 release,
+                shrink: () => false,
             },
         });
 
@@ -390,6 +395,7 @@ describe('runDocumentSaveUtilityProcess cancellation', () => {
                     ioWeight: 1,
                 },
                 release,
+                shrink: () => false,
             },
         });
 
@@ -470,6 +476,7 @@ describe('runDocumentSaveUtilityProcess cancellation', () => {
                     ioWeight: 1,
                 },
                 release,
+                shrink: () => false,
             },
         });
         const rejection = result.catch(value => value);
@@ -530,6 +537,7 @@ describe('runDocumentSaveUtilityProcess cancellation', () => {
                     ioWeight: 1,
                 },
                 release,
+                shrink: () => false,
             },
         });
         const rejection = result.catch(value => value);

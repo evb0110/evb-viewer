@@ -18,6 +18,7 @@ import {
 import { fileURLToPath } from 'url';
 import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
+import { PDF_IMAGE_COMBINE_THREADS_ENV } from '@electron/native-tools/pdfImageCombineBudget';
 import { createNativeFallbackTestError } from '@electron/native-tools/createNativeFallbackTestError';
 import { getErrorMessage } from '@electron/utils/error';
 import { createLogger } from '@electron/utils/createLogger';
@@ -49,6 +50,7 @@ import * as v from 'valibot';
 
 
 interface INativePdfImageCombineOptions {
+    combineThreads?: number;
     maxPages?: number;
     /** Maximum input size passed to the native decoder. */
     maxInputBytes?: number;
@@ -466,7 +468,7 @@ export async function tryBuildOptimizedPdfWithNativeImageCombiner(
     imagePaths: string[],
     dpi: number,
     onPageProcessed?: (pageNum: number, totalPages: number) => void,
-    options: Pick<INativePdfImageCombineOptions, 'signal'> = {},
+    options: Pick<INativePdfImageCombineOptions, 'combineThreads' | 'signal'> = {},
 ): Promise<Uint8Array | null> {
     if (!Number.isFinite(dpi) || dpi <= 0 || !canUseNativePdfImageCombine(imagePaths, SUPPORTED_NATIVE_NETPBM_EXTENSIONS)) {
         return null;
@@ -474,6 +476,7 @@ export async function tryBuildOptimizedPdfWithNativeImageCombiner(
 
     return createPdfWithNativeImageCombiner(imagePaths, {
         ...(onPageProcessed ? {onProgress: progress => onPageProcessed(progress.processed, progress.total)} : {}),
+        ...(options.combineThreads === undefined ? {} : {combineThreads: options.combineThreads}),
         ...(options.signal === undefined ? {} : {signal: options.signal}),
     }, [
         '--dpi',
@@ -483,7 +486,7 @@ export async function tryBuildOptimizedPdfWithNativeImageCombiner(
 
 async function createPdfWithNativeImageCombiner(
     inputPaths: string[],
-    options: Pick<INativePdfImageCombineOptions, 'onProgress' | 'signal'>,
+    options: Pick<INativePdfImageCombineOptions, 'combineThreads' | 'onProgress' | 'signal'>,
     extraArgs: string[],
 ) {
     const binaryPath = resolveNativePdfImageCombinePath();
@@ -625,6 +628,9 @@ async function runNativePdfImageCombine(
     const env = {
         ...process.env,
         EVB_PDF_COMBINE_MAX_OUTPUT_BYTES: String(maxOutputBytes),
+        ...(options?.combineThreads !== undefined && process.env[PDF_IMAGE_COMBINE_THREADS_ENV] === undefined
+            ? {[PDF_IMAGE_COMBINE_THREADS_ENV]: String(Math.max(1, Math.floor(options.combineThreads)))}
+            : {}),
         ...(options?.outputMode === 'file-backed'
             ? {EVB_PDF_COMBINE_OUTPUT_MODE: PDF_COMBINE_FILE_BACKED_OUTPUT_MODE}
             : {}),

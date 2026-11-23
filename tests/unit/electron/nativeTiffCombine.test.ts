@@ -229,4 +229,62 @@ describe('native TIFF combine wrapper', () => {
         await expect(readFile(`${outputPath}.tmp`, 'utf8')).rejects.toThrow();
         expect(mocks.atomicReplace).not.toHaveBeenCalled();
     });
+
+    it('forwards lease-derived combine threads unless EVB_PDF_COMBINE_THREADS is already set', async () => {
+        const inputPaths = [join(tempDir, 'page-001.tif')];
+        const outputPath = join(tempDir, 'combined-threads.tiff');
+        mocks.runNativeCommand.mockImplementation(async (_binaryPath: string, args: string[]) => {
+            const nativeOutputPath = args[args.indexOf('--output') + 1]!;
+            await writeFile(nativeOutputPath, Buffer.from('native-tiff'));
+            return {
+                stdout: '',
+                stderr: '',
+                exitCode: 0,
+            };
+        });
+
+        const previous = process.env.EVB_PDF_COMBINE_THREADS;
+        try {
+            delete process.env.EVB_PDF_COMBINE_THREADS;
+            await expect(tryCombinePagesWithNativeTiffCombiner(
+                inputPaths,
+                outputPath,
+                `${outputPath}.tmp`,
+                undefined,
+                300,
+                undefined,
+                3,
+            )).resolves.toBe(true);
+            expect(mocks.runNativeCommand).toHaveBeenLastCalledWith('/mock/evb-pdf-image-combine', expect.any(Array), expect.objectContaining({
+                env: {EVB_PDF_COMBINE_THREADS: '3'},
+            }));
+            expect((mocks.runNativeCommand.mock.calls[0]?.[2] as {cancelGroup?: string} | undefined)?.cancelGroup).toBeUndefined();
+
+            mocks.runNativeCommand.mockClear();
+            vi.stubEnv('EVB_PDF_COMBINE_THREADS', '7');
+            await expect(tryCombinePagesWithNativeTiffCombiner(
+                inputPaths,
+                outputPath,
+                `${outputPath}.tmp`,
+                undefined,
+                300,
+                undefined,
+                3,
+                'tiff-export-cancel-group',
+            )).resolves.toBe(true);
+            const secondCallOptions = mocks.runNativeCommand.mock.calls[0]?.[2] as {
+                cancelGroup?: string;
+                env?: Record<string, string>;
+            } | undefined;
+            expect(secondCallOptions?.env).toBeUndefined();
+            expect(secondCallOptions?.cancelGroup).toBe('tiff-export-cancel-group');
+        } finally {
+            vi.unstubAllEnvs();
+            if (previous === undefined) {
+                delete process.env.EVB_PDF_COMBINE_THREADS;
+            } else {
+                process.env.EVB_PDF_COMBINE_THREADS = previous;
+            }
+        }
+    });
 });

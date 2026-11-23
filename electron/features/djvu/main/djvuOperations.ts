@@ -31,6 +31,7 @@ import {
     getDjvuPageSourceInfoForViewing,
     renderDjvuPagePreview,
 } from '@electron/features/djvu/main/pagePreview';
+import { resolveDjvuPreviewResidentBytes } from '@electron/features/djvu/main/djvuPreviewBudget';
 import { isDjvuPath } from '@electron/image/pdfConversion';
 import {
     requireOpenPath,
@@ -425,7 +426,8 @@ async function runCoalescedPreviewRequest<TResult>(
             perOwnerLimit: maxInFlight,
             resources: {
                 cpuTokens: 1,
-                estimatedResidentBytes: 64 * 1024 * 1024,
+                // The PNG encoder runs under this lease, on up to a 45 MP page.
+                estimatedResidentBytes: resolveDjvuPreviewResidentBytes(mainJobBroker.getSnapshot().capacity),
                 nativeProcesses: 1,
                 ioWeight: 1,
             },

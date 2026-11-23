@@ -23,6 +23,7 @@ import {
     resolveUnpackedWorkerPath,
     runResultWorkerTask,
 } from '@electron/utils/workerTask';
+import { mainJobBroker } from '@electron/resources/jobBroker';
 import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
 import type { TCropWorkerInput } from '@electron/features/page-ops/main/cropWorkerProtocol';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
@@ -66,11 +67,25 @@ async function runCropWorkerTask<T>(
         throw new CropWorkerUnavailableError(`Crop worker unavailable at path: ${workerPath}`);
     }
 
-    return measureElectronPerfAsync(`page-ops:${workerInput.type}`, () => runResultWorkerTask<T>({
+    return mainJobBroker.run({
+        ownerId: workerInput.senderWebContentsId !== undefined
+            ? `page-ops-crop:${workerInput.senderWebContentsId}:${workerInput.workingCopyPath}`
+            : `page-ops-crop:${workerInput.workingCopyPath}`,
+        kind: 'page-ops-crop',
+        priority: 'user',
+        resources: {
+            cpuTokens: 1,
+            estimatedResidentBytes: 256 * 1024 * 1024,
+            nativeProcesses: 1,
+            ioWeight: 3,
+        },
+        ...(signal ? { signal } : {}),
+    }, ({onTerminationProof}) => measureElectronPerfAsync(`page-ops:${workerInput.type}`, () => runResultWorkerTask<T>({
         workerPath,
         workerData: workerInput,
         invalidPayloadMessage: 'Crop worker returned an invalid payload',
         invalidResultMessage: 'Crop worker returned an invalid result',
+        createStartError: message => new CropWorkerUnavailableError(`Crop worker failed to start: ${message}`),
         createStartupError: message => new CropWorkerUnavailableError(`Crop worker startup failed: ${message}`),
         createStartupExitError: code => new CropWorkerUnavailableError(`Crop worker exited before startup with code ${code}`),
         createWorkerExitError: code => new Error(`Crop worker exited with code ${code}`),
@@ -83,13 +98,14 @@ async function runCropWorkerTask<T>(
             stackSizeMb: 8,
         },
         decodeResult,
+        onTerminationProof,
     }), {
         thresholdMs: 25,
         details: {
             workingCopyPath: workerInput.workingCopyPath,
             pageCount: 'pages' in workerInput ? workerInput.pages.length : 1,
         },
-    });
+    }));
 }
 
 function shouldFallbackToLocalCrop(error: unknown) {

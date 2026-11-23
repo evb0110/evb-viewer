@@ -29,6 +29,10 @@ import { makeSiblingTempPath } from '@electron/utils/atomicReplace';
 import {buildMultiPageTiffOutputSuffixes} from '@pdf-core/imageExportFileName';
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import { mainJobBroker } from '@electron/resources/jobBroker';
+import {
+    resolvePdfImageCombineResidentBytes,
+    resolvePdfImageCombineThreads,
+} from '@electron/native-tools/pdfImageCombineBudget';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import {
     recordManagedScratchPaths,
@@ -183,20 +187,21 @@ async function renderDjvuImagePages(
             ] of exportPages.entries()) {
                 const sibling = siblings[index]!;
                 throwIfAborted(options.signal);
-                const brokerLease = await mainJobBroker.acquire({
+                const ppmPath = join(tempDirectory, `page-${page}.ppm`);
+                // The render and the encoder run under this lease; one not
+                // proven gone keeps it charged until it is.
+                const imagePath = await mainJobBroker.run({
                     ownerId: options.cancelGroup ?? `djvu-image-export:${djvuPath}`,
                     kind: 'djvu-image-export-page',
                     priority: 'user',
                     resources: {
                         cpuTokens: 1,
-                        estimatedResidentBytes: 128 * 1024 * 1024,
+                        estimatedResidentBytes: resolvePdfImageCombineResidentBytes(mainJobBroker.getSnapshot().capacity),
                         nativeProcesses: 1,
                         ioWeight: 2,
                     },
                     ...(options.signal ? {signal: options.signal} : {}),
-                });
-                const ppmPath = join(tempDirectory, `page-${page}.ppm`);
-                const imagePath = await (async () => {
+                }, async ({onTerminationProof}) => {
                     const render = await convertDjvuPageToImage(
                         djvuPath,
                         ppmPath,
@@ -204,6 +209,7 @@ async function renderDjvuImagePages(
                         `djvu-image-export-${randomUUID()}`,
                         {
                             format: 'ppm',
+                            onTerminationProof,
                             ...(options.signal ? {signal: options.signal} : {}),
                         },
                     );
@@ -228,8 +234,9 @@ async function renderDjvuImagePages(
                         options.signal,
                         options.cancelGroup,
                         pageDpiByNumber.get(page),
+                        onTerminationProof,
                     );
-                })().finally(() => brokerLease.release());
+                });
                 await mkdir(dirname(outputTemplatePath), {recursive: true});
                 try {
                     await copyFile(imagePath, sibling);
@@ -324,25 +331,30 @@ export async function exportDjvuAsMultiPageTiff(
                 nativeTempPath,
             ]);
             stagedGroups.push({stagedPath});
-            const combineLease = await mainJobBroker.acquire({
+            const combined = await mainJobBroker.run({
                 ownerId: options.cancelGroup ?? `djvu-tiff-export:${djvuPath}`,
                 kind: 'djvu-tiff-combine',
                 priority: 'user',
                 resources: {
                     cpuTokens: 1,
-                    estimatedResidentBytes: 128 * 1024 * 1024,
+                    estimatedResidentBytes: resolvePdfImageCombineResidentBytes(mainJobBroker.getSnapshot().capacity),
                     nativeProcesses: 1,
                     ioWeight: 3,
                 },
                 ...(options.signal ? {signal: options.signal} : {}),
-            });
-            const combined = await tryCombinePagesWithNativeTiffCombiner(
+            }, ({
+                lease,
+                onTerminationProof,
+            }) => tryCombinePagesWithNativeTiffCombiner(
                 batchPaths,
                 stagedPath,
                 nativeTempPath,
                 options.signal,
                 currentBatchDpi,
-            ).finally(() => combineLease.release());
+                onTerminationProof,
+                resolvePdfImageCombineThreads(lease.resources),
+                options.cancelGroup,
+            ));
             if (!combined) {
                 throw new Error('Native TIFF output service is unavailable for DjVu export');
             }
@@ -358,7 +370,8 @@ export async function exportDjvuAsMultiPageTiff(
                 if (pagePaths.length > 0 && pageDpi !== batchDpi) {
                     await combineBatch();
                 }
-                const brokerLease = await mainJobBroker.acquire({
+                const ppmPath = join(tempDirectory, `page-${page}.ppm`);
+                const render = await mainJobBroker.run({
                     ownerId: options.cancelGroup ?? `djvu-tiff-export:${djvuPath}`,
                     kind: 'djvu-tiff-render-page',
                     priority: 'user',
@@ -369,17 +382,20 @@ export async function exportDjvuAsMultiPageTiff(
                         ioWeight: 2,
                     },
                     ...(options.signal ? {signal: options.signal} : {}),
+                }, async ({onTerminationProof}) => {
+                    const rendered = await convertDjvuPageToImage(djvuPath, ppmPath, page, `djvu-tiff-export-${randomUUID()}`, {
+                        format: 'ppm',
+                        onTerminationProof,
+                        ...(options.signal ? {signal: options.signal} : {}),
+                    });
+                    // Thrown inside the lease, so a render not proven gone keeps it charged.
+                    if (!rendered.success) {
+                        throw rendered.cause instanceof Error
+                            ? rendered.cause
+                            : new Error(rendered.error ?? `Failed to render DjVu page ${page}`);
+                    }
+                    return rendered;
                 });
-                const ppmPath = join(tempDirectory, `page-${page}.ppm`);
-                const render = await convertDjvuPageToImage(djvuPath, ppmPath, page, `djvu-tiff-export-${randomUUID()}`, {
-                    format: 'ppm',
-                    ...(options.signal ? {signal: options.signal} : {}),
-                }).finally(() => brokerLease.release());
-                if (!render.success) {
-                    throw render.cause instanceof Error
-                        ? render.cause
-                        : new Error(render.error ?? `Failed to render DjVu page ${page}`);
-                }
                 if (
                     pagePaths.length > 0
                     && (

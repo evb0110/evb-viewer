@@ -8,6 +8,7 @@ import { createWorkerTaskErrorFrame } from '@electron/utils/workerTask';
 import { getErrorMessage } from '@electron/utils/error';
 
 interface ITiffCombineWorkerData {
+    combineThreads?: unknown;
     defaultDpi?: unknown;
     deleteSourcePages?: unknown;
     pagePaths?: unknown;
@@ -48,6 +49,11 @@ function getWorkerInput() {
         throw new Error('TIFF combine worker requires at least one page path');
     }
     return {
+        combineThreads: typeof input.combineThreads === 'number'
+            && Number.isInteger(input.combineThreads)
+            && input.combineThreads > 0
+            ? input.combineThreads
+            : undefined,
         defaultDpi: typeof input.defaultDpi === 'number' && Number.isFinite(input.defaultDpi) && input.defaultDpi > 0
             ? input.defaultDpi
             : undefined,
@@ -80,6 +86,7 @@ async function run() {
         const input = getWorkerInput();
         await combinePagesIntoMultiPageTiffLocal(input.pagePaths, input.outputPath, {
             deleteSourcePages: input.deleteSourcePages,
+            ...(input.combineThreads === undefined ? {} : {combineThreads: input.combineThreads}),
             ...(input.defaultDpi === undefined ? {} : {defaultDpi: input.defaultDpi}),
             ...(input.tempPath === undefined ? {} : {tempPath: input.tempPath}),
             signal: abortController.signal,

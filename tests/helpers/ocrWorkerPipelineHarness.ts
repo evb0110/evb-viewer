@@ -38,6 +38,8 @@ export async function createOcrWorkerPipelineHarness(options: {
     pageCount?: number;
     stallPage?: number;
     tempRoot?: string;
+    /** Sees each engine request while the job's engine runs it. */
+    onEngineRequest?: (request: IOcrEngineRequest) => void;
 } = {}): Promise<IOcrWorkerPipelineHarness> {
     const root = options.tempRoot ?? await mkdtemp(join(tmpdir(), 'evb-ocr-worker-pipeline-'));
     const sourcePdfPath = join(root, 'source.pdf');
@@ -113,6 +115,7 @@ export async function createOcrWorkerPipelineHarness(options: {
             const controller = new AbortController();
             const runEngine = async (request: IOcrEngineRequest, signal: AbortSignal) => {
                 const pageNumber = (readPnmSize(request.image).width - 600) / 10;
+                options.onEngineRequest?.(request);
                 if (pageNumber === options.stallPage) {
                     await new Promise((_resolve, reject) => {
                         signal.addEventListener('abort', () => reject(signal.reason), {once: true});

@@ -805,12 +805,11 @@ export function createScanCleanupService(
                     },
                     run: async job => {
                         runStarted = true;
-                        let lease: Awaited<ReturnType<typeof mainJobBroker.acquire>> | null = null;
                         let detectionResultStoreDescriptor: IScanCleanupDetectionResultStoreDescriptor | null = null;
                         let ownsDetectionResultStoreDescriptor = false;
                         let retainRunArtifacts = false;
                         try {
-                            lease = await mainJobBroker.acquire({
+                            return await mainJobBroker.run({
                                 ownerId: brokerOwnerId,
                                 kind: 'scan-cleanup',
                                 priority: 'user',
@@ -826,112 +825,116 @@ export function createScanCleanupService(
                                 },
                                 perOwnerLimit: 1,
                                 signal: job.signal,
-                            });
-                            const pdfPaths = getPdfNativeToolPaths();
-                            const scanCleanupBinary = resolvePreviewPath();
-                            const pdfImageCombineBinary = resolveNativePdfImageCombinePath();
-                            const pdfPageOpsBinary = resolveNativePageOpsPath();
-                            if (!pdfPageOpsBinary) {
-                                throw new ScanCleanupNativeToolUnavailableError('evb-pdf-page-ops');
-                            }
-                            const missingTools = [
-                                scanCleanupBinary ? null : 'evb-scan-cleanup',
-                                pdfImageCombineBinary ? null : 'evb-pdf-image-combine',
-                            ].filter((name): name is string => name !== null);
-                            if (missingTools.length > 0 || !scanCleanupBinary || !pdfImageCombineBinary) {
-                                throw new ScanCleanupNativeToolUnavailableError(
-                                    missingTools[0] ?? 'unknown scan-cleanup native tool',
-                                );
-                            }
-                            if (detectionResultStoreLease !== null) {
-                                // The lease keeps the detection store open until
-                                // the worker settles, so the worker can read the
-                                // store's own files; only a store without them
-                                // is copied, and only a copy is removed below.
-                                const persisted = describePersistedScanCleanupDetectionResultStore(
-                                    detectionResultStoreLease.resultStore,
-                                );
-                                ownsDetectionResultStoreDescriptor = persisted === null;
-                                detectionResultStoreDescriptor = persisted
-                                    ?? await persistScanCleanupDetectionResultStore(
-                                        detectionResultStoreLease.resultStore,
-                                        getAppTempDir(),
+                            }, async ({onTerminationProof}) => {
+                                const pdfPaths = getPdfNativeToolPaths();
+                                const scanCleanupBinary = resolvePreviewPath();
+                                const pdfImageCombineBinary = resolveNativePdfImageCombinePath();
+                                const pdfPageOpsBinary = resolveNativePageOpsPath();
+                                if (!pdfPageOpsBinary) {
+                                    throw new ScanCleanupNativeToolUnavailableError('evb-pdf-page-ops');
+                                }
+                                const missingTools = [
+                                    scanCleanupBinary ? null : 'evb-scan-cleanup',
+                                    pdfImageCombineBinary ? null : 'evb-pdf-image-combine',
+                                ].filter((name): name is string => name !== null);
+                                if (missingTools.length > 0 || !scanCleanupBinary || !pdfImageCombineBinary) {
+                                    throw new ScanCleanupNativeToolUnavailableError(
+                                        missingTools[0] ?? 'unknown scan-cleanup native tool',
                                     );
-                            }
-                            const checkpointDir = join(getAppTempDir(), 'scan-cleanup-checkpoints');
-                            let completedCheckpointEntryDir: string | null = null;
-                            const summary = await runScanCleanupWorkerTask(
-                                {
-                                    ...workerRequest,
-                                    ...(detectionResultStoreDescriptor === null
-                                        ? {}
-                                        : {detectionResultStoreDescriptor}),
-                                    sourcePdfPath: await materializeScanCleanupSourcePath(
-                                        request.sourcePdfPath,
-                                        sender.id,
-                                        job.signal,
-                                    ),
-                                },
-                                {
-                                    qpdfBinary: pdfPaths.qpdf,
-                                    pdftoppmBinary: pdfPaths.pdftoppm,
-                                    ...(pdfPaths.pdfimages ? {pdfimagesBinary: pdfPaths.pdfimages} : {}),
-                                    scanCleanupBinary,
-                                    pdfImageCombineBinary,
-                                    pdfPageOpsBinary,
-                                    tempDir: getAppTempDir(),
-                                    scratchDir: scratchPath,
-                                    checkpointDir,
-                                    deferCheckpointCleanup: true,
-                                },
-                                runtimePolicy,
-                                job.signal,
-                                nextProgress => {
-                                    job.publish({
-                                        jobId,
-                                        status: nextProgress.stage === 'handoff' ? 'handoff' : 'running',
-                                        progress: nextProgress,
-                                        updatedAtMs: createEpochMs(),
-                                    });
-                                },
-                                jobId,
-                                {
-                                    onCheckpointReady: entryDir => {
-                                        completedCheckpointEntryDir = entryDir;
+                                }
+                                if (detectionResultStoreLease !== null) {
+                                    // The lease keeps the detection store open until
+                                    // the worker settles, so the worker can read the
+                                    // store's own files; only a store without them
+                                    // is copied, and only a copy is removed below.
+                                    const persisted = describePersistedScanCleanupDetectionResultStore(
+                                        detectionResultStoreLease.resultStore,
+                                    );
+                                    ownsDetectionResultStoreDescriptor = persisted === null;
+                                    detectionResultStoreDescriptor = persisted
+                                        ?? await persistScanCleanupDetectionResultStore(
+                                            detectionResultStoreLease.resultStore,
+                                            getAppTempDir(),
+                                        );
+                                }
+                                const checkpointDir = join(getAppTempDir(), 'scan-cleanup-checkpoints');
+                                let completedCheckpointEntryDir: string | null = null;
+                                const summary = await runScanCleanupWorkerTask(
+                                    {
+                                        ...workerRequest,
+                                        ...(detectionResultStoreDescriptor === null
+                                            ? {}
+                                            : {detectionResultStoreDescriptor}),
+                                        sourcePdfPath: await materializeScanCleanupSourcePath(
+                                            request.sourcePdfPath,
+                                            sender.id,
+                                            job.signal,
+                                        ),
                                     },
-                                },
-                            );
-                            // Resolve the cancel-vs-publish race in the same main
-                            // process that owns the job state. If cancel won while
-                            // the worker was publishing, the catch path removes the
-                            // generated-output directory and leaves any resumable
-                            // checkpoint intact for the next run. Otherwise later
-                            // cancel requests are rejected as soon as commit begins
-                            // and the completed checkpoint is reclaimed here.
-                            job.signal.throwIfAborted();
-                            job.markCommitStarted();
-                            if (completedCheckpointEntryDir !== null) {
-                                await reclaimScanCleanupCheckpoint(
-                                    checkpointDir,
-                                    completedCheckpointEntryDir,
-                                ).catch(error => {
+                                    {
+                                        qpdfBinary: pdfPaths.qpdf,
+                                        pdftoppmBinary: pdfPaths.pdftoppm,
+                                        ...(pdfPaths.pdfimages ? {pdfimagesBinary: pdfPaths.pdfimages} : {}),
+                                        scanCleanupBinary,
+                                        pdfImageCombineBinary,
+                                        pdfPageOpsBinary,
+                                        tempDir: getAppTempDir(),
+                                        scratchDir: scratchPath,
+                                        checkpointDir,
+                                        deferCheckpointCleanup: true,
+                                    },
+                                    runtimePolicy,
+                                    job.signal,
+                                    nextProgress => {
+                                        job.publish({
+                                            jobId,
+                                            status: nextProgress.stage === 'handoff' ? 'handoff' : 'running',
+                                            progress: nextProgress,
+                                            updatedAtMs: createEpochMs(),
+                                        });
+                                    },
+                                    jobId,
+                                    {
+                                        onCheckpointReady: entryDir => {
+                                            completedCheckpointEntryDir = entryDir;
+                                        },
+                                        // The worker's native children run under this
+                                        // lease, so an unproven stop keeps it charged.
+                                        onTerminationProof,
+                                    },
+                                );
+                                // Resolve the cancel-vs-publish race in the same main
+                                // process that owns the job state. If cancel won while
+                                // the worker was publishing, the catch path removes the
+                                // generated-output directory and leaves any resumable
+                                // checkpoint intact for the next run. Otherwise later
+                                // cancel requests are rejected as soon as commit begins
+                                // and the completed checkpoint is reclaimed here.
+                                job.signal.throwIfAborted();
+                                job.markCommitStarted();
+                                if (completedCheckpointEntryDir !== null) {
+                                    await reclaimScanCleanupCheckpoint(
+                                        checkpointDir,
+                                        completedCheckpointEntryDir,
+                                    ).catch(error => {
+                                        scanCleanupJobLogger.warn(
+                                            `Could not remove completed scan-cleanup checkpoint: ${getErrorMessage(error)}`,
+                                        );
+                                    });
+                                }
+                                await recordScanCleanupCompletedOutput(outputPdfPath).catch(error => {
                                     scanCleanupJobLogger.warn(
-                                        `Could not remove completed scan-cleanup checkpoint: ${getErrorMessage(error)}`,
+                                        `Could not journal completed scan-cleanup output: ${getErrorMessage(error)}`,
                                     );
                                 });
-                            }
-                            await recordScanCleanupCompletedOutput(outputPdfPath).catch(error => {
-                                scanCleanupJobLogger.warn(
-                                    `Could not journal completed scan-cleanup output: ${getErrorMessage(error)}`,
-                                );
+                                const completedPageMetadata = resolveCompletedPageMetadata(request, summary.inputPages);
+                                return {
+                                    outputPdfPath,
+                                    summary,
+                                    partial,
+                                    ...completedPageMetadata,
+                                };
                             });
-                            const completedPageMetadata = resolveCompletedPageMetadata(request, summary.inputPages);
-                            return {
-                                outputPdfPath,
-                                summary,
-                                partial,
-                                ...completedPageMetadata,
-                            };
                         } catch (error) {
                             // The run stopped, but its native tree may not have.
                             // Whoever closes this document next must not delete
@@ -975,7 +978,6 @@ export function createScanCleanupService(
                                     scanCleanupJobLogger.warn(`Could not remove scan-cleanup run scratch: ${getErrorMessage(error)}`);
                                 });
                             }
-                            lease?.release();
                             await detectionResultStoreLease?.release();
                             if (detectionResultStoreDescriptor !== null && ownsDetectionResultStoreDescriptor) {
                                 await removeScanCleanupDetectionResultStoreDescriptor(

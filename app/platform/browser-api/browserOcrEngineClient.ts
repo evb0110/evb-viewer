@@ -53,7 +53,7 @@ export function getBrowserOcrLaneCount(pagePixels = 0, modelBytes = 0, cleanup?:
     if (memoryGb !== undefined && memoryGb <= 4) return 1;
     const perLane = 192 * 1024 * 1024 + pagePixels * (12 + (cleanup ? CLEANUP_BYTES_PER_PIXEL[cleanup] : 0)) + modelBytes * 3;
     const memoryLanes = Math.floor((memoryGb ?? 4) * 1024 ** 3 / 2 / perLane);
-    return Math.max(1, Math.min(8, cores - 1, memoryLanes));
+    return Math.max(1, Math.min(cores - 1, memoryLanes));
 }
 
 export class BrowserOcrEngineUnavailableError extends Error {

@@ -10,6 +10,9 @@ import {
     MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
     MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
     MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES,
+    getJobBrokerLeaseForProofSink,
+    type IJobBrokerLease,
+    type IJobResourceVector,
     resolveMainJobBrokerCapacity,
 } from '@electron/resources/jobBroker';
 import type {
@@ -111,7 +114,7 @@ describe('JobBroker', () => {
         });
         expect(capacity).toEqual({
             cpuTokens,
-            estimatedResidentBytes: 6.8 * GIB,
+            estimatedResidentBytes: 6 * GIB,
             nativeProcesses: 2,
             ioWeight: 4,
         });
@@ -138,6 +141,559 @@ describe('JobBroker', () => {
             active: 0,
             queued: 0,
         });
+    });
+
+    it.each([
+        {
+            host: '4 GiB, 2 cores',
+            cpus: 2,
+            ramGiB: 4,
+            tier: 'low',
+            expected: {
+                cpuTokens: 2,
+                estimatedResidentBytes: 2 * GIB,
+                nativeProcesses: 2,
+                ioWeight: 4,
+            },
+        },
+        {
+            host: '8 GiB, 4 cores',
+            cpus: 4,
+            ramGiB: 8,
+            tier: 'low',
+            expected: {
+                cpuTokens: 3,
+                estimatedResidentBytes: 6 * GIB,
+                nativeProcesses: 2,
+                ioWeight: 4,
+            },
+        },
+        {
+            host: '16 GiB, 8 cores',
+            cpus: 8,
+            ramGiB: 16,
+            tier: 'high',
+            expected: {
+                cpuTokens: 6,
+                estimatedResidentBytes: 13.6 * GIB,
+                nativeProcesses: 4,
+                ioWeight: 4,
+            },
+        },
+        {
+            host: '32 GiB, 16 cores',
+            cpus: 16,
+            ramGiB: 32,
+            tier: 'high',
+            expected: {
+                cpuTokens: 12,
+                estimatedResidentBytes: 28 * GIB,
+                nativeProcesses: 8,
+                ioWeight: 8,
+            },
+        },
+        {
+            host: '64 GiB, 32 cores',
+            cpus: 32,
+            ramGiB: 64,
+            tier: 'high',
+            expected: {
+                cpuTokens: 24,
+                estimatedResidentBytes: 60 * GIB,
+                nativeProcesses: 16,
+                ioWeight: 16,
+            },
+        },
+        {
+            host: '128 GiB, 64 cores',
+            cpus: 64,
+            ramGiB: 128,
+            tier: 'high',
+            expected: {
+                cpuTokens: 48,
+                estimatedResidentBytes: 124 * GIB,
+                nativeProcesses: 32,
+                ioWeight: 32,
+            },
+        },
+        {
+            host: '16 GiB, 64 cores',
+            cpus: 64,
+            ramGiB: 16,
+            tier: 'high',
+            expected: {
+                cpuTokens: 48,
+                estimatedResidentBytes: 13.6 * GIB,
+                nativeProcesses: 27,
+                ioWeight: 27,
+            },
+        },
+    ] satisfies Array<{
+        host: string;
+        cpus: number;
+        ramGiB: number;
+        tier: THostResourceTier;
+        expected: IJobResourceVector;
+    }>)('scales the main budget on a $host host', ({
+        cpus,
+        ramGiB,
+        tier,
+        expected,
+    }) => {
+        expect(resolveMainJobBrokerCapacity(createResourceProfile(cpus, ramGiB * GIB, tier))).toEqual(expected);
+    });
+
+    it('keeps half of a 4 GiB host for the system and the app', () => {
+        const capacity = resolveMainJobBrokerCapacity(createResourceProfile(8, 4 * GIB, 'high'));
+
+        expect(capacity.estimatedResidentBytes).toBe(2 * GIB);
+        expect(capacity.nativeProcesses).toBe(4);
+    });
+
+    it('admits a leaf inside a lease that holds the whole capacity, one leaf at a time', async () => {
+        const broker = new JobBroker({
+            cpuTokens: 1,
+            estimatedResidentBytes: 100,
+            nativeProcesses: 1,
+            ioWeight: 1,
+        });
+        const leaf = createRequest({
+            ownerId: 'native-command',
+            kind: 'native-command',
+            admissionClass: 'leaf',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 10,
+                nativeProcesses: 1,
+                ioWeight: 1,
+            },
+        });
+        const outer = await broker.acquire(createRequest({
+            ownerId: 'outer',
+            resources: broker.getSnapshot().capacity,
+        }));
+
+        const nested = await broker.acquire(leaf);
+        let secondGranted = false;
+        const second = broker.acquire(leaf).then((lease) => {
+            secondGranted = true;
+            return lease;
+        });
+        const bulk = broker.acquire(createRequest({ownerId: 'bulk'}));
+        await Promise.resolve();
+        expect(secondGranted).toBe(false);
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 2,
+            queued: 2,
+        });
+
+        nested.release();
+        (await second).release();
+        outer.release();
+        (await bulk).release();
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 0,
+            queued: 0,
+        });
+    });
+
+    function createLeafRequest(signal?: AbortSignal) {
+        return createRequest({
+            ownerId: 'native-command',
+            kind: 'native-command',
+            admissionClass: 'leaf',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 1,
+                nativeProcesses: 1,
+                ioWeight: 1,
+            },
+            ...(signal ? {signal} : {}),
+        });
+    }
+
+    async function flushMicrotasks() {
+        for (let step = 0; step < 10; step += 1) await Promise.resolve();
+    }
+
+    // Sol's probe: each leaf's child is never proven gone, so each stays charged.
+    async function runLeavesWithUnprovenChildren(broker: JobBroker, attempts: number) {
+        const {markUnprovenNativeTermination} = await import('@electron/utils/nativeTerminationProof');
+        const proofs: Array<PromiseWithResolvers<boolean>> = [];
+        const queued: AbortController[] = [];
+        for (let attempt = 0; attempt < attempts; attempt += 1) {
+            const controller = new AbortController();
+            const proof = Promise.withResolvers<boolean>();
+            let admitted = false;
+            const run = broker.run(createLeafRequest(controller.signal), async ({onTerminationProof}) => {
+                admitted = true;
+                proofs.push(proof);
+                onTerminationProof(proof.promise);
+                throw markUnprovenNativeTermination(new Error('native timeout'), 'still alive');
+            }).catch(() => undefined);
+            await flushMicrotasks();
+            if (!admitted) {
+                queued.push(controller);
+                // The rest would queue behind it the same way.
+                void run;
+                break;
+            }
+        }
+        return {
+            proofs,
+            queued,
+        };
+    }
+
+    it('stops admitting leaves at the process budget when no child is ever proven gone', async () => {
+        const broker = new JobBroker(CAPACITY);
+
+        const {
+            proofs,
+            queued,
+        } = await runLeavesWithUnprovenChildren(broker, 12);
+        proofs.forEach(proof => proof.resolve(false));
+        await flushMicrotasks();
+
+        expect(proofs).toHaveLength(CAPACITY.nativeProcesses);
+        expect(broker.getSnapshot()).toMatchObject({
+            active: CAPACITY.nativeProcesses,
+            queued: 1,
+            used: {nativeProcesses: CAPACITY.nativeProcesses},
+        });
+        queued.forEach(controller => controller.abort());
+    });
+
+    it('lets retained leaves overrun the process budget by one slot at most inside an outer lease', async () => {
+        const broker = new JobBroker({
+            cpuTokens: 1,
+            estimatedResidentBytes: 100,
+            nativeProcesses: 1,
+            ioWeight: 1,
+        });
+        const outer = await broker.acquire(createRequest({
+            ownerId: 'outer',
+            resources: broker.getSnapshot().capacity,
+        }));
+
+        const {
+            proofs,
+            queued,
+        } = await runLeavesWithUnprovenChildren(broker, 12);
+
+        // The first leaf escapes the full budget; with it retained, the next waits.
+        expect(proofs).toHaveLength(1);
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 2,
+            queued: 1,
+            used: {nativeProcesses: 2},
+        });
+        // Once that child is proven gone, the waiting leaf escapes in turn.
+        proofs[0]!.resolve(true);
+        await flushMicrotasks();
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 2,
+            queued: 0,
+        });
+        queued.forEach(controller => controller.abort());
+        outer.release();
+    });
+
+    it('releases a lease granted as its signal aborts with an unproven reason, before its work starts', async () => {
+        const {markUnprovenNativeTermination} = await import('@electron/utils/nativeTerminationProof');
+        const broker = new JobBroker(CAPACITY);
+        const controller = new AbortController();
+        const reason = markUnprovenNativeTermination(new Error('sibling not proven dead'), 'sibling alive');
+        let entered = false;
+
+        const scoped = broker.run(createRequest({
+            signal: controller.signal,
+            resources: CAPACITY,
+        }), async () => {
+            entered = true;
+        });
+        controller.abort(reason);
+
+        await expect(scoped).rejects.toBe(reason);
+        expect(entered).toBe(false);
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 0,
+            used: {nativeProcesses: 0},
+        });
+    });
+
+    it('keeps only the lease whose own child is unproven when a shared job signal stops a sibling', async () => {
+        const {markUnprovenNativeTermination} = await import('@electron/utils/nativeTerminationProof');
+        const broker = new JobBroker(CAPACITY);
+        const jobAbort = new AbortController();
+        const renderResources = {
+            cpuTokens: 1,
+            estimatedResidentBytes: 50,
+            nativeProcesses: 1,
+            ioWeight: 1,
+        };
+        const engineStarted = Promise.withResolvers<void>();
+        // An OCR engine pass: no native child of its own, stopped by the job.
+        const enginePass = broker.run(createRequest({
+            ownerId: 'ocr-job',
+            kind: 'ocr-engine-pass',
+            signal: jobAbort.signal,
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 100,
+                nativeProcesses: 0,
+                ioWeight: 0,
+            },
+        }), async () => {
+            engineStarted.resolve();
+            await new Promise((_resolve, reject) => {
+                jobAbort.signal.addEventListener('abort', () => reject(jobAbort.signal.reason), {once: true});
+            });
+        });
+        await engineStarted.promise;
+        // The page render whose child outlived its kill stops the whole job.
+        const render = broker.run(createRequest({
+            ownerId: 'ocr-job',
+            kind: 'ocr-render',
+            resources: renderResources,
+        }), async ({onTerminationProof}) => {
+            onTerminationProof(Promise.resolve(false));
+            const failure = markUnprovenNativeTermination(new Error('pdftoppm timed out'), 'pdftoppm alive');
+            jobAbort.abort(failure);
+            throw failure;
+        });
+
+        await expect(render).rejects.toThrow('pdftoppm timed out');
+        await expect(enginePass).rejects.toThrow('pdftoppm timed out');
+        await flushMicrotasks();
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 1,
+            used: renderResources,
+        });
+    });
+
+    it('admits an aged full-I/O job behind a continuous stream of one-I/O leaves', async () => {
+        let now = 0;
+        const broker = new JobBroker({
+            cpuTokens: 8,
+            estimatedResidentBytes: 1_000,
+            nativeProcesses: 2,
+            ioWeight: 4,
+        }, {now: () => now});
+        const running: IJobBrokerLease[] = [];
+        const admit = (request: Promise<IJobBrokerLease>) => {
+            void request.then(lease => running.push(lease));
+        };
+        admit(broker.acquire(createLeafRequest()));
+        admit(broker.acquire(createLeafRequest()));
+        await flushMicrotasks();
+        let saveLease: IJobBrokerLease | undefined;
+        void broker.acquire(createRequest({
+            ownerId: 'save',
+            kind: 'save',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 1,
+                nativeProcesses: 0,
+                ioWeight: 4,
+            },
+        })).then((lease) => {
+            saveLease = lease;
+        });
+
+        let replacements = 0;
+        while (saveLease === undefined && replacements < 50) {
+            // Each finished leaf is replaced by a new one a second later.
+            now += 1_000;
+            running.shift()?.release();
+            admit(broker.acquire(createLeafRequest()));
+            replacements += 1;
+            await flushMicrotasks();
+        }
+
+        // Aged after five replacements; the two leaves then running drain first.
+        expect(saveLease).toBeDefined();
+        expect(replacements).toBeLessThanOrEqual(7);
+        // Beside it, at most the one leaf that may escape a running lease.
+        expect(broker.getSnapshot().used.ioWeight).toBeLessThanOrEqual(4 + 1);
+        saveLease!.release();
+        await flushMicrotasks();
+        running.splice(0).forEach(lease => lease.release());
+        await flushMicrotasks();
+        running.splice(0).forEach(lease => lease.release());
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 0,
+            queued: 0,
+        });
+    });
+
+    it('lets an escaping leaf ask for one process at most and charge the budget plus one', async () => {
+        const broker = new JobBroker(CAPACITY);
+        const outer = await broker.acquire(createRequest({
+            ownerId: 'outer',
+            resources: CAPACITY,
+        }));
+        let wideGranted = false;
+        const wide = broker.acquire(createRequest({
+            ownerId: 'wide-leaf',
+            kind: 'native-command',
+            admissionClass: 'leaf',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 1,
+                nativeProcesses: 2,
+                ioWeight: 1,
+            },
+        })).then((lease) => {
+            wideGranted = true;
+            return lease;
+        });
+        await flushMicrotasks();
+        // Sol's probe: a two-process leaf would have raised the charge to 4.
+        expect(wideGranted).toBe(false);
+        expect(broker.getSnapshot().used.nativeProcesses).toBe(2);
+
+        const narrow = await broker.acquire(createLeafRequest());
+        expect(broker.getSnapshot().used.nativeProcesses).toBe(3);
+        narrow.release();
+        outer.release();
+        (await wide).release();
+    });
+
+    it.each([
+        'abort',
+        'cancelOwner',
+    ] as const)('runs work a blocked head held back once that head leaves by %s', async (leave) => {
+        let now = 0;
+        const broker = new JobBroker(CAPACITY, {now: () => now});
+        const small = {
+            cpuTokens: 1,
+            estimatedResidentBytes: 100,
+            nativeProcesses: 1,
+            ioWeight: 1,
+        };
+        const occupant = await broker.acquire(createRequest({
+            ownerId: 'occupant',
+            resources: small,
+        }));
+        const headAbort = new AbortController();
+        const head = broker.acquire(createRequest({
+            ownerId: 'head',
+            resources: CAPACITY,
+            signal: headAbort.signal,
+        }));
+        void head.catch(() => undefined);
+        // The head ages, so smaller work may not take what it needs.
+        now += 5_000;
+        let behindGranted = false;
+        const behind = broker.acquire(createRequest({
+            ownerId: 'behind',
+            resources: small,
+        })).then((lease) => {
+            behindGranted = true;
+            return lease;
+        });
+        await flushMicrotasks();
+        expect(behindGranted).toBe(false);
+
+        if (leave === 'abort') headAbort.abort();
+        else broker.cancelOwner('head');
+        await flushMicrotasks();
+
+        // Granted as the head leaves, without waiting for another broker event.
+        expect(behindGranted).toBe(true);
+        (await behind).release();
+        occupant.release();
+    });
+
+    it('admits an aged full-I/O save behind a continuous stream of one-I/O interactive jobs', async () => {
+        let now = 0;
+        const broker = new JobBroker({
+            cpuTokens: 8,
+            estimatedResidentBytes: 1_000,
+            nativeProcesses: 8,
+            ioWeight: 4,
+        }, {
+            now: () => now,
+            maxInteractiveJobResources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 10,
+                nativeProcesses: 1,
+                ioWeight: 1,
+            },
+            interactiveReserve: {
+                cpuTokens: 2,
+                estimatedResidentBytes: 20,
+                nativeProcesses: 2,
+                ioWeight: 2,
+            },
+        });
+        const interactiveRequest = () => createRequest({
+            ownerId: 'visible-pages',
+            kind: 'render',
+            priority: 'visible',
+            admissionClass: 'interactive',
+            resources: {
+                cpuTokens: 0,
+                estimatedResidentBytes: 1,
+                nativeProcesses: 0,
+                ioWeight: 1,
+            },
+        });
+        const running: IJobBrokerLease[] = [];
+        const admit = (request: Promise<IJobBrokerLease>) => {
+            void request.then(lease => running.push(lease));
+        };
+        for (let index = 0; index < 4; index += 1) admit(broker.acquire(interactiveRequest()));
+        await flushMicrotasks();
+        expect(running).toHaveLength(4);
+        let saveLease: IJobBrokerLease | undefined;
+        void broker.acquire(createRequest({
+            ownerId: 'save',
+            kind: 'save',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 1,
+                nativeProcesses: 1,
+                ioWeight: 4,
+            },
+        })).then((lease) => {
+            saveLease = lease;
+        });
+
+        let replacements = 0;
+        while (saveLease === undefined && replacements < 30) {
+            now += 1_000;
+            running.shift()?.release();
+            admit(broker.acquire(interactiveRequest()));
+            replacements += 1;
+            await flushMicrotasks();
+        }
+
+        // Its priority catches up after ten seconds; the jobs then running drain.
+        expect(saveLease).toBeDefined();
+        expect(replacements).toBeLessThanOrEqual(14);
+        saveLease!.release();
+        await flushMicrotasks();
+        running.splice(0).forEach(lease => lease.release());
+        await flushMicrotasks();
+        running.splice(0).forEach(lease => lease.release());
+    });
+
+    it('names the lease a run holds through its proof sink only while it is held', async () => {
+        const broker = new JobBroker(CAPACITY);
+        let sink: ((proof: Promise<boolean>) => void) | undefined;
+
+        await broker.run(createRequest(), async ({
+            lease,
+            onTerminationProof,
+        }) => {
+            sink = onTerminationProof;
+            expect(getJobBrokerLeaseForProofSink(onTerminationProof)).toBe(lease);
+        });
+
+        expect(getJobBrokerLeaseForProofSink(sink)).toBeUndefined();
+        expect(getJobBrokerLeaseForProofSink(() => undefined)).toBeUndefined();
     });
 
     it('keeps nested native-process leases admissible on the low tier', async () => {
@@ -806,7 +1362,10 @@ describe('JobBroker', () => {
         await expect(broker.run(createRequest({
             ownerId: 'unproven-owner',
             resources: CAPACITY,
-        }), async () => { throw error; })).rejects.toBe(error);
+        }), async ({onTerminationProof}) => {
+            onTerminationProof(new Promise<boolean>(() => {}));
+            throw error;
+        })).rejects.toBe(error);
         const ownerQueued = broker.acquire(createRequest({ownerId: 'unproven-owner'}));
         const controller = new AbortController();
         let competitorGranted = false;
@@ -889,6 +1448,193 @@ describe('JobBroker', () => {
             active: 1,
             queued: 0,
             used: CAPACITY,
+        });
+    });
+
+    it('retains a lease across normal return when a registered termination proof is still pending or false', async () => {
+        const broker = new JobBroker(CAPACITY);
+
+        const delayedProof = Promise.withResolvers<boolean>();
+        await expect(broker.run(createRequest({
+            ownerId: 'fallback-after-delayed-proof',
+            resources: CAPACITY,
+        }), async ({onTerminationProof}) => {
+            onTerminationProof(delayedProof.promise);
+            return 'fallback-ok';
+        })).resolves.toBe('fallback-ok');
+
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 1,
+            queued: 0,
+            used: CAPACITY,
+        });
+
+        delayedProof.resolve(true);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 0,
+            queued: 0,
+        });
+
+        await expect(broker.run(createRequest({
+            ownerId: 'fallback-after-false-proof',
+            resources: CAPACITY,
+        }), async ({onTerminationProof}) => {
+            onTerminationProof(Promise.resolve(false));
+            return 'fallback-unproven';
+        })).resolves.toBe('fallback-unproven');
+
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 1,
+            queued: 0,
+            used: CAPACITY,
+        });
+    });
+
+    it('isolates throwing memory reclaimers and lets later reclaimers free memory', async () => {
+        const broker = new JobBroker(CAPACITY);
+        const blocker = await broker.acquire(createRequest({
+            ownerId: 'memory-holder',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 150,
+                nativeProcesses: 1,
+                ioWeight: 1,
+            },
+        }));
+
+        broker.registerMemoryReclaimer(() => {
+            throw new Error('reclaimer boom');
+        });
+        broker.registerMemoryReclaimer(() => {
+            throw Object.create(null);
+        });
+        broker.registerMemoryReclaimer(() => {
+            blocker.release();
+        });
+
+        const waiting = await broker.acquire(createRequest({
+            ownerId: 'queued-requester',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 150,
+                nativeProcesses: 1,
+                ioWeight: 1,
+            },
+        }));
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 1,
+            queued: 0,
+        });
+        waiting.release();
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 0,
+            queued: 0,
+        });
+    });
+
+    it('admits an escaping leaf even when bulk capacity and interactive reserve processes are both occupied', async () => {
+        const broker = new JobBroker({
+            cpuTokens: 4,
+            estimatedResidentBytes: 1_000,
+            nativeProcesses: 2,
+            ioWeight: 8,
+        }, {
+            maxInteractiveJobResources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 100,
+                nativeProcesses: 2,
+                ioWeight: 1,
+            },
+            interactiveReserve: {
+                cpuTokens: 2,
+                estimatedResidentBytes: 200,
+                nativeProcesses: 2,
+                ioWeight: 2,
+            },
+        });
+
+        const bulk = await broker.acquire(createRequest({
+            ownerId: 'bulk-owner',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 100,
+                nativeProcesses: 2,
+                ioWeight: 1,
+            },
+        }));
+        const interactive = await broker.acquire(createRequest({
+            ownerId: 'interactive-owner',
+            admissionClass: 'interactive',
+            priority: 'visible',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 100,
+                nativeProcesses: 2,
+                ioWeight: 1,
+            },
+        }));
+
+        const leaf = await broker.acquire(createRequest({
+            ownerId: 'leaf-owner',
+            admissionClass: 'leaf',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 100,
+                nativeProcesses: 1,
+                ioWeight: 1,
+            },
+        }));
+        expect(broker.getSnapshot().used.nativeProcesses).toBe(5);
+        leaf.release();
+        interactive.release();
+        bulk.release();
+    });
+
+    it('does not let a parked memory-only lease trigger native leaf escape and reclaims it instead', async () => {
+        const broker = new JobBroker(CAPACITY);
+        const parked = await broker.acquire(createRequest({
+            ownerId: 'parked-ocr-worker',
+            kind: 'ocr-engine-pass',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: CAPACITY.estimatedResidentBytes,
+                nativeProcesses: 0,
+                ioWeight: 0,
+            },
+        }));
+        expect(parked.shrink({
+            cpuTokens: 0,
+            estimatedResidentBytes: CAPACITY.estimatedResidentBytes,
+            nativeProcesses: 0,
+            ioWeight: 0,
+        })).toBe(true);
+
+        let reclaimedCount = 0;
+        broker.registerMemoryReclaimer(() => {
+            reclaimedCount += 1;
+            parked.release();
+        });
+
+        const leaf = await broker.acquire(createRequest({
+            ownerId: 'leaf-owner',
+            admissionClass: 'leaf',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 128,
+                nativeProcesses: 1,
+                ioWeight: 1,
+            },
+        }));
+        expect(reclaimedCount).toBe(1);
+        expect(broker.getSnapshot().used.estimatedResidentBytes).toBe(128);
+        leaf.release();
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 0,
+            queued: 0,
         });
     });
 

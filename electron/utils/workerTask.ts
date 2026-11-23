@@ -73,6 +73,16 @@ interface IRunResultWorkerTaskBaseOptions {
     createCancelMessage?: (reason: 'abort' | 'timeout') => unknown;
     cooperativeCancelDelayMs?: number;
     resourceLimits?: ResourceLimits;
+    /**
+     * The owning broker lease's proof sink, given by an owner whose worker
+     * spawns native children. Wherever this worker's own outcome leaves its
+     * children unproven (force termination after an ignored cancel, an end
+     * before acknowledging one, a reported unproven child, or a crash after
+     * it came online), the task records an unprovable proof and rejects
+     * with an unproven error, so the lease stays charged. An abort reason
+     * already marked by someone else records nothing by itself.
+     */
+    onTerminationProof?: (proof: Promise<boolean>) => void;
 }
 
 interface IDecodedResultWorkerTaskOptions<T> extends IRunResultWorkerTaskBaseOptions {decodeResult: TResultWorkerDecoder<T>;}
@@ -288,13 +298,107 @@ export function rememberWorkerTaskFailureReceipt(error: unknown, receipt: Failur
 // A cancelled worker still reports what it managed to stop. The frame is the
 // only channel that survives the structured clone, so the mark is lifted off it
 // and onto the rejection the caller actually sees.
-function withWorkerReportedTerminationProof<T>(error: T, payload: unknown): T {
+function withWorkerReportedTerminationProof(error: unknown, payload: unknown): unknown {
     const resultPayload = parseResultWorkerPayload(payload);
     if (!resultPayload || resultPayload.ok) {
         return error;
     }
     const detail = resultPayload.errorFrame?.terminationUnproven;
-    return detail === undefined ? error : markUnprovenNativeTermination(error, detail);
+    return detail === undefined ? error : markTerminationError(error, detail);
+}
+
+function readReasonMessage(reason: unknown, fallback: string) {
+    try {
+        const message: unknown = getErrorMessage(reason);
+        return typeof message === 'string' ? message : fallback;
+    } catch {
+        return fallback;
+    }
+}
+
+function readReasonName(reason: unknown, fallback: string) {
+    try {
+        return getErrorStringProperty(reason, 'name') ?? fallback;
+    } catch {
+        return fallback;
+    }
+}
+
+function wrapUnmarkableError(reason: unknown, fallbackMessage: string, fallbackName: string) {
+    const wrapped = new Error(readReasonMessage(reason, fallbackMessage), {cause: reason});
+    wrapped.name = readReasonName(reason, fallbackName);
+    return wrapped;
+}
+
+// A primitive abort reason, such as `abort('cancel')`, or a non-extensible one
+// (including null-prototype or frozen/sealed objects) cannot carry the
+// unproven-termination mark, so the rejection that must carry it wraps it.
+// Marking a non-extensible object would throw inside the settle callback and
+// leave the task pending forever. A mark the reason already reports is no
+// exception: an AggregateError reports its members' marks without carrying one
+// itself, so marking it still writes to it.
+function asMarkableError(
+    reason: unknown,
+    fallbackMessage = 'The operation was aborted',
+    fallbackName = 'AbortError',
+): object {
+    if (typeof reason === 'object' && reason !== null) {
+        try {
+            if (Object.isExtensible(reason)) {
+                return reason;
+            }
+        } catch {
+            // Fall through to wrap Proxy/exotic objects that refuse extensibility checks.
+        }
+        return wrapUnmarkableError(reason, fallbackMessage, fallbackName);
+    }
+    const error = new Error(typeof reason === 'string' ? reason : fallbackMessage, {cause: reason});
+    error.name = fallbackName;
+    return error;
+}
+
+const UNPROVEN_NATIVE_TERMINATION_SYMBOL = Symbol.for('evb.unprovenNativeTermination');
+
+function hasReadableTerminationMark(error: unknown) {
+    try {
+        return getUnprovenNativeTerminationDetail(error) !== undefined;
+    } catch {
+        return false;
+    }
+}
+
+function hasVerifiedOwnTerminationMark(error: unknown) {
+    try {
+        return typeof error === 'object'
+            && error !== null
+            && typeof (error as Record<symbol, unknown>)[UNPROVEN_NATIVE_TERMINATION_SYMBOL] === 'string'
+            && getUnprovenNativeTerminationDetail(error) !== undefined;
+    } catch {
+        return false;
+    }
+}
+
+function markTerminationError(
+    reason: unknown,
+    detail: string,
+    fallbackMessage = 'The operation was aborted',
+    fallbackName = 'AbortError',
+): object {
+    try {
+        const marked = markUnprovenNativeTermination(
+            asMarkableError(reason, fallbackMessage, fallbackName),
+            detail,
+        );
+        if (hasVerifiedOwnTerminationMark(marked)) {
+            return marked;
+        }
+    } catch {
+        // Fall through to mark a plain Error wrapper below.
+    }
+    return markUnprovenNativeTermination(
+        wrapUnmarkableError(reason, fallbackMessage, fallbackName),
+        detail,
+    );
 }
 
 function toError(error: unknown) {
@@ -509,14 +613,58 @@ function attachWorkerHandlers<T>({
     let cancellationAcknowledged = false;
     let firstMessageObserved = false;
 
+    // A reply the decoder cannot read, even by throwing, is an invalid result.
+    const decodeReply = (data: unknown): {valid: true; value: T} | {valid: false} => {
+        if (decodeResult === undefined) {
+            return {
+                valid: true,
+                value: data as T,
+            };
+        }
+        try {
+            const decoded = decodeResult(data);
+            return decoded === null
+                ? {valid: false}
+                : {
+                    valid: true,
+                    value: decoded as T,
+                };
+        } catch {
+            return {valid: false};
+        }
+    };
+
+    // This worker's own children may outlive it; its owner's lease must say so.
+    const recordOwnChildrenUnproven = () => {
+        options.onTerminationProof?.(Promise.resolve(false));
+    };
+
     const markUnprovenPendingCancellation = () => {
         if (!hasPendingCancelError || cancellationAcknowledged) {
             return;
         }
-        pendingCancelError = markUnprovenNativeTermination(
+        recordOwnChildrenUnproven();
+        pendingCancelError = markTerminationError(
             pendingCancelError,
             `worker ${options.workerPath} ended before acknowledging cancellation; native processes it spawned were never confirmed stopped`,
         );
+    };
+
+    // A worker that crashed after starting may have left native children
+    // running. When its owner says it spawns them, the failure says so too.
+    const asCrashOutcome = (error: Error) => {
+        if (options.onTerminationProof === undefined || !online) {
+            return error;
+        }
+        recordOwnChildrenUnproven();
+        return hasReadableTerminationMark(error)
+            ? error
+            : markTerminationError(
+                error,
+                `worker ${options.workerPath} stopped without settling the native processes it spawned`,
+                'Worker task failed',
+                'Error',
+            );
     };
 
     const cleanup = () => {
@@ -579,7 +727,8 @@ function attachWorkerHandlers<T>({
                 elapsedMs: cooperativeCancelDelayMs,
             });
             finalize(() => {
-                reject(markUnprovenNativeTermination(
+                recordOwnChildrenUnproven();
+                reject(markTerminationError(
                     error,
                     `worker ${options.workerPath} was force terminated after ignoring cancellation for `
                     + `${cooperativeCancelDelayMs}ms; native processes it spawned were never confirmed stopped`,
@@ -642,7 +791,14 @@ function attachWorkerHandlers<T>({
             return;
         }
         const resultPayload = parseResultWorkerPayload(payload);
-        if (hasPendingCancelError && resultPayload !== null) {
+        // Only a reply the protocol accepts, with a result its decoder accepts,
+        // acknowledges a cancel; anything else is a worker that stopped making
+        // sense while its native children may still run.
+        const acknowledgesCancel = hasPendingCancelError && resultPayload !== null && (
+            !resultPayload.ok
+            || decodeReply(resultPayload.data).valid
+        );
+        if (acknowledgesCancel && resultPayload !== null) {
             cancellationAcknowledged = true;
             if (!resultPayload.ok && resultPayload.errorFrame?.canceled) {
                 workerTaskLog.info('Worker reported cancellation', {
@@ -660,6 +816,10 @@ function attachWorkerHandlers<T>({
                 // died is the reason the working-copy owner keeps the bytes, and
                 // dropping that here would strand the evidence on the discarded
                 // frame.
+                if (resultPayload?.ok === false && resultPayload.errorFrame?.terminationUnproven !== undefined) {
+                    recordOwnChildrenUnproven();
+                }
+                markUnprovenPendingCancellation();
                 reject(withWorkerReportedTerminationProof(pendingCancelError, payload));
                 return;
             }
@@ -677,11 +837,14 @@ function attachWorkerHandlers<T>({
                         elapsedMs: Math.round(performance.now() - startedAt),
                     },
                 );
-                reject(markWorkerTaskErrorReported(error, receipt));
+                reject(markWorkerTaskErrorReported(asCrashOutcome(error), receipt));
                 return;
             }
             if (!resultPayload.ok) {
                 const workerError = createWorkerTaskError(resultPayload);
+                if (getUnprovenNativeTerminationDetail(workerError) !== undefined) {
+                    recordOwnChildrenUnproven();
+                }
                 const summary = {
                     ...workerLog,
                     elapsedMs: Math.round(performance.now() - startedAt),
@@ -702,8 +865,8 @@ function attachWorkerHandlers<T>({
                 return;
             }
             if (decodeResult) {
-                const decoded = decodeResult(resultPayload.data);
-                if (decoded === null) {
+                const decoded = decodeReply(resultPayload.data);
+                if (!decoded.valid) {
                     const receipt = workerTaskLog.error(
                         'Worker returned an invalid result',
                         {code: 'MAIN_WORKER_TASK_FAILED'},
@@ -713,8 +876,8 @@ function attachWorkerHandlers<T>({
                         },
                     );
                     reject(markWorkerTaskErrorReported(
-                        options.createWorkerError?.(new Error(invalidResultMessage ?? invalidPayloadMessage))
-                            ?? new Error(invalidResultMessage ?? invalidPayloadMessage),
+                        asCrashOutcome(options.createWorkerError?.(new Error(invalidResultMessage ?? invalidPayloadMessage))
+                            ?? new Error(invalidResultMessage ?? invalidPayloadMessage)),
                         receipt,
                     ));
                     return;
@@ -723,7 +886,7 @@ function attachWorkerHandlers<T>({
                     ...workerLog,
                     elapsedMs: Math.round(performance.now() - startedAt),
                 });
-                resolve(decoded);
+                resolve(decoded.value);
                 return;
             }
             workerTaskLog.debug('Worker completed', {
@@ -768,7 +931,7 @@ function attachWorkerHandlers<T>({
                 reject(markWorkerTaskErrorReported(createStartupError(getErrorMessage(error)), receipt));
                 return;
             }
-            reject(markWorkerTaskErrorReported(options.createWorkerError?.(error) ?? toError(error), receipt));
+            reject(markWorkerTaskErrorReported(asCrashOutcome(options.createWorkerError?.(error) ?? toError(error)), receipt));
         });
     });
 
@@ -799,8 +962,8 @@ function attachWorkerHandlers<T>({
             }
             if (code === 0) {
                 reject(markWorkerTaskErrorReported(
-                    options.createWorkerError?.(new Error(invalidResultMessage ?? invalidPayloadMessage))
-                        ?? new Error(invalidResultMessage ?? invalidPayloadMessage),
+                    asCrashOutcome(options.createWorkerError?.(new Error(invalidResultMessage ?? invalidPayloadMessage))
+                        ?? new Error(invalidResultMessage ?? invalidPayloadMessage)),
                     receipt,
                 ));
                 return;
@@ -809,7 +972,7 @@ function attachWorkerHandlers<T>({
                 reject(markWorkerTaskErrorReported(createStartupExitError(code), receipt));
                 return;
             }
-            reject(markWorkerTaskErrorReported(createWorkerExitError(code), receipt));
+            reject(markWorkerTaskErrorReported(asCrashOutcome(createWorkerExitError(code)), receipt));
         });
     });
 

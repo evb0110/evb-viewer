@@ -807,17 +807,36 @@ async function embedPdfBookmarks(
 
     return measureElectronPerfAsync('djvu:embed-bookmarks', async () => {
         try {
-            const task = createDjvuPdfBookmarkTask(inputPdfPath, outputPdfPath, bookmarks, { signal });
-            setActivePdfWorker(jobId, task.worker);
-            try {
-                await task.promise;
-                return;
-            } catch (error) {
-                if (signal.aborted) throw abortErrorFromSignal(signal);
-                throw error;
-            } finally {
-                clearActivePdfWorker(jobId, task.worker);
-            }
+            return await mainJobBroker.run({
+                ownerId: jobId,
+                kind: 'djvu-bookmarks',
+                priority: 'user',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 256 * 1024 * 1024,
+                    nativeProcesses: 1,
+                    ioWeight: 3,
+                },
+                signal,
+            }, async ({onTerminationProof}) => {
+                const task = createDjvuPdfBookmarkTask(inputPdfPath, outputPdfPath, bookmarks, {
+                    signal,
+                    onTerminationProof,
+                });
+                setActivePdfWorker(jobId, task.worker);
+                try {
+                    await task.promise;
+                    return;
+                } catch (error) {
+                    if (getUnprovenNativeTerminationDetail(error) !== undefined) {
+                        throw error;
+                    }
+                    if (signal.aborted) throw abortErrorFromSignal(signal);
+                    throw error;
+                } finally {
+                    clearActivePdfWorker(jobId, task.worker);
+                }
+            });
         } catch (error) {
             if (!(error instanceof DjvuPdfWorkerStartupError)) {
                 throw error;

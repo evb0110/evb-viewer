@@ -107,7 +107,14 @@ const mocks = vi.hoisted(() => {
         tier: 'high',
     };
     return {
-        acquire: vi.fn(async (_request: {signal?: AbortSignal}) => ({release: vi.fn()})),
+        // Every grant from the main broker passes through here; a test may
+        // park a request instead of admitting it.
+        acquire: vi.fn((
+            request: TJobBrokerModule.IJobBrokerRequest,
+            admit: (request: TJobBrokerModule.IJobBrokerRequest) => Promise<TJobBrokerModule.IJobBrokerLease>,
+        ) => admit(request)),
+        broker: null as TJobBrokerModule.JobBroker | null,
+        createBroker: null as (() => TJobBrokerModule.JobBroker) | null,
         ensureMaterialized: vi.fn(),
         host,
         hostProfile: () => host,
@@ -121,11 +128,20 @@ vi.mock('@electron/features/scan-cleanup/runScanCleanupWorkerTask', () => (
 ));
 vi.mock('@electron/resources/jobBroker', async importOriginal => {
     const actual = await importOriginal<typeof TJobBrokerModule>();
+    class TestJobBroker extends actual.JobBroker {
+        override acquire(request: TJobBrokerModule.IJobBrokerRequest) {
+            return mocks.acquire(request, admitted => super.acquire(admitted));
+        }
+    }
+    mocks.createBroker = () => new TestJobBroker(actual.resolveMainJobBrokerCapacity(mocks.hostProfile()));
+    const broker = () => (mocks.broker ??= mocks.createBroker!());
     return {
         ...actual,
+        // A real broker per test, so the charge a run keeps is observable.
         mainJobBroker: {
-            acquire: mocks.acquire,
-            getSnapshot: () => ({capacity: actual.resolveMainJobBrokerCapacity(mocks.hostProfile())}),
+            acquire: (request: TJobBrokerModule.IJobBrokerRequest) => broker().acquire(request),
+            run: (...args: Parameters<TJobBrokerModule.JobBroker['run']>) => broker().run(...args),
+            getSnapshot: () => broker().getSnapshot(),
         },
     };
 });
@@ -245,8 +261,9 @@ describe('closing a source document during scan cleanup', () => {
         state.tempRoot = await mkdtemp(join(tmpdir(), 'evb-scan-cleanup-close-'));
         mocks.outputRoot = state.tempRoot;
         await setDocumentStoreRootForTests(join(state.tempRoot, 'store'));
+        mocks.broker = mocks.createBroker?.() ?? null;
         mocks.acquire.mockClear();
-        mocks.acquire.mockImplementation(async () => ({release: vi.fn()}));
+        mocks.acquire.mockImplementation((request, admit) => admit(request));
         mocks.ensureMaterialized.mockReset();
         mocks.ensureMaterialized.mockImplementation(async (sourcePdfPath: string) => (
             {physicalWorkingCopyPath: sourcePdfPath}
@@ -462,7 +479,7 @@ describe('closing a source document during scan cleanup', () => {
         });
 
         if (stage === 'queued') {
-            mocks.acquire.mockImplementation(async (request: {signal?: AbortSignal}) => {
+            mocks.acquire.mockImplementation(async (request) => {
                 observed.resolve(request.signal!);
                 return parkUntilAborted(request.signal!);
             });
@@ -628,7 +645,7 @@ describe('closing a source document during scan cleanup', () => {
         });
     });
 
-    it('retains the source bytes when the run could not prove its native tree died', async () => {
+    it('retains the source bytes and the broker charge when the run could not prove its native tree died', async () => {
         const {workingPath} = await createManagedWorkingCopy('unproven');
         const observed = Promise.withResolvers<AbortSignal>();
         mocks.runWorker.mockImplementation(async (
@@ -636,13 +653,18 @@ describe('closing a source document during scan cleanup', () => {
             _paths: unknown,
             _policy: unknown,
             signal: AbortSignal,
+            _onProgress: unknown,
+            _jobId: unknown,
+            options?: {onTerminationProof?: (proof: Promise<boolean>) => void},
         ) => {
             observed.resolve(signal);
             return new Promise<never>((_, reject) => {
                 signal.addEventListener('abort', () => {
                     // The worker asked its Poppler tree to die and never got an
                     // answer. A surviving child would still be reading the
-                    // source, so the run reports the stop as unproven.
+                    // source, so the run reports the stop as unproven, to the
+                    // lease its children run under as the worker task does.
+                    options?.onTerminationProof?.(Promise.resolve(false));
                     setTimeout(() => reject(markUnprovenNativeTermination(
                         toAbortError(signal),
                         'evb-scan-cleanup process tree (pid=4242) was not proven dead within 8000ms of termination',
@@ -665,6 +687,11 @@ describe('closing a source document during scan cleanup', () => {
         expect(openDocuments.has(workingPath)).toBe(false);
         expect(existsSync(dirname(workingPath))).toBe(true);
         expect(service.getState(webContents, started.jobId, owner)).toMatchObject({status: 'canceled'});
+        // Sol's probe: the worker's native children may still run, so the
+        // only charge they have stays on the broker.
+        const charge = mocks.broker!.getSnapshot();
+        expect(charge.active).toBe(1);
+        expect(charge.used.nativeProcesses).toBeGreaterThan(0);
     });
 
     it('keeps a scan-cleanup critical write that has crossed its commit boundary', async () => {

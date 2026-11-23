@@ -1,7 +1,10 @@
 import { tryBuildOptimizedPdfWithNativeImageCombiner } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 import { PdfCombineCapabilityError } from '@electron/image/pdfCombineErrors';
 
-interface IBuildOptimizedPdfOptions { signal?: AbortSignal; }
+interface IBuildOptimizedPdfOptions {
+    combineThreads?: number;
+    signal?: AbortSignal;
+}
 
 function throwIfAborted(signal: AbortSignal | undefined) {
     if (!signal?.aborted) {
@@ -24,7 +27,12 @@ export async function buildOptimizedPdf(
         imagePaths,
         dpi,
         onPageProcessed,
-        options.signal === undefined ? undefined : {signal: options.signal},
+        options.signal === undefined && options.combineThreads === undefined
+            ? undefined
+            : {
+                ...(options.signal === undefined ? {} : {signal: options.signal}),
+                ...(options.combineThreads === undefined ? {} : {combineThreads: options.combineThreads}),
+            },
     );
     throwIfAborted(options.signal);
     if (nativePdf) {

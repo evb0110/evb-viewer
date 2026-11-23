@@ -378,13 +378,31 @@ describe('scan cleanup sidecar stage timings', () => {
         expect(message).toContain('decode=0.300s');
     });
 
-    it('waits for a native command slot before it spawns', async () => {
+    it('waits for broker admission before it spawns', async () => {
         vi.resetModules();
-        const { acquireNativeCommandAdmission } = await import('@electron/native-tools/runNativeCommand');
+        const {
+            configureMainJobBroker,
+            mainJobBroker,
+        } = await import('@electron/resources/jobBroker');
+        configureMainJobBroker({
+            logicalCpus: 8,
+            totalRamBytes: 16 * 1024 ** 3,
+            safeMode: false,
+            detectedTier: 'high',
+            performanceMode: 'auto',
+            tier: 'high',
+        });
         const { runScanCleanupSidecar } = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
         const child = new MockSidecarProcess();
         mocks.spawn.mockReturnValue(child);
-        const releaseOccupants = await Promise.all(Array.from({length: 8}, () => acquireNativeCommandAdmission()));
+        // Another command holds the whole capacity.
+        const occupant = await mainJobBroker.acquire({
+            ownerId: 'occupant',
+            kind: 'native-command',
+            priority: 'user',
+            admissionClass: 'leaf',
+            resources: mainJobBroker.getSnapshot().capacity,
+        });
 
         const run = runScanCleanupSidecar(
             '/native/evb-scan-cleanup',
@@ -400,17 +418,22 @@ describe('scan cleanup sidecar stage timings', () => {
         }
         expect(mocks.spawn).not.toHaveBeenCalled();
 
-        releaseOccupants.shift()?.();
+        occupant.release();
         await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
+        expect(mainJobBroker.getSnapshot()).toMatchObject({
+            active: 1,
+            used: {nativeProcesses: 1},
+        });
         child.stdout.write(resultLine('success'));
         await vi.waitFor(() => expect(child.stdout.readableLength).toBe(0));
         child.emit('close', 0, null);
         await run;
-        releaseOccupants.forEach(release => release());
 
-        // The slot the sidecar held is handed back, so the next native command
-        // is admitted immediately.
-        const releaseAfterRun = await acquireNativeCommandAdmission();
-        releaseAfterRun();
+        // The lease the sidecar held is handed back with its exit.
+        expect(mainJobBroker.getSnapshot()).toMatchObject({
+            active: 0,
+            queued: 0,
+            used: {nativeProcesses: 0},
+        });
     });
 });
