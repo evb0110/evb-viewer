@@ -38,7 +38,7 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         pdfDocument,
         documentAnnotations,
     } = options;
-    const pdfViewerRef = computed<IWorkspacePdfViewerAnnotationSessionPort | null>(() => views.pdfViewer.value);
+    const pdfViewerRef: Readonly<Ref<IWorkspacePdfViewerAnnotationSessionPort | null>> = views.pdfViewer;
 
     function clearAnnotationChanges() {}
 

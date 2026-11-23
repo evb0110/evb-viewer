@@ -1,3 +1,6 @@
+import { setImmediate as nextTask } from 'node:timers/promises';
+import { setFlagsFromString } from 'node:v8';
+import { runInNewContext } from 'node:vm';
 import {
     describe,
     expect,
@@ -26,7 +29,11 @@ import { useAppShellTabLifecycle } from '@app/modules/workspace-shell/composable
 import { useAppShellDirectionalTabs } from '@app/modules/workspace-shell/composables/useAppShellDirectionalTabs';
 import { cast } from '@tests/helpers/cast';
 import { createWorkspaceLayoutChange } from '@app/modules/workspace-shell/composables/workspaceLayoutChange';
-import { createViewLayoutReceipt } from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
+import {
+    createDocumentViews,
+    createViewLayoutReceipt,
+    type IDocumentViewPort,
+} from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
 import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import {
     createWorkspaceDocumentController,
@@ -721,6 +728,43 @@ describe('workspace layout change', () => {
             throw new Error('split failed');
         })).rejects.toThrow('split failed');
         expect(fences).toEqual([true, false]);
+    });
+});
+
+describe('document views', () => {
+    it.each([
+        'view',
+        'document host',
+    ])('lets a cold tab\'s unmounted viewer be collected when its %s goes first', async (first) => {
+        setFlagsFromString('--expose_gc');
+        const collectGarbage = runInNewContext('gc') as () => void;
+        const scope = effectScope();
+        onTestFinished(() => scope.stop());
+        // The document's controller outlives a cold tab's host and keeps reading this context.
+        const views = scope.run(() => createDocumentViews(createWorkspaceDocumentController({tabId: 'tab-a'})))!;
+        const pdfViewerRef = shallowRef<object | null>({unmountedViewer: true});
+        const viewerRef = new WeakRef(pdfViewerRef.value!);
+        let detach: (() => void) | null = views.attachView(cast<IDocumentViewPort>({
+            tabId: 'tab-a',
+            view: {
+                pdfViewerRef,
+                pdfDocument: shallowRef(null),
+                totalPages: ref(1),
+            },
+        }));
+        expect(views.pdfViewer.value === viewerRef.deref()).toBe(true);
+
+        if (first === 'document host') scope.stop();
+        // Unmounting clears the view's template ref, then the view gives its port back.
+        pdfViewerRef.value = null;
+        detach();
+        detach = null;
+        // A WeakRef keeps its target until the task that read it ends.
+        await nextTask();
+        collectGarbage();
+
+        expect(viewerRef.deref()).toBeUndefined();
+        expect(views.soleView.value).toBeNull();
     });
 });
 

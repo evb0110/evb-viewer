@@ -270,7 +270,11 @@ export function createWorkspaceExpose(
         handleOcrComplete: async (payload) => {
             await document.ocr.applyResult(payload as Parameters<typeof document.ocr.applyResult>[0]);
         },
-        getWorkspaceDocumentRefsSignature: () => [document.file.originalPath.value, document.file.workingCopyPath.value, document.file.requiresSaveAsOnFirstSave.value],
+        getWorkspaceDocumentRefs: () => ({
+            sourceRef: document.file.originalPath.value,
+            workingCopyRef: document.file.workingCopyPath.value,
+            requiresSaveAsOnFirstSave: document.file.requiresSaveAsOnFirstSave.value,
+        }),
         captureCanonicalAnnotationRecovery: document.recovery.capture,
         commitDocumentDrafts: document.recovery.commitDrafts,
         holdDocumentDrafts: document.recovery.holdDrafts,

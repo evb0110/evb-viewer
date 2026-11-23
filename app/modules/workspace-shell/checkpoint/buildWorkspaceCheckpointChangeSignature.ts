@@ -4,6 +4,7 @@ import type {
     TEditorLayoutNode,
 } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
+import type { IWorkspaceDocumentRefs } from '@app/types/workspaceDocumentRecovery';
 import {
     describeTabDocument,
     type IWorkspaceDocumentController,
@@ -35,9 +36,9 @@ function buildTabSignature(
     const workspace = view?.mountedWorkspace.value ?? null;
     const toolbar = view?.toolbarSnapshot.value ?? null;
     const identity = session?.snapshot.value.identity ?? null;
-    let refsSignature: readonly unknown[] = [];
+    let refs: IWorkspaceDocumentRefs | null = null;
     try {
-        refsSignature = workspace?.getWorkspaceDocumentRefsSignature?.() ?? [];
+        refs = workspace?.getWorkspaceDocumentRefs() ?? null;
     } catch {
         // A capture failure is reported by the checkpoint builder.
     }
@@ -54,7 +55,7 @@ function buildTabSignature(
         full: JSON.stringify([
             ...structure,
             workspace !== null,
-            refsSignature,
+            refs,
             toolbar?.hasPdf ?? null,
             toolbar?.currentPage ?? null,
             toolbar?.zoom ?? null,

@@ -34,17 +34,14 @@ export class WorkspaceCheckpointCaptureError extends Error {
     }
 }
 
+// Only the refs: the automation snapshot would diff every annotation of every
+// mounted document on each tab switch to answer this.
 function readWorkspaceDocumentRefs(
-    workspace: IWorkspaceExpose | null,
+    workspace: IWorkspaceExpose,
     tabId: string,
 ) {
     try {
-        const snapshot = workspace?.getAutomationStateSnapshot();
-        return {
-            sourceRef: snapshot?.originalPath ?? null,
-            workingCopyRef: snapshot?.workingCopyPath ?? null,
-            requiresSaveAsOnFirstSave: snapshot?.requiresSaveAsOnFirstSave ?? false,
-        };
+        return workspace.getWorkspaceDocumentRefs();
     } catch (error) {
         throw new WorkspaceCheckpointCaptureError(tabId, error);
     }
@@ -85,11 +82,11 @@ export function buildWorkspaceCheckpoint(options: IBuildWorkspaceCheckpointOptio
             const session = options.documentSessionsByTabId.value[snapshot.tabId];
             const view = session?.getView(snapshot.tabId) ?? null;
             const workspace = session ? findDocumentWorkspace(session, snapshot.tabId) : null;
-            const documentRefs = workspace || !session
+            const documentRefs = workspace
                 ? readWorkspaceDocumentRefs(workspace, snapshot.tabId)
                 : {
-                    sourceRef: session.snapshot.value.identity.originalPath,
-                    workingCopyRef: session.snapshot.value.identity.workingCopyPath,
+                    sourceRef: session?.snapshot.value.identity.originalPath ?? null,
+                    workingCopyRef: session?.snapshot.value.identity.workingCopyPath ?? null,
                     requiresSaveAsOnFirstSave: false,
                 };
             // The first tab of a document opens it at restore; the later ones link to it.

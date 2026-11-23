@@ -233,7 +233,10 @@ function createContentHistoryHarness(pathHistory: boolean, beforeRevisionPrepare
             affinity: 'center',
         },
     });
-    const views = createDocumentViews(controller);
+    // A document's views live in its host's scope.
+    const viewsScope = effectScope();
+    onTestFinished(() => viewsScope.stop());
+    const views = viewsScope.run(() => createDocumentViews(controller))!;
     const pages = [
         ref(3),
         ref(2),
@@ -252,6 +255,8 @@ function createContentHistoryHarness(pathHistory: boolean, beforeRevisionPrepare
             openSurface: surface,
             view: {
                 currentPage: pages[index],
+                pdfDocument: shallowRef(null),
+                totalPages: ref(6),
                 pdfViewerRef: shallowRef({
                     scrollToPage: (page: number) => {pages[index]!.value = page;},
                     preparePageMutationRevisionSwap: async () => {

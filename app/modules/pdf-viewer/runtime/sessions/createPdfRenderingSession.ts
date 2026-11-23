@@ -484,7 +484,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 pageRenderOptions.maxCanvasPixels ?? '',
                 pageRenderOptions.openSurfaceGeneration ?? '',
                 pageRenderOptions.openSurfaceRevision ?? '',
-                pageRenderOptions.annotationCommit?.signature ?? pageRenderer.annotationPaintIdentities.value.get(pageNumber) ?? '',
+                pageRenderOptions.annotationCommit?.signature ?? pageRenderer.annotationPaintIdentity(pageNumber),
             ].join(':');
             // An in-flight raster is already scale-current within tolerance.
             // Keep its key so float drift in a recomputed fit cannot orphan it.
@@ -693,7 +693,8 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         await cancellation;
     }
     let pendingRasterCancellation = Promise.resolve();
-    const stopAnnotationPaintWatch = watch(pageRenderer.annotationPaintIdentities, queueFrame, {flush: 'post'});
+    // A page this view holds repaints when its annotations do; any other page paints them when it mounts.
+    const stopAnnotationPaintWatch = watch(() => [...pageResources.resources.keys()].map(pageRenderer.annotationPaintIdentity).join('\n'), queueFrame, {flush: 'post'});
     // Persist-only revisions reauthorize pixels; replacement documents do not.
     // The load path nulls the document first, so authority tracks the last loaded document instead of the watcher's previous value.
     let canvasAuthority = {
@@ -825,8 +826,8 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         }
         const render = pageResources.get(pageNumber).shown?.render;
         if (render) canvasRenderer.cleanupCanvasRenderResult(render);
-        pageResources.release(pageNumber);
         pageRenderer.releasePageLayers(pageNumber);
+        pageResources.release(pageNumber);
         const target = getMountedRasterTarget(pageNumber);
         if (target) {
             target.canvasHost.replaceChildren();

@@ -43,6 +43,11 @@ export function createWorkspaceExposeFixture(
         getToolbarSnapshot: () => createDefaultWorkspaceToolbarSnapshot(),
         getOpenFailure: () => null,
         getAutomationStateSnapshot: () => createWorkspaceAutomationStateSnapshot(),
+        getWorkspaceDocumentRefs: () => ({
+            sourceRef: null,
+            workingCopyRef: null,
+            requiresSaveAsOnFirstSave: false,
+        }),
         ...overrides,
     };
     return cast<IWorkspaceExpose>(new Proxy(surface, {get(target, key) {

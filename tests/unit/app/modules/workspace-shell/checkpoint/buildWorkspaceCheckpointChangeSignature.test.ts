@@ -169,11 +169,11 @@ describe('buildWorkspaceCheckpointChangeSignature', () => {
         const options = createSignatureOptions();
         let originalPath: TDocumentRef | null = null;
         const workspace = {getToolbarSnapshot: createDefaultWorkspaceToolbarSnapshot} as IWorkspaceExpose;
-        workspace.getWorkspaceDocumentRefsSignature = () => [
-            originalPath,
-            null,
-            false,
-        ];
+        workspace.getWorkspaceDocumentRefs = () => ({
+            sourceRef: originalPath,
+            workingCopyRef: null,
+            requiresSaveAsOnFirstSave: false,
+        });
         options.documentSessionsByTabId.value['tab-a'].attachWorkspace('tab-a', workspace);
         const before = buildWorkspaceCheckpointChangeSignature(options);
 
@@ -253,7 +253,11 @@ describe('buildWorkspaceCheckpointChangeSignature structure across views', () =>
         const base = buildWorkspaceCheckpointChangeSignature(options);
         let workingCopy: TDocumentRef | null = null;
         const workspace = {getToolbarSnapshot: createDefaultWorkspaceToolbarSnapshot} as IWorkspaceExpose;
-        workspace.getWorkspaceDocumentRefsSignature = () => [null, workingCopy, false];
+        workspace.getWorkspaceDocumentRefs = () => ({
+            sourceRef: null,
+            workingCopyRef: workingCopy,
+            requiresSaveAsOnFirstSave: false,
+        });
 
         // A memory policy unmounts background views on every tab switch.
         session.attachWorkspace('tab-a', workspace);
@@ -284,7 +288,7 @@ describe('buildWorkspaceCheckpoint', () => {
     it('fails closed when a mounted workspace snapshot cannot be captured', () => {
         const options = createSignatureOptions();
         const workspace = {getToolbarSnapshot: createDefaultWorkspaceToolbarSnapshot} as IWorkspaceExpose;
-        workspace.getAutomationStateSnapshot = () => {
+        workspace.getWorkspaceDocumentRefs = () => {
             throw new Error('snapshot unavailable');
         };
         options.documentSessionsByTabId.value['tab-a'].attachWorkspace('tab-a', workspace);
@@ -306,8 +310,8 @@ describe('useWorkspaceCrashCheckpoint', () => {
         const options = createSignatureOptions();
         const enabled = ref(true);
         const workspace = createWorkspaceExposeFixture();
-        const capture = workspace.getAutomationStateSnapshot;
-        vi.spyOn(workspace, 'getAutomationStateSnapshot').mockImplementationOnce(() => {
+        const capture = workspace.getWorkspaceDocumentRefs;
+        vi.spyOn(workspace, 'getWorkspaceDocumentRefs').mockImplementationOnce(() => {
             enabled.value = false;
             return capture();
         });

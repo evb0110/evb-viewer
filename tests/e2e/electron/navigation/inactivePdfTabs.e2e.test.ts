@@ -348,6 +348,48 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
         expect(activeAfterSecondReactivation?.renderedPages).toBeGreaterThan(0);
     });
 
+    // A cold tab unmounts its view. Switching between cold tabs must not keep the
+    // unmounted views, with their pages and text layers, alive in the renderer.
+    it('lets the views of cold PDF tabs go as the reader switches between them', async () => {
+        const session = sessionFixture.getSession();
+        await setTabMemoryPolicyForE2E(session.page, 'aggressive');
+        for (const [index, pageCount] of [
+            3,
+            4,
+        ].entries()) {
+            if (index > 0) await createNewTab(session);
+            await openPdfInApp(session.page, await createMultiPageTextFixturePdf(`cold-tab-views-${index}-${Date.now()}.pdf`, pageCount));
+            await waitForPdfLoaded(session.page);
+        }
+        const switchTabs = async (count: number) => {
+            for (let switchIndex = 0; switchIndex < count; switchIndex += 1) {
+                await activateTab(session, switchIndex % 2);
+                await waitForPdfLoaded(session.page);
+                await waitForInactiveHostsToReleaseRenderedPages(session);
+            }
+        };
+        const countRetainedUnmountedViews = async () => {
+            const cdp = await session.page.createCDPSession();
+            try {
+                await cdp.send('HeapProfiler.collectGarbage');
+                const {detachedNodes} = await cdp.send('DOM.getDetachedDomNodes');
+                return detachedNodes.filter(({treeNode}) => {
+                    const attributes = treeNode.attributes ?? [];
+                    const classIndex = attributes.indexOf('class');
+                    return classIndex >= 0 && attributes[classIndex + 1]!.split(/\s+/u).includes('workspace-host');
+                }).length;
+            } finally {
+                await cdp.detach();
+            }
+        };
+
+        await switchTabs(4);
+        const settled = await countRetainedUnmountedViews();
+        await switchTabs(8);
+
+        expect(await countRetainedUnmountedViews()).toBeLessThanOrEqual(settled);
+    });
+
     it.each([
         {
             format: 'PDF',

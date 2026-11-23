@@ -193,7 +193,9 @@ function createHarness() {
     let committedRender = renderResult;
     return {
         setCommittedRender: (value: typeof renderResult) => { committedRender = value; },
+        annotationLayer,
         canvas,
+        containerRef: rendererOptions.container,
         document: documentSession,
         onRenderedPageStateChanged,
         onPageLayersCommitted,
@@ -778,6 +780,49 @@ function showResourcePage(resources: ReturnType<typeof createPdfPageResources>, 
     resources.publish(resourcePage, job, resourceReceipt(container));
     return job;
 }
+
+describe('usePdfPageRenderer page release', () => {
+    it('releases the layers of a page its view no longer has mounted', () => {
+        const harness = createHarness();
+        try {
+            showRaster(harness);
+            harness.annotationLayer.append(document.createElement('section'));
+            expect(harness.pageContainer.dataset.pageLayerReadiness).toBe('canvas-only');
+            // A tab that goes cold unmounts its view: the view's root ref is gone
+            // before the view releases its pages.
+            harness.root.remove();
+            harness.containerRef.value = null;
+
+            harness.renderer.releasePageLayers(page1);
+
+            expect(harness.pageContainer.dataset.pageLayerReadiness).toBeUndefined();
+            expect(harness.annotationLayer.childElementCount).toBe(0);
+        } finally {harness.root.remove();}
+    });
+
+    it('keeps a selection in another tab\'s text while releasing a page its view no longer has mounted', () => {
+        const harness = createHarness();
+        const otherTabText = document.createElement('div');
+        otherTabText.className = 'text-layer';
+        otherTabText.textContent = 'Selected in another tab';
+        document.body.append(otherTabText);
+        try {
+            showRaster(harness);
+            const selection = document.getSelection()!;
+            selection.selectAllChildren(otherTabText);
+            harness.root.remove();
+            harness.containerRef.value = null;
+
+            harness.renderer.releasePageLayers(page1);
+
+            expect(selection.toString()).toBe('Selected in another tab');
+        } finally {
+            document.getSelection()?.removeAllRanges();
+            otherTabText.remove();
+            harness.root.remove();
+        }
+    });
+});
 
 describe('pdf page resources', () => {
     it('keeps old pixels while a same-container replacement renders and blanks a remounted page', () => {

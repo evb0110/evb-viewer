@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import { tryOnScopeDispose } from '@vueuse/core';
 import {
     getPageIdentityDeltaNextPageCount,
     mapPageNumberThroughPageIdentityDelta,
@@ -110,6 +111,20 @@ export function createViewLayoutReceipt(view: {
 export const createDocumentViews = (controller: IWorkspaceDocumentController) => {
     const viewPorts = shallowRef(new Map<string, IDocumentViewPort>());
     const ports = () => [...viewPorts.value.values()];
+    // What the document reads from its views follows them at once, and names none once its
+    // host is gone: a cold tab unmounts the host before its view gives the port back, and
+    // its controller keeps the host's context. A computed nobody reads again would keep the
+    // view it last named, with its viewer, DOM and PDF.js document, alive meanwhile.
+    function fromViews<T>(read: () => T, released: T): Readonly<Ref<T>> {
+        const value = shallowRef(released);
+        watchSyncEffect(() => {
+            value.value = read();
+        });
+        tryOnScopeDispose(() => {
+            value.value = released;
+        });
+        return value;
+    }
 
     /** Lends the document a mounted view; the returned function takes it back. */
     function attachView(port: IDocumentViewPort) {
@@ -126,7 +141,7 @@ export const createDocumentViews = (controller: IWorkspaceDocumentController) =>
 
     // Only PDF documents link views; a DjVu document, and the document a
     // moved or restored tab opens, has at most one.
-    const soleView = computed(() => (viewPorts.value.size === 1 ? ports()[0]! : null));
+    const soleView = fromViews(() => (viewPorts.value.size === 1 ? ports()[0]! : null), null);
 
     // An open runs in the view that starts it, whose lifecycle claims its
     // surface; without one, the document runs it alone. A normal open starts
@@ -151,12 +166,12 @@ export const createDocumentViews = (controller: IWorkspaceDocumentController) =>
     // The viewers share the document's PDF session and annotation store, so
     // what one of them answers about the document every one would: the first
     // mounted, not the focused, serves.
-    const pdfViewer = computed(() => ports().map(port => port.view.pdfViewerRef.value).find(viewer => viewer) ?? null);
+    const pdfViewer = fromViews(() => ports().map(port => port.view.pdfViewerRef.value).find(viewer => viewer) ?? null, null);
     // The PDF.js document the views present, and its page count. The session
     // drops its document when a reload starts; the views present the previous
     // one until the next is ready, and that is the document's state meanwhile.
-    const presentedPdfDocument = computed(() => ports().map(port => port.view.pdfDocument.value).find(document => document) ?? null);
-    const reportedPageCount = computed(() => Math.max(0, ...ports().map(port => port.view.totalPages.value)));
+    const presentedPdfDocument = fromViews(() => ports().map(port => port.view.pdfDocument.value).find(document => document) ?? null, null);
+    const reportedPageCount = fromViews(() => Math.max(0, ...ports().map(port => port.view.totalPages.value)), 0);
 
     /**
      * Brings the document the view opens next to `page` (R4: a moved tab
