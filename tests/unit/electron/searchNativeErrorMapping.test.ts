@@ -1060,13 +1060,15 @@ describe('provisional search matches', () => {
                 pageCount: 3,
                 resolveDocument: async () => document,
             });
+            const response = search.finally(() => service.shutdown());
+            response.catch(() => undefined);
             return {
                 source,
                 progress,
                 provisional,
                 // The index is written once the test has seen what it shows before.
                 releaseIndexer: () => indexer.resolve(undefined),
-                response: search.finally(() => service.shutdown()),
+                response,
             };
         } catch (error) {
             await finalize();
