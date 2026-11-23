@@ -1,7 +1,9 @@
 import {
+    afterEach,
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
     PDF_BUFFER_MAX_CANVAS_PIXELS_DEFAULT,
@@ -13,7 +15,7 @@ import {
     PDF_PAGE_PROXY_CACHE_WORKSTATION,
     PDF_RENDER_CONCURRENCY_DEFAULT,
     PDF_RENDER_CONCURRENCY_LOW_CPU,
-    PDF_RENDER_CONCURRENCY_LOW_MEMORY,
+    PDF_SETTLED_MAX_CANVAS_PIXELS_DEFAULT,
     PDF_SETTLED_MAX_CANVAS_PIXELS_HIGH_MEMORY,
     PDF_SETTLED_MAX_CANVAS_PIXELS_LOW_TIER,
     PDF_SETTLED_MAX_CANVAS_PIXELS_WORKSTATION,
@@ -26,6 +28,13 @@ import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/resolveOpe
 import { resolvePdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 
 const MEBIBYTE = 1024 * 1024;
+
+vi.mock('@app/utils/electronPlatformBridge', () => ({getRawElectronPlatformApi: () => undefined}));
+vi.mock('@app/utils/browserSettingsPersistence', () => ({readBrowserPerformanceModeSnapshot: () => 'auto'}));
+
+afterEach(() => {
+    vi.unstubAllGlobals();
+});
 
 describe('resolvePerformanceProfile', () => {
     it('retains the startup choice independently of the detected or host tier', () => {
@@ -46,19 +55,87 @@ describe('resolvePerformanceProfile', () => {
         expect(resolvePerformanceProfile({})).toMatchObject({performanceMode: 'auto'});
     });
 
-    it('uses the conservative low profile when memory and CPU are unknown', () => {
-        expect(resolvePerformanceProfile({})).toMatchObject({
+    it('treats a desktop browser that reports no memory as medium, not low', () => {
+        const medium = {
+            tier: 'medium',
+            mobile: false,
+            lowMemory: false,
+            lowCpu: false,
+            pdfBufferPages: 2,
+            concurrentPdfRenders: PDF_RENDER_CONCURRENCY_DEFAULT,
+            maxCachedPdfPages: PDF_PAGE_PROXY_CACHE_DEFAULT,
+            thumbnailBaseConcurrency: PDF_THUMBNAIL_CONCURRENCY_DEFAULT,
+            settledMaxCanvasPixels: PDF_SETTLED_MAX_CANVAS_PIXELS_DEFAULT,
+            maxBufferCanvasPixels: PDF_BUFFER_MAX_CANVAS_PIXELS_DEFAULT,
+        };
+        expect(resolvePerformanceProfile({hardwareConcurrency: 8})).toMatchObject(medium);
+        expect(resolvePerformanceProfile({})).toMatchObject(medium);
+    });
+
+    it('classifies small browsers as low on evidence of few cores, little memory or a mobile device', () => {
+        expect(resolvePerformanceProfile({hardwareConcurrency: 2}).tier).toBe('low');
+        expect(resolvePerformanceProfile({
+            deviceMemory: 4,
+            hardwareConcurrency: 8,
+        }).tier).toBe('low');
+        expect(resolvePerformanceProfile({
+            deviceMemory: 8,
+            hardwareConcurrency: 8,
+            mobile: true,
+        })).toMatchObject({
             tier: 'low',
-            lowMemory: true,
-            lowCpu: true,
-            pdfBufferPages: 1,
-            concurrentPdfRenders: 1,
-            maxCachedPdfPages: PDF_PAGE_PROXY_CACHE_LOW_MEMORY,
-            thumbnailBaseConcurrency: PDF_THUMBNAIL_CONCURRENCY_LOW_PROFILE,
-            settledMaxCanvasPixels: PDF_SETTLED_MAX_CANVAS_PIXELS_LOW_TIER,
-            maxBufferCanvasPixels: PDF_BUFFER_MAX_CANVAS_PIXELS_LOW_MEMORY,
+            mobile: true,
         });
-        expect(PDF_RENDER_CONCURRENCY_LOW_CPU).toBe(1);
+    });
+
+    it.each([
+        {
+            name: 'iPhone Safari',
+            userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+            maxTouchPoints: 5,
+            mobile: true,
+        },
+        {
+            name: 'iPadOS Safari',
+            userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
+            maxTouchPoints: 5,
+            mobile: true,
+        },
+        {
+            name: 'macOS Safari',
+            userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
+            maxTouchPoints: 0,
+            mobile: false,
+        },
+    ])('reads $name from the browser navigator', ({
+        userAgent,
+        maxTouchPoints,
+        mobile,
+    }) => {
+        vi.stubGlobal('window', {});
+        vi.stubGlobal('document', {});
+        vi.stubGlobal('navigator', {
+            userAgent,
+            maxTouchPoints,
+            hardwareConcurrency: 8,
+        });
+
+        expect(resolvePerformanceProfile()).toMatchObject({
+            mobile,
+            tier: mobile ? 'low' : 'medium',
+        });
+    });
+
+    it('does not classify the server by its own CPUs while rendering without a document', () => {
+        vi.stubGlobal('navigator', {
+            userAgent: 'Node.js/26',
+            hardwareConcurrency: 2,
+        });
+
+        expect(resolvePerformanceProfile()).toMatchObject({
+            tier: 'medium',
+            mobile: false,
+        });
     });
 
     it('keeps full counts on capable hardware and raises the settled canvas budget', () => {
@@ -86,9 +163,9 @@ describe('resolvePerformanceProfile', () => {
         })).toMatchObject({
             tier: 'low',
             lowMemory: true,
-            lowCpu: false,
+            lowCpu: true,
             pdfBufferPages: 1,
-            concurrentPdfRenders: PDF_RENDER_CONCURRENCY_LOW_MEMORY,
+            concurrentPdfRenders: PDF_RENDER_CONCURRENCY_LOW_CPU,
             maxCachedPdfPages: PDF_PAGE_PROXY_CACHE_LOW_MEMORY,
             settledMaxCanvasPixels: PDF_SETTLED_MAX_CANVAS_PIXELS_LOW_TIER,
             maxBufferCanvasPixels: PDF_BUFFER_MAX_CANVAS_PIXELS_LOW_MEMORY,
@@ -169,38 +246,28 @@ describe('resolvePerformanceProfile', () => {
             concurrentPdfRenders: PDF_RENDER_CONCURRENCY_DEFAULT,
             maxCachedPdfPages: PDF_PAGE_PROXY_CACHE_DEFAULT,
             thumbnailBaseConcurrency: PDF_THUMBNAIL_CONCURRENCY_DEFAULT,
-            settledMaxCanvasPixels: PDF_SETTLED_MAX_CANVAS_PIXELS_WORKSTATION,
-            maxBufferCanvasPixels: PDF_BUFFER_MAX_CANVAS_PIXELS_DEFAULT,
-        });
-    });
-
-    it('serializes PDF renders on low-CPU machines without lowering the canvas budget', () => {
-        expect(resolvePerformanceProfile({
-            deviceMemory: 8,
-            hardwareConcurrency: 4,
-        })).toMatchObject({
-            tier: 'high',
-            lowMemory: false,
-            lowCpu: true,
-            pdfBufferPages: 2,
-            concurrentPdfRenders: 1,
-            maxCachedPdfPages: PDF_PAGE_PROXY_CACHE_DEFAULT,
             settledMaxCanvasPixels: PDF_SETTLED_MAX_CANVAS_PIXELS_HIGH_MEMORY,
             maxBufferCanvasPixels: PDF_BUFFER_MAX_CANVAS_PIXELS_DEFAULT,
         });
-        expect(PDF_RENDER_CONCURRENCY_LOW_CPU).toBe(1);
     });
 
-    it('reduces off-screen counts on low-memory machines with enough CPU cores', () => {
+    it('keeps a browser in Chrome\'s top memory bucket at medium when it has few cores', () => {
+        expect(resolvePerformanceProfile({
+            deviceMemory: 8,
+            hardwareConcurrency: 4,
+        }).tier).toBe('medium');
+    });
+
+    it('gives a low-memory browser with enough CPU cores the canonical low table', () => {
         expect(resolvePerformanceProfile({
             deviceMemory: 4,
             hardwareConcurrency: 8,
         })).toMatchObject({
             tier: 'low',
             lowMemory: true,
-            lowCpu: false,
+            lowCpu: true,
             pdfBufferPages: 1,
-            concurrentPdfRenders: PDF_RENDER_CONCURRENCY_LOW_MEMORY,
+            concurrentPdfRenders: PDF_RENDER_CONCURRENCY_LOW_CPU,
             maxCachedPdfPages: PDF_PAGE_PROXY_CACHE_LOW_MEMORY,
             settledMaxCanvasPixels: PDF_SETTLED_MAX_CANVAS_PIXELS_LOW_TIER,
             maxBufferCanvasPixels: PDF_BUFFER_MAX_CANVAS_PIXELS_LOW_MEMORY,
@@ -260,6 +327,7 @@ describe('resolvePerformanceProfile', () => {
             totalMemoryBytes: 16 * 1024 ** 3,
         })).toEqual({
             performanceMode: 'auto',
+            mobile: false,
             ...expected,
         });
     });
@@ -275,6 +343,7 @@ describe('resolvePerformanceProfile', () => {
             tier: 'high',
         })).toEqual({
             performanceMode: 'auto',
+            mobile: false,
             tier: 'high',
             lowMemory: false,
             lowCpu: false,
@@ -290,6 +359,7 @@ describe('resolvePerformanceProfile', () => {
             tier: 'medium',
         })).toEqual({
             performanceMode: 'auto',
+            mobile: false,
             tier: 'medium',
             lowMemory: false,
             lowCpu: false,
@@ -298,41 +368,6 @@ describe('resolvePerformanceProfile', () => {
             maxCachedPdfPages: 48,
             thumbnailBaseConcurrency: 2,
             settledMaxCanvasPixels: 2 ** 25,
-            maxBufferCanvasPixels: 16_777_216,
-        });
-    });
-
-    it('preserves the legacy browser auto formulas when no canonical tier is available', () => {
-        expect(resolvePerformanceProfile({
-            performanceMode: 'auto',
-            deviceMemory: 4,
-            hardwareConcurrency: 8,
-        })).toEqual({
-            performanceMode: 'auto',
-            tier: 'low',
-            lowMemory: true,
-            lowCpu: false,
-            pdfBufferPages: 1,
-            concurrentPdfRenders: 2,
-            maxCachedPdfPages: 16,
-            thumbnailBaseConcurrency: 1,
-            settledMaxCanvasPixels: 2 ** 24,
-            maxBufferCanvasPixels: 8_388_608,
-        });
-        expect(resolvePerformanceProfile({
-            performanceMode: 'auto',
-            deviceMemory: 8,
-            hardwareConcurrency: 4,
-        })).toEqual({
-            performanceMode: 'auto',
-            tier: 'high',
-            lowMemory: false,
-            lowCpu: true,
-            pdfBufferPages: 2,
-            concurrentPdfRenders: 1,
-            maxCachedPdfPages: 48,
-            thumbnailBaseConcurrency: 1,
-            settledMaxCanvasPixels: 2 ** 26,
             maxBufferCanvasPixels: 16_777_216,
         });
     });
@@ -400,13 +435,10 @@ describe('resolveOpenPathSecondaryPerformancePolicy', () => {
             },
         },
         {
-            profile: resolvePerformanceProfile({
-                deviceMemory: 8,
-                hardwareConcurrency: 4,
-            }),
+            profile: resolvePerformanceProfile({hardwareConcurrency: 8}),
             expected: {
-                eagerAnnotationNameReadMaxBytes: 4 * MEBIBYTE,
-                interactiveAnnotationNameReadMaxBytes: 16 * MEBIBYTE,
+                eagerAnnotationNameReadMaxBytes: 16 * MEBIBYTE,
+                interactiveAnnotationNameReadMaxBytes: 64 * MEBIBYTE,
                 maxInMemoryPdfBytes: 16 * MEBIBYTE,
                 maxDjvuJsDesktopSourceBytes: 96 * MEBIBYTE,
                 inactiveDjvuLeasePolicy: 'warm-grace',

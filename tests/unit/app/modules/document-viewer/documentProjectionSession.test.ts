@@ -516,7 +516,7 @@ describe('document page sources', () => {
             revokeObjectURL: vi.fn(),
             terminate: vi.fn(),
         } satisfies IPagePreviewSource;
-        const budget = createWorkspaceSurfaceBudgetController(800_000);
+        const budget = createWorkspaceSurfaceBudgetController(400_000);
         const source = await createDjvuPageSource(requireDocumentRef('/book.djvu'), previewSource, budget);
         const surface = await source.renderPage({
             pageNumber: 1,
@@ -527,7 +527,7 @@ describe('document page sources', () => {
         const onInvalidated = vi.fn();
         surface.onInvalidated?.(onInvalidated);
 
-        budget.setPressureLevel('emergency');
+        budget.setPressureLevel('critical');
 
         expect(onInvalidated).toHaveBeenCalledOnce();
         expect(previewSource.revokeObjectURL).toHaveBeenCalledWith('blob:pressure-page');
@@ -548,7 +548,7 @@ describe('document page sources', () => {
             revokeObjectURL: vi.fn(),
             terminate: vi.fn(),
         } satisfies IPagePreviewSource;
-        const budget = createWorkspaceSurfaceBudgetController(800_000);
+        const budget = createWorkspaceSurfaceBudgetController(400_000);
         const source = await createDjvuPageSource(requireDocumentRef('/book.djvu'), previewSource, budget);
         const surface = await source.renderPage({
             pageNumber: 1,
@@ -559,7 +559,7 @@ describe('document page sources', () => {
         const onInvalidated = vi.fn();
         surface.onInvalidated?.(onInvalidated);
 
-        budget.setPressureLevel('emergency');
+        budget.setPressureLevel('critical');
 
         expect(onInvalidated).not.toHaveBeenCalled();
         expect(previewSource.revokeObjectURL).not.toHaveBeenCalled();
@@ -594,7 +594,7 @@ describe('document page sources', () => {
             signal: new AbortController().signal,
         });
 
-        budget.setPressureLevel('emergency');
+        budget.setPressureLevel('critical');
         const secondSurface = await secondSource.renderPage({
             pageNumber: 1,
             widthPx: 10,
@@ -607,7 +607,7 @@ describe('document page sources', () => {
         expect(firstPreviewSource.revokeObjectURL).not.toHaveBeenCalled();
         expect(secondPreviewSource.revokeObjectURL).not.toHaveBeenCalled();
         expect(budget.getSnapshot()).toMatchObject({
-            effectiveMaxBytes: 150,
+            effectiveMaxBytes: 300,
             leaseCount: 2,
             reservedBytes: 800,
         });
