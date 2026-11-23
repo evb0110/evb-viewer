@@ -1,18 +1,25 @@
+import {randomUUID} from 'node:crypto';
 import {
+    createReadStream,
+    createWriteStream,
     statSync,
     type BigIntStats,
 } from 'node:fs';
 import {
+    mkdir,
     open,
     rm,
     stat,
+    truncate,
 } from 'node:fs/promises';
 import {
     basename,
+    dirname,
     extname,
     join,
     relative,
 } from 'node:path';
+import {pipeline} from 'node:stream/promises';
 import {collectDocuments} from '@document-store/collectDocuments';
 import {sameWitness} from '@document-store/contentWitness';
 import {
@@ -70,8 +77,14 @@ import {
     snapshotCancellableWorkingCopyDependents,
     waitForMainOperationsSettled,
 } from '@electron/operation-lifecycle/mainOperationLifecycle';
-import {isWorkingCopyQuarantined} from '@electron/file-access/workingCopyQuarantine';
-import {getAppTempDirPath} from '@electron/utils/appTempDir';
+import {
+    isWorkingCopyQuarantined,
+    quarantineWorkingCopy,
+} from '@electron/file-access/workingCopyQuarantine';
+import {
+    getAppTempDirPath,
+    PINNED_REVISIONS_DIR_NAME,
+} from '@electron/utils/appTempDir';
 import {createLogger} from '@electron/utils/createLogger';
 import {getErrorMessage} from '@electron/utils/error';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
@@ -143,6 +156,7 @@ function getDocumentStoreRoot() {
 export async function setDocumentStoreRootForTests(root: string | null) {
     await Promise.all([...openDocuments.values()].map(entry => entry.doc.close()));
     openDocuments.clear();
+    await Promise.all([...pinnedRevisions.values()].map(endPin));
     storeRoot = root;
     store = null;
     collection = null;
@@ -499,6 +513,7 @@ export async function runWithWorkingCopyReadBacking<TResult>(
     operation: (physicalReadPath: string, assertOriginalUnchanged: () => Promise<void>) => Promise<TResult>,
     options: {ownerWebContentsId?: number} = {},
 ) {
+    if (isPinnedRevisionPath(ref)) return readPinnedRevision(ref, operation, options.ownerWebContentsId);
     const entry = getWorkingCopyBackingEntry(ref, options.ownerWebContentsId);
     if (!entry) throw new Error('Working copy path is not managed');
     const {current, destination} = entry.doc.state();
@@ -534,6 +549,7 @@ export async function commitDocumentMutation(
     reason: TDocumentRevisionChangeReason,
 ) {
     await nameDirectory(entry);
+    await preservePinnedRevisions(entry);
     const previous = documentRevisionToken(entry);
     await clearNextRevision(entry);
     const result = await entry.doc.mutate(expectedRevisionId(entry, token), {...change, drafts: 'clear'});
@@ -553,6 +569,7 @@ export async function rewriteDocument(
     reason: TDocumentRevisionChangeReason,
 ) {
     if (reason !== 'open') await nameDirectory(entry);
+    await preservePinnedRevisions(entry);
     const previous = documentRevisionToken(entry);
     // The tool reads its input to the end, where an append no one committed may still be.
     const current = await entry.doc.ownCurrentFile();
@@ -583,6 +600,7 @@ export async function rewriteDocument(
  * `DocumentDirectory.ensureCurrent`); one that cannot be read refuses with that.
  */
 export async function prepareDocumentAppend(entry: IOpenDocument, asItIs = false) {
+    await preservePinnedRevisions(entry);
     const materialized = entry.doc.materialize(asItIs);
     const revision = await (entry.doc.state().current ? materialized : materialized.catch((error: unknown) => {
         throw new WorkingCopyMaterializationError('SOURCE_BACKING_UNAVAILABLE', `The original file cannot be read: ${getErrorMessage(error)}`, {cause: error, retryable: true});
@@ -596,6 +614,7 @@ export async function prepareDocumentAppend(entry: IOpenDocument, asItIs = false
  * cut, or, when the tool may still be writing, the document moves to a copy of its file and leaves the tool that one.
  */
 export async function discardDocumentAppend(entry: IOpenDocument, error?: unknown) {
+    await preservePinnedRevisions(entry);
     const end = getUnprovenNativeTerminationDetail(error) === undefined ? entry.doc.ownCurrentFile() : entry.doc.abandonCurrentFile();
     await end.catch(() => undefined);
 }
@@ -653,6 +672,7 @@ export function rewriteOpenDocument(
  */
 export async function restoreOpenDocumentRevision(entry: IOpenDocument, token: TDocumentRevisionToken, expected: TDocumentRevisionToken | null) {
     await nameDirectory(entry);
+    await preservePinnedRevisions(entry);
     const previous = documentRevisionToken(entry);
     const result = await entry.doc.restore(expectedRevisionId(entry, expected), revisionIdOf(token));
     if (result.status === 'conflict') {
@@ -669,8 +689,9 @@ export async function restoreOpenDocumentRevision(entry: IOpenDocument, token: T
 }
 
 /** Keeps exactly the revisions `tokens` names for undo and redo; the files no revision names any more go. */
-export function retainOpenDocumentRevisions(entry: IOpenDocument, tokens: readonly TDocumentRevisionToken[]) {
-    return entry.doc.retain(tokens.map(revisionIdOf));
+export async function retainOpenDocumentRevisions(entry: IOpenDocument, tokens: readonly TDocumentRevisionToken[]) {
+    await preservePinnedRevisions(entry);
+    await entry.doc.retain(tokens.map(revisionIdOf));
 }
 
 /** Stores the unsaved state that is not in the bytes yet, for revision `token`. */
@@ -689,6 +710,7 @@ export async function saveOpenDocument(entry: IOpenDocument, token: TDocumentRev
     saveAs?: string;
 } = {}): Promise<TSaveResult> {
     if (options.commit) await nameDirectory(entry);
+    await preservePinnedRevisions(entry);
     const previous = documentRevisionToken(entry);
     await clearNextRevision(entry);
     try {
@@ -707,6 +729,248 @@ export async function saveOpenDocument(entry: IOpenDocument, token: TDocumentRev
     }
 }
 
+// Pinned revisions
+
+/** The bytes a pin names until it is copied: the destination as admitted, or the first `length` bytes of a revision file. */
+type TPinBacking =
+    | {readonly kind: 'destination'; readonly destination: string; readonly admission: BigIntStats}
+    | {readonly kind: 'revision'; readonly file: string; readonly length: number};
+
+interface IPinnedRevision {
+    /** The path its reader is given once the bytes are copied there. */
+    readonly ref: string;
+    readonly entry: IOpenDocument;
+    readonly ownerWebContentsId: number | undefined;
+    readonly revisionToken: TDocumentRevisionToken;
+    readonly backing: TPinBacking;
+    /** `pinned` copies nothing; `materialized` holds the bytes at `ref`; `unavailable` could not keep them. */
+    state: 'pinned' | 'materialized' | 'unavailable' | 'released';
+    error?: unknown;
+    materializing?: Promise<void>;
+    readers: number;
+}
+
+/** Every pin, by its normalized ref. Pins live in memory only: the startup collection removes what an earlier run left. */
+const pinnedRevisions = new Map<string, IPinnedRevision>();
+
+/** Where pinned revisions are kept once copied: beside the store, in the folder no generic path check admits. */
+function pinnedRevisionsDirectory() {
+    return join(getDocumentStoreRoot(), '..', PINNED_REVISIONS_DIR_NAME);
+}
+
+function pinKey(ref: string) {
+    return normalizePathForLookup(ref) || ref;
+}
+
+function isPinnedRevisionPath(path: string) {
+    return typeof path === 'string' && pinKey(dirname(path)) === pinKey(pinnedRevisionsDirectory());
+}
+
+async function preparePinDirectory() {
+    const directory = pinnedRevisionsDirectory();
+    await mkdir(directory, {recursive: true});
+    return directory;
+}
+
+/**
+ * Pins revision `expectedRevisionToken` of the document `workingPath` names, for `senderId`, without copying it: an
+ * immutable ref that a native reader can read later, such as the source of original text-box appearances. The bytes
+ * are copied to the ref only before a change to the document could alter, cut or remove them. In the document's
+ * mutation queue, so no mutation runs between the revision check and the pin's record.
+ */
+export async function pinOpenDocumentRevision(workingPath: string, expectedRevisionToken: TDocumentRevisionToken, senderId?: number) {
+    const entry = requireOpenDocument(workingPath, senderId);
+    return enqueueWorkingCopyMutation(entry.ref, async ({signal}) => {
+        const assertCurrent = () => {
+            // A window that ended while this waited released its pins then, so none is recorded for it now.
+            signal.throwIfAborted();
+            if (openDocuments.get(entry.ref) !== entry || !canUse(entry, senderId)) throw new WorkingCopyMissingError();
+            const {current} = entry.doc.state();
+            if (documentRevisionToken(entry) !== expectedRevisionToken) throw staleRevisionError(entry, expectedRevisionToken, current);
+            // A Save that built on a PDF another program changed copied those bytes in as revision 1; they are not
+            // the bytes the renderer parsed as revision 1.
+            if (current?.foreign !== undefined) throw sourceChangedError();
+        };
+        assertCurrent();
+        const directory = await preparePinDirectory();
+        const {current, destination} = entry.doc.state();
+        if (!current) {
+            if (destination === null) throw new WorkingCopyMissingError();
+            await assertAdmission(entry, destination);
+        }
+        // Synchronous from here: what is recorded is what was checked.
+        assertCurrent();
+        const state = entry.doc.state();
+        let backing: TPinBacking;
+        if (state.current) {
+            backing = {kind: 'revision', file: revisionPath(entry, state.current), length: state.current.length};
+        } else if (state.destination !== null && entry.admission) {
+            backing = {kind: 'destination', destination: state.destination, admission: entry.admission};
+        } else {
+            throw sourceChangedError();
+        }
+        const ref = join(directory, `${randomUUID()}.${entry.doc.snapshot().ext}`);
+        pinnedRevisions.set(pinKey(ref), {
+            ref,
+            entry,
+            ownerWebContentsId: senderId,
+            revisionToken: expectedRevisionToken,
+            backing,
+            state: 'pinned',
+            readers: 0,
+        });
+        return requireDocumentRef(ref);
+    }, {kind: 'document-revision-pin', ...(senderId === undefined ? {} : {ownerWebContentsId: senderId})});
+}
+
+/** Copies exactly `[0, length)` of `source` to the new file `target`: a clone when that is the whole file. */
+async function copyRevisionPrefix(source: string, target: string, length: number) {
+    const {size} = await stat(source);
+    if (size < length) throw new WorkingCopyMaterializationError('SOURCE_BACKING_UNAVAILABLE', 'The pinned revision file was cut short');
+    if (size === length) {
+        await copyNewFile(source, target);
+    } else {
+        await pipeline(createReadStream(source, {start: 0, end: Math.max(0, length - 1)}), createWriteStream(target, {flags: 'wx'}));
+    }
+    // A native tool may have appended to the source during a clone: those bytes belong to a later revision.
+    const copied = await stat(target);
+    if (copied.size > length) await truncate(target, length);
+    else if (copied.size < length) throw new WorkingCopyMaterializationError('SOURCE_BACKING_UNAVAILABLE', 'The pinned revision could not be copied whole');
+}
+
+/**
+ * Copies the file `source` names to the new file `target` through one open handle that holds `admission` before and
+ * after the copy: whatever `source` names meanwhile, the bytes come from the file that was admitted.
+ */
+async function copyAdmittedFile(source: string, admission: BigIntStats, target: string) {
+    const handle = await open(source, 'r').catch((error: unknown) => {
+        throw new WorkingCopyMaterializationError('SOURCE_BACKING_UNAVAILABLE', 'The original document is unavailable', {
+            cause: error,
+            retryable: true,
+        });
+    });
+    try {
+        const assertAdmitted = async () => {
+            if (!sameIdentity(await handle.stat({bigint: true}), admission)) throw sourceChangedError();
+        };
+        await assertAdmitted();
+        await pipeline(handle.createReadStream({start: 0, autoClose: false}), createWriteStream(target, {flags: 'wx'}));
+        await assertAdmitted();
+    } finally {
+        await handle.close();
+    }
+    if (BigInt((await stat(target)).size) !== admission.size) throw sourceChangedError();
+}
+
+/**
+ * Copies a pin's bytes to its ref. A destination is copied from the file it was admitted as; one another program
+ * changed, or a copy that fails, leaves the pin unavailable rather than blocking the change that asked for the copy.
+ */
+function materializePin(pin: IPinnedRevision) {
+    pin.materializing ??= (async () => {
+        try {
+            const {backing} = pin;
+            if (backing.kind === 'destination') {
+                await copyAdmittedFile(backing.destination, backing.admission, pin.ref);
+            } else {
+                await copyRevisionPrefix(backing.file, pin.ref, backing.length);
+            }
+            if (pin.state === 'pinned') pin.state = 'materialized';
+        } catch (error) {
+            await rm(pin.ref, {force: true}).catch(() => undefined);
+            if (pin.state === 'pinned') {
+                pin.state = 'unavailable';
+                pin.error = error;
+            }
+            log.warn(`A pinned document revision could not be kept: ${getErrorMessage(error)}`, {ref: pin.entry.ref, revision: pin.revisionToken});
+        }
+    })();
+    return pin.materializing;
+}
+
+/** Copies out every pin of `entry` that still names the document's own bytes, before a change can alter them. */
+async function preservePinnedRevisions(entry: IOpenDocument) {
+    await Promise.all([...pinnedRevisions.values()].filter(pin => pin.entry === entry && pin.state === 'pinned').map(materializePin));
+}
+
+function requirePinnedRevision(ref: string, senderId: number | undefined) {
+    const pin = pinnedRevisions.get(pinKey(ref));
+    if (!pin) throw new WorkingCopyMissingError('Pinned document revision is missing or was released');
+    if (senderId !== undefined && pin.ownerWebContentsId !== senderId) {
+        throw new WorkingCopyMissingError('Pinned document revision is not managed by this owner');
+    }
+    return pin;
+}
+
+function unavailablePinError(pin: IPinnedRevision) {
+    return new WorkingCopyMaterializationError(
+        'SOURCE_BACKING_UNAVAILABLE',
+        'The document as it was opened is no longer available',
+        {cause: pin.error},
+    );
+}
+
+/** Read again after an await: a release can end the pin while its reader runs. */
+const isReleased = (pin: IPinnedRevision) => pin.state === 'released';
+
+/** Reads a pin from its own copy, never from the file a native tool may be appending to. */
+async function readPinnedRevision<TResult>(
+    ref: string,
+    operation: (physicalReadPath: string, assertOriginalUnchanged: () => Promise<void>) => Promise<TResult>,
+    senderId: number | undefined,
+) {
+    const pin = requirePinnedRevision(ref, senderId);
+    await materializePin(pin);
+    if (pin.state === 'released') throw new WorkingCopyMissingError('Pinned document revision is missing or was released');
+    if (pin.state !== 'materialized') throw unavailablePinError(pin);
+    pin.readers += 1;
+    try {
+        return await operation(pin.ref, () => Promise.resolve());
+    } catch (error) {
+        // Before the copy can go below: a reader that did not provably stop may still hold it.
+        const unprovenTermination = getUnprovenNativeTerminationDetail(error);
+        if (unprovenTermination !== undefined) quarantineWorkingCopy(pin.ref, unprovenTermination);
+        throw error;
+    } finally {
+        pin.readers -= 1;
+        if (isReleased(pin) && pin.readers === 0) await removePinFile(pin);
+    }
+}
+
+async function removePinFile(pin: IPinnedRevision) {
+    await pin.materializing;
+    // A native reader that did not provably stop may still hold the copy; the next start removes it.
+    if (!isWorkingCopyQuarantined(pin.ref)) await rm(pin.ref, {force: true}).catch(() => undefined);
+}
+
+function endPin(pin: IPinnedRevision) {
+    if (pinnedRevisions.get(pinKey(pin.ref)) === pin) pinnedRevisions.delete(pinKey(pin.ref));
+    pin.state = 'released';
+    return pin.readers === 0 ? removePinFile(pin) : Promise.resolve();
+}
+
+async function endPins(matches: (pin: IPinnedRevision) => boolean) {
+    await Promise.all([...pinnedRevisions.values()].filter(matches).map(endPin));
+}
+
+/** Ends a pin `senderId` made; `false` for a pin that is gone or another window's. */
+export async function releasePinnedDocumentRevision(ref: string, senderId?: number) {
+    const pin = typeof ref === 'string' ? pinnedRevisions.get(pinKey(ref)) : undefined;
+    if (!pin || (senderId !== undefined && pin.ownerWebContentsId !== senderId)) return false;
+    await endPin(pin);
+    return true;
+}
+
+/** Ends every pin of a window that is gone. */
+export function releasePinnedDocumentRevisionsForSender(senderId: number) {
+    return endPins(pin => pin.ownerWebContentsId === senderId);
+}
+
+/** What a test can observe of a pin without reading its bytes. */
+export function getPinnedRevisionStateForTests(ref: string) {
+    return pinnedRevisions.get(pinKey(ref))?.state ?? null;
+}
+
 // Ownership and lifetime
 
 async function removeDirectory(doc: DocumentDirectory) {
@@ -722,6 +986,7 @@ async function removeDirectory(doc: DocumentDirectory) {
 export async function discardOpenDocument(entry: IOpenDocument) {
     if (openDocuments.get(entry.ref) !== entry) return false;
     openDocuments.delete(entry.ref);
+    await endPins(pin => pin.entry === entry);
     const current = entry.doc.state().current;
     if (isWorkingCopyQuarantined(entry.ref) || (current && isWorkingCopyQuarantined(revisionPath(entry, current)))) {
         await entry.doc.close();
@@ -769,6 +1034,7 @@ export async function cleanupWorkingCopy(ref: string, senderId?: number) {
 
 /** Closes every document at a normal quit: those in `keep` stay in the store for the next start, the rest go. */
 export async function clearAllWorkingCopies(options: {skipPaths?: ReadonlySet<string>} = {}) {
+    await endPins(() => true);
     await Promise.allSettled([...openDocuments.values()].map(async (entry) => {
         if (options.skipPaths?.has(entry.ref)) {
             openDocuments.delete(entry.ref);
@@ -794,6 +1060,9 @@ export async function settleOpenDocuments() {
  */
 function collected() {
     collection ??= (async () => {
+        // No pin outlives its run, so every copy there is one a crash or a reader that would not stop left.
+        await rm(pinnedRevisionsDirectory(), {recursive: true, force: true})
+            .catch((error: unknown) => log.warn(`Kept pinned revisions an earlier run left: ${getErrorMessage(error)}`));
         const docStore = getDocumentStore();
         for (const id of await docStore.port.list(DOCUMENTS_DIR)) {
             if (!STORE_ID_PATTERN.test(id)) continue;

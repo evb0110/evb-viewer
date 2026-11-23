@@ -118,6 +118,12 @@ export function getRetiredAppTempDirPath() {
     return getAppTempNamespacePathForNamespace(getAppTempNamespace(), getOperatingSystemTempDir());
 }
 
+/**
+ * The folder of a temp root that holds pinned document revisions. Only the document store reads its files, for the
+ * window that pinned each one; no path check lets a renderer name them (see `pathValidator`).
+ */
+export const PINNED_REVISIONS_DIR_NAME = 'pinned-revisions';
+
 /** Where this profile's working copies can be: its namespace and the retired one. Every check of that reads this. */
 export function getManagedAppTempRoots() {
     return [

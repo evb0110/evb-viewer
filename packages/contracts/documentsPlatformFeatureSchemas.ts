@@ -227,6 +227,11 @@ const retainDocumentRevisionsArgs = v.strictTuple([
     documentRefSchema,
     v.pipe(v.array(documentRevisionTokenSchema), v.maxLength(256)),
 ]);
+const pinDocumentRevisionArgs = v.strictTuple([
+    documentRefSchema,
+    documentRevisionTokenSchema,
+]);
+const releasePinnedDocumentRevisionArgs = v.strictTuple([documentRefSchema]);
 const replaceWorkingCopyArgs = v.strictTuple([
     documentRefSchema,
     documentRefSchema,
@@ -391,6 +396,8 @@ const documentSaveFailureReasons = [
     'validation-failed',
     'working-copy-missing',
     'original-changed',
+    // The document as it was opened, which a write such as restoring original text-box appearances reads, is gone.
+    'source-unavailable',
     'write-failed',
     'refresh-failed',
     'unsupported',
@@ -455,6 +462,11 @@ const optimizeResultSchema = v.object({
     pageCount: nullableCountSchema,
 });
 const stagedOutputSchema = v.message(TYPED_STAGED_ARTIFACT_SCHEMA, 'invalid staged native PDF output');
+/** Why a native write refused, when the refusal is the document's state rather than a writer failure. */
+const NATIVE_SAVE_REFUSAL_REASONS = [
+    'original-changed',
+    'source-unavailable',
+] as const satisfies ReadonlyArray<typeof documentSaveFailureReasons[number]>;
 const nativeErrorEnvelopeSchema: v.GenericSchema<unknown, INativeErrorEnvelope> = v.custom<INativeErrorEnvelope>(
     isNativeErrorEnvelope,
     'invalid native PDF save result',
@@ -463,7 +475,7 @@ const nativeSaveResultSchema = v.object({
     applied: v.boolean(),
     documentRevision: v.exactOptional(revisionInfoSchema),
     validation: v.nullable(PDF_VALIDATION_RESULT_SCHEMA),
-    reason: v.exactOptional(v.literal('original-changed')),
+    reason: v.exactOptional(v.picklist(NATIVE_SAVE_REFUSAL_REASONS)),
     keptFilePath: v.exactOptional(v.string()),
     // As in a structured save result: whether the file was written.
     externalWriteCommitted: v.exactOptional(v.nullable(v.boolean())),
@@ -561,6 +573,7 @@ export {
     pdfPageLabelRangesResult,
     pdfPathArgs,
     PDF_VALIDATION_PATH_ARGS_SCHEMA as pdfValidationPathArgs,
+    pinDocumentRevisionArgs,
     printResultSchema as printResult,
     printPdfDataArgs,
     printPdfPathArgs,
@@ -569,6 +582,7 @@ export {
     readPdfPageLabelRangesArgs,
     recentFilesResult,
     releaseManagedHandleArgs,
+    releasePinnedDocumentRevisionArgs,
     repairPdfArgs,
     replaceWorkingCopyArgs,
     replaceWorkingCopyFromStagedNativeMutationArgs,

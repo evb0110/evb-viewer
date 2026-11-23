@@ -48,6 +48,7 @@ import {
     requireOpenDocument,
     runWithWorkingCopyReadBacking,
     saveOpenDocument,
+    WorkingCopyMaterializationError,
 } from '@electron/file-access/documentStore';
 import {explainWriteRefusal} from '@electron/file-access/explainWriteRefusal';
 import { createLogger } from '@electron/utils/createLogger';
@@ -112,8 +113,6 @@ async function enterQueuedNativeNoteCommand(
         phaseTimings,
         operationStart,
         entry,
-        // Edits a Save carries build on the PDF as it is now: a changed one makes Save refuse and Save As rescue them.
-        targetPath: await prepareDocumentAppend(entry, true),
     };
 }
 
@@ -150,9 +149,12 @@ function createNotAppliedResult(error?: unknown): IPdfNativeNoteTextSaveResult {
             code: hasNativeErrorCode(error) ? error.code : 'native-failure' as const,
             message: getErrorMessage(error) || 'Native PDF mutation failed',
         };
+    // A source the write reads, such as the document as opened for original text-box appearances, that is gone.
+    const sourceUnavailable = error instanceof WorkingCopyMaterializationError && error.code === 'SOURCE_BACKING_UNAVAILABLE';
     return {
         applied: false,
         validation: null,
+        ...(sourceUnavailable ? {reason: 'source-unavailable' as const} : {}),
         ...(errorEnvelope === undefined ? {} : {error: errorEnvelope}),
     };
 }
@@ -349,14 +351,16 @@ async function runNativeWorkingCopyCommand(
             phaseTimings,
             operationStart,
             entry,
-            targetPath,
         } = await enterQueuedNativeNoteCommand(
             normalizedWorkingPath,
             senderId,
             expectedDocumentRevisionToken,
         );
         const operationStartedAtEpochMs: number = Date.now();
+        let targetPath: string | undefined;
         try {
+            // Edits a Save carries build on the PDF as it is now: a changed one makes Save refuse and Save As rescue them.
+            const appendTargetPath = targetPath = await prepareDocumentAppend(entry, true);
             return await usingManagedScratchScope('pdf-page-ops-', getAppTempDir(), async tempDir => {
                 const payloadFilePath = join(tempDir, 'mutations.json');
                 const prepared = await prepareNativeNoteMutation({
@@ -367,7 +371,7 @@ async function runNativeWorkingCopyCommand(
                     mutationOperation,
                     payloadFilePath,
                     phaseTimings,
-                    targetPath,
+                    targetPath: appendTargetPath,
                 });
                 const {
                     validation,
@@ -377,14 +381,14 @@ async function runNativeWorkingCopyCommand(
 
                 // The receipt names the document's own file, extended past its committed bytes: a commit
                 // `extend`s the document, and the receipt's end cuts what no commit claimed.
-                const staged = await stat(targetPath, {bigint: true});
-                const stagedOutput = await createOpaqueNativePdfStagedArtifact(context, targetPath, {
+                const staged = await stat(appendTargetPath, {bigint: true});
+                const stagedOutput = await createOpaqueNativePdfStagedArtifact(context, appendTargetPath, {
                     qpdfCheck: false,
                     tailCheck: true,
                     semanticCheck: true,
                     semanticScopeSha256: createNativeIncrementalMutationSemanticScopeSha256(),
                     fsynced: true,
-                }, {release: () => endDocumentAppend(entry, targetPath, staged)});
+                }, {release: () => endDocumentAppend(entry, appendTargetPath, staged)});
                 const totalMs = Math.round((performance.now() - operationStart) * 10) / 10;
                 const logTimings = totalMs >= 1_000 ? log.info.bind(log) : log.debug.bind(log);
                 logTimings('Native working-copy mutation phase timings', {
@@ -404,7 +408,9 @@ async function runNativeWorkingCopyCommand(
                 };
             });
         } catch (error) {
-            await discardDocumentAppend(entry, error);
+            if (targetPath !== undefined) {
+                await discardDocumentAppend(entry, error);
+            }
             log.warn('Native working-copy mutation failed', {
                 command: 'save-mutations',
                 endedAtEpochMs: Date.now(),

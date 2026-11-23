@@ -179,6 +179,24 @@ describe('feature IPC codec maps', () => {
         })).toThrow('invalid native PDF save result');
     });
 
+    it('preserves why a native mutation refused and rejects unknown refusals', () => {
+        const codec = DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[
+            DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.applyPdfNativeMutationsToWorkingCopy
+        ];
+        const refusal = {
+            applied: false,
+            validation: null,
+            reason: 'source-unavailable',
+            error: {
+                code: 'native-failure',
+                message: 'The document as it was opened is no longer available',
+            },
+        } as const;
+
+        expect(codec?.decodeResult(refusal)).toEqual(refusal);
+        expect(() => codec?.decodeResult({...refusal, reason: 'future-refusal'})).toThrow();
+    });
+
     it('preserves only an affirmative native mutation postcondition proof', () => {
         const codec = DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[
             DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.applyPdfNativeMutationsToWorkingCopy

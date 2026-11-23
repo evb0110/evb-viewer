@@ -36,6 +36,7 @@ import { createLogger } from '@electron/utils/createLogger';
 import { addRecentInputs } from '@electron/features/documents/main/addRecentInputs.service';
 import {getErrorMessage} from '@electron/utils/error';
 import { normalizeExistingPath } from '@electron/utils/normalizeExistingPath';
+import { isReservedTempPath } from '@electron/utils/pathValidator';
 import {
     MAX_DOCUMENT_ALLOCATION_BYTES, type TOpenFileResult,
 } from '@contracts/electronApiDocuments';
@@ -131,7 +132,10 @@ export async function openInputPaths(
         throw new Error(te('errors.file.invalid'));
     }
 
-    if (normalizedPaths.some(path => !isSupportedOpenPath(path))) {
+    if (
+        paths.some(path => typeof path === 'string' && path.length > 0 && isReservedTempPath(path))
+        || normalizedPaths.some(path => !isSupportedOpenPath(path) || isReservedTempPath(path))
+    ) {
         throw new Error(te('errors.file.invalid'));
     }
 

@@ -316,6 +316,28 @@ describe('useWorkspaceFailureSurface', () => {
         expect(formatFailurePresentationCopy(surface.saveFailurePresentation.value!)).toContain(keptFilePath);
     });
 
+    it('names a PDF whose opened bytes are gone from the decoded native refusal, without a Save As that would meet it again', () => {
+        const result = v.parse(nativeSaveResult, {
+            applied: false,
+            reason: 'source-unavailable',
+            validation: null,
+            error: {code: 'native-failure', message: 'The document as it was opened is no longer available'},
+        });
+        if (!result.reason) throw new Error('The save refusal lost its reason');
+        const surface = useWorkspaceFailureSurface();
+        surface.reportSaveFailure('opened-version-gone', 'persist-rejected', undefined, undefined, {
+            channel: 'native',
+            operation: 'persist',
+            phase: 'mutation',
+            reason: result.reason,
+            ...(result.error ? {message: result.error.message, cause: result.error} : {}),
+        }, () => undefined);
+
+        expect(surface.saveFailurePresentation.value?.description).toBe('errors.save.openedVersionUnavailable');
+        const toast = toastAddMock.mock.calls[0]?.[0];
+        expect(toast.actions.map((action: {label: string}) => action.label)).toEqual(['errors.runtime.copy']);
+    });
+
     it.each(LOCALE_CODES)('tells where the earlier file was kept and how to keep the changes in %s', locale => {
         const keptFilePath = '/documents/report (original).pdf';
         const messages = LOCALE_MESSAGES[locale];

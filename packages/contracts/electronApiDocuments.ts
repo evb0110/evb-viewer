@@ -666,6 +666,14 @@ export interface IDocumentsFileCapability {
     /** The revisions the undo history names; the document keeps those and lets the others go. */
     retainDocumentRevisions: (path: TDocumentRef, revisions: TDocumentRevisionToken[]) => Promise<void>;
     cleanupFile: (path: TDocumentRef) => Promise<void>;
+    /**
+     * Pins `revision`, which must be the document's current one, as an immutable ref a later native read can name,
+     * without copying it now: the bytes are copied only before a change to the document could alter them. Desktop
+     * only; elsewhere a caller copies the document with `createWorkingCopyFromPath`.
+     */
+    pinDocumentRevision?: (path: TDocumentRef, revision: TDocumentRevisionToken) => Promise<TDocumentRef>;
+    /** Ends a pin `pinDocumentRevision` returned, removing any copy it made. */
+    releasePinnedDocumentRevision?: (pinnedRef: TDocumentRef) => Promise<void>;
     setWindowTitle: (title: string) => Promise<void>;
     showItemInFolder: (path: TDocumentRef) => Promise<boolean>;
     onDocumentRevisionChanged: (
@@ -732,6 +740,8 @@ export interface IDocumentsWorkingCopyCapability extends Pick<
     | 'restoreDocumentRevision'
     | 'retainDocumentRevisions'
     | 'cleanupFile'
+    | 'pinDocumentRevision'
+    | 'releasePinnedDocumentRevision'
 > {}
 
 export interface IDocumentsReadCapability extends Pick<

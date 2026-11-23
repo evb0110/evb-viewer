@@ -237,7 +237,22 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
                     signal: abortController.signal,
                 });
                 if (isCurrent()) await recordPdfDocumentOriginalAnnotations(document, result, async () => {
-                    const snapshot = await getDocumentWorkingCopyCapability().createWorkingCopyFromPath(parsePath);
+                    const workingCopies = getDocumentWorkingCopyCapability();
+                    const {pinDocumentRevision, releasePinnedDocumentRevision} = workingCopies;
+                    if (pinDocumentRevision && releasePinnedDocumentRevision) {
+                        // Desktop pins the parsed revision; its bytes are copied only if the document changes.
+                        const pinnedRef = await pinDocumentRevision(parsePath, result.documentRevisionToken);
+                        const release = () => releasePinnedDocumentRevision(pinnedRef);
+                        if (!isCurrent()) {
+                            await release();
+                            throw new DOMException('Original annotation source changed during capture', 'AbortError');
+                        }
+                        return {
+                            ref: pinnedRef,
+                            release,
+                        };
+                    }
+                    const snapshot = await workingCopies.createWorkingCopyFromPath(parsePath);
                     try {
                         const capturedRevision = await getDocumentFilesCapability().getDocumentRevision(parsePath);
                         if (!isCurrent() || capturedRevision.token !== result.documentRevisionToken) {

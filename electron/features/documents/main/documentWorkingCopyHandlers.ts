@@ -13,6 +13,8 @@ import {
     getWorkingCopyBackingEntry,
     normalizeExpectedDocumentRevisionToken,
     openDocumentFromFile,
+    pinOpenDocumentRevision,
+    releasePinnedDocumentRevision,
     requireDocumentFile,
     requireOpenDocument,
     restoreOpenDocumentRevision,
@@ -208,5 +210,15 @@ export function handleRestoreDocumentRevision(
 }
 
 export function handleRetainDocumentRevisions(context: IDocumentsSenderIdContext, workingPath: string, revisions: TDocumentRevisionToken[]) {
-    return retainOpenDocumentRevisions(requireOpenDocument(workingPath, context.senderId), revisions).then(() => undefined);
+    const entry = requireOpenDocument(workingPath, context.senderId);
+    return enqueueWorkingCopyMutation(entry.ref, () => retainOpenDocumentRevisions(entry, revisions)).then(() => undefined);
+}
+
+/** Pins the document's current revision for the window that asked, copying nothing until a change needs it. */
+export function handlePinDocumentRevision(context: IDocumentsSenderIdContext, workingPath: string, revision: TDocumentRevisionToken) {
+    return pinOpenDocumentRevision(workingPath, revision, context.senderId);
+}
+
+export function handleReleasePinnedDocumentRevision(context: IDocumentsSenderIdContext, pinnedRef: string) {
+    return releasePinnedDocumentRevision(pinnedRef, context.senderId).then(() => undefined);
 }

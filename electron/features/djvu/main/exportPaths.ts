@@ -4,6 +4,7 @@ import {
 } from 'path';
 import type { WebContents } from 'electron';
 import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
+import { isReservedTempPath } from '@electron/utils/pathValidator';
 
 const DJVU_WRITE_PATH_MAX_ENTRIES = 64;
 const DJVU_WRITE_PATH_TTL_MS = 15 * 60 * 1000;
@@ -36,6 +37,9 @@ function toCapabilityKey(normalizedPath: string, ownerWebContentsId: number | nu
 
 function normalizeDjvuOutputPdfPath(filePath: string) {
     const normalizedPath = normalizePath(filePath);
+    if (isReservedTempPath(filePath) || isReservedTempPath(normalizedPath)) {
+        throw new Error('Invalid file path: cannot write into reserved application directory');
+    }
     if (extname(normalizedPath).toLowerCase() !== '.pdf') {
         throw new Error('Invalid file type: only PDF files are allowed');
     }

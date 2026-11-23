@@ -41,6 +41,7 @@ import {
 import { detectSourceDpiDetails } from '@electron/pdf/sourceDpiDetection';
 import { forEachConcurrent } from '@electron/utils/concurrency';
 import { getAppTempDir } from '@electron/utils/appTempDir';
+import { isReservedTempPath } from '@electron/utils/pathValidator';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import {
     mainJobBroker,
@@ -171,6 +172,9 @@ const TIFF_COMBINE_WORKER_RESOURCE_LIMITS: ResourceLimits = {
 const TIFF_COMBINE_LOCAL_FALLBACK_MAX_PAGES = 2;
 const TIFF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES = 16 * 1024 * 1024;
 export function validateImageExportPath(filePath: string, format = resolveImageExportFormat(filePath)) {
+    if (isReservedTempPath(filePath)) {
+        throw new Error('Invalid file path: cannot save into reserved application directory');
+    }
     const extensions = IMAGE_EXPORT_FORMATS[format].extensions;
     if (!extensions.some(extension => filePath.toLowerCase().endsWith(extension))) {
         throw new Error(te('errors.browser.imageExtensionMismatch', {extensions: extensions.join(', ')}));

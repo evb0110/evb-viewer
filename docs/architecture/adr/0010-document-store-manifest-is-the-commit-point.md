@@ -54,6 +54,19 @@ Only storage and publication ports depend on the platform.
 - A failed publication leaves the committed work recoverable.
 - Drafts do not copy the saved file. Before a publish, a retained revision
   backed only by the unchanged destination is copied in to preserve undo.
+- A desktop window pins the revision it parsed, such as the source of
+  original text-box appearances, without copying it. The pin's bytes are
+  copied out before a mutation, Save, undo or retention could change, cut or
+  remove them. A destination is copied through one handle on the file that
+  was admitted. A pin whose destination another program changed becomes
+  unavailable instead of reading the changed bytes, and a Save that meets it
+  refuses as `source-unavailable`. Revision 1 copied from a changed
+  destination cannot be pinned. Only the pinning window reads a pin; no
+  generic path check admits the pin folder.
+- Desktop staged receipts and managed binary handles resolve by file
+  identity, stat witness and revision on every platform. Only the byte pass
+  that wrote or first read a file hashes it, and a receipt names the file its
+  writer's open handle saw.
 - One manifest replacement commits bytes and their drafts together, without a
   journal or a separate annotation-recovery tree.
 - File metadata checks do not detect an in-place writer that restores size

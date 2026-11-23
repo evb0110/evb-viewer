@@ -9,6 +9,7 @@ import {
 } from 'fs/promises';
 import {copyNewFile} from '@document-store/nodeStorePort';
 import {usingManagedScratchScope} from '@electron/utils/managedScratchTemp';
+import {isReservedTempPath} from '@electron/utils/pathValidator';
 import {showOpenDocumentDialogForContext} from '@electron/features/documents/public/showOpenDocumentDialogForContext';
 import {
     basename,
@@ -534,6 +535,9 @@ async function handlePageOpsExtract(
     if (extname(destPath).toLowerCase() !== '.pdf') {
         destPath += '.pdf';
     }
+    if (isReservedTempPath(destPath)) {
+        throw new Error('Invalid file path: cannot save into reserved application directory');
+    }
 
     await enqueuePageMutation(context, normalizedWorkingCopyPath, operation => readDocument(source => Array.isArray(pages)
         ? extractPages(source, destPath, pages, createNativeOperationOptions(operation))
@@ -912,12 +916,16 @@ async function handlePageOpsGetPageGeometry(
 // Reads the bytes the document has now, from its original until the working
 // copy is materialized, without copying it.
 async function handlePageOpsReadOutline(context: IPageOpsOperationContext, workingCopyPath: string) {
+    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(
+        findWorkingCopyPathByOriginalPath(workingCopyPath, context.senderId) ?? workingCopyPath,
+        context.senderId,
+    );
     const binaryPath = resolveNativePageOpsPath();
     if (!binaryPath) {
         throw new Error('Native page operations are required to read PDF bookmarks');
     }
     const bookmarks = await runWithWorkingCopyReadBacking(
-        findWorkingCopyPathByOriginalPath(workingCopyPath, context.senderId) ?? workingCopyPath,
+        normalizedWorkingCopyPath,
         physicalPath => readNativePdfCatalogPart(binaryPath, physicalPath, 'bookmarks', {commandLabel: 'evb-pdf-page-ops(read-outline)'}),
         {ownerWebContentsId: context.senderId},
     );
