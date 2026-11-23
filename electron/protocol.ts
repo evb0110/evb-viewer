@@ -65,10 +65,14 @@ const MIME_TYPES = new Map([
     ],
 ]);
 
+type TStaticEntryKind = 'file' | 'directory';
+
 let isSchemeRegistered = false;
 let isHandlerRegistered = false;
 const packagedPathResolutionCache = new Map<string, string | null>();
 const PACKAGED_PATH_RESOLUTION_CACHE_MAX_ENTRIES = 4_096;
+const packagedDirectoryEntryCache = new Map<string, ReadonlyMap<string, TStaticEntryKind> | null>();
+const PACKAGED_DIRECTORY_ENTRY_CACHE_MAX_ENTRIES = 256;
 
 export function registerAppProtocolScheme() {
     if (isSchemeRegistered) {
@@ -92,6 +96,10 @@ function createResponse(body: BodyInit | null, init: ResponseInit = {}) {
     return new Response(body, init);
 }
 
+function isPackagedDirectoryCacheEnabled() {
+    return !config.isDev && app.isPackaged;
+}
+
 function resolveStaticFilePath(url: URL) {
     const cacheKey = `${url.hostname}\0${url.pathname}`;
     if (packagedPathResolutionCache.has(cacheKey)) {
@@ -110,13 +118,51 @@ function resolveStaticFilePath(url: URL) {
     return resolvedPath;
 }
 
+function readUncachedDirectoryEntryKinds(directoryPath: string): ReadonlyMap<string, TStaticEntryKind> | null {
+    try {
+        const entries = new Map<string, TStaticEntryKind>();
+        for (const candidate of readdirSync(directoryPath, {withFileTypes: true})) {
+            if (candidate.isFile()) {
+                entries.set(candidate.name, 'file');
+            } else if (candidate.isDirectory()) {
+                entries.set(candidate.name, 'directory');
+            }
+        }
+        return entries;
+    } catch {
+        return null;
+    }
+}
+
+function readPackagedDirectoryEntryKinds(directoryPath: string) {
+    if (packagedDirectoryEntryCache.has(directoryPath)) {
+        const cachedEntries = packagedDirectoryEntryCache.get(directoryPath) ?? null;
+        packagedDirectoryEntryCache.delete(directoryPath);
+        packagedDirectoryEntryCache.set(directoryPath, cachedEntries);
+        return cachedEntries;
+    }
+
+    const entries = readUncachedDirectoryEntryKinds(directoryPath);
+    const oldestKey = packagedDirectoryEntryCache.keys().next().value;
+    if (oldestKey !== undefined && packagedDirectoryEntryCache.size >= PACKAGED_DIRECTORY_ENTRY_CACHE_MAX_ENTRIES) {
+        packagedDirectoryEntryCache.delete(oldestKey);
+    }
+    packagedDirectoryEntryCache.set(directoryPath, entries);
+    return entries;
+}
+
 // Electron answers a stat inside app.asar by constructing an fs.Stats, which
 // Node deprecates (DEP0180), so the packaged app printed that warning on its
 // first request. A directory listing reports the entry kind without one.
-function readStaticEntryKind(entryPath: string) {
+function readStaticEntryKind(entryPath: string): TStaticEntryKind | null {
+    const name = basename(entryPath);
+    const directoryPath = dirname(entryPath);
+    if (isPackagedDirectoryCacheEnabled()) {
+        return readPackagedDirectoryEntryKinds(directoryPath)?.get(name) ?? null;
+    }
+
     try {
-        const name = basename(entryPath);
-        const entry = readdirSync(dirname(entryPath), {withFileTypes: true})
+        const entry = readdirSync(directoryPath, {withFileTypes: true})
             .find(candidate => candidate.name === name);
         return entry?.isFile()
             ? 'file'

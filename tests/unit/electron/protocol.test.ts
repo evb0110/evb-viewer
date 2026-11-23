@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
     readdirSync: vi.fn(),
     fetch: vi.fn(),
     handle: vi.fn(),
+    isPackaged: false,
     isReady: vi.fn(),
     registerSchemesAsPrivileged: vi.fn(),
     config: {
@@ -55,7 +56,12 @@ function useStaticFiles(files: string[]) {
     });
 }
 vi.mock('electron', () => ({
-    app: {isReady: mocks.isReady},
+    app: {
+        get isPackaged() {
+            return mocks.isPackaged;
+        },
+        isReady: mocks.isReady,
+    },
     net: {fetch: mocks.fetch},
     protocol: {
         handle: mocks.handle,
@@ -68,6 +74,7 @@ describe('app protocol', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
+        mocks.isPackaged = false;
         mocks.config.isDev = false;
         mocks.config.renderer.staticRoot = resolve('/app/dist');
         mocks.isReady.mockReturnValue(true);
@@ -200,6 +207,120 @@ describe('app protocol', () => {
             .resolves.toMatchObject({status: 404});
         await expect(handler(new Request('evb-viewer://app/%2e%2e/secret.txt')))
             .resolves.toMatchObject({status: 404});
+        expect(mocks.fetch).not.toHaveBeenCalled();
+    });
+
+    it('caches directory entries across sibling files and misses in packaged mode while preserving CSP headers', async () => {
+        mocks.isPackaged = true;
+        useStaticFiles([
+            '/app/dist/assets/app.js',
+            '/app/dist/assets/chunk.js',
+            '/app/dist/fonts/inter.woff2',
+        ]);
+        mocks.fetch.mockImplementation(async () => new Response('asset', {
+            status: 200,
+            headers: {
+                'content-type': 'application/octet-stream',
+                'content-security-policy': "default-src 'self'",
+            },
+        }));
+        const { setupAppProtocolHandler } = await import('@electron/protocol');
+        setupAppProtocolHandler();
+        const handler = mocks.handle.mock.calls[0]?.[1] as (request: Request) => Promise<Response>;
+
+        const first = await handler(new Request('evb-viewer://app/assets/app.js'));
+        const second = await handler(new Request('evb-viewer://app/assets/chunk.js'));
+        const missing = await handler(new Request('evb-viewer://app/assets/missing.js'));
+        const font = await handler(new Request('evb-viewer://app/fonts/inter.woff2'));
+
+        expect(first.status).toBe(200);
+        expect(first.headers.get('content-type')).toBe('text/javascript; charset=utf-8');
+        expect(first.headers.get('content-security-policy')).toBe("default-src 'self'");
+        expect(second.status).toBe(200);
+        expect(missing.status).toBe(404);
+        expect(font.status).toBe(200);
+        expect(font.headers.get('content-type')).toBe('font/woff2');
+        expect(mocks.readdirSync).toHaveBeenCalledTimes(2);
+        expect(mocks.readdirSync).toHaveBeenNthCalledWith(1, resolve('/app/dist/assets'), {withFileTypes: true});
+        expect(mocks.readdirSync).toHaveBeenNthCalledWith(2, resolve('/app/dist/fonts'), {withFileTypes: true});
+    });
+
+    it('negatively caches missing directories in packaged mode', async () => {
+        mocks.isPackaged = true;
+        const { setupAppProtocolHandler } = await import('@electron/protocol');
+        setupAppProtocolHandler();
+        const handler = mocks.handle.mock.calls[0]?.[1] as (request: Request) => Promise<Response>;
+
+        await expect(handler(new Request('evb-viewer://app/missing-dir/a.js')))
+            .resolves.toMatchObject({status: 404});
+        await expect(handler(new Request('evb-viewer://app/missing-dir/b.js')))
+            .resolves.toMatchObject({status: 404});
+
+        expect(mocks.readdirSync).toHaveBeenCalledOnce();
+        expect(mocks.fetch).not.toHaveBeenCalled();
+    });
+
+    it('bounds the packaged directory-entry cache with LRU eviction', async () => {
+        mocks.isPackaged = true;
+        const { setupAppProtocolHandler } = await import('@electron/protocol');
+        setupAppProtocolHandler();
+        const handler = mocks.handle.mock.calls[0]?.[1] as (request: Request) => Promise<Response>;
+
+        for (let index = 0; index < 256; index += 1) {
+            await handler(new Request(`evb-viewer://app/dir-${index}/a.js`));
+        }
+        expect(mocks.readdirSync).toHaveBeenCalledTimes(256);
+
+        // Touch dir-0 to promote it as most-recently-used before adding dir-256.
+        await handler(new Request('evb-viewer://app/dir-0/b.js'));
+        expect(mocks.readdirSync).toHaveBeenCalledTimes(256);
+
+        // Adding dir-256 evicts dir-1 (least-recently-used), while dir-0 stays cached.
+        await handler(new Request('evb-viewer://app/dir-256/a.js'));
+        expect(mocks.readdirSync).toHaveBeenCalledTimes(257);
+
+        await handler(new Request('evb-viewer://app/dir-0/c.js'));
+        expect(mocks.readdirSync).toHaveBeenCalledTimes(257);
+
+        await handler(new Request('evb-viewer://app/dir-1/b.js'));
+        expect(mocks.readdirSync).toHaveBeenCalledTimes(258);
+    });
+
+    it('does not cache directory entries in unpacked mode', async () => {
+        const files = ['/app/dist/assets/app.js'];
+        useStaticFiles(files);
+        const { setupAppProtocolHandler } = await import('@electron/protocol');
+        setupAppProtocolHandler();
+        const handler = mocks.handle.mock.calls[0]?.[1] as (request: Request) => Promise<Response>;
+
+        // Unpacked mode (isDev: false, isPackaged: false): sibling probes hit readdirSync every time.
+        const first = await handler(new Request('evb-viewer://app/assets/app.js'));
+        files.push('/app/dist/assets/added.js');
+        const added = await handler(new Request('evb-viewer://app/assets/added.js'));
+
+        expect(first.status).toBe(200);
+        expect(added.status).toBe(200);
+        expect(mocks.readdirSync).toHaveBeenCalledTimes(2);
+    });
+
+    it('blocks traversal before reading or caching directory entries in packaged mode', async () => {
+        mocks.isPackaged = true;
+        useStaticFiles([
+            '/app/dist/assets/app.js',
+            '/app/secret.txt',
+        ]);
+        const { setupAppProtocolHandler } = await import('@electron/protocol');
+        setupAppProtocolHandler();
+        const handler = mocks.handle.mock.calls[0]?.[1] as (request: Request) => Promise<Response>;
+
+        await expect(handler(new Request('evb-viewer://app/..%2fsecret.txt')))
+            .resolves.toMatchObject({status: 404});
+        await expect(handler(new Request('evb-viewer://app/assets/..%2f..%2fsecret.txt')))
+            .resolves.toMatchObject({status: 404});
+        await expect(handler(new Request('evb-viewer://evil/assets/app.js')))
+            .resolves.toMatchObject({status: 404});
+
+        expect(mocks.readdirSync).not.toHaveBeenCalled();
         expect(mocks.fetch).not.toHaveBeenCalled();
     });
 });
