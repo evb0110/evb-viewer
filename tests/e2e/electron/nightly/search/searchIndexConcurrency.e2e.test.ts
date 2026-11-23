@@ -54,6 +54,13 @@ function lastWord(documentNumber: number) {
     return `d${documentNumber}p${PAGE_COUNT}l${DENSE_TEXT_FIXTURE_LINES_PER_PAGE - 1}w0`;
 }
 
+/** The sidebar lists a match for `query`, and is or is no longer searching. */
+function showsSearchMatch(root: string, query: string, searching: boolean) {
+    return Array.from(document.querySelectorAll<HTMLElement>(`${root} .document-search-result`))
+        .some(result => result.textContent?.includes(query))
+        && (document.querySelector(`${root} .document-search-results-spinner`) !== null) === searching;
+}
+
 describe('Electron E2E - concurrent search indexes', () => {
     // #928 F2: more documents index at once than native commands may run.
     it('indexes more documents at once than native commands run, and finds their last pages', async () => {
@@ -98,6 +105,32 @@ describe('Electron E2E - concurrent search indexes', () => {
                 .some(result => result.textContent?.includes(word))
         ), {timeout: RESULT_TIMEOUT_MS}, SIDEBAR, lastWord(DOCUMENT_COUNT));
     }, 600_000);
+
+    it('shows an early page match while a long document is still being indexed', async () => {
+        const session = await sessionFixture.restart({
+            hard: true,
+            clean: true,
+        });
+        const {page} = session;
+        // Three extraction windows: the match on page 2 is written with the
+        // first, while the other two still read.
+        await openPdfInApp(page, createDenseTextFixturePdf(
+            'search-streaming.pdf',
+            768,
+            (pageNumber, line, word) => `s${pageNumber}l${line}w${word}`,
+        ));
+        const word = 's2l0w0';
+        await ensureSidebarOpen(page);
+        await openDocumentSidebarTab(page, 'Search');
+        const input = await page.waitForSelector(`${SIDEBAR} .document-search-bar input`, {visible: true});
+        await clickAsUser(page, input!);
+        await page.keyboard.type(word);
+        await page.keyboard.press('Enter');
+        await waitForFunctionInPage(page, showsSearchMatch, {timeout: 30_000}, SIDEBAR, word, true);
+        // The indexed answer then replaces it with the same match.
+        await waitForFunctionInPage(page, showsSearchMatch, {timeout: 30_000}, SIDEBAR, word, false);
+        expect(await page.$$eval(`${SIDEBAR} .document-search-result`, results => results.length)).toBe(1);
+    });
 
     it('bounds CJK and RTL fallback workers while real searches compete and a queued tab closes', async () => {
         const session = await sessionFixture.restart({
@@ -199,9 +232,9 @@ describe('Electron E2E - concurrent search indexes', () => {
         await page.keyboard.down(process.platform === 'darwin' ? 'Meta' : 'Control');
         await page.keyboard.press('A'); await page.keyboard.up(process.platform === 'darwin' ? 'Meta' : 'Control');
         await page.keyboard.type(NON_EMBEDDED_CJK_SEARCH_FIXTURE_QUERY); await page.keyboard.press('Enter');
-        await waitForFunctionInPage(page, (root: string, word: string) => (
-            Array.from(document.querySelectorAll<HTMLElement>(`${root} .document-search-result`)).some(result => result.textContent?.includes(word))
-        ), {timeout: RESULT_TIMEOUT_MS}, SIDEBAR, NON_EMBEDDED_CJK_SEARCH_FIXTURE_QUERY);
+        // Matches show while the index builds; the search ends, and its
+        // workers with it, only once the indexed answer replaces them.
+        await waitForFunctionInPage(page, showsSearchMatch, {timeout: RESULT_TIMEOUT_MS}, SIDEBAR, NON_EMBEDDED_CJK_SEARCH_FIXTURE_QUERY, false);
         // Normal shutdown drains the worker logs so the tally includes the records emitted after thread exit.
         await sessionFixture.stop({preserveArtifacts: true});
         const records = (await readFile(logPath, 'utf8')).slice(logOffset).split('\n').filter(Boolean).map(line => JSON.parse(line) as ILogRecord)

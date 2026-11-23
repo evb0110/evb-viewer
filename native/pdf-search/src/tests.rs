@@ -457,3 +457,209 @@ fn traverses_bounded_windows_within_a_page_and_across_pages() {
     query.result_offset = Some(562);
     assert!(search_index(&mut index, &query).unwrap().results.is_empty());
 }
+
+#[test]
+fn stable_starters_take_the_quick_check_answer() {
+    for character in (0..=0x10ffff).filter_map(char::from_u32) {
+        if is_stable_starter(character) {
+            assert_eq!(canonical_combining_class(character), 0, "{character:?}");
+            assert_eq!(
+                is_nfc_quick(std::iter::once(character)),
+                IsNormalized::Yes,
+                "{character:?}"
+            );
+            assert!(fold_search_ligature(character).is_none(), "{character:?}");
+        }
+    }
+    let alphabet = [
+        "a", "é", "e\u{301}", "\u{316}", "\u{301}", "\u{17f}", "\u{fb01}", "\u{2019}", "\u{2018}",
+        "\u{5d0}", "\u{5b8}", "\u{fb2a}", "\u{627}", "\u{654}", "\u{ac00}", "\u{11a8}", "\u{1100}",
+        "\u{1161}", "\u{304b}", "\u{3099}", "\u{4e00}", "\u{2126}", "\u{2000}", "\u{438}",
+        "\u{306}", "\u{3a9}", "\u{344}", " ",
+    ];
+    for first in alphabet {
+        for second in alphabet {
+            for third in alphabet {
+                let text = format!("{first}{second}{third}");
+                let reference = is_nfc_quick(text.chars()) == IsNormalized::Yes
+                    && text
+                        .chars()
+                        .all(|character| fold_search_ligature(character).is_none());
+                assert_eq!(is_search_normalized(&text), reference, "{text:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn reads_page_text_in_chunks_across_their_boundaries() {
+    let directory =
+        std::env::temp_dir().join(format!("evb-pdf-search-chunks-test-{}", process::id()));
+    fs::create_dir_all(&directory).expect("create test directory");
+    let path = directory.join("document.pdf.evb-search-index");
+    let page = |padding: usize| format!("{}marker é", "x".repeat(padding));
+    let texts = [
+        page(0),
+        page(READ_CHUNK_BYTES + 3),
+        page(5),
+        page(READ_CHUNK_BYTES - 40),
+        page(READ_CHUNK_BYTES / 2),
+        page(1),
+    ];
+    let pages: Vec<(u32, &str)> = (1..)
+        .zip(&texts)
+        .map(|(page_number, text)| (page_number, text.as_str()))
+        .collect();
+    write_index(&build_index(7, &pages), REVISION, &path).expect("write index");
+    let mut loaded = load_index(&path, REVISION).unwrap().unwrap();
+    let expected: Vec<_> = (1..)
+        .zip(&texts)
+        .map(|(page_number, text)| (page_number, text.len() - 9, text.len() - 3))
+        .collect();
+    assert_eq!(
+        offsets(&search_index(&mut loaded, &options("marker")).unwrap()),
+        expected
+    );
+    for filter in [vec![2, 6], vec![1, 4], vec![3, 5, 7]] {
+        let mut query = options("marker");
+        query.pages = Some(filter.iter().copied().collect());
+        assert_eq!(
+            offsets(&search_index(&mut loaded, &query).unwrap()),
+            expected
+                .iter()
+                .copied()
+                .filter(|(page_number, ..)| filter.contains(page_number))
+                .collect::<Vec<_>>(),
+            "pages {filter:?}"
+        );
+    }
+    let excerpt = &search_index(&mut loaded, &options("é")).unwrap().results[1].excerpt;
+    assert_eq!(
+        (
+            excerpt.prefix,
+            excerpt.before.as_str(),
+            excerpt.after.as_str()
+        ),
+        (true, format!("{}marker ", "x".repeat(17)).as_str(), "")
+    );
+    fs::remove_dir_all(&directory).expect("remove test directory");
+}
+
+#[test]
+fn a_leading_space_query_crosses_long_blank_layout_runs() {
+    let blank = " ".repeat(1024 * 1024);
+    let text = format!("{blank}x needle");
+    let mut index = build_index(1, &[(1, &text)]);
+    assert_eq!(
+        offsets(&search_index(&mut index, &options(" needle")).unwrap()),
+        vec![(1, blank.len() + 1, blank.len() + 8)]
+    );
+}
+
+#[test]
+fn searching_written_pages_refuses_a_regex_before_reading_them() {
+    struct PanicReader;
+
+    impl Read for PanicReader {
+        fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
+            panic!("stdin must not be read when --regex is rejected");
+        }
+    }
+
+    impl BufRead for PanicReader {
+        fn fill_buf(&mut self) -> io::Result<&[u8]> {
+            panic!("stdin must not be read when --regex is rejected");
+        }
+
+        fn consume(&mut self, _amt: usize) {}
+    }
+
+    let error = run_cli_with_stdin(
+        [
+            "search",
+            "--pages-from-stdin",
+            "--document-revision",
+            REVISION,
+            "--query",
+            "[A-Z]+B|",
+            "--regex",
+        ]
+        .into_iter()
+        .map(String::from),
+        PanicReader,
+    )
+    .expect_err("a regex over written pages is refused");
+    let error = error.downcast_ref::<NativeError>().expect("a native error");
+    assert_eq!(error.code, NativeErrorCode::InvalidRequest);
+}
+
+#[test]
+fn sparse_page_filter_does_not_read_unselected_intermediate_pages() {
+    struct SpyReader {
+        inner: Cursor<Vec<u8>>,
+        bytes_read: usize,
+        read_calls: usize,
+    }
+
+    impl Read for SpyReader {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            let count = self.inner.read(buf)?;
+            self.read_calls += 1;
+            self.bytes_read += count;
+            Ok(count)
+        }
+    }
+
+    impl Seek for SpyReader {
+        fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+            self.inner.seek(pos)
+        }
+    }
+
+    let directory =
+        std::env::temp_dir().join(format!("evb-pdf-search-sparse-test-{}", process::id()));
+    fs::create_dir_all(&directory).expect("create test directory");
+    let path = directory.join("document.pdf.evb-search-index");
+    let skipped = format!("{}unselected", "y".repeat(16 * 1024));
+    let built = build_index(
+        3,
+        &[(1, "alpha needle"), (2, &skipped), (3, "omega needle")],
+    );
+    write_index(&built, REVISION, &path).expect("write index");
+    let raw = fs::read(&path).expect("read index bytes");
+    let len = raw.len();
+    let mut index = parse_index(
+        SpyReader {
+            inner: Cursor::new(raw),
+            bytes_read: 0,
+            read_calls: 0,
+        },
+        len,
+        REVISION,
+    )
+    .expect("parse index")
+    .expect("index not stale");
+
+    index.data.bytes_read = 0;
+    index.data.read_calls = 0;
+    let mut query = options("needle");
+    query.pages = Some([1, 3].into_iter().collect());
+    assert_eq!(
+        offsets(&search_index(&mut index, &query).unwrap()),
+        vec![(1, 6, 12), (3, 6, 12)]
+    );
+    assert_eq!(index.data.read_calls, 4);
+    assert!(index.data.bytes_read < 128);
+
+    index.data.bytes_read = 0;
+    index.data.read_calls = 0;
+    let mut consecutive = options("needle");
+    consecutive.pages = Some([2, 3].into_iter().collect());
+    assert_eq!(
+        offsets(&search_index(&mut index, &consecutive).unwrap()),
+        vec![(3, 6, 12)]
+    );
+    assert_eq!(index.data.read_calls, 2);
+
+    fs::remove_dir_all(&directory).expect("remove test directory");
+}
