@@ -1,4 +1,5 @@
 import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
+import type * as TViMockJobBroker from '@electron/resources/jobBroker';
 import type * as TPdfLib from 'pdf-lib';
 import type * as TAtomicReplace from '@electron/utils/atomicReplace';
 import type * as TManagedScratch from '@electron/utils/managedScratchTemp';
@@ -110,6 +111,7 @@ const mocks = vi.hoisted(() => ({
     tiffWorkerBlock: false,
     nativeTiffCombineEnabled: false,
     nativeTiffCombinePageGroups: [] as string[][],
+    nativeTiffCombineCancelGroups: [] as Array<string | undefined>,
     nativeTiffCombineBlock: false,
     // Called once the native writer's temporary output exists; the writer then stops.
     nativeTiffCombineStopMidWrite: null as (() => Promise<boolean>) | null,
@@ -117,6 +119,7 @@ const mocks = vi.hoisted(() => ({
         widthPts: number;
         heightPts: number
     }>,
+    broker: null as InstanceType<typeof TViMockJobBroker.JobBroker> | null,
 }));
 
 // Mirrors the production bounded stdout capture in createTextChunkAccumulator:
@@ -195,12 +198,17 @@ vi.mock('@electron/features/image-export/main/tryCombinePagesWithNativeTiffCombi
         outputPath: string,
         tempOutputPath: string,
         signal?: AbortSignal,
+        _dpi?: number,
+        _onTerminationProof?: unknown,
+        _combineThreads?: number,
+        cancelGroup?: string,
     ) => {
         if (!mocks.nativeTiffCombineEnabled) {
             return false;
         }
 
         mocks.nativeTiffCombinePageGroups.push([...pagePaths]);
+        mocks.nativeTiffCombineCancelGroups.push(cancelGroup);
         if (mocks.nativeTiffCombineStopMidWrite) {
             await actual.writeFile(tempOutputPath, Buffer.from('partial-native-tiff'));
             return mocks.nativeTiffCombineStopMidWrite();
@@ -222,6 +230,22 @@ vi.mock('@electron/features/image-export/main/tryCombinePagesWithNativeTiffCombi
         await actual.writeFile(outputPath, Buffer.from('mock-native-tiff'));
         return true;
     }};
+});
+vi.mock('@electron/resources/jobBroker', async importOriginal => {
+    const actual = await importOriginal<typeof TViMockJobBroker>();
+    return {
+        ...actual,
+        mainJobBroker: new Proxy({} as TViMockJobBroker.JobBroker, {
+            get(_target, property, receiver) {
+                const broker = mocks.broker;
+                if (!broker) {
+                    throw new Error('JobBroker mock was accessed before beforeEach');
+                }
+                const value = Reflect.get(broker, property, receiver);
+                return typeof value === 'function' ? value.bind(broker) : value;
+            },
+        }),
+    };
 });
 vi.mock('@electron/utils/workerTask', async () => {
     const actual = await vi.importActual<typeof WorkerTask>('@electron/utils/workerTask');
@@ -320,6 +344,8 @@ const { IMAGE_EXPORT_MAX_NETPBM_READ_BYTES } = await import('@electron/features/
 const { buildOutputPathWithSuffix } = await import('@electron/utils/boundedPathComponent');
 const {resolveSuffixedOutputPathConflicts} = await import('@electron/features/image-export/main/imageExportPathPlanning');
 const {combinePagesIntoMultiPageTiffLocal} = await import('@electron/features/image-export/main/combinePagesIntoMultiPageTiffLocal');
+const {TiffCombineWorkerStartupError} = await import('@electron/features/image-export/main/tiffCombineWorkerStartupError');
+const {JobBroker} = await import('@electron/resources/jobBroker');
 const {buildMultiPageTiffOutputSuffixes} = await import('@pdf-core/imageExportFileName');
 
 const UTIF = utifModule as typeof utifModule & ITiffEncoderModule;
@@ -457,9 +483,16 @@ describe('image export', () => {
         mocks.tiffWorkerBlock = false;
         mocks.nativeTiffCombineEnabled = false;
         mocks.nativeTiffCombinePageGroups.length = 0;
+        mocks.nativeTiffCombineCancelGroups.length = 0;
         mocks.nativeTiffCombineBlock = false;
         mocks.nativeTiffCombineStopMidWrite = null;
         mocks.pageSizeOverrides = {};
+        mocks.broker = new JobBroker({
+            cpuTokens: 4,
+            estimatedResidentBytes: 4 * 1024 ** 3,
+            nativeProcesses: 4,
+            ioWeight: 8,
+        });
         mocks.stat.mockImplementation(async () => ({
             isFile: () => true,
             size: 1024,
@@ -3199,5 +3232,143 @@ describe('image export', () => {
                 })));
             }
         });
+
+    it('acquires a mainJobBroker lease and forwards combineThreads for the TIFF combine worker', async () => {
+        mocks.broker = new JobBroker({
+            cpuTokens: 4,
+            estimatedResidentBytes: 4 * 1024 ** 3,
+            nativeProcesses: 1,
+            ioWeight: 8,
+        });
+        mocks.tiffWorkerPath = join(tempDir, 'mock-tiff-worker.mjs');
+        await writeFile(mocks.tiffWorkerPath, '');
+        const workerSpy = vi.spyOn(workerTask, 'runResultWorkerTask');
+        const originalBrokerRun = mocks.broker.run.bind(mocks.broker);
+        const combineQueued = Promise.withResolvers<void>();
+        const brokerRunSpy = vi.spyOn(mocks.broker, 'run').mockImplementation((request, work) => {
+            if (request.kind === 'pdf-tiff-combine') {
+                combineQueued.resolve();
+            }
+            return originalBrokerRun(request, work);
+        });
+        const blockerGate = Promise.withResolvers<void>();
+        const blockerDone = originalBrokerRun({
+            ownerId: 'blocker',
+            kind: 'native-command',
+            priority: 'user',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 64 * 1024 * 1024,
+                nativeProcesses: 1,
+                ioWeight: 1,
+            },
+        }, () => blockerGate.promise);
+
+        const outputPath = join(tempDir, 'leased.tiff');
+        try {
+            const exportPromise = exportPdfAsMultiPageTiff('/tmp/input.pdf', outputPath, {cancelGroup: 'tiff-lease-test'});
+            await combineQueued.promise;
+            await new Promise<void>(resolve => queueMicrotask(resolve));
+            expect(workerSpy).not.toHaveBeenCalled();
+            expect(mocks.broker.getSnapshot()).toMatchObject({
+                active: 1,
+                queued: 1,
+            });
+
+            blockerGate.resolve();
+            await blockerDone;
+
+            await expect(exportPromise).resolves.toEqual([outputPath]);
+            expect(workerSpy).toHaveBeenCalledTimes(1);
+            expect(workerSpy).toHaveBeenCalledWith(expect.objectContaining({
+                workerData: expect.objectContaining({combineThreads: 1}),
+            }));
+            expect(mocks.broker.getSnapshot().active).toBe(0);
+        } finally {
+            blockerGate.resolve();
+            await blockerDone.catch(() => undefined);
+            brokerRunSpy.mockRestore();
+            workerSpy.mockRestore();
+        }
+    });
+
+    it('retains the mainJobBroker lease when the TIFF combine worker ends without termination proof', async () => {
+        mocks.tiffWorkerPath = join(tempDir, 'mock-tiff-worker-unproven.mjs');
+        await writeFile(mocks.tiffWorkerPath, '');
+        const workerError = markUnprovenNativeTermination(new Error('combine worker hung'), 'worker still alive');
+        const workerSpy = vi.spyOn(workerTask, 'runResultWorkerTask').mockImplementationOnce(async (options) => {
+            const fullOptions = options as {
+                onTerminationProof?: (proof: Promise<boolean>) => void;
+            };
+            fullOptions.onTerminationProof?.(Promise.resolve(false));
+            throw workerError;
+        });
+        const outputPath = join(tempDir, 'unproven-worker.tiff');
+        try {
+            await expect(exportPdfAsMultiPageTiff('/tmp/input.pdf', outputPath, {cancelGroup: 'tiff-unproven-test'}))
+                .rejects.toBe(workerError);
+            expect(mocks.broker!.getSnapshot()).toMatchObject({
+                active: 1,
+                used: {nativeProcesses: 1},
+            });
+        } finally {
+            workerSpy.mockRestore();
+            await Promise.all(mocks.managedScratchDirs.map(({path}) => realFs.rm(path, {
+                recursive: true,
+                force: true,
+            })));
+        }
+    });
+
+    it('releases the worker lease before running local fallback on TiffCombineWorkerStartupError', async () => {
+        mocks.broker = new JobBroker({
+            cpuTokens: 4,
+            estimatedResidentBytes: 4 * 1024 ** 3,
+            nativeProcesses: 1,
+            ioWeight: 8,
+        });
+        mocks.tiffWorkerPath = join(tempDir, 'mock-tiff-worker-startup-err.mjs');
+        await writeFile(mocks.tiffWorkerPath, '');
+        const workerSpy = vi.spyOn(workerTask, 'runResultWorkerTask').mockRejectedValueOnce(
+            new TiffCombineWorkerStartupError('worker failed to start'),
+        );
+        let nestedLeaseAcquired = false;
+        mocks.nativeTiffCombineEnabled = true;
+        mocks.nativeTiffCombineStopMidWrite = async () => {
+            expect(mocks.broker!.getSnapshot().active).toBe(0);
+            await mocks.broker!.run({
+                ownerId: 'nested-fallback',
+                kind: 'native-command',
+                priority: 'user',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 64 * 1024 * 1024,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            }, async () => {
+                nestedLeaseAcquired = true;
+            });
+            return false;
+        };
+        const outputPath = join(tempDir, 'startup-fallback.tiff');
+        try {
+            await expect(exportPdfAsMultiPageTiff('/tmp/input.pdf', outputPath, {cancelGroup: 'tiff-startup-fallback-test'}))
+                .resolves.toEqual([outputPath]);
+            expect(nestedLeaseAcquired).toBe(true);
+            expect(mocks.nativeTiffCombineCancelGroups).toEqual(['tiff-startup-fallback-test']);
+            expect(mocks.broker.getSnapshot().active).toBe(0);
+        } finally {
+            workerSpy.mockRestore();
+        }
+    });
+
+    it('forwards cancelGroup to local native fallback when the TIFF combine worker is missing', async () => {
+        mocks.nativeTiffCombineEnabled = true;
+        const outputPath = join(tempDir, 'missing-worker-fallback.tiff');
+        await expect(exportPdfAsMultiPageTiff('/tmp/input.pdf', outputPath, {cancelGroup: 'tiff-missing-worker-group'}))
+            .resolves.toEqual([outputPath]);
+        expect(mocks.nativeTiffCombineCancelGroups).toEqual(['tiff-missing-worker-group']);
+    });
 
 });

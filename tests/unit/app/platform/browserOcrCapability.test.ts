@@ -836,3 +836,47 @@ describe('browser OCR raster size', () => {
         expect(renderedWidths).toEqual([612 * 85 / 72]);
     });
 });
+
+describe('browser OCR lanes', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    async function laneCount(
+        navigatorFields: {
+            hardwareConcurrency?: number;
+            deviceMemory?: number;
+        },
+        ...args: Parameters<typeof import('@app/platform/browser-api/browserOcrEngineClient').getBrowserOcrLaneCount>
+    ) {
+        vi.stubGlobal('navigator', navigatorFields);
+        const {getBrowserOcrLaneCount} = await import('@app/platform/browser-api/browserOcrEngineClient');
+        return getBrowserOcrLaneCount(...args);
+    }
+
+    it('runs more than eight lanes on a many-core device with memory for them', async () => {
+        expect(await laneCount({
+            hardwareConcurrency: 32,
+            deviceMemory: 8,
+        })).toBe(21);
+    });
+
+    it('keeps one core free and stays within half the reported memory', async () => {
+        expect(await laneCount({
+            hardwareConcurrency: 12,
+            deviceMemory: 8,
+        })).toBe(11);
+        // A 300 DPI letter page with clean-up and two 15 MB models costs about 695 MiB a lane.
+        expect(await laneCount({
+            hardwareConcurrency: 32,
+            deviceMemory: 8,
+        }, 2_550 * 3_300, 30_000_000, 'clean')).toBe(5);
+    });
+
+    it('keeps a 4 GiB device to one lane', async () => {
+        expect(await laneCount({
+            hardwareConcurrency: 32,
+            deviceMemory: 4,
+        })).toBe(1);
+    });
+});

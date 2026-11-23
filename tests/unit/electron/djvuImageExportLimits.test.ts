@@ -35,7 +35,8 @@ const mocks = vi.hoisted(() => ({
     convertPage: vi.fn(),
     convertPpmToImage: vi.fn(),
     combineTiff: vi.fn(),
-    acquire: vi.fn(),
+    // A real broker per test, so a lease kept for an unproven child stays in its test.
+    broker: null as InstanceType<typeof TViMockOriginalModule.JobBroker> | null,
     promoteStagedFiles: vi.fn(),
     createStagedFilePublicationLedger: vi.fn<(scratchPath?: string | null) => {promotedFiles: unknown[]}>(() => ({promotedFiles: []})),
     commitStagedFilePublications: vi.fn(),
@@ -92,8 +93,19 @@ vi.mock('@electron/features/image-export/main/export', async () => ({
 vi.mock('@electron/features/image-export/main/tryCombinePagesWithNativeTiffCombiner', () => ({tryCombinePagesWithNativeTiffCombiner: mocks.combineTiff}));
 vi.mock('@electron/resources/jobBroker', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
-    mainJobBroker: {acquire: mocks.acquire},
+    mainJobBroker: new Proxy({}, {get: (_target, key) => {
+        const broker = mocks.broker!;
+        const value: unknown = Reflect.get(broker, key);
+        return typeof value === 'function' ? value.bind(broker) : value;
+    }}),
 }));
+
+const LEASE_CAPACITY = {
+    cpuTokens: 4,
+    estimatedResidentBytes: 4 * 1024 ** 3,
+    nativeProcesses: 4,
+    ioWeight: 8,
+};
 
 describe('DjVu image export limits', () => {
     let tempDir = '';
@@ -102,8 +114,10 @@ describe('DjVu image export limits', () => {
         force: true,
     }));
 
-    beforeEach(() => {
+    beforeEach(async () => {
         vi.clearAllMocks();
+        const {JobBroker} = await import('@electron/resources/jobBroker');
+        mocks.broker = new JobBroker(LEASE_CAPACITY);
         mocks.beforeAppend = null;
         mocks.promoteStagedFiles.mockImplementation(async (files: Array<{
             targetPath: string;
@@ -140,10 +154,27 @@ describe('DjVu image export limits', () => {
             '@electron/features/image-export/main/djvuImageExport'
         );
 
-        await expect(exportDjvuPagesAsPng('/books/large.djvu', '/exports/page.png'))
-            .rejects.toThrow('exceeds the image export raster limit');
-        expect(mocks.convertPage).not.toHaveBeenCalled();
-        expect(mocks.acquire).not.toHaveBeenCalled();
+        const blockingLease = await mocks.broker!.acquire({
+            ownerId: 'saturate-broker',
+            kind: 'blocking-test-lease',
+            priority: 'user',
+            resources: LEASE_CAPACITY,
+        });
+        try {
+            await expect(exportDjvuPagesAsPng('/books/large.djvu', '/exports/page.png'))
+                .rejects.toThrow('exceeds the image export raster limit');
+            expect(mocks.convertPage).not.toHaveBeenCalled();
+            expect(mocks.broker!.getSnapshot()).toMatchObject({
+                active: 1,
+                queued: 0,
+            });
+        } finally {
+            blockingLease.release();
+        }
+        expect(mocks.broker!.getSnapshot()).toMatchObject({
+            active: 0,
+            queued: 0,
+        });
     });
 
     it('refuses a non-TIFF accepted destination without replacing either file', async () => {
@@ -172,7 +203,6 @@ describe('DjVu image export limits', () => {
                 })),
             };
         });
-        mocks.acquire.mockResolvedValue({release: vi.fn()});
         mocks.convertPage.mockImplementation(async (_source: string, ppmPath: string) => {
             await writeFile(ppmPath, 'ppm');
             return {
@@ -208,7 +238,6 @@ describe('DjVu image export limits', () => {
                 })),
             };
         });
-        mocks.acquire.mockResolvedValue({release: vi.fn()});
         mocks.convertPage.mockImplementation(async (_source: string, ppmPath: string) => {
             await writeFile(ppmPath, 'ppm');
             return {
@@ -229,7 +258,10 @@ describe('DjVu image export limits', () => {
         await expect(exportDjvuAsMultiPageTiff(
             '/books/large.djvu',
             join(tempDir, 'book.tiff'),
-            {scratch: {using: async (_prefix, run) => run(tempDir)}},
+            {
+                cancelGroup: 'djvu-tiff-cancel-group',
+                scratch: {using: async (_prefix, run) => run(tempDir)},
+            },
         )).resolves.toEqual([
             join(tempDir, 'book-part-001.tiff'),
             join(tempDir, 'book-part-002.tiff'),
@@ -238,13 +270,22 @@ describe('DjVu image export limits', () => {
             8,
             1,
         ]);
+        expect(mocks.combineTiff).toHaveBeenCalledWith(
+            expect.any(Array),
+            expect.stringContaining(tempDir),
+            expect.any(String),
+            undefined,
+            300,
+            expect.any(Function),
+            1,
+            'djvu-tiff-cancel-group',
+        );
         expect((await readdir(tempDir)).filter(name => name.endsWith('.ppm'))).toEqual([]);
     });
 
     it('keeps the pages of a TIFF batch whose native writer may still read them', async () => {
         tempDir = await mkdtemp(join(tmpdir(), 'djvu-tiff-unproven-writer-test-'));
         mocks.appTempDir = tempDir;
-        mocks.acquire.mockResolvedValue({release: vi.fn()});
         mocks.convertPage.mockImplementation(async (_source: string, ppmPath: string) => {
             await writeFile(ppmPath, 'ppm');
             return {
@@ -254,8 +295,17 @@ describe('DjVu image export limits', () => {
             };
         });
         let batchPaths: string[] = [];
-        mocks.combineTiff.mockImplementation(async (pagePaths: string[]) => {
+        const writerGone = Promise.withResolvers<boolean>();
+        mocks.combineTiff.mockImplementation(async (
+            pagePaths: string[],
+            _outputPath: string,
+            _tempPath: string,
+            _signal: AbortSignal | undefined,
+            _dpi: number | undefined,
+            onTerminationProof?: (proof: Promise<boolean>) => void,
+        ) => {
             batchPaths = pagePaths;
+            onTerminationProof?.(writerGone.promise);
             throw markUnprovenNativeTermination(new Error('native TIFF writer timed out'), 'native TIFF writer was not proven dead');
         });
         const {exportDjvuAsMultiPageTiff} = await import('@electron/features/image-export/main/djvuImageExport');
@@ -265,6 +315,24 @@ describe('DjVu image export limits', () => {
 
         expect(batchPaths).toHaveLength(1);
         await expect(readFile(batchPaths[0]!, 'utf8')).resolves.toBe('ppm');
+        // The combine lease stays charged while the writer may be running,
+        // and for good once its end is known to be unprovable.
+        const combineCharge = {
+            cpuTokens: 1,
+            estimatedResidentBytes: 512 * 1024 * 1024,
+            nativeProcesses: 1,
+            ioWeight: 3,
+        };
+        expect(mocks.broker!.getSnapshot()).toMatchObject({
+            active: 1,
+            used: combineCharge,
+        });
+        writerGone.resolve(false);
+        await new Promise(resolve => setImmediate(resolve));
+        expect(mocks.broker!.getSnapshot()).toMatchObject({
+            active: 1,
+            used: combineCharge,
+        });
     });
 
     it.each([
@@ -279,12 +347,19 @@ describe('DjVu image export limits', () => {
     ] as const)('%s keeps a page whose renderer may still write it', async (exportName, outputName) => {
         tempDir = await mkdtemp(join(tmpdir(), 'djvu-unproven-render-test-'));
         mocks.appTempDir = tempDir;
-        mocks.acquire.mockResolvedValue({release: vi.fn()});
         mocks.rollbackStagedFilePublications.mockResolvedValue(undefined);
         let ppmPath = '';
-        mocks.convertPage.mockImplementation(async (_source: string, outputPath: string) => {
+        const rendererGone = Promise.withResolvers<boolean>();
+        mocks.convertPage.mockImplementation(async (
+            _source: string,
+            outputPath: string,
+            _page: number,
+            _jobId: string,
+            options: {onTerminationProof?: (proof: Promise<boolean>) => void},
+        ) => {
             ppmPath = outputPath;
             await writeFile(outputPath, 'partial ppm');
+            options.onTerminationProof?.(rendererGone.promise);
             return {
                 success: false,
                 outputPath,
@@ -299,6 +374,16 @@ describe('DjVu image export limits', () => {
             .rejects.toThrow('ddjvu timed out');
 
         await expect(readFile(ppmPath, 'utf8')).resolves.toBe('partial ppm');
+        // The page lease stays charged until the renderer is proven gone.
+        expect(mocks.broker!.getSnapshot()).toMatchObject({
+            active: 1,
+            used: {nativeProcesses: 1},
+        });
+        rendererGone.resolve(true);
+        await vi.waitFor(() => expect(mocks.broker!.getSnapshot()).toMatchObject({
+            active: 0,
+            used: {nativeProcesses: 0},
+        }));
     });
 
     it('does not promote an early PNG page when a later render fails', async () => {
@@ -314,7 +399,6 @@ describe('DjVu image export limits', () => {
                 })),
             };
         });
-        mocks.acquire.mockResolvedValue({release: vi.fn()});
         mocks.convertPage.mockImplementation(async (_source: string, ppmPath: string, page: number) => {
             if (page === 2) throw new Error('second page failed');
             await writeFile(ppmPath, 'ppm');
@@ -355,7 +439,6 @@ describe('DjVu image export limits', () => {
                 })),
             };
         });
-        mocks.acquire.mockResolvedValue({release: vi.fn()});
         mocks.convertPage.mockImplementation(async (_source: string, ppmPath: string) => {
             await writeFile(ppmPath, 'ppm');
             return {
@@ -399,7 +482,6 @@ describe('DjVu image export limits', () => {
                 })),
             };
         });
-        mocks.acquire.mockResolvedValue({release: vi.fn()});
         mocks.convertPage.mockImplementation(async (_source: string, ppmPath: string) => {
             await writeFile(ppmPath, 'ppm');
             return {
@@ -448,7 +530,6 @@ describe('DjVu image export limits', () => {
                 })),
             };
         });
-        mocks.acquire.mockResolvedValue({release: vi.fn()});
         mocks.convertPage.mockImplementation(async (_source: string, ppmPath: string) => {
             await writeFile(ppmPath, 'ppm');
             return {
@@ -499,7 +580,6 @@ describe('DjVu image export limits', () => {
                 })),
             };
         });
-        mocks.acquire.mockResolvedValue({release: vi.fn()});
         mocks.convertPage.mockImplementation(async (_source: string, ppmPath: string) => {
             await writeFile(ppmPath, 'ppm');
             return {
@@ -558,7 +638,6 @@ describe('DjVu image export limits', () => {
                 firstPage = lastPage + 1;
             }
         });
-        mocks.acquire.mockResolvedValue({release: vi.fn()});
         mocks.convertPage.mockImplementation(async (_source: string, ppmPath: string, page: number) => {
             await writeFile(ppmPath, `ppm-${page}`);
             return {
@@ -640,7 +719,6 @@ describe('DjVu image export limits', () => {
     it('removes the staged PNG of a DjVu export stopped before publishing, on the next start', async () => {
         tempDir = await mkdtemp(join(tmpdir(), 'djvu-png-crash-test-'));
         const appTempRoot = join(tempDir, 'app-temp');
-        mocks.acquire.mockResolvedValue({release: vi.fn()});
         mocks.convertPage.mockImplementation(async (_source: string, ppmPath: string) => {
             await writeFile(ppmPath, 'ppm');
             return {
@@ -677,7 +755,6 @@ describe('DjVu image export limits', () => {
     it('removes the staged TIFF of a DjVu export stopped before publishing, on the next start', async () => {
         tempDir = await mkdtemp(join(tmpdir(), 'djvu-tiff-crash-test-'));
         const appTempRoot = join(tempDir, 'app-temp');
-        mocks.acquire.mockResolvedValue({release: vi.fn()});
         mocks.convertPage.mockImplementation(async (_source: string, ppmPath: string) => {
             await writeFile(ppmPath, 'ppm');
             return {
@@ -728,7 +805,6 @@ describe('DjVu image export limits', () => {
                 })),
             };
         });
-        mocks.acquire.mockResolvedValue({release: vi.fn()});
         mocks.convertPage.mockImplementation(async (_source: string, ppmPath: string) => {
             await writeFile(ppmPath, 'ppm');
             return {
@@ -835,5 +911,83 @@ describe('DjVu size estimates', () => {
         await expect(estimateSizes(freshDjvuPath(), 10, {signal: controller.signal}))
             .rejects.toMatchObject({name: 'AbortError'});
         expect(await keptScratchDirs()).toHaveLength(1);
+    });
+
+    it('queues estimate tasks on mainJobBroker and retains leases without termination proof', async () => {
+        const {JobBroker} = await import('@electron/resources/jobBroker');
+        mocks.broker = new JobBroker({
+            cpuTokens: 4,
+            estimatedResidentBytes: 4 * 1024 ** 3,
+            nativeProcesses: 1,
+            ioWeight: 8,
+        });
+        const originalRun = mocks.broker.run.bind(mocks.broker);
+        const queued = Promise.withResolvers<void>();
+        vi.spyOn(mocks.broker, 'run').mockImplementation((request, work) => {
+            if (request.kind === 'djvu-estimate') {
+                queued.resolve();
+            }
+            return originalRun(request, work);
+        });
+        const blockerGate = Promise.withResolvers<void>();
+        const blockerDone = originalRun({
+            ownerId: 'blocker',
+            kind: 'native-command',
+            priority: 'user',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 64 * 1024 * 1024,
+                nativeProcesses: 1,
+                ioWeight: 1,
+            },
+        }, () => blockerGate.promise);
+
+        const {estimateSizes} = await import('@electron/features/djvu/main/estimateSizes');
+        const estimatesPromise = estimateSizes(freshDjvuPath(), 10);
+        try {
+            await queued.promise;
+            await new Promise<void>(resolve => queueMicrotask(resolve));
+            expect(mocks.estimateTask).not.toHaveBeenCalled();
+
+            blockerGate.resolve();
+            await blockerDone;
+
+            const estimates = await estimatesPromise;
+            expect(estimates.map(estimate => estimate.subsample)).toEqual([
+                1,
+                2,
+                4,
+            ]);
+            expect(mocks.estimateTask).toHaveBeenCalledTimes(3);
+            expect(mocks.estimateTask).toHaveBeenCalledWith(expect.any(String), expect.any(Number), expect.objectContaining({
+                combineThreads: 1,
+            }));
+            expect(mocks.broker.getSnapshot().active).toBe(0);
+        } finally {
+            blockerGate.resolve();
+            await blockerDone.catch(() => undefined);
+            await estimatesPromise.catch(() => undefined);
+        }
+
+        mocks.broker = new JobBroker(LEASE_CAPACITY);
+        mocks.estimateTask.mockReset();
+        let callIndex = 0;
+        mocks.estimateTask.mockImplementation((_path: string, _dpi: number, options?: {
+            onTerminationProof?: (proof: Promise<boolean>) => void;
+        }) => {
+            callIndex += 1;
+            if (callIndex === 2) {
+                options?.onTerminationProof?.(Promise.resolve(false));
+                return {promise: Promise.reject(markUnprovenNativeTermination(new Error('estimate hung'), 'child alive'))};
+            }
+            return {promise: Promise.resolve(1000)};
+        });
+
+        const secondEstimates = await estimateSizes(freshDjvuPath(), 10);
+        expect(secondEstimates[1]?.estimatedBytes).toBe(0);
+        expect(mocks.broker.getSnapshot()).toMatchObject({
+            active: 1,
+            used: {nativeProcesses: 1},
+        });
     });
 });

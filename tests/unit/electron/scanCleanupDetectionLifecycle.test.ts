@@ -108,7 +108,7 @@ export async function scenarioPublishesProvisionalPageResultsBeforeDocumentRecon
         await remainingRasters.promise;
         await originalRenderPage(...args);
     });
-    deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+    deps.runWithDetectionLease = vi.fn((_ownerId, _signal, _policy, _options, work) => work());
     const analysisEntered = Promise.withResolvers<undefined>();
     const remainingAnalysis = Promise.withResolvers<undefined>();
     const reconciliationEntered = Promise.withResolvers<undefined>();
@@ -285,7 +285,7 @@ export async function scenarioStagesEveryReplayableDetectionRasterBeforeNativeAn
             activeRasterizers -= 1;
         }
     });
-    deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+    deps.runWithDetectionLease = vi.fn((_ownerId, _signal, _policy, _options, work) => work());
     let analysisFields: Array<{
         analysisInputPath: string | undefined;
         analysisDpi: number | undefined;
@@ -387,7 +387,7 @@ export async function scenarioRemovesTemporaryDetectionRasterPathsWhenNativeAnal
         stagedPaths.push(outputPath);
         await writeFile(outputPath, pngWithDimensions(1, 1));
     });
-    deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+    deps.runWithDetectionLease = vi.fn((_ownerId, _signal, _policy, _options, work) => work());
     deps.runSidecar = vi.fn(async () => {
         await vi.waitFor(() => expect(stagedPaths.length).toBeGreaterThan(0));
         throw new Error('native consumer failed');
@@ -416,7 +416,7 @@ export async function scenarioDoesNotHangWhenDetectionAbortsDuringNativeAnalysis
         await writeFile(outputPath, pngWithDimensions(1, 1));
         rasterFinished.resolve(undefined);
     });
-    deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+    deps.runWithDetectionLease = vi.fn((_ownerId, _signal, _policy, _options, work) => work());
     deps.runSidecar = vi.fn(async (_binary, _manifestPath, signal) => {
         sidecarEntered.resolve(undefined);
         await new Promise<void>((_resolve, reject) => {
@@ -452,7 +452,7 @@ export async function scenarioReconcilesEveryDetectionClassificationAgainstTheWh
     const {deps} = await previewDependencies();
     const totalPages = 8;
     deps.getPageCount = vi.fn(async () => totalPages);
-    deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+    deps.runWithDetectionLease = vi.fn((_ownerId, _signal, _policy, _options, work) => work());
     // Stands in for reconcile_classification_batch: the cluster consensus a
     // page is judged against, and the cutter the sidecar then publishes, are
     // derived from the pages that share its manifest.
@@ -508,7 +508,7 @@ export async function scenarioReconcilesEveryDetectionClassificationAgainstTheWh
 export async function scenarioRasterizesDetectionPagesStraightToDiskInsteadOfBufferingThem(): Promise<void> {
 
     const {deps} = await previewDependencies();
-    deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+    deps.runWithDetectionLease = vi.fn((_ownerId, _signal, _policy, _options, work) => work());
     deps.renderPage = vi.fn(async (_paths, _log, _page, _source, outputPath) => {
         await writeFile(outputPath, pngWithDimensions(883, 1335));
         // Sparse padding well past what the preview path is willing to hold
@@ -664,7 +664,7 @@ export async function scenarioPreviewsAPageDetectionRasterizedWithoutARendererAn
         dir,
         deps,
     } = await previewDependencies();
-    deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+    deps.runWithDetectionLease = vi.fn((_ownerId, _signal, _policy, _options, work) => work());
     deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
         await writeDetectionMetadata(manifestPath);
         for (const pageNumber of [
@@ -752,7 +752,7 @@ export async function scenarioStreamsABrokeredDetectAllLifecycleAndHandsItsRaste
             activeRasters -= 1;
         }
     });
-    deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+    deps.runWithDetectionLease = vi.fn((_ownerId, _signal, _policy, _options, work) => work());
     let analysisManifest: {
         analysisPurpose: string | undefined;
         pageDpis: number[];
@@ -887,11 +887,12 @@ export async function scenarioStreamsABrokeredDetectAllLifecycleAndHandsItsRaste
             },
         ],
     });
-    expect(deps.acquireDetectionLease).toHaveBeenCalledWith(
+    expect(deps.runWithDetectionLease).toHaveBeenCalledWith(
         'scan-cleanup:1:preview-owner',
         expect.any(AbortSignal),
         expect.objectContaining({rasterConcurrency: 4}),
         expect.objectContaining({outputMode: 'bw'}),
+        expect.any(Function),
     );
     // The visible page-1 raster is reused by 150-DPI detection; only pages
     // 2 and 3 need additional renders.
@@ -910,8 +911,8 @@ export async function scenarioStreamsABrokeredDetectAllLifecycleAndHandsItsRaste
 export async function scenarioRasterizesDetectionPagesAsWideAsThe11CoreHostAllowsAndLeasesThatWidth(): Promise<void> {
 
     const {deps} = await previewDependencies();
-    const acquire = vi.fn(async () => ({release: vi.fn(() => true)}));
-    deps.acquireDetectionLease = acquire;
+    const acquire = vi.fn((_ownerId, _signal, _policy, _options, work: () => Promise<unknown>) => work());
+    deps.runWithDetectionLease = acquire as NonNullable<IScanCleanupPreviewDependencies['runWithDetectionLease']>;
     deps.getPageCount = vi.fn(async () => 8);
     const originalRenderPage = deps.renderPage;
     const rasterBatchReady = Promise.withResolvers<undefined>();
@@ -956,6 +957,7 @@ export async function scenarioRasterizesDetectionPagesAsWideAsThe11CoreHostAllow
         expect.any(AbortSignal),
         expect.objectContaining({rasterConcurrency: policy.rasterConcurrency}),
         expect.objectContaining({outputMode: 'bw'}),
+        expect.any(Function),
     );
 
 }
@@ -963,8 +965,8 @@ export async function scenarioRasterizesDetectionPagesAsWideAsThe11CoreHostAllow
 export async function scenarioIncludesTheClassifierSidecarInStreamingDetectionAdmission(): Promise<void> {
 
     const {deps} = await previewDependencies();
-    const acquire = vi.fn(async () => ({release: vi.fn(() => true)}));
-    deps.acquireDetectionLease = acquire;
+    const acquire = vi.fn((_ownerId, _signal, _policy, _options, work: () => Promise<unknown>) => work());
+    deps.runWithDetectionLease = acquire as NonNullable<IScanCleanupPreviewDependencies['runWithDetectionLease']>;
     deps.runSidecar = vi.fn(async () => {
         throw new Error('stop after non-streaming admission');
     });
@@ -985,6 +987,7 @@ export async function scenarioIncludesTheClassifierSidecarInStreamingDetectionAd
         expect.any(AbortSignal),
         expect.objectContaining({rasterConcurrency: policy.rasterConcurrency}),
         expect.objectContaining({outputMode: 'bw'}),
+        expect.any(Function),
     );
 
 }
@@ -994,7 +997,7 @@ export async function scenarioStreamsEveryDetectionClassificationToTheSubscriber
     const {deps} = await previewDependencies();
     const totalPages = 40;
     deps.getPageCount = vi.fn(async () => totalPages);
-    deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+    deps.runWithDetectionLease = vi.fn((_ownerId, _signal, _policy, _options, work) => work());
     const batches = [
         {
             lastPage: 20,
@@ -1140,7 +1143,7 @@ export async function scenarioKeepsXlargeDetectionEventPayloadsWithinTheRenderer
     deps.getPageSizes = vi.fn(async () => {
         throw new Error('xlarge detection must use the bounded page-size store');
     });
-    deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+    deps.runWithDetectionLease = vi.fn((_ownerId, _signal, _policy, _options, work) => work());
     const firstBatchPublished = Promise.withResolvers<undefined>();
     const releaseFirstBatch = Promise.withResolvers<undefined>();
     deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
@@ -1232,7 +1235,7 @@ export async function scenarioKeepsXlargeDetectionEventPayloadsWithinTheRenderer
 export async function scenarioReDetectsAChangedPageOverTheRastersItAlreadyHoldsPageForPage(): Promise<void> {
 
     const {deps} = await previewDependencies();
-    deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+    deps.runWithDetectionLease = vi.fn((_ownerId, _signal, _policy, _options, work) => work());
     deps.renderPage = vi.fn(async (_paths, _log, pageNumber, _source, outputPath) => {
         await writeFile(outputPath, pngWithDimensions(pageNumber, 1));
     });
@@ -1340,7 +1343,7 @@ export async function scenarioRasterizesOnlyThePagesRetentionNoLongerHoldsAndSti
         dir,
         deps,
     } = await previewDependencies();
-    deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+    deps.runWithDetectionLease = vi.fn((_ownerId, _signal, _policy, _options, work) => work());
     const manifestPageCounts: number[] = [];
     deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
         await writeDetectionMetadata(manifestPath);
@@ -1396,7 +1399,13 @@ export async function scenarioCancelsDetectAllThroughItsSignalAndRemovesItsScrat
     const {deps} = await previewDependencies();
     const entered = Promise.withResolvers<string>();
     const releaseLease = vi.fn(() => true);
-    deps.acquireDetectionLease = vi.fn(async () => ({release: releaseLease}));
+    deps.runWithDetectionLease = vi.fn(async (_ownerId, _signal, _policy, _options, work) => {
+        try {
+            return await work();
+        } finally {
+            releaseLease();
+        }
+    });
     deps.runSidecar = vi.fn(async (_binary, manifestPath, signal) => {
         entered.resolve(manifestPath);
         await new Promise<void>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), {once: true}));
@@ -1422,21 +1431,21 @@ export async function scenarioJoinsIdenticalDetectionWorkAndReplacesAChangedRequ
 
     const {deps} = await previewDependencies();
     const entered = Promise.withResolvers<AbortSignal>();
-    deps.acquireDetectionLease = vi.fn()
+    deps.runWithDetectionLease = vi.fn()
         .mockImplementationOnce(async (_ownerId, signal) => {
             entered.resolve(signal);
             return new Promise((_, reject) => {
                 signal.addEventListener('abort', () => reject(signal.reason), {once: true});
             });
         })
-        .mockResolvedValue({release: vi.fn(() => true)});
+        .mockImplementation((_ownerId, _signal, _policy, _options, work: () => Promise<unknown>) => work());
     const service = createDetectionScenarioOwner(deps);
     const owner = sender();
     const first = await service.detectAll(owner, detectionRequest);
     const signal = await entered.promise;
 
     await expect(service.detectAll(owner, detectionRequest)).resolves.toEqual(first);
-    expect(deps.acquireDetectionLease).toHaveBeenCalledOnce();
+    expect(deps.runWithDetectionLease).toHaveBeenCalledOnce();
 
     const replacement = await service.detectAll(owner, {
         ...detectionRequest,
@@ -1447,7 +1456,7 @@ export async function scenarioJoinsIdenticalDetectionWorkAndReplacesAChangedRequ
     });
     expect(replacement.jobId).not.toBe(first.jobId);
     expect(signal.aborted).toBe(true);
-    await vi.waitFor(() => expect(deps.acquireDetectionLease).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(deps.runWithDetectionLease).toHaveBeenCalledTimes(2));
     await service.dispose();
 
 }
@@ -1455,15 +1464,14 @@ export async function scenarioJoinsIdenticalDetectionWorkAndReplacesAChangedRequ
 export async function scenarioCoalescesBackToBackIdenticalDetectionRequestsBeforeStart(): Promise<void> {
 
     const {deps} = await previewDependencies();
-    deps.acquireDetectionLease = vi.fn(async (_ownerId, signal) => {
-        await new Promise<never>((_resolve, reject) => {
+    deps.runWithDetectionLease = vi.fn(async (_ownerId, signal) => {
+        return await new Promise<never>((_resolve, reject) => {
             if (signal.aborted) {
                 reject(signal.reason);
                 return;
             }
             signal.addEventListener('abort', () => reject(signal.reason), {once: true});
         });
-        return {release: vi.fn(() => true)};
     });
     const service = createDetectionScenarioOwner(deps);
     const owner = sender();
@@ -1478,7 +1486,7 @@ export async function scenarioCoalescesBackToBackIdenticalDetectionRequestsBefor
             secondPromise,
         ]);
         expect(second).toEqual(first);
-        expect(deps.acquireDetectionLease).toHaveBeenCalledOnce();
+        expect(deps.runWithDetectionLease).toHaveBeenCalledOnce();
     } finally {
         await service.dispose();
     }
@@ -1490,7 +1498,7 @@ export async function scenarioStartsFreshIdenticalDetectionAfterCancellationIsAc
     const {deps} = await previewDependencies();
     const firstEntered = Promise.withResolvers<undefined>();
     const settleFirstCancellation = Promise.withResolvers<undefined>();
-    deps.acquireDetectionLease = vi.fn()
+    deps.runWithDetectionLease = vi.fn()
         .mockImplementationOnce(async (_ownerId, signal) => {
             firstEntered.resolve(undefined);
             await new Promise<void>(resolve => {

@@ -70,7 +70,12 @@ import {
     getLastOcrSelectionPage,
     normalizeOcrPageSelection,
 } from '@electron/features/ocr/pipeline/ocrPageSelectionStream';
-import {getOcrRuntimePolicy} from '@electron/features/ocr/main/ocrRuntimePolicy';
+import {
+    createOcrModelBytesReader,
+    getOcrRuntimePolicy,
+    resolveOcrLaneResources,
+    sumOcrModelBytes,
+} from '@electron/features/ocr/main/ocrRuntimePolicy';
 import {mainJobBroker} from '@electron/resources/jobBroker';
 
 /** One checkpoint directory per job fingerprint; a concurrent twin gets its own. */
@@ -97,6 +102,11 @@ export interface IOcrJob {
     log: TWorkerLog;
     /** The engine pool that runs one page's Tesseract passes. */
     runEngine: (request: IOcrEngineRequest, signal: AbortSignal) => Promise<IOcrEngineResult>;
+    /**
+     * The engine charges the main broker for its workers itself, as the app's
+     * pool does; otherwise the job charges each page's passes.
+     */
+    engineChargesBroker?: boolean;
     /** Installs the early-print models into `paths.tessdataPath`; called once, when a page first needs them. */
     prepareEarlyPrintModels: (signal: AbortSignal) => Promise<void>;
 }
@@ -120,6 +130,24 @@ function getOcrPageConcurrency(pageCount: number, paths: IOcrPipelinePaths, opti
     return {
         lanes: Math.max(1, Math.min(globalPageSlots, Math.floor(cpuTokens / cleanupThreads), getOcrConcurrency(pageCount))),
         cleanupThreads,
+    };
+}
+
+/**
+ * Runs each page's engine passes under a main broker lease charging what the
+ * lane holds, for an engine that does not charge the broker itself.
+ */
+function createLeasedOcrEngine(job: Pick<IOcrJob, 'jobId' | 'paths' | 'runEngine'>) {
+    const readModelBytes = createOcrModelBytesReader(job.paths.tessdataPath);
+    return async (request: IOcrEngineRequest, signal: AbortSignal) => {
+        const modelBytes = sumOcrModelBytes(await readModelBytes(request.models));
+        return mainJobBroker.run({
+            ownerId: `ocr:${job.jobId}`,
+            kind: 'ocr-engine-pass',
+            priority: 'user',
+            resources: resolveOcrLaneResources(modelBytes, request.image, mainJobBroker.getSnapshot().capacity),
+            signal,
+        }, () => job.runEngine(request, signal));
     };
 }
 
@@ -152,6 +180,7 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
     const warnings = new OcrJobMessages<string>();
     const errors = new OcrJobMessages<string>();
     const diagnostics = new OcrJobMessages<IOcrDiagnostic>();
+    const runEngine = job.engineChargesBroker ? job.runEngine : createLeasedOcrEngine(job);
     const pageSizeSource = createOcrPageSizeSource({
         ...(paths.pdfPageOpsBinary ? {pdfPageOpsBinary: paths.pdfPageOpsBinary} : {}),
         qpdfBinary: paths.qpdfBinary,
@@ -335,7 +364,7 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
                 lanes,
                 signal: jobSignal,
                 renderPage,
-                runEngine: job.runEngine,
+                runEngine,
                 prepareEarlyPrintModels: () => earlyPrintModels ??= job.prepareEarlyPrintModels(jobSignal),
                 readModel: (code: TOcrModelCode) => readFile(join(paths.tessdataPath, `${code}.traineddata`)),
                 restorePage: pageNumber => restoreOcrPageCheckpoint(checkpointDir, pageNumber),

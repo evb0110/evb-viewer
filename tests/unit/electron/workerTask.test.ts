@@ -1,3 +1,4 @@
+import type * as TFsModule from 'fs';
 import {
     afterEach,
     beforeEach,
@@ -6,6 +7,10 @@ import {
     it,
     vi,
 } from 'vitest';
+import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
+import type {IScanCleanupWorkerPaths} from '@electron/features/scan-cleanup/worker/runScanCleanupPipeline';
+import type {TScanCleanupWorkerRequest} from '@electron/features/scan-cleanup/runScanCleanupWorkerTask';
+import {cast} from '@tests/helpers/cast';
 
 const mocks = vi.hoisted<{
     existsSync: ReturnType<typeof vi.fn<() => boolean>>;
@@ -73,7 +78,10 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     },
 })}));
 
-vi.mock('fs', () => ({existsSync: mocks.existsSync}));
+vi.mock('fs', async importOriginal => ({
+    ...await importOriginal<typeof TFsModule>(),
+    existsSync: mocks.existsSync,
+}));
 vi.mock('worker_threads', () => ({
     isMainThread: true,
     Worker: class {
@@ -970,6 +978,377 @@ describe('workerTask', () => {
             entry.level === 'warn' && entry.message === 'Worker did not acknowledge cancellation before force termination'
         ))).toBe(true);
         expect(mocks.logged.filter(entry => entry.level === 'error')).toEqual([]);
+    });
+
+    describe('owner lease', () => {
+        const LEASE = {
+            cpuTokens: 1,
+            estimatedResidentBytes: 1,
+            nativeProcesses: 1,
+            ioWeight: 1,
+        };
+
+        async function runUnderLease(
+            task: (onTerminationProof: (proof: Promise<boolean>) => void) => Promise<unknown>,
+        ) {
+            const {JobBroker} = await import('@electron/resources/jobBroker');
+            const broker = new JobBroker(LEASE);
+            const outcome = broker.run({
+                ownerId: 'conformance',
+                kind: 'conformance',
+                priority: 'user',
+                resources: LEASE,
+            }, ({onTerminationProof}) => task(onTerminationProof)).catch((cause: unknown) => cause);
+            return {
+                broker,
+                outcome,
+            };
+        }
+
+        it('keeps the lease of a force-terminated worker even when the abort reason was already unproven', async () => {
+            vi.useFakeTimers();
+            mocks.throwConstructorError = false;
+            const {runResultWorkerTask} = await import('@electron/utils/workerTask');
+            const {
+                getUnprovenNativeTerminationDetail,
+                markUnprovenNativeTermination,
+            } = await import('@electron/utils/nativeTerminationProof');
+            const jobAbort = new AbortController();
+            // A sibling's child outlived its kill and stopped the shared job.
+            const siblingReason = markUnprovenNativeTermination(new Error('sibling not proven dead'), 'sibling alive');
+
+            const {
+                broker,
+                outcome,
+            } = await runUnderLease(onTerminationProof => runResultWorkerTask({
+                workerPath: '/tmp/worker.js',
+                workerData: {ok: true},
+                invalidPayloadMessage: 'invalid payload',
+                createWorkerExitError: code => new Error(`exit: ${code}`),
+                signal: jobAbort.signal,
+                createCancelMessage: () => ({type: 'cancel'}),
+                cooperativeCancelDelayMs: 5_000,
+                onTerminationProof,
+            }));
+            await vi.advanceTimersByTimeAsync(0);
+            jobAbort.abort(siblingReason);
+            // This worker ignores the cancel and is force terminated; its own
+            // native children were never stopped.
+            await vi.advanceTimersByTimeAsync(5_000);
+            vi.useRealTimers();
+
+            expect(getUnprovenNativeTerminationDetail(await outcome)).toBeDefined();
+            expect(broker.getSnapshot()).toMatchObject({
+                active: 1,
+                used: {nativeProcesses: 1},
+            });
+        });
+
+        it('releases the lease of a worker that acknowledged a cancel whose reason was already unproven', async () => {
+            mocks.throwConstructorError = false;
+            const {runResultWorkerTask} = await import('@electron/utils/workerTask');
+            const {markUnprovenNativeTermination} = await import('@electron/utils/nativeTerminationProof');
+            const jobAbort = new AbortController();
+            const siblingReason = markUnprovenNativeTermination(new Error('sibling not proven dead'), 'sibling alive');
+
+            const {
+                broker,
+                outcome,
+            } = await runUnderLease(onTerminationProof => runResultWorkerTask({
+                workerPath: '/tmp/worker.js',
+                workerData: {ok: true},
+                invalidPayloadMessage: 'invalid payload',
+                createWorkerExitError: code => new Error(`exit: ${code}`),
+                signal: jobAbort.signal,
+                createCancelMessage: () => ({type: 'cancel'}),
+                cooperativeCancelDelayMs: 5_000,
+                onTerminationProof,
+            }));
+            await vi.waitFor(() => expect(mocks.workerRecords).toHaveLength(1));
+            jobAbort.abort(siblingReason);
+            mocks.workerRecords[0]!.emit('message', {
+                type: 'result',
+                ok: false,
+                error: 'canceled',
+                errorFrame: {
+                    message: 'canceled',
+                    name: 'AbortError',
+                    canceled: true,
+                },
+            });
+
+            expect(await outcome).toBe(siblingReason);
+            expect(broker.getSnapshot()).toMatchObject({
+                active: 0,
+                used: {nativeProcesses: 0},
+            });
+        });
+
+        it.each([
+            {
+                reply: 'an invalid envelope',
+                payload: {type: 'unexpected'},
+            },
+            {
+                reply: 'a success envelope with invalid data',
+                payload: {
+                    type: 'result',
+                    ok: true,
+                    data: {notAProfile: true},
+                },
+            },
+        ])('keeps the lease of a worker that answers a cancel with $reply', async ({payload}) => {
+            mocks.throwConstructorError = false;
+            const {runResultWorkerTask} = await import('@electron/utils/workerTask');
+            const {
+                getUnprovenNativeTerminationDetail,
+                markUnprovenNativeTermination,
+            } = await import('@electron/utils/nativeTerminationProof');
+            const jobAbort = new AbortController();
+            const siblingReason = markUnprovenNativeTermination(new Error('sibling not proven dead'), 'sibling alive');
+
+            const {
+                broker,
+                outcome,
+            } = await runUnderLease(onTerminationProof => runResultWorkerTask({
+                workerPath: '/tmp/worker.js',
+                workerData: {ok: true},
+                invalidPayloadMessage: 'invalid payload',
+                createWorkerExitError: code => new Error(`exit: ${code}`),
+                decodeResult: data => (typeof data === 'object' && data !== null && 'profile' in data ? data : null),
+                signal: jobAbort.signal,
+                createCancelMessage: () => ({type: 'cancel'}),
+                cooperativeCancelDelayMs: 5_000,
+                onTerminationProof,
+            }));
+            await vi.waitFor(() => expect(mocks.workerRecords).toHaveLength(1));
+            jobAbort.abort(siblingReason);
+            // Not a cancel acknowledgement: the worker's children may still run.
+            mocks.workerRecords[0]!.emit('message', payload);
+
+            expect(getUnprovenNativeTerminationDetail(await outcome)).toBeDefined();
+            expect(broker.getSnapshot()).toMatchObject({
+                active: 1,
+                used: {nativeProcesses: 1},
+            });
+        });
+
+        it('keeps the lease of a worker whose cancel reply makes the decoder throw', async () => {
+            mocks.throwConstructorError = false;
+            const {runResultWorkerTask} = await import('@electron/utils/workerTask');
+            const {
+                getUnprovenNativeTerminationDetail,
+                markUnprovenNativeTermination,
+            } = await import('@electron/utils/nativeTerminationProof');
+            const jobAbort = new AbortController();
+            const siblingReason = markUnprovenNativeTermination(new Error('sibling not proven dead'), 'sibling alive');
+
+            const {
+                broker,
+                outcome,
+            } = await runUnderLease(onTerminationProof => runResultWorkerTask({
+                workerPath: '/tmp/worker.js',
+                workerData: {ok: true},
+                invalidPayloadMessage: 'invalid payload',
+                createWorkerExitError: code => new Error(`exit: ${code}`),
+                // As the conformance decoder does on a cloned reply whose
+                // `saveRestrictions` is not an array.
+                decodeResult: data => ((data as {saveRestrictions: {every: () => boolean}}).saveRestrictions.every() ? data : null),
+                signal: jobAbort.signal,
+                createCancelMessage: () => ({type: 'cancel'}),
+                cooperativeCancelDelayMs: 5_000,
+                onTerminationProof,
+            }));
+            await vi.waitFor(() => expect(mocks.workerRecords).toHaveLength(1));
+            jobAbort.abort(siblingReason);
+            mocks.workerRecords[0]!.emit('message', {
+                type: 'result',
+                ok: true,
+                data: {saveRestrictions: {every: 'not callable'}},
+            });
+
+            expect(getUnprovenNativeTerminationDetail(await outcome)).toBeDefined();
+            expect(mocks.workerRecords[0]!.terminateCalls).toBe(1);
+            expect(broker.getSnapshot()).toMatchObject({
+                active: 1,
+                used: {nativeProcesses: 1},
+            });
+        });
+
+        it('keeps the lease of a worker whose decoder throws on the cancel reply when the abort reason is frozen', async () => {
+            mocks.throwConstructorError = false;
+            const {runResultWorkerTask} = await import('@electron/utils/workerTask');
+            const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
+            const jobAbort = new AbortController();
+            const frozenReason = new Error('frozen cancel', {cause: 'owner closed'});
+            frozenReason.name = 'AbortError';
+            Object.freeze(frozenReason);
+
+            const {
+                broker,
+                outcome,
+            } = await runUnderLease(onTerminationProof => runResultWorkerTask({
+                workerPath: '/tmp/worker.js',
+                workerData: {ok: true},
+                invalidPayloadMessage: 'invalid payload',
+                createWorkerExitError: code => new Error(`exit: ${code}`),
+                decodeResult: () => {
+                    throw new TypeError('decoder failed');
+                },
+                signal: jobAbort.signal,
+                createCancelMessage: () => ({type: 'cancel'}),
+                cooperativeCancelDelayMs: 5_000,
+                onTerminationProof,
+            }));
+            await vi.waitFor(() => expect(mocks.workerRecords).toHaveLength(1));
+            jobAbort.abort(frozenReason);
+            mocks.workerRecords[0]!.emit('message', {
+                type: 'result',
+                ok: true,
+                data: {},
+            });
+
+            const error = await outcome;
+            // A frozen reason cannot carry the mark, so the rejection wraps it.
+            expect(error).toMatchObject({
+                name: 'AbortError',
+                message: 'frozen cancel',
+                cause: frozenReason,
+            });
+            expect(getUnprovenNativeTerminationDetail(error)).toContain('ended before acknowledging cancellation');
+            expect(broker.getSnapshot()).toMatchObject({
+                active: 1,
+                used: {nativeProcesses: 1},
+            });
+        });
+
+        it('rejects a reply that makes the decoder throw as an invalid result', async () => {
+            mocks.throwConstructorError = false;
+            const {runResultWorkerTask} = await import('@electron/utils/workerTask');
+
+            const {
+                broker,
+                outcome,
+            } = await runUnderLease(onTerminationProof => runResultWorkerTask({
+                workerPath: '/tmp/worker.js',
+                workerData: {ok: true},
+                invalidPayloadMessage: 'invalid payload',
+                invalidResultMessage: 'invalid conformance result',
+                createWorkerExitError: code => new Error(`exit: ${code}`),
+                decodeResult: () => {
+                    throw new TypeError('saveRestrictions.every is not a function');
+                },
+                onTerminationProof,
+            }));
+            await vi.waitFor(() => expect(mocks.workerRecords).toHaveLength(1));
+            mocks.workerRecords[0]!.emit('message', {
+                type: 'result',
+                ok: true,
+                data: {},
+            });
+
+            expect(await outcome).toMatchObject({message: 'invalid conformance result'});
+            expect(broker.getSnapshot().active).toBe(1);
+        });
+
+        it('keeps the lease of a force-terminated worker whose abort reason is a string', async () => {
+            vi.useFakeTimers();
+            mocks.throwConstructorError = false;
+            const {runResultWorkerTask} = await import('@electron/utils/workerTask');
+            const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
+            const controller = new AbortController();
+
+            const {
+                broker,
+                outcome,
+            } = await runUnderLease(onTerminationProof => runResultWorkerTask({
+                workerPath: '/tmp/worker.js',
+                workerData: {ok: true},
+                invalidPayloadMessage: 'invalid payload',
+                createWorkerExitError: code => new Error(`exit: ${code}`),
+                signal: controller.signal,
+                createCancelMessage: () => ({type: 'cancel'}),
+                cooperativeCancelDelayMs: 5_000,
+                onTerminationProof,
+            }));
+            await vi.advanceTimersByTimeAsync(0);
+            controller.abort('cancel');
+            await vi.advanceTimersByTimeAsync(5_000);
+            vi.useRealTimers();
+
+            const error = await outcome;
+            // The string cannot carry the mark, so the rejection wraps it.
+            expect(error).toMatchObject({
+                name: 'AbortError',
+                message: 'cancel',
+                cause: 'cancel',
+            });
+            expect(getUnprovenNativeTerminationDetail(error)).toContain('force terminated');
+            expect(broker.getSnapshot()).toMatchObject({
+                active: 1,
+                used: {nativeProcesses: 1},
+            });
+        });
+
+        it('keeps the lease of a worker that crashed after starting, whatever its exit error says', async () => {
+            mocks.throwConstructorError = false;
+            const {runResultWorkerTask} = await import('@electron/utils/workerTask');
+            const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
+
+            const {
+                broker,
+                outcome,
+            } = await runUnderLease(onTerminationProof => runResultWorkerTask({
+                workerPath: '/tmp/worker.js',
+                workerData: {ok: true},
+                invalidPayloadMessage: 'invalid payload',
+                // A plain factory, as a generic owner writes it.
+                createWorkerExitError: code => new Error(`exit: ${code}`),
+                onTerminationProof,
+            }));
+            await vi.waitFor(() => expect(mocks.workerRecords).toHaveLength(1));
+            await Promise.resolve();
+            mocks.workerRecords[0]!.emit('exit', 3);
+
+            const error = await outcome;
+            expect(error).toMatchObject({message: 'exit: 3'});
+            expect(getUnprovenNativeTerminationDetail(error)).toContain('stopped without settling');
+            expect(broker.getSnapshot()).toMatchObject({
+                active: 1,
+                used: {nativeProcesses: 1},
+            });
+        });
+
+        it('keeps the Scan Cleanup lease of a worker that crashed after starting', async () => {
+            mocks.throwConstructorError = false;
+            const {runScanCleanupWorkerTask} = await import('@electron/features/scan-cleanup/runScanCleanupWorkerTask');
+            const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
+
+            const {
+                broker,
+                outcome,
+            } = await runUnderLease(onTerminationProof => runScanCleanupWorkerTask(
+                cast<TScanCleanupWorkerRequest>({}),
+                cast<IScanCleanupWorkerPaths>({}),
+                cast<IScanCleanupRuntimePolicy>({}),
+                new AbortController().signal,
+                () => undefined,
+                'scan-cleanup-job',
+                {onTerminationProof},
+            ));
+            await vi.waitFor(() => expect(mocks.workerRecords).toHaveLength(1));
+            await Promise.resolve();
+            // Its Poppler and Tesseract children ran under this lease.
+            mocks.workerRecords[0]!.emit('exit', 3);
+
+            const error = await outcome;
+            expect(error).toMatchObject({message: 'Scan cleanup worker exited with code 3'});
+            expect(getUnprovenNativeTerminationDetail(error)).toContain('stopped without settling');
+            expect(broker.getSnapshot()).toMatchObject({
+                active: 1,
+                used: {nativeProcesses: 1},
+            });
+        });
     });
 
     it('leaves a worker failure that proved its native termination unmarked', async () => {

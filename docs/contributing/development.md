@@ -238,7 +238,7 @@ The desktop OCR pipeline supports two common concurrency knobs:
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `OCR_CONCURRENCY` | `min(cpuCount, 8)` | Max pages processed in parallel |
+| `OCR_CONCURRENCY` | `cpuCount` | Max pages processed in parallel |
 
 Release and stress runs can set `EVB_OCR_MODEL_DOWNLOAD_CONCURRENCY` from 1 to 8; unset or `0` uses the tier default of 1 for low-tier machines and 3 otherwise.
 

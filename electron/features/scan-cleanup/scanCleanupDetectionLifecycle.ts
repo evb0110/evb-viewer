@@ -50,14 +50,15 @@ import {
 import {createJobId} from '@contracts/shared';
 import {createEpochMs} from '@contracts/timestamps';
 import {runtimeConfig} from '@electron/runtimeConfig';
-import type {
-    IRetainedDocument,
-    IScanCleanupDetectionSubscriber,
-    IScanCleanupDetectionOwnerDependencies,
-    IScanCleanupDetectionRetentionView,
-    IDetectionResult,
-    TDetectionError,
-    TDetectionSnapshot,
+import {
+    bindScanCleanupTerminationProof,
+    type IRetainedDocument,
+    type IScanCleanupDetectionSubscriber,
+    type IScanCleanupDetectionOwnerDependencies,
+    type IScanCleanupDetectionRetentionView,
+    type IDetectionResult,
+    type TDetectionError,
+    type TDetectionSnapshot,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {createLogger} from '@electron/utils/createLogger';
@@ -437,129 +438,128 @@ export function scanCleanupDetectionOwner(
                     }
                 },
                 run: async job => {
-                    let lease: {release: () => boolean} | null = null;
                     let sourcePdfPath = request.sourcePdfPath;
                     try {
-                        const acquire = dependencies.acquireDetectionLease;
-                        if (!acquire) throw new Error('Scan cleanup detection requires injected admission capability');
+                        const runWithLease = dependencies.runWithDetectionLease;
+                        if (!runWithLease) throw new Error('Scan cleanup detection requires injected admission capability');
                         const rasterPolicy = dependencies.resolveRasterAdmissionPolicy(request.options);
-                        lease = await acquire(
+                        return await runWithLease(
                             brokerOwnerId(sender, request),
                             job.signal,
                             rasterPolicy,
                             request.options,
-                        );
-                        const materializedRequest = await dependencies.materializeRequest(
-                            request,
-                            sender.id,
-                            job.signal,
-                            dependencies,
-                        );
-                        sourcePdfPath = materializedRequest.sourcePdfPath;
-                        attachScanCleanupPageOverrideDefaults(
-                            materializedRequest.options.pageOverrides,
-                            materializedRequest.options.pageOverrideDefaults,
-                            materializedRequest.options.marginsMm,
-                        );
-                        const fileSystem = dependencies.fileSystem;
-                        if (fileSystem === undefined) {
-                            throw new Error('Scan cleanup detection requires injected filesystem capabilities');
-                        }
-                        const detectionDependencies: IScanCleanupDetectionDependencies = {
-                            evidenceDirectory: runtimeConfig.test.scanCleanupEvidenceDirectory,
-                            fileSystem,
-                            ...(dependencies.getAvailableScratchBytes === undefined
-                                ? {}
-                                : {getAvailableScratchBytes: dependencies.getAvailableScratchBytes}),
-                            getTempDir: dependencies.getTempDir,
-                            getPdftoppmBinary: dependencies.getPdftoppmBinary,
-                            resolveBinary: dependencies.resolveBinary,
-                            renderPage: dependencies.renderPage,
-                            renderPagePpm: dependencies.renderPagePpm,
-                            ...(dependencies.renderPageBatch === undefined
-                                ? {}
-                                : {renderPageBatch: dependencies.renderPageBatch}),
-                            runSidecar: dependencies.runSidecar,
-                        };
-                        // Preview and detection share the retained document's
-                        // bounded stores. Keep this view narrow so detection
-                        // reuses their ownership without taking a
-                        // document-sized snapshot.
-                        const detectionRetention: IScanCleanupDetectionRetention<IRetainedDocument> = {
-                            openDocument: request => rawRasterRetention.openDocument(request, ownerId),
-                            pageCount: rawRasterRetention.pageCount,
-                            pageSizeStore: rawRasterRetention.pageSizeStore,
-                            rasterPages: rawRasterRetention.rasterPageSource,
-                            retainedPaths: rawRasterRetention.retainedPaths,
-                            claimRaster: (document, pageNumber, dpi) => rawRasterRetention.claimRaster(
-                                document,
-                                pageNumber,
-                                dpi,
-                                ownerId,
-                            ),
-                            rasterScratchPath: rawRasterRetention.rasterScratchPath,
-                            stagedRasterPath: rawRasterRetention.stagedRasterPath,
-                            retain: (rendered, claimId = ownerId) => rawRasterRetention.retain(rendered, claimId),
-                            releaseRaster: (document, pageNumber, dpi) => rawRasterRetention.evictRaster(
-                                document,
-                                pageNumber,
-                                dpi,
-                                ownerId,
-                            ),
-                            release: document => rawRasterRetention.release(document, ownerId),
-                        };
-                        const detection = await runScanCleanupDetection(
-                            materializedRequest,
-                            job.signal,
-                            detectionRetention,
-                            {
-                                ...detectionDependencies,
-                                onResultStoreReady: store => detectionLifecycle.ownResultStore(jobId, store),
-                            },
-                            {
-                                rasterConcurrency: rasterPolicy.rasterConcurrency,
-                                ...(rasterPolicy.rasterMaxPixels === undefined
-                                    ? {}
-                                    : {rasterMaxPixels: rasterPolicy.rasterMaxPixels}),
-                                ...(rasterPolicy.totalRamBytes === undefined
-                                    ? {}
-                                    : {totalRamBytes: rasterPolicy.totalRamBytes}),
-                            },
-                            (nextResults, progress, documentCanvasSignature) => {
-                                job.publish(runningScanCleanupDetectionJobState(jobId, nextResults, progress, documentCanvasSignature));
-                            },
-                            logScanCleanupMessage,
-                        );
-                        if (detection.resultStore.pageCount > SCAN_CLEANUP_STREAMING_BATCH_PAGES) {
-                            if (
-                                job.signal.aborted
-                                || detectionLifecycle.activeJob(ownerId)?.jobId !== jobId
-                            ) {
-                                await detection.resultStore.close().catch(() => undefined);
+                            async onTerminationProof => {
+                                const materializedRequest = await dependencies.materializeRequest(
+                                    request,
+                                    sender.id,
+                                    job.signal,
+                                    dependencies,
+                                );
+                                sourcePdfPath = materializedRequest.sourcePdfPath;
+                                attachScanCleanupPageOverrideDefaults(
+                                    materializedRequest.options.pageOverrides,
+                                    materializedRequest.options.pageOverrideDefaults,
+                                    materializedRequest.options.marginsMm,
+                                );
+                                const fileSystem = dependencies.fileSystem;
+                                if (fileSystem === undefined) {
+                                    throw new Error('Scan cleanup detection requires injected filesystem capabilities');
+                                }
+                                const detectionDependencies: IScanCleanupDetectionDependencies = bindScanCleanupTerminationProof({
+                                    evidenceDirectory: runtimeConfig.test.scanCleanupEvidenceDirectory,
+                                    fileSystem,
+                                    ...(dependencies.getAvailableScratchBytes === undefined
+                                        ? {}
+                                        : {getAvailableScratchBytes: dependencies.getAvailableScratchBytes}),
+                                    getTempDir: dependencies.getTempDir,
+                                    getPdftoppmBinary: dependencies.getPdftoppmBinary,
+                                    resolveBinary: dependencies.resolveBinary,
+                                    renderPage: dependencies.renderPage,
+                                    renderPagePpm: dependencies.renderPagePpm,
+                                    ...(dependencies.renderPageBatch === undefined
+                                        ? {}
+                                        : {renderPageBatch: dependencies.renderPageBatch}),
+                                    runSidecar: dependencies.runSidecar,
+                                }, onTerminationProof);
+                                // Preview and detection share the retained document's
+                                // bounded stores. Keep this view narrow so detection
+                                // reuses their ownership without taking a
+                                // document-sized snapshot.
+                                const detectionRetention: IScanCleanupDetectionRetention<IRetainedDocument> = {
+                                    openDocument: request => rawRasterRetention.openDocument(request, ownerId),
+                                    pageCount: rawRasterRetention.pageCount,
+                                    pageSizeStore: rawRasterRetention.pageSizeStore,
+                                    rasterPages: rawRasterRetention.rasterPageSource,
+                                    retainedPaths: rawRasterRetention.retainedPaths,
+                                    claimRaster: (document, pageNumber, dpi) => rawRasterRetention.claimRaster(
+                                        document,
+                                        pageNumber,
+                                        dpi,
+                                        ownerId,
+                                    ),
+                                    rasterScratchPath: rawRasterRetention.rasterScratchPath,
+                                    stagedRasterPath: rawRasterRetention.stagedRasterPath,
+                                    retain: (rendered, claimId = ownerId) => rawRasterRetention.retain(rendered, claimId),
+                                    releaseRaster: (document, pageNumber, dpi) => rawRasterRetention.evictRaster(
+                                        document,
+                                        pageNumber,
+                                        dpi,
+                                        ownerId,
+                                    ),
+                                    release: document => rawRasterRetention.release(document, ownerId),
+                                };
+                                const detection = await runScanCleanupDetection(
+                                    materializedRequest,
+                                    job.signal,
+                                    detectionRetention,
+                                    {
+                                        ...detectionDependencies,
+                                        onResultStoreReady: store => detectionLifecycle.ownResultStore(jobId, store),
+                                    },
+                                    {
+                                        rasterConcurrency: rasterPolicy.rasterConcurrency,
+                                        ...(rasterPolicy.rasterMaxPixels === undefined
+                                            ? {}
+                                            : {rasterMaxPixels: rasterPolicy.rasterMaxPixels}),
+                                        ...(rasterPolicy.totalRamBytes === undefined
+                                            ? {}
+                                            : {totalRamBytes: rasterPolicy.totalRamBytes}),
+                                    },
+                                    (nextResults, progress, documentCanvasSignature) => {
+                                        job.publish(runningScanCleanupDetectionJobState(jobId, nextResults, progress, documentCanvasSignature));
+                                    },
+                                    logScanCleanupMessage,
+                                );
+                                if (detection.resultStore.pageCount > SCAN_CLEANUP_STREAMING_BATCH_PAGES) {
+                                    if (
+                                        job.signal.aborted
+                                        || detectionLifecycle.activeJob(ownerId)?.jobId !== jobId
+                                    ) {
+                                        await detection.resultStore.close().catch(() => undefined);
+                                        return detection;
+                                    }
+                                    const resultStoreId = registerScanCleanupDetectionResultStore({
+                                        detectionSignature: createScanCleanupDetectionSignature(request.options),
+                                        documentRevision: request.documentRevision,
+                                        ownerId: request.ownerId,
+                                        ownerKey: ownerId,
+                                        resultStore: detection.resultStore,
+                                        sourcePdfPath: request.sourcePdfPath,
+                                    });
+                                    detectionLifecycle.takeResultStore(jobId);
+                                    retireOnWorkingCopyClose(ownerId, request.sourcePdfPath);
+                                    return {
+                                        ...detection,
+                                        resultStoreId,
+                                    };
+                                }
                                 return detection;
-                            }
-                            const resultStoreId = registerScanCleanupDetectionResultStore({
-                                detectionSignature: createScanCleanupDetectionSignature(request.options),
-                                documentRevision: request.documentRevision,
-                                ownerId: request.ownerId,
-                                ownerKey: ownerId,
-                                resultStore: detection.resultStore,
-                                sourcePdfPath: request.sourcePdfPath,
-                            });
-                            detectionLifecycle.takeResultStore(jobId);
-                            retireOnWorkingCopyClose(ownerId, request.sourcePdfPath);
-                            return {
-                                ...detection,
-                                resultStoreId,
-                            };
-                        }
-                        return detection;
+                            },
+                        );
                     } catch (error) {
                         const detail = getUnprovenNativeTerminationDetail(error);
                         if (detail !== undefined) quarantineWorkingCopy(sourcePdfPath, detail);
                         throw error;
-                    } finally {
-                        lease?.release();
                     }
                 },
             });

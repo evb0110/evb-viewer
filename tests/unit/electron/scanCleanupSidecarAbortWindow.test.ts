@@ -154,11 +154,29 @@ describe('scan cleanup sidecar abort window', () => {
         await rejected;
     });
 
-    it('does not spawn a sidecar canceled while waiting for a native command slot', async () => {
+    it('does not spawn a sidecar canceled while waiting for broker admission', async () => {
         vi.resetModules();
-        const { acquireNativeCommandAdmission } = await import('@electron/native-tools/runNativeCommand');
+        const {
+            configureMainJobBroker,
+            mainJobBroker,
+        } = await import('@electron/resources/jobBroker');
+        configureMainJobBroker({
+            logicalCpus: 8,
+            totalRamBytes: 16 * 1024 ** 3,
+            safeMode: false,
+            detectedTier: 'high',
+            performanceMode: 'auto',
+            tier: 'high',
+        });
         const { runScanCleanupSidecar } = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
-        const releaseOccupants = await Promise.all(Array.from({length: 8}, () => acquireNativeCommandAdmission()));
+        // Another command holds the whole capacity.
+        const occupant = await mainJobBroker.acquire({
+            ownerId: 'occupant',
+            kind: 'native-command',
+            priority: 'user',
+            admissionClass: 'leaf',
+            resources: mainJobBroker.getSnapshot().capacity,
+        });
         const controller = new AbortController();
 
         const run = runScanCleanupSidecar(
@@ -174,10 +192,15 @@ describe('scan cleanup sidecar abort window', () => {
             });
         }
         expect(mocks.spawn).not.toHaveBeenCalled();
+        expect(mainJobBroker.getSnapshot().queued).toBe(1);
 
-        releaseOccupants.forEach(release => release());
         controller.abort(new DOMException('Canceled scan cleanup detection', 'AbortError'));
         await expect(run).rejects.toMatchObject({name: 'AbortError'});
+        occupant.release();
+        expect(mainJobBroker.getSnapshot()).toMatchObject({
+            active: 0,
+            queued: 0,
+        });
         expect(mocks.spawn).not.toHaveBeenCalled();
         expect(mocks.terminateDetachedChildProcess).not.toHaveBeenCalled();
     });

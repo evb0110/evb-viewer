@@ -11,6 +11,7 @@ interface IDjvuPdfEstimateTask {
     type: 'estimatePdfSize';
     imagePath: string;
     dpi: number;
+    combineThreads?: number;
 }
 
 interface IDjvuPdfBookmarkTask {

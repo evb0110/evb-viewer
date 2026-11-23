@@ -21,9 +21,20 @@ reading and the dictionary decoder. A host supplies the ports:
 | Text-layer writer | page checkpoints, then native `pdf-page-ops ocr-text-layer` | page layers in memory, then a page-ops append in the storage worker |
 
 A desktop job runs in the main process on the shared job registry; the
-engine never runs on the main thread. Its pool has desktop's OCR page slots;
-a job recognizes as many pages at once as the slots allow within the job
-broker's CPU tokens. Canceling, or a pass past three minutes, ends the busy
+engine never runs on the main thread. Its pool has desktop's OCR page slots,
+which scale with cores and memory (one on hosts with at most 4 GiB); a job
+recognizes as many pages at once as the slots allow within the job broker's
+CPU tokens. The pool charges the main broker for each worker: a pass needs
+`2.5 * modelBytes + wasmHeap`, the installed sizes of the models it loads and
+192 MiB plus 12 bytes per page pixel, plus the bytes of the other models its
+engine still keeps. A worker holds the most any of its passes needed, since
+WebAssembly memory never shrinks and loaded models stay, plus one CPU token
+while a pass runs. Its memory stays charged while it waits warm and is
+released once it has exited; work waiting for memory ends idle workers, and
+warm workers that are themselves waiting for more, whose pass then starts
+again on a fresh worker. A lane that does not fit waits for memory other work
+holds.
+Canceling, or a pass past three minutes, ends the busy
 worker, since a worker inside Tesseract cannot read messages; idle workers
 end after a minute. Every recognized page is checkpointed with its PDF's
 digest, so an interrupted job resumes after the pages it finished. One

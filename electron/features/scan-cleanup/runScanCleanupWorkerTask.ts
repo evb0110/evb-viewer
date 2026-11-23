@@ -25,6 +25,7 @@ import {
 import {isAbortError} from '@electron/utils/abort';
 import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
 import {createLogger} from '@electron/utils/createLogger';
+import type {TTerminationProofSink} from '@electron/resources/jobBroker';
 import * as v from 'valibot';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
@@ -81,6 +82,12 @@ export async function runScanCleanupWorkerTask(
     jobId: string,
     options?: {
         onCheckpointReady?: (entryDir: string) => void;
+        /**
+         * The owning broker lease's proof sink. The worker's native children
+         * run under that lease, so a stop that cannot prove them gone keeps it
+         * charged.
+         */
+        onTerminationProof?: TTerminationProofSink;
     },
 ) {
     const checkpointOwnerId = `${jobId}-${randomUUID()}`;
@@ -131,6 +138,7 @@ export async function runScanCleanupWorkerTask(
             return true;
         },
         decodeResult: decodeSummary,
+        ...(options?.onTerminationProof === undefined ? {} : {onTerminationProof: options.onTerminationProof}),
     });
     try {
         return await task.promise;

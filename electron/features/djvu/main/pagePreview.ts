@@ -41,6 +41,7 @@ import {
     readDjvuSourceRevision,
     storeDjvuPageSourceInfos,
 } from '@electron/features/djvu/main/djvuPageSourceInfoCache';
+import { DJVU_PREVIEW_MAX_PIXELS } from '@electron/features/djvu/main/djvuPreviewBudget';
 
 const DJVU_PAGE_SIZE_TIMEOUT_MS = 30_000;
 // Each page answers its size and its IFF structure, a few lines of about 60
@@ -52,7 +53,6 @@ const DJVU_PAGE_SIZE_MAX_STDOUT_BYTES = 8 * 1_048_576;
 // (about 38 KB) the measured launch returned 1024 lines with exit 0.
 const DJVU_PAGE_SIZE_WINDOW_PAGES = 1024;
 const DJVU_PREVIEW_SUBSAMPLE_MAX = 12;
-const DJVU_PREVIEW_MAX_PIXELS = 45_000_000;
 const DJVU_PREVIEW_MAX_NETPBM_BYTES = 192 * 1024 * 1024;
 
 // The legacy page-size API returns one object per page. Keep that compatibility
@@ -603,6 +603,13 @@ export async function renderDjvuPagePreview(
             height,
             width,
         } = await readPpmDimensions(ppmPath);
+        // The preview lease is sized for this many pixels; a page whose size
+        // could not be read beforehand may render larger at its subsample.
+        if (width * height > DJVU_PREVIEW_MAX_PIXELS) {
+            throw new Error(
+                `DjVu preview of page ${pageNumber} is ${width}x${height}, above the ${DJVU_PREVIEW_MAX_PIXELS} pixel preview limit`,
+            );
+        }
         await runNativeToolCommand(nativeEncoderPath, [
             '--output',
             pngPath,

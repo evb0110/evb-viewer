@@ -123,8 +123,9 @@ function runPdfConformanceWorker(
             ioWeight: 1,
         },
         ...(options.signal === undefined ? {} : {signal: options.signal}),
-    }, () => runResultWorkerTask<IPdfConformanceProfile>({
+    }, ({onTerminationProof}) => runResultWorkerTask<IPdfConformanceProfile>({
         workerPath: getPdfConformanceWorkerPath(),
+        onTerminationProof,
         workerData: {
             filePath,
             ...(options.cancelGroup === undefined ? {} : {cancelGroup: options.cancelGroup}),

@@ -45,6 +45,7 @@ import {
 import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
 import { probeNativeNetpbm } from '@electron/features/djvu/main/probeNativeNetpbm';
 import { withCompactDjvuResourceLease } from '@electron/features/djvu/main/withCompactDjvuResourceLease';
+import type { TTerminationProofSink } from '@electron/resources/jobBroker';
 import {createPdfCombineProgressHandler} from '@evb/scan-cleanup/core/createPdfCombineProgressHandler';
 import {readPpmDimensions} from '@evb/scan-cleanup/core/rasterLayerDimensions';
 import { createLogger } from '@electron/utils/createLogger';
@@ -85,6 +86,8 @@ interface ICompactDjvuPdfExportOptions {
     pages?: number[];
     onProgress?: (percent: number) => void;
     qualityPreset?: TDjvuCompactFidelityPreset;
+    /** The page lease's proof sink, so every page render runs under that lease. */
+    onTerminationProof?: TTerminationProofSink;
 }
 
 interface INetpbmInfo {
@@ -296,8 +299,11 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
                         jobId: options.jobId,
                         kind: 'page',
                         signal: activeQuotaMonitor.signal,
-                        task: () => buildCompactPageSpec(
-                            conversionOptions,
+                        task: onTerminationProof => buildCompactPageSpec(
+                            {
+                                ...conversionOptions,
+                                onTerminationProof,
+                            },
                             pageTempDir,
                             pageNumber,
                             pageStructures.get(pageNumber) ?? null,
@@ -393,44 +399,51 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
             jobId: options.jobId,
             kind: 'combine',
             signal: combineSignal,
-            task: () => runRegisteredDjvuProcess(
-                `${options.jobId}-compact-combine`,
-                binaryPath,
-                [
-                    '--output',
-                    options.outputPath,
-                    '--json-progress',
-                    '--compact-manifest',
-                    manifestPath,
-                ],
-                {
-                    signal: combineSignal,
-                    // A book-length combine can outlast any fixed deadline;
-                    // it streams per-page progress, so only silence times out.
-                    timeoutResetsOnStdout: true,
-                    // The PDF stays a file under the disk-quota monitor above;
-                    // only byte-returning combines take the shared memory cap.
-                    env: {
-                        ...process.env,
-                        ...createFileBackedPdfCombineEnv({maxPages: selectedPageCount}),
+            task: async (onTerminationProof) => {
+                const combined = await runRegisteredDjvuProcess(
+                    `${options.jobId}-compact-combine`,
+                    binaryPath,
+                    [
+                        '--output',
+                        options.outputPath,
+                        '--json-progress',
+                        '--compact-manifest',
+                        manifestPath,
+                    ],
+                    {
+                        signal: combineSignal,
+                        onTerminationProof,
+                        // A book-length combine can outlast any fixed deadline;
+                        // it streams per-page progress, so only silence times out.
+                        timeoutResetsOnStdout: true,
+                        // The PDF stays a file under the disk-quota monitor above;
+                        // only byte-returning combines take the shared memory cap.
+                        env: {
+                            ...process.env,
+                            ...createFileBackedPdfCombineEnv({maxPages: selectedPageCount}),
+                        },
+                        onStdout: createPdfCombineProgressHandler(
+                            selectedPageCount,
+                            (processed, total) => emitProgress(PROGRESS_COMBINE_START + Math.round(
+                                (processed / total) * (PROGRESS_COMBINE_CAP - PROGRESS_COMBINE_START),
+                            )),
+                            line => logger.debug(`Ignoring malformed native compact PDF progress: ${line}`),
+                        ),
                     },
-                    onStdout: createPdfCombineProgressHandler(
-                        selectedPageCount,
-                        (processed, total) => emitProgress(PROGRESS_COMBINE_START + Math.round(
-                            (processed / total) * (PROGRESS_COMBINE_CAP - PROGRESS_COMBINE_START),
-                        )),
-                        line => logger.debug(`Ignoring malformed native compact PDF progress: ${line}`),
-                    ),
-                },
-            ),
+                );
+                // Thrown inside the lease, so a combiner not proven gone keeps it charged.
+                const unprovenTermination = combined.success
+                    ? undefined
+                    : getUnprovenNativeTerminationDetail(combined.cause);
+                if (!combined.success && unprovenTermination !== undefined) {
+                    throw combined.cause instanceof Error
+                        ? combined.cause
+                        : new Error(`${combined.error}: ${unprovenTermination}`);
+                }
+                return combined;
+            },
         });
         if (!result.success) {
-            const unprovenTermination = getUnprovenNativeTerminationDetail(result.cause);
-            if (unprovenTermination !== undefined) {
-                throw result.cause instanceof Error
-                    ? result.cause
-                    : new Error(`${result.error}: ${unprovenTermination}`);
-            }
             const nativeCode = typeof result.cause === 'object'
                 && result.cause !== null
                 && 'code' in result.cause
@@ -906,6 +919,7 @@ async function renderMaskLayer(
             format: 'pbm',
             mode: 'mask',
             ...(options.signal ? {signal: options.signal} : {}),
+            ...(options.onTerminationProof ? {onTerminationProof: options.onTerminationProof} : {}),
         },
     );
     throwIfCanceledRenderResult(result, options.signal);
@@ -932,6 +946,7 @@ async function renderBackgroundLayer(
             format: 'ppm',
             mode: 'background',
             ...(options.signal ? {signal: options.signal} : {}),
+            ...(options.onTerminationProof ? {onTerminationProof: options.onTerminationProof} : {}),
             subsample: nativeSubsample(structure.background),
         },
     );
@@ -959,6 +974,7 @@ async function renderForegroundLayer(
             format: 'ppm',
             mode: 'foreground',
             ...(options.signal ? {signal: options.signal} : {}),
+            ...(options.onTerminationProof ? {onTerminationProof: options.onTerminationProof} : {}),
             subsample: nativeSubsample(structure.foreground, DJVU_COMPACT_FOREGROUND_SUBSAMPLE),
         },
     );
@@ -988,6 +1004,7 @@ async function buildPhotoPageSpec(
         {
             ...renderOptions,
             ...(options.signal ? {signal: options.signal} : {}),
+            ...(options.onTerminationProof ? {onTerminationProof: options.onTerminationProof} : {}),
         },
     );
     throwIfCanceledRenderResult(result, options.signal);

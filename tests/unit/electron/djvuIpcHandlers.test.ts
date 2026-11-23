@@ -2,6 +2,7 @@ import type * as TViMockOriginalModule from '@electron/features/djvu/main/parseD
 import type * as TDdjvuConversionModule from '@electron/features/djvu/main/ddjvuConversion';
 import type * as TPagePreviewModule from '@electron/features/djvu/main/pagePreview';
 import type * as TPdfExportModule from '@electron/features/djvu/main/pdfExport';
+import type * as TPdfWorkerClientModule from '@electron/features/djvu/main/pdfWorkerClient';
 import type * as TViewingModule from '@electron/features/djvu/main/viewing';
 
 import type { TRegisteredHandler } from '@tests/unit/electron/helpers/ipcRegistryHarness';
@@ -74,6 +75,9 @@ const mocks = vi.hoisted(() => ({
     safeSendToWindow: vi.fn(),
     senderSend: vi.fn(),
     hostResourceTier: 'high' as 'low' | 'medium' | 'high',
+    createDjvuPdfBookmarkTask: null as ((
+        ...args: Parameters<typeof TPdfWorkerClientModule.createDjvuPdfBookmarkTask>
+    ) => ReturnType<typeof TPdfWorkerClientModule.createDjvuPdfBookmarkTask>) | null,
 }));
 
 vi.mock('electron', () => ({
@@ -141,6 +145,16 @@ vi.mock('@electron/resources/hostResourceProfile', () => ({getHostResourceProfil
     performanceMode: 'auto',
     tier: mocks.hostResourceTier,
 })}));
+vi.mock('@electron/features/djvu/main/pdfWorkerClient', async (importOriginal) => {
+    const actual = await importOriginal<typeof TPdfWorkerClientModule>();
+    return {
+        ...actual,
+        createDjvuPdfBookmarkTask: (
+            ...args: Parameters<typeof TPdfWorkerClientModule.createDjvuPdfBookmarkTask>
+        ) => (mocks.createDjvuPdfBookmarkTask ?? actual.createDjvuPdfBookmarkTask)(...args),
+    };
+});
+
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
     info: vi.fn(),
@@ -226,6 +240,7 @@ describe('registerDjvuIpcAdapter', () => {
         mocks.handlers.clear();
         vi.clearAllMocks();
         mocks.hostResourceTier = 'high';
+        mocks.createDjvuPdfBookmarkTask = null;
 
         mocks.getDjvuPageCount.mockResolvedValue(1);
         mocks.getDjvuResolution.mockResolvedValue(300);
@@ -1188,6 +1203,14 @@ describe('registerDjvuIpcAdapter', () => {
                     ioWeight: 1,
                 },
             });
+            // The PNG encoder runs under this lease: a 45 MP RGB page's
+            // decoded pixels alone need about 129 MiB.
+            const {
+                capacity,
+                used,
+            } = mainJobBroker.getSnapshot();
+            expect(used.estimatedResidentBytes)
+                .toBeGreaterThanOrEqual(Math.min(capacity.estimatedResidentBytes, 45_000_000 * 3));
 
             delayedProof.resolve(true);
             await expect(secondPreview).resolves.toMatchObject({
@@ -2430,6 +2453,144 @@ describe('native DjVu open admission', async () => {
             releaseProbe.resolve(undefined);
             delayedProof.resolve(true);
             actualPagePreview.clearDjvuPageSizeCacheForTests();
+            rmSync(directory, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('holds DjVu bookmark worker broker charges during cancel until delayed termination proof resolves true', async () => {
+        const {
+            handleDjvuCancel,
+            handleDjvuConvertToPdf,
+        } = await vi.importActual<typeof TPdfExportModule>('@electron/features/djvu/main/pdfExport');
+        const {allowDjvuWritePath} = await import('@electron/features/djvu/main/exportPaths');
+        const directory = mkdtempSync(join(tmpdir(), 'djvu-bookmark-cancel-proof-'));
+        const djvuPath = join(directory, 'book.djvu');
+        const outputPath = join(directory, 'book.pdf');
+        writeFileSync(djvuPath, readFileSync(join(DJVU_FIXTURE_SOURCES, 'layered.djvu')));
+        const senderId = 109;
+        const event = createIpcEvent(senderId);
+        const context = {
+            ...event,
+            senderId,
+        };
+        allowDjvuWritePath(outputPath, senderId);
+        const jobId = requireJobId('djvu-convert-bookmark-cancel-proof');
+        const bookmarkStarted = createDeferred<void>();
+        const delayedProof = createDeferred<boolean>();
+        const bookmarkError = markUnprovenNativeTermination(
+            new Error('qpdf bookmark worker terminated without proof'),
+            'qpdf bookmark child remains alive',
+        );
+
+        mocks.getDjvuPageCount.mockResolvedValueOnce(1);
+        mocks.getDjvuResolution.mockResolvedValueOnce(300);
+        mocks.getDjvuPageSizesForViewing.mockResolvedValueOnce([{
+            width: 100,
+            height: 200,
+            dpi: 300,
+        }]);
+        mocks.buildCompactDjvuAwarePdfFromDjvu.mockImplementationOnce(async (options: {outputPath: string}) => {
+            writeFileSync(options.outputPath, '%PDF-1.4\n');
+            return {
+                success: true,
+                outputPath: options.outputPath,
+                fileSize: 9,
+            };
+        });
+        mocks.detectDjvuHasText.mockResolvedValueOnce(true);
+        mocks.getDjvuOutline.mockResolvedValueOnce('(bookmarks ("Chapter 1" "#1"))');
+        mocks.parseDjvuOutline.mockReturnValueOnce([{
+            title: 'Chapter 1',
+            pageIndex: 0,
+        }]);
+        mocks.createDjvuPdfBookmarkTask = (_inputPdfPath, _outputPdfPath, _bookmarks, options) => {
+            const resolvedOptions = options instanceof AbortSignal
+                ? {signal: options}
+                : options ?? {};
+            bookmarkStarted.resolve(undefined);
+            const promise = new Promise<void>((_resolve, reject) => {
+                const rejectUnproven = () => {
+                    resolvedOptions.onTerminationProof?.(delayedProof.promise);
+                    reject(bookmarkError);
+                };
+                if (resolvedOptions.signal?.aborted) {
+                    rejectUnproven();
+                    return;
+                }
+                resolvedOptions.signal?.addEventListener('abort', rejectUnproven, {once: true});
+            });
+            return {
+                worker: {} as never,
+                promise,
+            };
+        };
+
+        const competitorState: {lease: {release: () => boolean} | null} = {lease: null};
+        try {
+            const convertPromise = handleDjvuConvertToPdf(
+                context as never,
+                djvuPath as never,
+                outputPath,
+                {
+                    jobId,
+                    pdfStrategy: 'compact-djvu-aware',
+                    preserveBookmarks: true,
+                },
+            );
+
+            await bookmarkStarted.promise;
+
+            const cancelPromise = handleDjvuCancel(context as never, jobId);
+            await expect(cancelPromise).resolves.toEqual({canceled: true});
+            await expect(convertPromise).resolves.toMatchObject({
+                success: false,
+                jobId,
+                error: 'DjVu conversion canceled',
+            });
+
+            const capacity = mainJobBroker.getSnapshot().capacity;
+            let competitorGranted = false;
+            const competitor = mainJobBroker.acquire({
+                ownerId: 'competitor-after-bookmarks',
+                kind: 'djvu-conversion',
+                priority: 'user',
+                resources: capacity,
+            }).then((lease) => {
+                competitorGranted = true;
+                competitorState.lease = lease;
+                return lease;
+            });
+            void competitor.catch(() => undefined);
+
+            await Promise.resolve();
+            expect(competitorGranted).toBe(false);
+            expect(mainJobBroker.getSnapshot()).toMatchObject({
+                active: 1,
+                queued: 1,
+                used: {
+                    cpuTokens: 1,
+                    nativeProcesses: 1,
+                    ioWeight: 3,
+                },
+            });
+
+            delayedProof.resolve(true);
+            const competitorLease = await competitor;
+            expect(competitorGranted).toBe(true);
+            expect(competitorLease.release()).toBe(true);
+            competitorState.lease = null;
+            expect(mainJobBroker.getSnapshot()).toMatchObject({
+                active: 0,
+                queued: 0,
+            });
+        } finally {
+            mainJobBroker.cancelOwner('competitor-after-bookmarks');
+            competitorState.lease?.release();
+            bookmarkStarted.resolve(undefined);
+            delayedProof.resolve(true);
             rmSync(directory, {
                 force: true,
                 recursive: true,

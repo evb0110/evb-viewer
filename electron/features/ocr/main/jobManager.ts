@@ -341,7 +341,8 @@ export async function handleOcrCreateSearchablePdfAsync(
                     pages,
                     options,
                     paths: resolveOcrPipelinePaths(),
-                    runEngine: runOcrEngine,
+                    runEngine: (request, engineSignal) => runOcrEngine(request, engineSignal, `ocr:${requestId}`),
+                    engineChargesBroker: true,
                     prepareEarlyPrintModels: signal => ensureTessdataModels(EARLY_PRINT_MODEL_CODES, {
                         signal,
                         onProgress: onModelDownloadProgress,

@@ -14,6 +14,7 @@ import {
     resolveUnpackedWorkerPath,
     startStreamingWorkerTask,
 } from '@electron/utils/workerTask';
+import type { TTerminationProofSink } from '@electron/resources/jobBroker';
 import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -63,6 +64,7 @@ function createDjvuPdfWorkerTask<T>(
     task: TDjvuPdfWorkerTask,
     options: {
         onProgress?: (message: IDjvuPdfWorkerProgressMessage) => void;
+        onTerminationProof?: TTerminationProofSink;
         decodeResult: (data: unknown) => T | null;
         signal?: AbortSignal;
     },
@@ -73,10 +75,12 @@ function createDjvuPdfWorkerTask<T>(
         invalidPayloadMessage: 'DjVu PDF worker returned an invalid payload',
         invalidResultMessage: 'DjVu PDF worker returned an invalid result',
         createStartupError: (message) => new DjvuPdfWorkerStartupError(`DjVu PDF worker startup failed: ${message}`),
+        createStartupExitError: (code) => new DjvuPdfWorkerStartupError(`DjVu PDF worker exited before startup with code ${code}`),
         createWorkerExitError: (code) => new Error(`DjVu PDF worker exited with code ${code}`),
         timeoutMs: DJVU_PDF_WORKER_TIMEOUT_MS,
         resourceLimits: DJVU_PDF_WORKER_RESOURCE_LIMITS,
         ...(options.signal ? { signal: options.signal } : {}),
+        ...(options.onTerminationProof ? { onTerminationProof: options.onTerminationProof } : {}),
         createCancelMessage: () => ({ type: 'cancel' }),
         cooperativeCancelDelayMs: 5_000,
         onProgressMessage: (payload) => {
@@ -96,21 +100,30 @@ function createDjvuPdfWorkerTask<T>(
     });
 }
 
-function normalizeWorkerTaskOptions(options: { signal?: AbortSignal } | AbortSignal = {}) {
+function normalizeWorkerTaskOptions(options: {
+    onTerminationProof?: TTerminationProofSink;
+    signal?: AbortSignal;
+} | AbortSignal = {}) {
     return options instanceof AbortSignal ? {signal: options} : options;
 }
 
 export function createDjvuPdfEstimateTask(
     imagePath: string,
     dpi: number,
-    options: { signal?: AbortSignal } = {},
+    options: {
+        combineThreads?: number;
+        onTerminationProof?: TTerminationProofSink;
+        signal?: AbortSignal;
+    } = {},
 ): IStreamingWorkerTaskHandle<number> {
     return createDjvuPdfWorkerTask({
         type: 'estimatePdfSize',
         imagePath,
         dpi,
+        ...(options.combineThreads !== undefined ? { combineThreads: options.combineThreads } : {}),
     }, {
         ...(options.signal ? { signal: options.signal } : {}),
+        ...(options.onTerminationProof ? { onTerminationProof: options.onTerminationProof } : {}),
         decodeResult: (data) => (typeof data === 'number' && Number.isFinite(data) ? data : null),
     });
 }
@@ -119,7 +132,10 @@ export function createDjvuPdfBookmarkTask(
     inputPdfPath: string,
     outputPdfPath: string,
     bookmarks: IPdfBookmarkEntry[],
-    options: { signal?: AbortSignal } | AbortSignal = {},
+    options: {
+        onTerminationProof?: TTerminationProofSink;
+        signal?: AbortSignal;
+    } | AbortSignal = {},
 ): IStreamingWorkerTaskHandle<void> {
     const normalizedOptions = normalizeWorkerTaskOptions(options);
     return createDjvuPdfWorkerTask({
@@ -129,6 +145,7 @@ export function createDjvuPdfBookmarkTask(
         bookmarks,
     }, {
         ...(normalizedOptions.signal ? { signal: normalizedOptions.signal } : {}),
+        ...(normalizedOptions.onTerminationProof ? { onTerminationProof: normalizedOptions.onTerminationProof } : {}),
         decodeResult: (data) => (typeof data === 'number' && Number.isFinite(data) ? undefined : null),
     });
 }

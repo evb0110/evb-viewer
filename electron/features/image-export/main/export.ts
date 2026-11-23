@@ -42,6 +42,14 @@ import { detectSourceDpiDetails } from '@electron/pdf/sourceDpiDetection';
 import { forEachConcurrent } from '@electron/utils/concurrency';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
+import {
+    mainJobBroker,
+    type TTerminationProofSink,
+} from '@electron/resources/jobBroker';
+import {
+    resolvePdfImageCombineResidentBytes,
+    resolvePdfImageCombineThreads,
+} from '@electron/native-tools/pdfImageCombineBudget';
 import { createLogger } from '@electron/utils/createLogger';
 import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsync';
 import {
@@ -264,6 +272,7 @@ async function tryConvertRenderedPpmToPngNative(
     signal?: AbortSignal,
     cancelGroup?: string,
     dpi = DEFAULT_RENDER_DPI,
+    onTerminationProof?: TTerminationProofSink,
 ) {
     const binaryPath = isNativePdfImageCombineDisabled() ? null : resolveNativePdfImageCombinePath();
     if (!binaryPath) {
@@ -285,6 +294,7 @@ async function tryConvertRenderedPpmToPngNative(
             commandLabel: 'evb-pdf-image-combine(ppm-to-png)',
             ...(signal ? { signal } : {}),
             ...(cancelGroup ? { cancelGroup } : {}),
+            ...(onTerminationProof ? { onTerminationProof } : {}),
         });
         await unlink(sourcePath).catch(() => undefined);
         return true;
@@ -305,9 +315,10 @@ async function convertRenderedPpmToPng(
     signal?: AbortSignal,
     cancelGroup?: string,
     dpi = DEFAULT_RENDER_DPI,
+    onTerminationProof?: TTerminationProofSink,
 ) {
     const pngPath = sourcePath.replace(/\.ppm$/i, '.png');
-    if (await tryConvertRenderedPpmToPngNative(sourcePath, pngPath, signal, cancelGroup, dpi)) {
+    if (await tryConvertRenderedPpmToPngNative(sourcePath, pngPath, signal, cancelGroup, dpi, onTerminationProof)) {
         return pngPath;
     }
 
@@ -342,9 +353,10 @@ export async function convertRenderedPpmToImage(
     signal?: AbortSignal,
     cancelGroup?: string,
     dpi = DEFAULT_RENDER_DPI,
+    onTerminationProof?: TTerminationProofSink,
 ) {
     if (format === 'png') {
-        return convertRenderedPpmToPng(sourcePath, signal, cancelGroup, dpi);
+        return convertRenderedPpmToPng(sourcePath, signal, cancelGroup, dpi, onTerminationProof);
     }
     const outputPath = sourcePath.replace(/\.ppm$/i, format === 'jpeg' ? '.jpg' : '.tif');
     if (isNativePdfImageCombineDisabled()) {
@@ -368,6 +380,7 @@ export async function convertRenderedPpmToImage(
         commandLabel: `evb-pdf-image-combine(ppm-to-${format})`,
         ...(signal ? {signal} : {}),
         ...(cancelGroup ? {cancelGroup} : {}),
+        ...(onTerminationProof ? {onTerminationProof} : {}),
     });
     await unlink(sourcePath).catch(() => undefined);
     return outputPath;
@@ -970,12 +983,14 @@ async function runLocalTiffCombine(
     signal?: AbortSignal,
     deleteSourcePages = false,
     defaultDpi = DEFAULT_RENDER_DPI,
+    cancelGroup?: string,
 ) {
     throwIfAborted(signal);
     await measureElectronPerfAsync('image-export:tiffCombineLocal', () => combinePagesIntoMultiPageTiffLocal(pagePaths, outputPath, {
         deleteSourcePages,
         defaultDpi,
         tempPath,
+        ...(cancelGroup ? { cancelGroup } : {}),
         ...(signal ? { signal } : {}),
     }), {
         thresholdMs: 25,
@@ -994,6 +1009,7 @@ async function combinePagesIntoMultiPageTiff(
     signal?: AbortSignal,
     deleteSourcePages = false,
     defaultDpi = DEFAULT_RENDER_DPI,
+    cancelGroup?: string,
 ) {
     const workerPath = resolveTiffCombineWorkerPath();
 
@@ -1008,12 +1024,26 @@ async function combinePagesIntoMultiPageTiff(
         }
 
         logger.warn(`TIFF combine worker unavailable, falling back to local combine: missing worker at ${workerPath}`);
-        await runLocalTiffCombine(pagePaths, outputPath, tempPath, signal, deleteSourcePages, defaultDpi);
+        await runLocalTiffCombine(pagePaths, outputPath, tempPath, signal, deleteSourcePages, defaultDpi, cancelGroup);
         return;
     }
 
     try {
-        await measureElectronPerfAsync('image-export:tiffCombineWorker', () => runResultWorkerTask<undefined>({
+        await mainJobBroker.run({
+            ownerId: cancelGroup ?? `pdf-tiff-export:${outputPath}`,
+            kind: 'pdf-tiff-combine',
+            priority: 'user',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: resolvePdfImageCombineResidentBytes(mainJobBroker.getSnapshot().capacity),
+                nativeProcesses: 1,
+                ioWeight: 3,
+            },
+            ...(signal ? { signal } : {}),
+        }, ({
+            lease,
+            onTerminationProof,
+        }) => measureElectronPerfAsync('image-export:tiffCombineWorker', () => runResultWorkerTask<undefined>({
             workerPath,
             workerData: {
                 deleteSourcePages,
@@ -1021,6 +1051,7 @@ async function combinePagesIntoMultiPageTiff(
                 pagePaths,
                 outputPath,
                 tempPath,
+                combineThreads: resolvePdfImageCombineThreads(lease.resources),
             },
             invalidPayloadMessage: 'TIFF combine worker returned an invalid payload',
             createStartError: message => new TiffCombineWorkerStartupError(
@@ -1040,13 +1071,14 @@ async function combinePagesIntoMultiPageTiff(
             createCancelMessage: () => ({type: 'cancel'}),
             cooperativeCancelDelayMs: 1_500,
             timeoutMs: TIFF_COMBINE_WORKER_TIMEOUT_MS,
+            onTerminationProof,
         }), {
             thresholdMs: 25,
             details: {
                 pageCount: pagePaths.length,
                 outputPath,
             },
-        });
+        }));
     } catch (error) {
         if (!(error instanceof TiffCombineWorkerStartupError)) {
             throw error;
@@ -1062,7 +1094,7 @@ async function combinePagesIntoMultiPageTiff(
         }
 
         logger.warn(`TIFF combine worker unavailable, falling back to local combine: ${error.message}`);
-        await runLocalTiffCombine(pagePaths, outputPath, tempPath, signal, deleteSourcePages, defaultDpi);
+        await runLocalTiffCombine(pagePaths, outputPath, tempPath, signal, deleteSourcePages, defaultDpi, cancelGroup);
     }
 
     throwIfAborted(signal);
@@ -1145,6 +1177,7 @@ export async function exportPdfAsMultiPageTiff(
                             options.signal,
                             true,
                             renderDpi,
+                            options.cancelGroup,
                         );
                         emitExportProgress(options, {
                             phase: 'combining',

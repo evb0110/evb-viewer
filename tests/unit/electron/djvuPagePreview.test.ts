@@ -8,6 +8,7 @@ import {
     describe,
     expect,
     it,
+    onTestFinished,
     vi,
 } from 'vitest';
 
@@ -660,6 +661,50 @@ describe('DjVu native page preview helpers', () => {
                 expect.stringMatching(new RegExp(`^${escapeRegExp(join('/tmp/djvu-preview-test', 'page-1-'))}.+\\.ppm$`, 'u')),
             ],
         ]]);
+    });
+
+    it('refuses to encode a raster above the preview pixel limit when the page size could not be read first', async () => {
+        const defaults = {
+            open: mocks.open.getMockImplementation()!,
+            runNativeCommand: mocks.runNativeCommand.getMockImplementation()!,
+            stat: mocks.stat.getMockImplementation()!,
+        };
+        onTestFinished(() => {
+            mocks.open.mockImplementation(defaults.open);
+            mocks.runNativeCommand.mockImplementation(defaults.runNativeCommand);
+            mocks.stat.mockImplementation(defaults.stat);
+        });
+        // The size probe fails, so no subsample floor applies; ddjvu then
+        // renders a 60 MP RGB page that still passes the 192 MiB file check.
+        mocks.runNativeCommand.mockRejectedValue(new Error('djvused failed'));
+        const header = Buffer.from('P6\n10000 6000\n255\n', 'ascii');
+        const rasterBytes = header.byteLength + 10_000 * 6_000 * 3;
+        expect(rasterBytes).toBeLessThan(192 * 1024 * 1024);
+        mocks.stat.mockImplementation(async (path?: string) => ({
+            isFile: () => true as const,
+            mtimeMs: 1,
+            size: path?.endsWith('.ppm') === true ? rasterBytes : mocks.tinyPpm.byteLength,
+        }));
+        mocks.open.mockImplementation(async () => ({
+            read: async (buffer: Uint8Array, offset: number, length: number, position: number) => {
+                const bytesRead = Math.max(0, Math.min(length, header.byteLength - position));
+                buffer.set(header.subarray(position, position + bytesRead), offset);
+                return {bytesRead};
+            },
+            stat: async () => ({
+                ctimeMs: 1,
+                dev: 1,
+                ino: 1,
+                mtimeMs: 1,
+                size: rasterBytes,
+            }),
+            close: async () => undefined,
+        }));
+
+        await expect(renderDjvuPagePreview('/tmp/book.djvu', 1))
+            .rejects
+            .toThrow('above the 45000000 pixel preview limit');
+        expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
     });
 
     it('fails recoverably instead of decoding a large Netpbm buffer in the main process', async () => {

@@ -15,6 +15,11 @@ import {
 import { getDjvuResolution } from '@electron/features/djvu/main/metadata';
 import { buildOptimizedPdf } from '@electron/features/djvu/main/buildOptimizedPdf';
 import { te } from '@electron/te';
+import { mainJobBroker } from '@electron/resources/jobBroker';
+import {
+    resolvePdfImageCombineResidentBytes,
+    resolvePdfImageCombineThreads,
+} from '@electron/native-tools/pdfImageCombineBudget';
 import { createLogger } from '@electron/utils/createLogger';
 import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsync';
 import type { IDjvuSizeEstimate } from '@contracts/electronApiDjvu';
@@ -57,8 +62,28 @@ async function estimatePdfSizeBytes(
             throw new Error('DjVu estimate sample exceeds the bounded worker input limit');
         }
         try {
-            const task = createDjvuPdfEstimateTask(imagePath, dpi, { signal });
-            return await task.promise;
+            return await mainJobBroker.run({
+                ownerId: `djvu-estimate:${imagePath}`,
+                kind: 'djvu-estimate',
+                priority: 'user',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: resolvePdfImageCombineResidentBytes(mainJobBroker.getSnapshot().capacity),
+                    nativeProcesses: 1,
+                    ioWeight: 2,
+                },
+                signal,
+            }, async ({
+                lease,
+                onTerminationProof,
+            }) => {
+                const task = createDjvuPdfEstimateTask(imagePath, dpi, {
+                    signal,
+                    onTerminationProof,
+                    combineThreads: resolvePdfImageCombineThreads(lease.resources),
+                });
+                return await task.promise;
+            });
         } catch (error) {
             if (!(error instanceof DjvuPdfWorkerStartupError)) {
                 throw error;

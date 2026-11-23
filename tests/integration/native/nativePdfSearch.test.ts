@@ -10,8 +10,8 @@ import {streamPdfPageTexts} from '@electron/features/search/pdfPageTexts';
 import * as workerTasks from '@electron/utils/workerTask';
 import {findPdfSearchMatches} from '@pdf-core/pdfSearchAlgorithms';
 import {encodeSearchIndexInputLine} from '@contracts/searchIndexWire';
-import {acquireNativeCommandAdmission} from '@electron/native-tools/runNativeCommand';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
+import {mainJobBroker} from '@electron/resources/jobBroker';
 
 function resolvePdfSearchPath() {
     const path = resolve(
@@ -42,17 +42,12 @@ function searchWrittenPagesArgs(query: string) {
     ];
 }
 
-/** Every native command slot is free: each admission is granted at once, not queued. */
+/** Every broker admission slot is free: no native command leases remain active or queued. */
 function expectNativeCommandSlotsFree() {
-    const releases = Array.from({length: 8}, () => acquireNativeCommandAdmission());
-    try {
-        expect(releases.every(release => typeof release === 'function')).toBe(true);
-    } finally {
-        for (const release of releases) {
-            if (typeof release === 'function') release();
-            else void release.then(granted => granted(), () => undefined);
-        }
-    }
+    expect(mainJobBroker.getSnapshot()).toMatchObject({
+        active: 0,
+        queued: 0,
+    });
 }
 
 describe('evb-pdf-search over written pages', () => {

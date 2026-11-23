@@ -33,6 +33,8 @@ interface ILocalTiffPageDescriptor extends ITiffImageDescriptor {
 }
 
 interface ICombinePagesIntoMultiPageTiffLocalOptions {
+    cancelGroup?: string;
+    combineThreads?: number;
     deleteSourcePages?: boolean;
     defaultDpi?: number;
     signal?: AbortSignal;
@@ -342,12 +344,14 @@ export async function combinePagesIntoMultiPageTiffLocal(
     const defaultDpi = options instanceof AbortSignal ? 72 : options.defaultDpi ?? 72;
     const deleteSourcePages = !(options instanceof AbortSignal) && options.deleteSourcePages === true;
     const tempPath = options instanceof AbortSignal ? undefined : options.tempPath;
+    const cancelGroup = options instanceof AbortSignal ? undefined : options.cancelGroup;
+    const combineThreads = options instanceof AbortSignal ? undefined : options.combineThreads;
     const tempOutputPath = tempPath ?? makeSiblingTempPath(outputPath);
     if (pagePaths.length === 0) {
         throw new Error('No pages available for TIFF export');
     }
     throwIfAborted(signal);
-    if (await tryCombinePagesWithNativeTiffCombiner(pagePaths, outputPath, tempOutputPath, signal, defaultDpi)) {
+    if (await tryCombinePagesWithNativeTiffCombiner(pagePaths, outputPath, tempOutputPath, signal, defaultDpi, undefined, combineThreads, cancelGroup)) {
         if (deleteSourcePages) {
             await removeSourcePages(pagePaths);
         }

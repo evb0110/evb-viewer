@@ -1,5 +1,14 @@
 import {EventEmitter} from 'node:events';
+import {
+    mkdtemp,
+    rm,
+    truncate,
+    writeFile,
+} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {createOcrEnginePool} from '@electron/features/ocr/main/ocrEnginePool';
+import {JobBroker} from '@electron/resources/jobBroker';
 import type { TRegisteredHandler } from '@tests/unit/electron/helpers/ipcRegistryHarness';
 import {
     afterEach,
@@ -7,6 +16,7 @@ import {
     describe,
     expect,
     it,
+    onTestFinished,
     vi,
 } from 'vitest';
 import { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
@@ -670,24 +680,35 @@ describe('OCR platform feature main bindings', () => {
     });
 });
 
-const boundary = vi.hoisted(() => ({workers: [] as Array<{
-    emit: (event: string, ...args: unknown[]) => boolean;
-    dead: boolean;
-    terminatedAfterDeath: boolean;
-}>}));
+const boundary = vi.hoisted(() => ({
+    workers: [] as Array<{
+        emit: (event: string, ...args: unknown[]) => boolean;
+        dead: boolean;
+        terminatedAfterDeath: boolean;
+    }>,
+    // Hold a pass's reply, or a worker's exit after terminate, until resolved.
+    replyGate: undefined as Promise<void> | undefined,
+    terminateGate: undefined as Promise<void> | undefined,
+    constructorError: undefined as (() => Error | undefined) | undefined,
+}));
 
 vi.mock('node:worker_threads', () => ({Worker: class extends EventEmitter {
     dead = false;
     terminatedAfterDeath = false;
     constructor() {
         super();
+        const error = boundary.constructorError?.();
+        if (error) throw error;
         boundary.workers.push(this);
     }
     unref() {}
     postMessage({id}: {id: number}) {
-        queueMicrotask(() => this.emit('message', {id, ok: true, result: {passes: []}}));
+        // As in Node, a message to an exited worker is dropped without an error.
+        if (this.dead) return;
+        void Promise.resolve(boundary.replyGate).then(() => this.emit('message', {id, ok: true, result: {passes: []}}));
     }
     async terminate() {
+        await boundary.terminateGate;
         if (this.dead) this.terminatedAfterDeath = true;
         this.dead = true;
         this.emit('exit', 0);
@@ -695,11 +716,25 @@ vi.mock('node:worker_threads', () => ({Worker: class extends EventEmitter {
     }
 }}));
 
+const MIB = 1024 ** 2;
+const POOL_CAPACITY = {
+    cpuTokens: 4,
+    estimatedResidentBytes: 1024 * MIB,
+    nativeProcesses: 4,
+    ioWeight: 4,
+};
+// A one-byte page without a PNM header counts as one pixel.
+const PAGE_HEAP_BYTES = 192 * MIB + 12;
+const ENGINE_PASSES = [{args: ['page.ppm', 'out'], outputs: ['/work/out.txt']}];
+
 describe('OCR engine pool idle shutdown', () => {
     afterEach(() => {
         vi.clearAllTimers();
         vi.useRealTimers();
         boundary.workers.length = 0;
+        boundary.replyGate = undefined;
+        boundary.terminateGate = undefined;
+        boundary.constructorError = undefined;
     });
 
     it.each(['terminate', 'worker exit'] as const)('releases the idle timer after %s', async (end) => {
@@ -708,6 +743,7 @@ describe('OCR engine pool idle shutdown', () => {
             size: () => 1,
             workerPath: '/unused/ocr-engine.mjs',
             workerData: {engineDir: '/unused/engine', tessdataDir: '/unused/models'},
+            broker: new JobBroker(POOL_CAPACITY),
         });
         await expect(pool.run({
             image: new Uint8Array([0]), models: ['eng'],
@@ -725,6 +761,564 @@ describe('OCR engine pool idle shutdown', () => {
             expect.soft(vi.getTimerCount()).toBe(0);
             await vi.advanceTimersByTimeAsync(60_000);
             expect(worker.terminatedAfterDeath).toBe(false);
+        } finally {
+            pool.terminate();
+        }
+    });
+
+    async function createTessdata(modelBytes: number, otherModels: Record<string, number> = {}) {
+        const dir = await mkdtemp(join(tmpdir(), 'ocr-pool-models-'));
+        onTestFinished(() => rm(dir, {
+            recursive: true,
+            force: true,
+        }));
+        for (const [code, bytes] of Object.entries({
+            eng: modelBytes,
+            ...otherModels,
+        })) {
+            const model = join(dir, `${code}.traineddata`);
+            await writeFile(model, '');
+            await truncate(model, bytes);
+        }
+        return dir;
+    }
+
+    it('charges a warm worker its largest pass, a core only while it runs, until it has exited', async () => {
+        const broker = new JobBroker(POOL_CAPACITY);
+        const pool = createOcrEnginePool({
+            size: () => 1,
+            workerPath: '/unused/ocr-engine.mjs',
+            workerData: {engineDir: '/unused/engine', tessdataDir: await createTessdata(40 * MIB)},
+            broker,
+        });
+        const largest = 2.5 * 40 * MIB + PAGE_HEAP_BYTES;
+
+        await pool.run({image: new Uint8Array([0]), models: ['eng'], passes: ENGINE_PASSES}, new AbortController().signal);
+        // Idle and warm: its memory stays charged, its core does not.
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 1,
+            used: {cpuTokens: 0, estimatedResidentBytes: largest},
+        });
+
+        // A pass loading fewer models still runs in the memory the worker holds.
+        const reply = Promise.withResolvers<void>();
+        boundary.replyGate = reply.promise;
+        const smaller = pool.run({image: new Uint8Array([0]), models: ['fra'], passes: ENGINE_PASSES}, new AbortController().signal);
+        await vi.waitFor(() => expect(broker.getSnapshot().used).toMatchObject({
+            cpuTokens: 1,
+            estimatedResidentBytes: largest,
+        }));
+        reply.resolve();
+        await smaller;
+        expect(broker.getSnapshot().used).toMatchObject({cpuTokens: 0, estimatedResidentBytes: largest});
+
+        const exited = Promise.withResolvers<void>();
+        boundary.terminateGate = exited.promise;
+        pool.terminate();
+        await new Promise(resolve => setImmediate(resolve));
+        // Asked to stop but not gone yet: the memory is still in use.
+        expect(broker.getSnapshot().used.estimatedResidentBytes).toBe(largest);
+        exited.resolve();
+        await vi.waitFor(() => expect(broker.getSnapshot()).toMatchObject({
+            active: 0,
+            used: {cpuTokens: 0, estimatedResidentBytes: 0},
+        }));
+    });
+
+    it('charges a worker that changes languages for every model its engine keeps', async () => {
+        const broker = new JobBroker(POOL_CAPACITY);
+        const pool = createOcrEnginePool({
+            size: () => 1,
+            workerPath: '/unused/ocr-engine.mjs',
+            workerData: {engineDir: '/unused/engine', tessdataDir: await createTessdata(40 * MIB, {fra: 30 * MIB})},
+            broker,
+        });
+        try {
+            await pool.run({image: new Uint8Array([0]), models: ['eng'], passes: ENGINE_PASSES}, new AbortController().signal);
+            await pool.run({image: new Uint8Array([0]), models: ['fra'], passes: ENGINE_PASSES}, new AbortController().signal);
+
+            // French in use, and the English model's bytes the engine still keeps.
+            expect(broker.getSnapshot().used.estimatedResidentBytes).toBe(2.5 * 30 * MIB + PAGE_HEAP_BYTES + 40 * MIB);
+        } finally {
+            pool.terminate();
+        }
+    });
+
+    it('does not deadlock two warm workers that each wait for memory the other holds', async () => {
+        const broker = new JobBroker({
+            ...POOL_CAPACITY,
+            estimatedResidentBytes: 512 * MIB,
+        });
+        const pool = createOcrEnginePool({
+            size: () => 2,
+            workerPath: '/unused/ocr-engine.mjs',
+            workerData: {engineDir: '/unused/engine', tessdataDir: await createTessdata(60 * MIB)},
+            broker,
+        });
+        try {
+            // Two warm workers, each holding a page's heap.
+            const reply = Promise.withResolvers<void>();
+            boundary.replyGate = reply.promise;
+            const warmUps = [
+                pool.run({image: new Uint8Array([0]), models: ['fra'], passes: ENGINE_PASSES}, new AbortController().signal),
+                pool.run({image: new Uint8Array([0]), models: ['fra'], passes: ENGINE_PASSES}, new AbortController().signal),
+            ];
+            await vi.waitFor(() => expect(boundary.workers).toHaveLength(2));
+            reply.resolve();
+            await Promise.all(warmUps);
+            boundary.replyGate = undefined;
+            expect(broker.getSnapshot().used.estimatedResidentBytes).toBe(2 * PAGE_HEAP_BYTES);
+
+            // Each now needs 150 MiB more; together they do not fit.
+            await expect(Promise.all([
+                pool.run({image: new Uint8Array([0]), models: ['eng'], passes: ENGINE_PASSES}, new AbortController().signal),
+                pool.run({image: new Uint8Array([0]), models: ['eng'], passes: ENGINE_PASSES}, new AbortController().signal),
+            ])).resolves.toHaveLength(2);
+            expect(broker.getSnapshot().queued).toBe(0);
+        } finally {
+            pool.terminate();
+        }
+    });
+
+    it('does not end a warm worker whose pass the broker granted in the same turn as memory-short work', async () => {
+        const broker = new JobBroker({
+            ...POOL_CAPACITY,
+            cpuTokens: 1,
+            estimatedResidentBytes: 512 * MIB,
+        });
+        const pool = createOcrEnginePool({
+            size: () => 1,
+            workerPath: '/unused/ocr-engine.mjs',
+            workerData: {engineDir: '/unused/engine', tessdataDir: await createTessdata(60 * MIB)},
+            broker,
+        });
+        try {
+            await pool.run({image: new Uint8Array([0]), models: ['fra'], passes: ENGINE_PASSES}, new AbortController().signal);
+            const cpuBlocker = await broker.acquire({
+                ownerId: 'cpu-blocker',
+                kind: 'render',
+                priority: 'user',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 0,
+                    nativeProcesses: 0,
+                    ioWeight: 0,
+                },
+            });
+            const reply = Promise.withResolvers<void>();
+            boundary.replyGate = reply.promise;
+            const pass = pool.run({image: new Uint8Array([0]), models: ['eng'], passes: ENGINE_PASSES}, new AbortController().signal);
+            await vi.waitFor(() => expect(broker.getSnapshot().queued).toBe(1));
+
+            // Sol's probe: the release grants the pass, and work short of
+            // memory arrives before the pass's code resumes.
+            cpuBlocker.release();
+            const waiting = broker.acquire({
+                ownerId: 'scan-cleanup',
+                kind: 'page',
+                priority: 'user',
+                resources: {
+                    cpuTokens: 0,
+                    estimatedResidentBytes: 300 * MIB,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            });
+
+            await new Promise(resolve => setImmediate(resolve));
+            // The granted worker runs its pass; it is not ended under it.
+            expect(boundary.workers).toHaveLength(1);
+            expect(boundary.workers[0]!.dead).toBe(false);
+
+            reply.resolve();
+            await expect(pass).resolves.toEqual({passes: []});
+            (await waiting).release();
+        } finally {
+            pool.terminate();
+        }
+    });
+
+    it.each([
+        ['while its pass waits for a core', false],
+        ['in the turn the broker grants its pass', true],
+    ] as const)('runs a pass on a fresh worker when the warm one exits %s', async (_when, exitAfterGrant) => {
+        const broker = new JobBroker({
+            ...POOL_CAPACITY,
+            cpuTokens: 1,
+        });
+        const pool = createOcrEnginePool({
+            size: () => 1,
+            workerPath: '/unused/ocr-engine.mjs',
+            workerData: {engineDir: '/unused/engine', tessdataDir: await createTessdata(40 * MIB)},
+            broker,
+        });
+        try {
+            await pool.run({image: new Uint8Array([0]), models: ['eng'], passes: ENGINE_PASSES}, new AbortController().signal);
+            const cpuBlocker = await broker.acquire({
+                ownerId: 'cpu-blocker',
+                kind: 'render',
+                priority: 'user',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 0,
+                    nativeProcesses: 0,
+                    ioWeight: 0,
+                },
+            });
+            const pass = pool.run({image: new Uint8Array([0]), models: ['eng'], passes: ENGINE_PASSES}, new AbortController().signal);
+            await vi.waitFor(() => expect(broker.getSnapshot().queued).toBe(1));
+
+            // Sol's probe: the warm worker dies while its pass waits for a core.
+            const warm = boundary.workers[0]!;
+            const die = () => {
+                warm.dead = true;
+                warm.emit('exit', 1);
+            };
+            if (exitAfterGrant) {
+                cpuBlocker.release();
+                die();
+            } else {
+                die();
+                // The pass leaves the dead worker at once and waits in the broker
+                // before constructing a fresh worker thread.
+                await vi.waitFor(() => expect(broker.getSnapshot().queued).toBe(1));
+                expect(boundary.workers).toHaveLength(1);
+                cpuBlocker.release();
+            }
+
+            await expect(pass).resolves.toEqual({passes: []});
+            expect(boundary.workers).toHaveLength(2);
+            expect(boundary.workers[1]!.dead).toBe(false);
+            expect(broker.getSnapshot().used.cpuTokens).toBe(0);
+        } finally {
+            pool.terminate();
+        }
+    });
+
+    it('starts no worker for a waiting pass once the pool is shut down', async () => {
+        const pool = createOcrEnginePool({
+            size: () => 1,
+            workerPath: '/unused/ocr-engine.mjs',
+            workerData: {engineDir: '/unused/engine', tessdataDir: await createTessdata(40 * MIB)},
+            broker: new JobBroker(POOL_CAPACITY),
+        });
+        const reply = Promise.withResolvers<void>();
+        boundary.replyGate = reply.promise;
+        const running = pool.run({image: new Uint8Array([0]), models: ['eng'], passes: ENGINE_PASSES}, new AbortController().signal);
+        void running.catch(() => undefined);
+        await vi.waitFor(() => expect(boundary.workers).toHaveLength(1));
+        const waiting = pool.run({image: new Uint8Array([0]), models: ['eng'], passes: ENGINE_PASSES}, new AbortController().signal);
+
+        pool.terminate();
+
+        await expect(waiting).rejects.toThrow(/shut down/u);
+        await expect(running).rejects.toThrow(/exited/u);
+        expect(boundary.workers).toHaveLength(1);
+        reply.resolve();
+    });
+
+    it('takes a queued pass out of the broker at shutdown while its worker\'s memory stays charged until exit', async () => {
+        const broker = new JobBroker({
+            ...POOL_CAPACITY,
+            cpuTokens: 1,
+        });
+        const pool = createOcrEnginePool({
+            size: () => 1,
+            workerPath: '/unused/ocr-engine.mjs',
+            workerData: {engineDir: '/unused/engine', tessdataDir: await createTessdata(40 * MIB)},
+            broker,
+        });
+        const largest = 2.5 * 40 * MIB + PAGE_HEAP_BYTES;
+        await pool.run({image: new Uint8Array([0]), models: ['eng'], passes: ENGINE_PASSES}, new AbortController().signal);
+        const cpuBlocker = await broker.acquire({
+            ownerId: 'cpu-blocker',
+            kind: 'render',
+            priority: 'user',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 0,
+                nativeProcesses: 0,
+                ioWeight: 0,
+            },
+        });
+        const pass = pool.run({image: new Uint8Array([0]), models: ['eng'], passes: ENGINE_PASSES}, new AbortController().signal);
+        await vi.waitFor(() => expect(broker.getSnapshot().queued).toBe(1));
+
+        // Sol's probe: the warm worker's thread does not stop yet.
+        const exited = Promise.withResolvers<void>();
+        boundary.terminateGate = exited.promise;
+        pool.terminate();
+
+        await expect(pass).rejects.toThrow(/shut down/u);
+        expect(broker.getSnapshot()).toMatchObject({
+            queued: 0,
+            used: {estimatedResidentBytes: largest},
+        });
+        exited.resolve();
+        await vi.waitFor(() => expect(broker.getSnapshot().used.estimatedResidentBytes).toBe(0));
+        cpuBlocker.release();
+    });
+
+    it('ends a warm worker whose queued pass was canceled while other work waits for its memory', async () => {
+        const broker = new JobBroker({
+            ...POOL_CAPACITY,
+            cpuTokens: 1,
+            estimatedResidentBytes: 512 * MIB,
+        });
+        const pool = createOcrEnginePool({
+            size: () => 1,
+            workerPath: '/unused/ocr-engine.mjs',
+            workerData: {engineDir: '/unused/engine', tessdataDir: await createTessdata(60 * MIB)},
+            broker,
+        });
+        try {
+            await pool.run({image: new Uint8Array([0]), models: ['fra'], passes: ENGINE_PASSES}, new AbortController().signal);
+            const cpuBlocker = await broker.acquire({
+                ownerId: 'cpu-blocker',
+                kind: 'render',
+                priority: 'user',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 0,
+                    nativeProcesses: 0,
+                    ioWeight: 0,
+                },
+            });
+            const passAbort = new AbortController();
+            const pass = pool.run({image: new Uint8Array([0]), models: ['eng'], passes: ENGINE_PASSES}, passAbort.signal);
+            void pass.catch(() => undefined);
+            await vi.waitFor(() => expect(broker.getSnapshot().queued).toBe(1));
+
+            // Sol's probe, in one turn: the pass is canceled, the core frees,
+            // and work arrives that needs the memory the warm worker holds.
+            passAbort.abort();
+            cpuBlocker.release();
+            const started = performance.now();
+            const waiting = broker.acquire({
+                ownerId: 'scan-cleanup',
+                kind: 'page',
+                priority: 'user',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 400 * MIB,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            });
+
+            await expect(pass).rejects.toMatchObject({name: 'AbortError'});
+            // Granted once the parked worker exits, not after its 60 s idle time.
+            const lease = await waiting;
+            expect(performance.now() - started).toBeLessThan(5_000);
+            expect(boundary.workers[0]!.dead).toBe(true);
+            lease.release();
+        } finally {
+            pool.terminate();
+        }
+    });
+
+    it('ends a worker whose pass finishes while other work waits for its memory', async () => {
+        const broker = new JobBroker({
+            ...POOL_CAPACITY,
+            estimatedResidentBytes: 512 * MIB,
+        });
+        const pool = createOcrEnginePool({
+            size: () => 1,
+            workerPath: '/unused/ocr-engine.mjs',
+            workerData: {engineDir: '/unused/engine', tessdataDir: await createTessdata(40 * MIB)},
+            broker,
+        });
+        try {
+            const reply = Promise.withResolvers<void>();
+            boundary.replyGate = reply.promise;
+            const pass = pool.run({image: new Uint8Array([0]), models: ['eng'], passes: ENGINE_PASSES}, new AbortController().signal);
+            await vi.waitFor(() => expect(broker.getSnapshot().used.cpuTokens).toBe(1));
+            let granted = false;
+            const waiting = broker.acquire({
+                ownerId: 'scan-cleanup',
+                kind: 'page',
+                priority: 'user',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 300 * MIB,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            }).then((lease) => {
+                granted = true;
+                return lease;
+            });
+            await new Promise(resolve => setImmediate(resolve));
+            expect(granted).toBe(false);
+
+            reply.resolve();
+            await pass;
+            // The worker went idle while that work waited; it ends instead of
+            // keeping its memory for its 60 s idle time.
+            const lease = await waiting;
+            expect(boundary.workers[0]?.dead).toBe(true);
+            lease.release();
+        } finally {
+            pool.terminate();
+        }
+    });
+
+    it('ends an idle worker when other work is short of the memory it holds', async () => {
+        const broker = new JobBroker({
+            ...POOL_CAPACITY,
+            estimatedResidentBytes: 400 * MIB,
+        });
+        const pool = createOcrEnginePool({
+            size: () => 1,
+            workerPath: '/unused/ocr-engine.mjs',
+            workerData: {engineDir: '/unused/engine', tessdataDir: await createTessdata(40 * MIB)},
+            broker,
+        });
+        try {
+            await pool.run({image: new Uint8Array([0]), models: ['eng'], passes: ENGINE_PASSES}, new AbortController().signal);
+            expect(broker.getSnapshot().used.estimatedResidentBytes).toBe(2.5 * 40 * MIB + PAGE_HEAP_BYTES);
+
+            const started = performance.now();
+            const lease = await broker.acquire({
+                ownerId: 'scan-cleanup',
+                kind: 'page',
+                priority: 'user',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 200 * MIB,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            });
+
+            // Granted once the idle worker exited, not after its 60 s idle time.
+            expect(performance.now() - started).toBeLessThan(5_000);
+            expect(boundary.workers[0]?.dead).toBe(true);
+            expect(broker.getSnapshot().used.estimatedResidentBytes).toBe(200 * MIB);
+            lease.release();
+        } finally {
+            pool.terminate();
+        }
+    });
+
+    it('waits for the first broker lease before constructing a fresh worker thread', async () => {
+        const broker = new JobBroker({
+            ...POOL_CAPACITY,
+            cpuTokens: 1,
+        });
+        const cpuBlocker = await broker.acquire({
+            ownerId: 'cpu-blocker',
+            kind: 'render',
+            priority: 'user',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 0,
+                nativeProcesses: 0,
+                ioWeight: 0,
+            },
+        });
+        const pool = createOcrEnginePool({
+            size: () => 1,
+            workerPath: '/unused/ocr-engine.mjs',
+            workerData: {engineDir: '/unused/engine', tessdataDir: await createTessdata(40 * MIB)},
+            broker,
+        });
+        try {
+            const pass = pool.run({image: new Uint8Array([0]), models: ['eng'], passes: ENGINE_PASSES}, new AbortController().signal);
+            await vi.waitFor(() => expect(broker.getSnapshot().queued).toBe(1));
+            expect(boundary.workers).toHaveLength(0);
+
+            cpuBlocker.release();
+            await pass;
+            expect(boundary.workers).toHaveLength(1);
+        } finally {
+            pool.terminate();
+        }
+    });
+
+    it('propagates a synchronous Worker constructor error without retrying', async () => {
+        const broker = new JobBroker(POOL_CAPACITY);
+        let attempts = 0;
+        boundary.constructorError = () => {
+            attempts += 1;
+            return attempts === 1 ? new Error('worker spawn boom 1') : undefined;
+        };
+        const pool = createOcrEnginePool({
+            size: () => 1,
+            workerPath: '/unused/ocr-engine.mjs',
+            workerData: {
+                engineDir: '/unused/engine',
+                tessdataDir: await createTessdata(40 * MIB),
+            },
+            broker,
+        });
+        try {
+            await expect(pool.run({
+                image: new Uint8Array([0]),
+                models: ['eng'],
+                passes: ENGINE_PASSES,
+            }, new AbortController().signal)).rejects.toThrow('worker spawn boom 1');
+            expect(attempts).toBe(1);
+            expect(boundary.workers).toHaveLength(0);
+            expect(broker.getSnapshot()).toMatchObject({
+                active: 0,
+                queued: 0,
+                used: {
+                    cpuTokens: 0,
+                    estimatedResidentBytes: 0,
+                },
+            });
+        } finally {
+            pool.terminate();
+        }
+    });
+
+    it('does not construct a fresh worker when canceled in the same turn a queued lease is granted', async () => {
+        const broker = new JobBroker({
+            ...POOL_CAPACITY,
+            cpuTokens: 1,
+        });
+        const cpuBlocker = await broker.acquire({
+            ownerId: 'cpu-blocker',
+            kind: 'render',
+            priority: 'user',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 0,
+                nativeProcesses: 0,
+                ioWeight: 0,
+            },
+        });
+        const pool = createOcrEnginePool({
+            size: () => 1,
+            workerPath: '/unused/ocr-engine.mjs',
+            workerData: {
+                engineDir: '/unused/engine',
+                tessdataDir: await createTessdata(40 * MIB),
+            },
+            broker,
+        });
+        try {
+            const controller = new AbortController();
+            const pass = pool.run({
+                image: new Uint8Array([0]),
+                models: ['eng'],
+                passes: ENGINE_PASSES,
+            }, controller.signal);
+            await vi.waitFor(() => expect(broker.getSnapshot().queued).toBe(1));
+
+            cpuBlocker.release();
+            controller.abort(new Error('pass canceled'));
+            await expect(pass).rejects.toThrow('pass canceled');
+            expect(boundary.workers).toHaveLength(0);
+            expect(broker.getSnapshot()).toMatchObject({
+                active: 0,
+                queued: 0,
+                used: {
+                    cpuTokens: 0,
+                    estimatedResidentBytes: 0,
+                },
+            });
         } finally {
             pool.terminate();
         }

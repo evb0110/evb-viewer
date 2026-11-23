@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import {
     mkdtemp,
     rm,
+    writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import {
@@ -15,6 +16,7 @@ import {
     vi,
 } from 'vitest';
 import { join } from 'node:path';
+import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
 
 const mocks = vi.hoisted(() => ({
     spawn: vi.fn(),
@@ -69,6 +71,19 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     warn: mocks.telemetryWarn,
     error: vi.fn(),
 })}));
+
+const GIB = 1024 ** 3;
+
+function createHostProfile(logicalCpus: number, totalRamBytes: number): IHostResourceProfileSnapshot {
+    return {
+        logicalCpus,
+        totalRamBytes,
+        safeMode: false,
+        detectedTier: 'high',
+        performanceMode: 'auto',
+        tier: 'high',
+    };
+}
 
 describe('runNativeCommand', () => {
     beforeEach(() => {
@@ -989,6 +1004,11 @@ describe('runNativeCommand', () => {
         mocks.spawn.mockReturnValue(proc);
         mocks.terminateDetachedChildProcess.mockResolvedValueOnce(false);
         if (mode === 'job-close') mocks.jobProof.mockReturnValue(Promise.resolve(false));
+        const {
+            configureMainJobBroker,
+            mainJobBroker,
+        } = await import('@electron/resources/jobBroker');
+        configureMainJobBroker(createHostProfile(8, 16 * GIB));
         const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
         const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
         const controller = new AbortController();
@@ -1001,16 +1021,11 @@ describe('runNativeCommand', () => {
         expect(getUnprovenNativeTerminationDetail(await rejection)).toBeDefined();
         expect(existsSync(scratch)).toBe(true);
         expect(mocks.unregisterManagedProcess).not.toHaveBeenCalled();
-        if (mode === 'job-close') {
-            const {acquireNativeCommandAdmission} = await import('@electron/native-tools/runNativeCommand');
-            const releases = Array.from({length: 7}, () => acquireNativeCommandAdmission());
-            const queued = new AbortController();
-            const admission = acquireNativeCommandAdmission(queued.signal);
-            expect(admission).toBeInstanceOf(Promise);
-            queued.abort();
-            await expect(admission).rejects.toMatchObject({name: 'AbortError'});
-            for (const release of releases) { if (typeof release === 'function') release(); }
-        }
+        // A child not proven gone keeps its native-process charge on the broker.
+        expect(mainJobBroker.getSnapshot()).toMatchObject({
+            active: 1,
+            used: {nativeProcesses: 1},
+        });
     });
 
     it('keeps scratch until the owned Windows job acknowledges empty', async () => {
@@ -1044,4 +1059,566 @@ describe('runNativeCommand', () => {
         expect(existsSync(scratch)).toBe(false);
     });
 
+});
+
+describe('runNativeCommand broker admission', () => {
+    beforeEach(() => {
+        vi.resetModules();
+        vi.clearAllMocks();
+        vi.useRealTimers();
+        vi.unstubAllEnvs();
+        vi.stubEnv('EVB_PDF_COMBINE_THREADS', undefined);
+        mocks.jobProof.mockReturnValue(undefined);
+        mocks.isProcessTreeAlive.mockReturnValue(false);
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    async function loadConfigured(profile = createHostProfile(32, 64 * GIB)) {
+        const broker = await import('@electron/resources/jobBroker');
+        broker.configureMainJobBroker(profile);
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
+        return {
+            ...broker,
+            runNativeCommand,
+        };
+    }
+
+    function spawnEnv(callIndex = 0) {
+        const options = mocks.spawn.mock.calls[callIndex]?.[2] as {env?: NodeJS.ProcessEnv} | undefined;
+        return options?.env ?? {};
+    }
+
+    it('runs more than eight commands at once on a large host', async () => {
+        const processes = Array.from({length: 12}, (_, index) => new MockNativeProcess(50_000 + index));
+        for (const proc of processes) mocks.spawn.mockReturnValueOnce(proc);
+        const {
+            mainJobBroker,
+            runNativeCommand,
+        } = await loadConfigured();
+
+        const results = processes.map(() => runNativeCommand('/bin/tool', []));
+
+        await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledTimes(12));
+        expect(mainJobBroker.getSnapshot()).toMatchObject({
+            active: 12,
+            queued: 0,
+            used: {nativeProcesses: 12},
+        });
+        for (const proc of processes) proc.emit('close', 0, null);
+        await Promise.all(results);
+        expect(mainJobBroker.getSnapshot()).toMatchObject({
+            active: 0,
+            used: {nativeProcesses: 0},
+        });
+    });
+
+    it('keeps a queued command waiting past thirty seconds instead of failing it', async () => {
+        vi.useFakeTimers();
+        const proc = new MockNativeProcess();
+        mocks.spawn.mockReturnValue(proc);
+        const {
+            mainJobBroker,
+            runNativeCommand,
+        } = await loadConfigured(createHostProfile(2, 4 * GIB));
+        const occupant = await mainJobBroker.acquire({
+            ownerId: 'occupant',
+            kind: 'native-command',
+            priority: 'user',
+            admissionClass: 'leaf',
+            resources: mainJobBroker.getSnapshot().capacity,
+        });
+        let settled = false;
+        const result = runNativeCommand('/bin/tool', []).finally(() => {
+            settled = true;
+        });
+
+        await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+        expect(settled).toBe(false);
+        expect(mocks.spawn).not.toHaveBeenCalled();
+        expect(mainJobBroker.getSnapshot().queued).toBe(1);
+
+        occupant.release();
+        await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
+        proc.emit('close', 0, null);
+        await expect(result).resolves.toMatchObject({exitCode: 0});
+    });
+
+    it('keeps the native-process charge when the child reports an error while its termination is unproven', async () => {
+        const proc = new MockNativeProcess();
+        mocks.spawn.mockReturnValue(proc);
+        const termination = Promise.withResolvers<boolean>();
+        mocks.terminateDetachedChildProcess.mockImplementation(() => termination.promise);
+        const {
+            mainJobBroker,
+            runNativeCommand,
+        } = await loadConfigured();
+        const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
+        const controller = new AbortController();
+        const rejection = runNativeCommand('/bin/tool', [], {signal: controller.signal})
+            .catch((error: unknown) => error);
+        await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
+
+        controller.abort(new Error('cancel native command'));
+        await vi.waitFor(() => expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledOnce());
+        // Sol's probe: a failed kill surfaces as a child `error` before the
+        // termination proof settles.
+        proc.emit('error', new Error('kill EPERM'));
+        await new Promise(resolve => setImmediate(resolve));
+        expect(mainJobBroker.getSnapshot()).toMatchObject({
+            active: 1,
+            used: {nativeProcesses: 1},
+        });
+
+        termination.resolve(false);
+        const error = await rejection;
+        expect(error).toMatchObject({message: 'cancel native command'});
+        expect(getUnprovenNativeTerminationDetail(error)).toContain('was not proven dead');
+        expect(mainJobBroker.getSnapshot()).toMatchObject({
+            active: 1,
+            used: {nativeProcesses: 1},
+        });
+    });
+
+    it('runs under the lease of the broker run whose proof sink it receives', async () => {
+        const proc = new MockNativeProcess();
+        mocks.spawn.mockReturnValue(proc);
+        const {
+            mainJobBroker,
+            runNativeCommand,
+        } = await loadConfigured();
+        // A single-slot broker: the outer lease takes everything.
+        const capacity = {
+            cpuTokens: 1,
+            estimatedResidentBytes: GIB,
+            nativeProcesses: 1,
+            ioWeight: 1,
+        };
+        mainJobBroker.reconfigureCapacity(capacity);
+
+        const result = mainJobBroker.run({
+            ownerId: 'outer',
+            kind: 'outer-job',
+            priority: 'user',
+            resources: capacity,
+        }, async ({onTerminationProof}) => {
+            const command = runNativeCommand('/bin/tool', [], {onTerminationProof});
+            await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
+            expect(mainJobBroker.getSnapshot()).toMatchObject({
+                active: 1,
+                queued: 0,
+            });
+            proc.emit('close', 0, null);
+            return command;
+        });
+
+        await expect(result).resolves.toMatchObject({exitCode: 0});
+        expect(mainJobBroker.getSnapshot()).toMatchObject({
+            active: 0,
+            queued: 0,
+        });
+    });
+
+    it('runs a command inside an undeclared lease that fills a single-slot broker', async () => {
+        const inner = new MockNativeProcess();
+        const later = new MockNativeProcess(42_425);
+        mocks.spawn.mockReturnValueOnce(inner).mockReturnValueOnce(later);
+        const {
+            mainJobBroker,
+            runNativeCommand,
+        } = await loadConfigured();
+        const capacity = {
+            cpuTokens: 1,
+            estimatedResidentBytes: GIB,
+            nativeProcesses: 1,
+            ioWeight: 1,
+        };
+        mainJobBroker.reconfigureCapacity(capacity);
+        const outer = await mainJobBroker.acquire({
+            ownerId: 'outer',
+            kind: 'outer-job',
+            priority: 'user',
+            resources: capacity,
+        });
+
+        // The caller never says it holds the lease; the command still starts.
+        const nested = runNativeCommand('/bin/tool', []);
+        await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
+        // A second command waits for the first to finish rather than overrunning further.
+        const queued = runNativeCommand('/bin/tool', []);
+        await vi.waitFor(() => expect(mainJobBroker.getSnapshot().queued).toBe(1));
+
+        inner.emit('close', 0, null);
+        await expect(nested).resolves.toMatchObject({exitCode: 0});
+        await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledTimes(2));
+        later.emit('close', 0, null);
+        await expect(queued).resolves.toMatchObject({exitCode: 0});
+        outer.release();
+        expect(mainJobBroker.getSnapshot()).toMatchObject({
+            active: 0,
+            queued: 0,
+        });
+    });
+
+    it('runs under the caller lease through a sink chained from its run', async () => {
+        const proc = new MockNativeProcess();
+        mocks.spawn.mockReturnValue(proc);
+        const {
+            chainTerminationProofSink,
+            mainJobBroker,
+            runNativeCommand,
+        } = await loadConfigured();
+        const capacity = {
+            cpuTokens: 1,
+            estimatedResidentBytes: GIB,
+            nativeProcesses: 1,
+            ioWeight: 1,
+        };
+        mainJobBroker.reconfigureCapacity(capacity);
+        const local: Array<Promise<boolean>> = [];
+
+        const result = mainJobBroker.run({
+            ownerId: 'outer',
+            kind: 'outer-job',
+            priority: 'user',
+            resources: capacity,
+        }, async ({onTerminationProof}) => {
+            // A caller that keeps its own record of the proof still names the lease.
+            const command = runNativeCommand('/bin/tool', [], {
+                onTerminationProof: chainTerminationProofSink(onTerminationProof, proof => local.push(proof)),
+            });
+            await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
+            expect(mainJobBroker.getSnapshot()).toMatchObject({
+                active: 1,
+                used: capacity,
+            });
+            proc.emit('close', 0, null);
+            return command;
+        });
+
+        await expect(result).resolves.toMatchObject({exitCode: 0});
+        expect(mainJobBroker.getSnapshot().active).toBe(0);
+    });
+
+    it('lets scan-cleanup sidecar and Poppler batch stage concurrently under one broker run when bulk capacity is full', async () => {
+        const sidecarProc = new MockNativeProcess();
+        const batchProc = new MockNativeProcess();
+        const spawnedArgs: string[][] = [];
+        const scratch = await mkdtemp(join(tmpdir(), 'scan-cleanup-broker-concurrent-'));
+        const manifestPath = join(scratch, 'classify-manifest.json');
+        const pageOutputPath = join(scratch, 'page-2.ppm');
+        const ppmBytes = Buffer.concat([
+            Buffer.from('P6\n1 1\n255\n', 'ascii'),
+            Buffer.from([
+                255,
+                255,
+                255,
+            ]),
+        ]);
+        const batchWritten = Promise.withResolvers<void>();
+        const releaseBatch = Promise.withResolvers<void>();
+        mocks.spawn.mockImplementation((_command: string, args: string[]) => {
+            spawnedArgs.push(args);
+            if (args.includes('--manifest')) {
+                return sidecarProc;
+            }
+            const prefix = args.at(-1)!;
+            void writeFile(`${prefix}-2.ppm`, ppmBytes).then(async () => {
+                batchWritten.resolve();
+                await releaseBatch.promise;
+                batchProc.emit('close', 0, null);
+            });
+            return batchProc;
+        });
+        const {
+            mainJobBroker,
+            runNativeCommand,
+        } = await loadConfigured();
+        const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
+        const {createScanCleanupRasterBatchRenderer} = await import('@electron/features/scan-cleanup/createScanCleanupRasterBatchRenderer');
+        const {
+            mkdtemp: fsMkdtemp,
+            open: fsOpen,
+            readdir: fsReaddir,
+            rename: fsRename,
+            rm: fsRm,
+        } = await import('node:fs/promises');
+        const capacity = {
+            cpuTokens: 2,
+            estimatedResidentBytes: 2 * GIB,
+            nativeProcesses: 2,
+            ioWeight: 4,
+        };
+        mainJobBroker.reconfigureCapacity(capacity);
+        // Saturate the remaining bulk slot just like a concurrent scan-cleanup preview does.
+        const previewLease = await mainJobBroker.acquire({
+            ownerId: 'scan-cleanup:1:owner',
+            kind: 'scan-cleanup-preview',
+            priority: 'visible',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 512 * 1024 * 1024,
+                nativeProcesses: 1,
+                ioWeight: 1,
+            },
+        });
+        try {
+            const renderBatch = createScanCleanupRasterBatchRenderer(runNativeCommand, {
+                mkdtemp: fsMkdtemp,
+                open: fsOpen,
+                readdir: (dirPath, options) => fsReaddir(dirPath, options),
+                rename: fsRename,
+                rm: fsRm,
+            });
+            await mainJobBroker.run({
+                ownerId: 'scan-cleanup:1:owner',
+                kind: 'scan-cleanup-detect-all',
+                priority: 'user',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 512 * 1024 * 1024,
+                    nativeProcesses: 1,
+                    ioWeight: 2,
+                },
+            }, async ({onTerminationProof}) => {
+                const controller = new AbortController();
+                const sidecarPromise = runScanCleanupSidecar(
+                    '/bin/evb-scan-cleanup',
+                    manifestPath,
+                    controller.signal,
+                    () => undefined,
+                    () => undefined,
+                    {
+                        allowedPathRoot: scratch,
+                        onTerminationProof,
+                    },
+                );
+                await vi.waitFor(() => expect(spawnedArgs).toHaveLength(1));
+                // While the sidecar is still running, staging page 2 must be admitted under the
+                // same detection lease rather than blocking on the broker's single leaf slot.
+                const stagedPromise = renderBatch({
+                    dpi: 150,
+                    log: () => undefined,
+                    pdftoppmBinary: '/bin/pdftoppm',
+                    signal: controller.signal,
+                    sourcePdfPath: join(scratch, 'source.pdf'),
+                    targets: [{
+                        limits: {
+                            expectedWidthPx: 1,
+                            expectedHeightPx: 1,
+                            maxDimensionPx: 100,
+                            maxPixels: 10_000,
+                        },
+                        outputPath: pageOutputPath,
+                        pageNumber: 2,
+                    }],
+                    onTerminationProof,
+                });
+                await batchWritten.promise;
+                expect(spawnedArgs).toHaveLength(2);
+                // Both sidecarProc and batchProc are simultaneously active under the same
+                // detection lease; no extra transient leaf lease was allocated.
+                expect(mainJobBroker.getSnapshot()).toMatchObject({
+                    active: 2,
+                    queued: 0,
+                });
+                releaseBatch.resolve();
+                const staged = await stagedPromise;
+                expect(staged).toEqual([{
+                    pageNumber: 2,
+                    width: 1,
+                    height: 1,
+                }]);
+                expect(mainJobBroker.getSnapshot()).toMatchObject({
+                    active: 2,
+                    queued: 0,
+                });
+                sidecarProc.stdout.emit('data', Buffer.from(
+                    '{"version":3,"type":"result","result":{"status":"success","completedPages":2,"totalPages":2}}\n',
+                ));
+                sidecarProc.emit('close', 0, null);
+                await sidecarPromise;
+            });
+        } finally {
+            previewLease.release();
+            await rm(scratch, {
+                recursive: true,
+                force: true,
+            });
+        }
+        expect(mainJobBroker.getSnapshot()).toMatchObject({
+            active: 0,
+            queued: 0,
+        });
+    });
+
+    it('keeps its own lease charged until a late termination proof arrives', async () => {
+        vi.useFakeTimers();
+        const proc = new MockNativeProcess();
+        mocks.spawn.mockReturnValue(proc);
+        const termination = Promise.withResolvers<boolean>();
+        mocks.terminateDetachedChildProcess.mockReturnValueOnce(termination.promise);
+        const {
+            mainJobBroker,
+            runNativeCommand,
+        } = await loadConfigured();
+        const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
+        const proofs: Array<Promise<boolean>> = [];
+        const controller = new AbortController();
+
+        const rejection = runNativeCommand('/bin/tool', [], {
+            signal: controller.signal,
+            onTerminationProof: proof => proofs.push(proof),
+        }).catch((error: unknown) => error);
+        await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
+        controller.abort();
+        await vi.advanceTimersByTimeAsync(3_000);
+
+        expect(getUnprovenNativeTerminationDetail(await rejection)).toBeDefined();
+        expect(proofs).toHaveLength(1);
+        expect(mainJobBroker.getSnapshot()).toMatchObject({
+            active: 1,
+            used: {nativeProcesses: 1},
+        });
+
+        termination.resolve(true);
+        await vi.waitFor(() => expect(mainJobBroker.getSnapshot()).toMatchObject({
+            active: 0,
+            used: {nativeProcesses: 0},
+        }));
+    });
+
+    it.each([
+        {
+            name: 'the granted cores',
+            lease: {
+                cpuTokens: 6,
+                estimatedResidentBytes: 8 * GIB,
+            },
+            env: undefined,
+            expected: '6',
+        },
+        {
+            name: 'one prepared image per thread of the granted memory',
+            lease: {
+                cpuTokens: 6,
+                estimatedResidentBytes: GIB,
+            },
+            env: undefined,
+            expected: '2',
+        },
+        {
+            name: 'a thread count the caller set',
+            lease: {
+                cpuTokens: 6,
+                estimatedResidentBytes: 8 * GIB,
+            },
+            env: {EVB_PDF_COMBINE_THREADS: '3'},
+            expected: '3',
+        },
+    ])('starts the image combiner under a caller lease with $name', async ({
+        lease,
+        env,
+        expected,
+    }) => {
+        const proc = new MockNativeProcess();
+        mocks.spawn.mockReturnValue(proc);
+        const {
+            JobBroker,
+            runNativeCommand,
+        } = await loadConfigured();
+        const resources = {
+            ...lease,
+            nativeProcesses: 1,
+            ioWeight: 1,
+        };
+
+        await new JobBroker(resources).run({
+            ownerId: 'combine',
+            kind: 'combine',
+            priority: 'user',
+            resources,
+        }, async ({onTerminationProof}) => {
+            const result = runNativeCommand('/native/evb-pdf-image-combine', ['--output', '/out.pdf'], {
+                onTerminationProof,
+                ...(env === undefined ? {} : {env}),
+            });
+            await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
+            expect(spawnEnv().EVB_PDF_COMBINE_THREADS).toBe(expected);
+            proc.emit('close', 0, null);
+            return result;
+        });
+    });
+
+    it.each([
+        {
+            name: 'its 512 MiB first thread',
+            capacityBytes: 60 * GIB,
+            charged: 512 * 1024 * 1024,
+        },
+        {
+            name: 'the whole budget of a smaller broker',
+            capacityBytes: 256 * 1024 * 1024,
+            charged: 256 * 1024 * 1024,
+        },
+    ])('charges a standalone image combiner $name and starts it with one thread', async ({
+        capacityBytes,
+        charged,
+    }) => {
+        const combine = new MockNativeProcess();
+        mocks.spawn.mockReturnValueOnce(combine);
+        const {
+            mainJobBroker,
+            runNativeCommand,
+        } = await loadConfigured();
+        mainJobBroker.reconfigureCapacity({
+            cpuTokens: 8,
+            estimatedResidentBytes: capacityBytes,
+            nativeProcesses: 4,
+            ioWeight: 4,
+        });
+
+        const combined = runNativeCommand('/native/evb-pdf-image-combine.exe', []);
+        await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
+        expect(mainJobBroker.getSnapshot().used).toEqual({
+            cpuTokens: 1,
+            estimatedResidentBytes: charged,
+            nativeProcesses: 1,
+            ioWeight: 1,
+        });
+        expect(spawnEnv(0).EVB_PDF_COMBINE_THREADS).toBe('1');
+        combine.emit('close', 0, null);
+        await combined;
+        expect(mainJobBroker.getSnapshot().active).toBe(0);
+    });
+
+    it('leaves the combiner thread count of other tools alone', async () => {
+        const other = new MockNativeProcess(42_425);
+        mocks.spawn.mockReturnValueOnce(other);
+        const {
+            JobBroker,
+            runNativeCommand,
+        } = await loadConfigured();
+        const resources = {
+            cpuTokens: 6,
+            estimatedResidentBytes: 8 * GIB,
+            nativeProcesses: 1,
+            ioWeight: 1,
+        };
+
+        await new JobBroker(resources).run({
+            ownerId: 'qpdf',
+            kind: 'qpdf',
+            priority: 'user',
+            resources,
+        }, async ({onTerminationProof}) => {
+            const qpdf = runNativeCommand('/native/qpdf', [], {onTerminationProof});
+            await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
+            expect(spawnEnv(0).EVB_PDF_COMBINE_THREADS).toBeUndefined();
+            other.emit('close', 0, null);
+            return qpdf;
+        });
+    });
 });

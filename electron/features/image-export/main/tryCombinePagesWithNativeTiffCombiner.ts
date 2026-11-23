@@ -13,6 +13,11 @@ import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { createNativeFallbackTestError } from '@electron/native-tools/createNativeFallbackTestError';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
+import { PDF_IMAGE_COMBINE_THREADS_ENV } from '@electron/native-tools/pdfImageCombineBudget';
+import {
+    chainTerminationProofSink,
+    type TTerminationProofSink,
+} from '@electron/resources/jobBroker';
 import { atomicReplace } from '@electron/utils/atomicReplace';
 import { resolveNativePdfImageCombinePath } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 import { abortErrorFromSignal } from '@electron/utils/abort';
@@ -34,6 +39,9 @@ export async function tryCombinePagesWithNativeTiffCombiner(
     tempOutputPath: string,
     signal?: AbortSignal,
     dpi?: number,
+    onTerminationProof?: TTerminationProofSink,
+    combineThreads?: number,
+    cancelGroup?: string,
 ) {
     if (isNativeTiffCombineDisabled() || pagePaths.length === 0) {
         return false;
@@ -68,9 +76,13 @@ export async function tryCombinePagesWithNativeTiffCombiner(
     try {
         if (signal?.aborted) throw abortErrorFromSignal(signal);
         await writeFile(inputsPath, createNativeInputsFileContents(pagePaths), 'utf8');
-        const ok = await runNativeTiffCombine(binaryPath, tempOutputPath, inputsPath, signal, dpi, (proof) => {
-            terminationProof = proof;
-        });
+        // The proof also reaches the caller's lease, which the combine runs under.
+        const ok = await runNativeTiffCombine(binaryPath, tempOutputPath, inputsPath, signal, dpi, chainTerminationProofSink(
+            onTerminationProof,
+            (proof) => {
+                terminationProof = proof;
+            },
+        ), combineThreads, cancelGroup);
         if (!ok || !existsSync(tempOutputPath)) {
             const testFailure = createNativeFallbackTestError(
                 runtimeConfig.test.nativeTiffCombineEnabled,
@@ -124,7 +136,9 @@ async function runNativeTiffCombine(
     inputsPath: string,
     signal: AbortSignal | undefined,
     dpi: number | undefined,
-    onTerminationProof: (proof: Promise<boolean>) => void,
+    onTerminationProof: TTerminationProofSink,
+    combineThreads?: number,
+    cancelGroup?: string,
 ) {
     try {
         const args = [
@@ -138,12 +152,17 @@ async function runNativeTiffCombine(
         if (typeof dpi === 'number' && Number.isFinite(dpi) && dpi > 0) {
             args.push('--dpi', String(Math.round(dpi)));
         }
+        const env = combineThreads !== undefined && process.env[PDF_IMAGE_COMBINE_THREADS_ENV] === undefined
+            ? { [PDF_IMAGE_COMBINE_THREADS_ENV]: String(Math.max(1, Math.floor(combineThreads))) }
+            : undefined;
         await runNativeToolCommand(binaryPath, args, {
             timeoutMs: NATIVE_TIFF_COMBINE_TIMEOUT_MS,
             commandLabel: 'evb-pdf-image-combine(tiff)',
             maxStdoutBytes: 1024,
             maxStderrBytes: 8_192,
             onTerminationProof,
+            ...(cancelGroup ? { cancelGroup } : {}),
+            ...(env ? { env } : {}),
             ...(signal ? { signal } : {}),
         });
         return true;

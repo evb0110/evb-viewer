@@ -10,7 +10,10 @@ import {
     classifyScanCleanupPreviewError as classifyScanCleanupError,
     scanCleanupScratchShortfall,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
-import { createStableJobBrokerOwnerId } from '@electron/resources/jobBroker';
+import {
+    createStableJobBrokerOwnerId,
+    type TTerminationProofSink,
+} from '@electron/resources/jobBroker';
 import { getErrorMessage } from '@electron/utils/error';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import {
@@ -37,6 +40,7 @@ import type {
     IScanCleanupPreviewOwnerRetention,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {
+    bindScanCleanupTerminationProof,
     isPreviewCancellation,
     previewIdentityKey,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
@@ -236,40 +240,41 @@ export function scanCleanupPreviewRenderingOwner(
         signal: AbortSignal,
         options: IScanCleanupPreviewRequest['options'],
         rasterMaxPixels: number | undefined,
-        run: () => Promise<T>,
+        run: (onTerminationProof?: TTerminationProofSink) => Promise<T>,
     ) => {
         signal.throwIfAborted();
-        const acquire = dependencies.acquirePreviewLease;
-        if (!acquire) throw new Error('Scan cleanup preview requires injected admission capability');
-        let lease: {release: () => boolean};
+        const runWithLease = dependencies.runWithPreviewLease;
+        if (!runWithLease) throw new Error('Scan cleanup preview requires injected admission capability');
         for (;;) {
             const attempt = new AbortController();
             const abortAttempt = () => attempt.abort(signal.reason);
             signal.addEventListener('abort', abortAttempt, {once: true});
             admission.reissue = () => attempt.abort(PREVIEW_ADMISSION_REISSUED);
             try {
-                lease = await acquire(
+                return await runWithLease(
                     documentPrefix,
                     admission.visibility,
                     attempt.signal,
                     options,
                     rasterMaxPixels,
+                    onTerminationProof => {
+                        admission.granted = true;
+                        signal.removeEventListener('abort', abortAttempt);
+                        admission.reissue = null;
+                        return run(onTerminationProof);
+                    },
                 );
-                admission.granted = true;
-                break;
             } catch (error) {
-                signal.throwIfAborted();
-                // Anything but a readmission is the request's own failure.
-                if (attempt.signal.reason !== PREVIEW_ADMISSION_REISSUED) throw error;
+                if (!admission.granted) {
+                    signal.throwIfAborted();
+                    // Anything but a readmission is the request's own failure.
+                    if (attempt.signal.reason === PREVIEW_ADMISSION_REISSUED) continue;
+                }
+                throw error;
             } finally {
                 signal.removeEventListener('abort', abortAttempt);
                 admission.reissue = null;
             }
-        }
-        try {
-            return await run();
-        } finally {
-            lease.release();
         }
     };
     // Request identity is the page and the content that would be rendered, not
@@ -498,13 +503,13 @@ export function scanCleanupPreviewRenderingOwner(
                         context.signal,
                         request.options,
                         rasterPolicy.rasterMaxPixels,
-                        async () => {
+                        async onTerminationProof => {
                             const result = await scanCleanupPreviewRenderer(
                                 materialized,
                                 context.signal,
                                 rawRasterRetention,
                                 baseAnalysisCache,
-                                dependencies,
+                                bindScanCleanupTerminationProof(dependencies, onTerminationProof),
                                 raw => sender.send(SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onPreviewRaw, raw),
                                 scratchPath,
                                 baseAnalysisPins,

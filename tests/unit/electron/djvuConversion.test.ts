@@ -303,6 +303,7 @@ const {
 const { PdfCombineCapabilityError } = await import('@electron/image/pdfCombineErrors');
 const {
     configureMainJobBroker,
+    JobBroker,
     mainJobBroker,
 } = await import('@electron/resources/jobBroker');
 
@@ -692,15 +693,38 @@ describe('convertDjvuToPdfFile', () => {
         }
     });
 
-    it('preserves unproven termination through canceled image rendering', async () => {
+    it('preserves unproven termination through canceled image rendering under the caller lease', async () => {
         mocks.terminateDetachedChildProcess.mockResolvedValueOnce(false);
         mocks.setSpawnMode('hang-ranges');
-        const rendering = renderDjvuPageToImage('/input.djvu', '/page.ppm', 1, 'image-cancel');
+        const resources = {
+            cpuTokens: 1,
+            estimatedResidentBytes: 128 * 1024 * 1024,
+            nativeProcesses: 1,
+            ioWeight: 2,
+        };
+        // A caller's own broker: the lease stays charged for good below.
+        const callerBroker = new JobBroker(resources);
+        const rendering = callerBroker.run({
+            ownerId: 'image-cancel',
+            kind: 'djvu-image-export-page',
+            priority: 'user',
+            resources,
+        }, async ({onTerminationProof}) => {
+            const result = await renderDjvuPageToImage('/input.djvu', '/page.ppm', 1, 'image-cancel', {onTerminationProof});
+            expect(result.success).toBe(false);
+            throw result.cause;
+        });
         await vi.waitFor(() => expect(mocks.spawnCalls.length).toBe(1));
         await cancelConversion('image-cancel');
-        const result = await rendering;
-        expect(result.success).toBe(false);
-        expect(getUnprovenNativeTerminationDetail(result.cause)).toContain('not proven dead');
+        const failure = await rendering.catch((error: unknown) => error);
+        expect(getUnprovenNativeTerminationDetail(failure)).toContain('not proven dead');
+        // The render ran under the caller's lease and took none of its own;
+        // that lease stays charged while its child may still be alive.
+        expect(callerBroker.getSnapshot()).toMatchObject({
+            active: 1,
+            used: resources,
+        });
+        expect(mainJobBroker.getSnapshot().active).toBe(0);
     });
 
     it('renders requested DjVu page modes through registered ddjvu processes', async () => {

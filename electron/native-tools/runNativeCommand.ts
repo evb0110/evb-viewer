@@ -1,5 +1,8 @@
 import type { ChildProcessByStdio } from 'child_process';
-import { isAbsolute } from 'node:path';
+import {
+    basename,
+    isAbsolute,
+} from 'node:path';
 import {
     createManagedScratchTempDir,
     removeManagedScratchTempDir,
@@ -48,6 +51,18 @@ import {
     watchPopplerMemory,
     withPopplerMemoryLimit,
 } from '@electron/native-tools/popplerMemoryLimit';
+import {
+    PDF_IMAGE_COMBINE_BINARY,
+    PDF_IMAGE_COMBINE_THREADS_ENV,
+    resolvePdfImageCombineResidentBytes,
+    resolvePdfImageCombineThreads,
+} from '@electron/native-tools/pdfImageCombineBudget';
+import {
+    getConfiguredMainJobBroker,
+    getJobBrokerLeaseForProofSink,
+    type IJobBrokerLease,
+    type IJobResourceVector,
+} from '@electron/resources/jobBroker';
 
 export interface IRunCommandOptions {
     cwd?: string;
@@ -73,6 +88,13 @@ export interface IRunCommandOptions {
     onStderr?: (chunk: string) => void;
     onSpawn?: (pid: number, hasExited: () => boolean, binaryPath?: string) => void;
     onClose?: () => void;
+    /**
+     * Receives the child's termination proof, always before the command
+     * rejects with an unproven termination. A proof sink from a broker `run`,
+     * or one chained from it with `chainTerminationProofSink`, also names the
+     * lease the caller holds, so the command runs under that lease, which
+     * stays charged until the proof, instead of taking its own.
+     */
     onTerminationProof?: (proof: Promise<boolean>) => void;
     /** Written to the child's stdin with backpressure, then closed. */
     stdin?: AsyncIterable<string>;
@@ -86,94 +108,97 @@ const NATIVE_COMMAND_SCRATCH_PREFIX = 'native-command-';
 const nativeProcessTelemetryLog = createLogger('native-process-telemetry');
 let activeNativeProcessCount = 0;
 const DEFAULT_NATIVE_COMMAND_TIMEOUT_MS = 15 * 60 * 1_000;
-const MAX_CONCURRENT_NATIVE_COMMANDS = 8;
-const MAX_QUEUED_NATIVE_COMMANDS = 128;
-const NATIVE_COMMAND_ADMISSION_TIMEOUT_MS = 30_000;
+// One native child: a core, a process slot and modest memory. Commands whose
+// caller holds a lease run under it and are not charged again.
+const NATIVE_COMMAND_RESOURCES: Readonly<IJobResourceVector> = {
+    cpuTokens: 1,
+    estimatedResidentBytes: 128 * 1024 * 1024,
+    nativeProcesses: 1,
+    ioWeight: 1,
+};
 
-interface INativeCommandAdmissionWaiter {
-    resolve: (release: () => void) => void;
-    reject: (error: Error) => void;
-    signal?: AbortSignal | undefined;
-    abort?: (() => void) | undefined;
-    timeout: NodeJS.Timeout;
+function getCommandBinaryName(command: string) {
+    return basename(command).toLowerCase().replace(/\.exe$/u, '');
 }
 
-let activeNativeCommandAdmissions = 0;
-const nativeCommandAdmissionWaiters: INativeCommandAdmissionWaiter[] = [];
-
-function createNativeCommandAdmissionRelease() {
-    let released = false;
-    return () => {
-        if (released) {
-            return;
-        }
-        released = true;
-        activeNativeCommandAdmissions = Math.max(0, activeNativeCommandAdmissions - 1);
-        pumpNativeCommandAdmissionWaiters();
+/**
+ * The image combiner encodes pages on as many threads as the lease running it
+ * grants cores, and no more than its memory holds one prepared image per
+ * thread. A caller or operator that set the thread count keeps it.
+ */
+function withLeaseCommandEnv(
+    command: string,
+    options: IRunCommandOptions,
+    lease: Pick<IJobBrokerLease, 'resources'> | undefined,
+): IRunCommandOptions {
+    if (
+        lease === undefined
+        || getCommandBinaryName(command) !== PDF_IMAGE_COMBINE_BINARY
+        || options.env?.[PDF_IMAGE_COMBINE_THREADS_ENV] !== undefined
+        || ((options.includeProcessEnv ?? true) && process.env[PDF_IMAGE_COMBINE_THREADS_ENV] !== undefined)
+    ) {
+        return options;
+    }
+    const threads = resolvePdfImageCombineThreads(lease.resources);
+    return {
+        ...options,
+        env: {
+            ...options.env,
+            [PDF_IMAGE_COMBINE_THREADS_ENV]: String(threads),
+        },
     };
 }
 
-function admitNativeCommandNow() {
-    activeNativeCommandAdmissions += 1;
-    return createNativeCommandAdmissionRelease();
-}
-
-function cleanupNativeCommandAdmissionWaiter(waiter: INativeCommandAdmissionWaiter) {
-    clearTimeout(waiter.timeout);
-    if (waiter.signal && waiter.abort) {
-        waiter.signal.removeEventListener('abort', waiter.abort);
+/**
+ * Runs the command under the lease its caller holds or, in the process whose
+ * host profile sized the main broker, under its own leaf lease. The lease
+ * stays charged until the child is proven gone.
+ */
+async function runNativeCommandUnderLease(
+    command: string,
+    args: string[],
+    options: IRunCommandOptions,
+    heldLease: IJobBrokerLease | undefined,
+): Promise<IProcessResult> {
+    const {signal} = options;
+    const broker = heldLease === undefined ? getConfiguredMainJobBroker() : null;
+    if (broker === null) {
+        return runNativeCommandCore(command, args, withLeaseCommandEnv(command, options, heldLease));
     }
-}
-
-function pumpNativeCommandAdmissionWaiters() {
-    while (
-        activeNativeCommandAdmissions < MAX_CONCURRENT_NATIVE_COMMANDS
-        && nativeCommandAdmissionWaiters.length > 0
-    ) {
-        const waiter = nativeCommandAdmissionWaiters.shift()!;
-        cleanupNativeCommandAdmissionWaiter(waiter);
-        if (waiter.signal?.aborted) {
-            waiter.reject(abortErrorFromSignal(waiter.signal));
-            continue;
-        }
-        waiter.resolve(admitNativeCommandNow());
-    }
-}
-
-export function acquireNativeCommandAdmission(signal?: AbortSignal) {
+    const isImageCombine = getCommandBinaryName(command) === PDF_IMAGE_COMBINE_BINARY;
     if (signal?.aborted) {
-        return Promise.reject(abortErrorFromSignal(signal));
+        throw abortErrorFromSignal(signal);
     }
-    if (activeNativeCommandAdmissions < MAX_CONCURRENT_NATIVE_COMMANDS) {
-        return admitNativeCommandNow();
+    let admitted = false;
+    try {
+        return await broker.run({
+            ownerId: `native-command:${options.cancelGroup ?? getCommandBinaryName(command)}`,
+            kind: 'native-command',
+            priority: 'user',
+            admissionClass: 'leaf',
+            resources: {
+                ...NATIVE_COMMAND_RESOURCES,
+                ...(isImageCombine
+                    ? {estimatedResidentBytes: resolvePdfImageCombineResidentBytes(broker.getSnapshot().capacity)}
+                    : {}),
+            },
+            ...(signal === undefined ? {} : {signal}),
+        }, ({
+            lease,
+            onTerminationProof,
+        }) => {
+            admitted = true;
+            return runNativeCommandCore(command, args, {
+                ...withLeaseCommandEnv(command, options, lease),
+                onTerminationProof: (proof) => {
+                    onTerminationProof(proof);
+                    options.onTerminationProof?.(proof);
+                },
+            });
+        });
+    } catch (error) {
+        throw !admitted && signal?.aborted ? abortErrorFromSignal(signal) : error;
     }
-    if (nativeCommandAdmissionWaiters.length >= MAX_QUEUED_NATIVE_COMMANDS) {
-        return Promise.reject(new Error('Native command queue is full; retry after active work finishes'));
-    }
-    return new Promise<() => void>((resolve, reject) => {
-        const waiter: INativeCommandAdmissionWaiter = {
-            resolve,
-            reject,
-            signal,
-            timeout: setTimeout(() => {
-                const index = nativeCommandAdmissionWaiters.indexOf(waiter);
-                if (index >= 0) nativeCommandAdmissionWaiters.splice(index, 1);
-                cleanupNativeCommandAdmissionWaiter(waiter);
-                reject(new Error('Timed out waiting for native command capacity'));
-            }, NATIVE_COMMAND_ADMISSION_TIMEOUT_MS),
-        };
-        if (signal) {
-            waiter.abort = () => {
-                const index = nativeCommandAdmissionWaiters.indexOf(waiter);
-                if (index >= 0) nativeCommandAdmissionWaiters.splice(index, 1);
-                cleanupNativeCommandAdmissionWaiter(waiter);
-                reject(abortErrorFromSignal(signal));
-            };
-            signal.addEventListener('abort', waiter.abort, {once: true});
-        }
-        waiter.timeout.unref();
-        nativeCommandAdmissionWaiters.push(waiter);
-    });
 }
 
 type TNativeProcess = ChildProcessByStdio<Writable | null, Readable, Readable>;
@@ -313,9 +338,10 @@ export async function runNativeCommand(
     args: string[],
     options: IRunCommandOptions = {},
 ): Promise<IProcessResult> {
+    const heldLease = getJobBrokerLeaseForProofSink(options.onTerminationProof);
     const appTempNamespace = runtimeConfig.appTempNamespace;
     if (!appTempNamespace || !/^[a-z\d][a-z\d-]{0,63}$/u.test(appTempNamespace) || !isAbsolute(command)) {
-        return runNativeCommandCore(command, args, options);
+        return runNativeCommandUnderLease(command, args, options, heldLease);
     }
     const namespacePath = getAppTempNamespacePathForNamespace(appTempNamespace);
     const scratchPath = await createManagedScratchTempDir(NATIVE_COMMAND_SCRATCH_PREFIX, namespacePath);
@@ -353,7 +379,7 @@ export async function runNativeCommand(
         return scratchCleanup;
     };
     try {
-        const result = await runNativeCommandCore(command, args, {
+        const result = await runNativeCommandUnderLease(command, args, {
             ...options,
             env: {
                 ...options.env,
@@ -389,7 +415,7 @@ export async function runNativeCommand(
                 void cleanupScratchIfProven();
                 options.onTerminationProof?.(proof);
             },
-        });
+        }, heldLease);
         await cleanupScratchIfProven();
         // Registering the child reads its identity through a short-lived
         // probe process. The command settles only after that probe has, or a
@@ -405,15 +431,11 @@ export async function runNativeCommand(
     }
 }
 
-async function runNativeCommandCore(
+function runNativeCommandCore(
     command: string,
     args: string[],
     options: IRunCommandOptions,
 ): Promise<IProcessResult> {
-    const admission = acquireNativeCommandAdmission(options.signal);
-    const releaseAdmission = typeof admission === 'function'
-        ? admission
-        : await admission;
     const {
         cwd,
         env,
@@ -770,6 +792,13 @@ async function runNativeCommandCore(
         }
 
         processErrorHandler = (error) => {
+            // Once termination is under way its proof settles this run. A
+            // child `error`, such as a failed kill, says nothing about whether
+            // the tree died, and settling on it would release the lease first.
+            if (pendingTerminationError) {
+                log?.('warn', `${context.displayName} reported an error during termination: ${error.message}`);
+                return;
+            }
             const message = `${context.displayName} failed to start: ${error.message}`;
             log?.('error', `${message}; cmd=${context.displayCommand}`);
             finalizeReject(new Error(message));
@@ -795,7 +824,7 @@ async function runNativeCommandCore(
                     // result is an absent proof: the close arrived before the
                     // termination request could record what it observed, so this
                     // path has seen nothing that says the tree died.
-                    void (terminationPromise ?? Promise.resolve(false)).then((terminated) => {
+                    void (terminationPromise ?? recordTerminationProof(Promise.resolve(false))).then((terminated) => {
                         if (pendingTerminationError !== terminationError) {
                             return;
                         }
@@ -872,10 +901,6 @@ async function runNativeCommandCore(
                 }
             });
         }
-    }).finally(() => {
-        if (terminationPromise) {
-            void terminationPromise.then(proven => { if (proven) releaseAdmission(); });
-        } else releaseAdmission();
     });
 }
 

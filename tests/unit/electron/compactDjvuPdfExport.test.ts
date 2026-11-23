@@ -527,7 +527,7 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
         });
     });
 
-    it('does not convert unproven native termination into a compact fallback result', async () => {
+    it('does not convert unproven native termination into a compact fallback result and keeps the combine lease until proof', async () => {
         setDjvuDump([{
             pageNumber: 1,
             pageBytes: 32_705,
@@ -538,10 +538,19 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
             new Error('native compact combiner tree is still running'),
             'native compact combiner process tree was not proven dead',
         );
-        mocks.runRegisteredDjvuProcess.mockResolvedValueOnce({
-            success: false,
-            error: 'DjVu conversion canceled',
-            cause: terminationError,
+        const combinerGone = Promise.withResolvers<boolean>();
+        mocks.runRegisteredDjvuProcess.mockImplementationOnce(async (
+            _processId: string,
+            _command: string,
+            _args: string[],
+            options?: {onTerminationProof?: (proof: Promise<boolean>) => void},
+        ) => {
+            options?.onTerminationProof?.(combinerGone.promise);
+            return {
+                success: false,
+                error: 'DjVu conversion canceled',
+                cause: terminationError,
+            };
         });
 
         await expect(buildCompactDjvuAwarePdfFromDjvu({
@@ -554,6 +563,21 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
             pageSizes: pageSizes(1),
             pages: [1],
         })).rejects.toBe(terminationError);
+
+        // The combine lease, budgeted for the combiner's first thread, stays
+        // charged until the combiner is proven gone.
+        expect(mainJobBroker.getSnapshot()).toMatchObject({
+            active: 1,
+            used: {
+                estimatedResidentBytes: Math.min(512 * 1024 * 1024, mainJobBroker.getSnapshot().capacity.estimatedResidentBytes),
+                nativeProcesses: 1,
+            },
+        });
+        combinerGone.resolve(true);
+        await vi.waitFor(() => expect(mainJobBroker.getSnapshot()).toMatchObject({
+            active: 0,
+            used: {nativeProcesses: 0},
+        }));
     });
 
     it('keeps progress moving during native PDF assembly', async () => {

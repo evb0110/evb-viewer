@@ -62,8 +62,13 @@ import type {
     IPdfMrcLayers,
     IScanCleanupDetectionResultStore,
     IScanCleanupPageRasterSource,
+    TScanCleanupRenderPage,
     TScanCleanupRunSidecar,
 } from '@evb/scan-cleanup/core/types';
+import {
+    chainTerminationProofSink,
+    type TTerminationProofSink,
+} from '@electron/resources/jobBroker';
 
 
 import type {
@@ -445,20 +450,23 @@ export interface IScanCleanupPreviewDependencies {
         backgroundOutputPath: string,
         signal: AbortSignal,
         log: TWorkerLog,
+        onTerminationProof?: TTerminationProofSink,
     ) => Promise<IPdfMrcLayers | null>;
-    acquireDetectionLease?: (
+    runWithDetectionLease?: <T>(
         jobId: string,
         signal: AbortSignal,
         rasterPolicy: IScanCleanupRasterAdmissionPolicy,
-        options?: IScanCleanupOptions,
-    ) => Promise<{release: () => boolean}>;
-    acquirePreviewLease?: (
+        options: IScanCleanupOptions | undefined,
+        work: (onTerminationProof?: TTerminationProofSink) => Promise<T>,
+    ) => Promise<T>;
+    runWithPreviewLease?: <T>(
         ownerId: string,
         visibility: TPreviewVisibility,
         signal: AbortSignal,
-        options?: IScanCleanupOptions,
-        rasterMaxPixels?: number,
-    ) => Promise<{release: () => boolean}>;
+        options: IScanCleanupOptions | undefined,
+        rasterMaxPixels: number | undefined,
+        work: (onTerminationProof?: TTerminationProofSink) => Promise<T>,
+    ) => Promise<T>;
     getSourceStatIdentity?: (sourcePdfPath: string) => Promise<string>;
     materializeWorkingCopy: typeof ensureWorkingCopyMaterialized;
     materializeRequest: <T extends IScanCleanupPreviewRequest | IScanCleanupDetectionRequest>(
@@ -479,7 +487,7 @@ export type IScanCleanupRasterDependencies = Pick<IScanCleanupPreviewDependencie
     | 'resolveQpdfBinary'>;
 
 export type IScanCleanupDetectionOwnerDependencies = Pick<IScanCleanupPreviewDependencies,
-    | 'acquireDetectionLease' | 'getPdftoppmBinary' | 'fileSystem' | 'resolveRasterAdmissionPolicy'
+    | 'runWithDetectionLease' | 'getPdftoppmBinary' | 'fileSystem' | 'resolveRasterAdmissionPolicy'
     | 'getTempDir' | 'renderPage' | 'renderPagePpm' | 'renderPageBatch' | 'getAvailableScratchBytes'
     | 'resolveBinary' | 'runSidecar' | 'materializeWorkingCopy' | 'materializeRequest'>;
 
@@ -494,7 +502,7 @@ export type IScanCleanupPreviewOwnerRetention = IScanCleanupRenderingRetention &
 >;
 
 export type IScanCleanupRenderingDependencies = Pick<IScanCleanupPreviewDependencies,
-    | 'acquirePreviewLease' | 'prefetchLeaseTimeoutMs' | 'extractMrcLayers' | 'mainJobScratch'
+    | 'runWithPreviewLease' | 'prefetchLeaseTimeoutMs' | 'extractMrcLayers' | 'mainJobScratch'
     | 'resolveRasterAdmissionPolicy'
     | 'getPageSizeStore' | 'getTempDir' | 'resolveBinary' | 'runSidecar'
     | 'getPdftoppmBinary' | 'renderPage' | 'renderPagePpm' | 'getPageCount'
@@ -502,6 +510,110 @@ export type IScanCleanupRenderingDependencies = Pick<IScanCleanupPreviewDependen
     | 'detectSourceDpi' | 'detectRasterPages'
     | 'isRasterDetectionAvailable' | 'getSourceStatIdentity' | 'materializeWorkingCopy' | 'materializeRequest' | 'readFile'
     | 'stat' | 'getAvailableScratchBytes' | 'fileSystem'> & {nativeAllowedPathRoot?: string;};
+
+function chainProof(
+    outer: TTerminationProofSink,
+    inner: TTerminationProofSink | undefined,
+): TTerminationProofSink {
+    return inner === undefined ? outer : chainTerminationProofSink(outer, inner);
+}
+
+/**
+ * Binds an owning broker lease's proof sink onto every native-spawning
+ * dependency of a detection or preview run so nested commands run under that
+ * lease rather than competing for the broker's single leaf escape slot.
+ */
+export function bindScanCleanupTerminationProof<
+    TDeps extends Pick<
+        IScanCleanupPreviewDependencies,
+        'getTempDir' | 'renderPage' | 'renderPagePpm' | 'runSidecar'
+    > & Partial<Pick<
+        IScanCleanupPreviewDependencies,
+        'extractMrcLayers' | 'nativeAllowedPathRoot' | 'renderPageBatch'
+    >>,
+>(
+    dependencies: TDeps,
+    onTerminationProof: TTerminationProofSink | undefined,
+): TDeps {
+    if (onTerminationProof === undefined) {
+        return dependencies;
+    }
+    const wrapRenderPage = (render: TScanCleanupRenderPage): TScanCleanupRenderPage => (
+        paths,
+        log,
+        pageNumber,
+        sourcePdfPath,
+        outputPath,
+        dpi,
+        popplerEnv,
+        signal,
+        crop,
+        limits,
+        renderBox,
+        annotations,
+        innerProof,
+    ) => render(
+        paths,
+        log,
+        pageNumber,
+        sourcePdfPath,
+        outputPath,
+        dpi,
+        popplerEnv,
+        signal,
+        crop,
+        limits,
+        renderBox,
+        annotations,
+        chainProof(onTerminationProof, innerProof),
+    );
+    return {
+        ...dependencies,
+        renderPage: wrapRenderPage(dependencies.renderPage),
+        renderPagePpm: wrapRenderPage(dependencies.renderPagePpm),
+        ...(dependencies.renderPageBatch === undefined
+            ? {}
+            : {
+                renderPageBatch: input => dependencies.renderPageBatch!({
+                    ...input,
+                    onTerminationProof: chainProof(onTerminationProof, input.onTerminationProof),
+                }),
+            }),
+        ...(dependencies.extractMrcLayers === undefined
+            ? {}
+            : {
+                extractMrcLayers: (
+                    sourcePdfPath,
+                    pageNumber,
+                    selectionMaskOutputPath,
+                    backgroundOutputPath,
+                    signal,
+                    log,
+                    innerProof,
+                ) => dependencies.extractMrcLayers!(
+                    sourcePdfPath,
+                    pageNumber,
+                    selectionMaskOutputPath,
+                    backgroundOutputPath,
+                    signal,
+                    log,
+                    chainProof(onTerminationProof, innerProof),
+                ),
+            }),
+        runSidecar: (binaryPath, manifestPath, signal, log, onProgress, options) => dependencies.runSidecar(
+            binaryPath,
+            manifestPath,
+            signal,
+            log,
+            onProgress,
+            {
+                allowedPathRoot: dependencies.nativeAllowedPathRoot ?? dependencies.getTempDir(),
+                ...options,
+                onTerminationProof: chainProof(onTerminationProof, options?.onTerminationProof),
+            },
+        ),
+    };
+}
 
 // Turning a page cancels the render of the page being left. That is the normal
 // course of a session, not a failure, so it answers the invoke instead of

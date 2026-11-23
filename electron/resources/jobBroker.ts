@@ -1,6 +1,9 @@
 import { clamp } from 'es-toolkit/math';
 import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
-import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
+import { createLogger } from '@electron/utils/createLogger';
+import { getErrorMessage } from '@electron/utils/error';
+
+const logger = createLogger('job-broker');
 
 const MIB = 1024 * 1024;
 const GIB = 1024 * MIB;
@@ -33,7 +36,17 @@ export const MAIN_JOB_BROKER_INTERACTIVE_RESERVE: Readonly<IJobResourceVector> =
 };
 
 export type TJobBrokerPriority = 'visible' | 'foreground' | 'user' | 'background';
-export type TJobBrokerAdmissionClass = 'bulk' | 'interactive';
+/**
+ * `bulk` work shares the sustained capacity, `interactive` work may also use
+ * the bounded reserve. A `leaf` never waits for another lease while it holds
+ * its own, as a single native command does. Its caller may already hold a
+ * lease the broker cannot see, so a leaf is admitted like bulk work, or,
+ * while some other lease is running and no other leaf is, past the capacity:
+ * waiting for capacity that its own caller holds would never end. That
+ * escape needs the processes charged to be within the process budget, so
+ * leaves kept charged for children not proven gone overrun it by at most one.
+ */
+export type TJobBrokerAdmissionClass = 'bulk' | 'interactive' | 'leaf';
 
 export interface IJobResourceVector {
     cpuTokens: number;
@@ -56,6 +69,57 @@ export interface IJobBrokerLease {
     readonly token: string;
     readonly resources: IJobResourceVector;
     release: () => boolean;
+    /**
+     * Lowers the charge to a smaller vector without a moment uncharged, as a
+     * worker that keeps its memory but gives back its core does.
+     */
+    shrink: (resources: IJobResourceVector) => boolean;
+}
+
+export type TTerminationProofSink = (proof: Promise<boolean>) => void;
+
+export interface IJobBrokerRunContext {
+    /**
+     * Keeps the lease charged until every recorded native child is proven
+     * gone. Passing it to a native command also tells the command that it
+     * runs under this lease, so it does not ask the broker for another.
+     */
+    onTerminationProof: TTerminationProofSink;
+    readonly lease: IJobBrokerLease;
+}
+
+// The proof sink a `run` hands its work names the lease that work holds.
+const runLeasesByProofSink = new WeakMap<TTerminationProofSink, {
+    broker: JobBroker;
+    lease: IJobBrokerLease;
+}>();
+
+/** The active lease whose `run` created this proof sink, if any. */
+export function getJobBrokerLeaseForProofSink(sink: TTerminationProofSink | undefined) {
+    const entry = sink === undefined ? undefined : runLeasesByProofSink.get(sink);
+    return entry?.broker.isActive(entry.lease) ? entry.lease : undefined;
+}
+
+/**
+ * A sink that records each proof locally and forwards it to the caller's
+ * sink, still naming the lease the caller's sink names.
+ */
+export function chainTerminationProofSink(
+    outer: TTerminationProofSink | undefined,
+    own: TTerminationProofSink,
+): TTerminationProofSink {
+    if (outer === undefined) {
+        return own;
+    }
+    const chained: TTerminationProofSink = (proof) => {
+        own(proof);
+        outer(proof);
+    };
+    const entry = runLeasesByProofSink.get(outer);
+    if (entry !== undefined) {
+        runLeasesByProofSink.set(chained, entry);
+    }
+    return chained;
 }
 
 // Broker ownership is an admission/fairness identity, not a work identifier.
@@ -96,6 +160,13 @@ const ZERO_RESOURCES: Readonly<IJobResourceVector> = {
     nativeProcesses: 0,
     ioWeight: 0,
 };
+
+const RESOURCE_DIMENSIONS = [
+    'cpuTokens',
+    'estimatedResidentBytes',
+    'nativeProcesses',
+    'ioWeight',
+] as const satisfies ReadonlyArray<keyof IJobResourceVector>;
 
 const PRIORITY_RANK: Record<TJobBrokerPriority, number> = {
     visible: 0,
@@ -145,6 +216,10 @@ function createAbortError(signal: AbortSignal) {
 
 export class JobBroker {
     private readonly active = new Map<string, IActiveJob>();
+    // Leases whose work has ended but whose native children are not yet
+    // proven gone. They stay charged and wait for no one.
+    private readonly retained = new Set<string>();
+    private readonly memoryReclaimers = new Set<() => void>();
     private readonly queue: IQueuedJob[] = [];
     private counter = 0;
     private readonly agingIntervalMs: number;
@@ -228,6 +303,8 @@ export class JobBroker {
                 const [queued] = this.queue.splice(index, 1);
                 queued?.removeAbortListener();
                 reject(createAbortError(request.signal!));
+                // A blocked head that leaves may have held back runnable work.
+                this.dispatch();
             };
             request.signal?.addEventListener('abort', handleAbort, {once: true});
             this.queue.push({
@@ -244,30 +321,77 @@ export class JobBroker {
 
     async run<T>(
         request: IJobBrokerRequest,
-        work: (context: {onTerminationProof: (proof: Promise<boolean>) => void}) => Promise<T>,
+        work: (context: IJobBrokerRunContext) => Promise<T>,
     ): Promise<T> {
         const lease = await this.acquire(request);
-        const terminationProofs: Array<Promise<boolean>> = [];
-        const onTerminationProof = (proof: Promise<boolean>) => {
-            terminationProofs.push(proof.catch(() => false));
+        let pendingProofs = 0;
+        let hasUnprovenProof = false;
+        let workSettled = false;
+        const onTerminationProof: TTerminationProofSink = (proof) => {
+            pendingProofs += 1;
+            void proof.catch(() => false).then((proven) => {
+                pendingProofs -= 1;
+                if (!proven) {
+                    hasUnprovenProof = true;
+                }
+                if (workSettled && pendingProofs === 0 && !hasUnprovenProof) {
+                    lease.release();
+                }
+            });
         };
+        runLeasesByProofSink.set(onTerminationProof, {
+            broker: this,
+            lease,
+        });
+        let workStarted = false;
         try {
             request.signal?.throwIfAborted();
-            const result = await work({onTerminationProof});
-            lease.release();
-            return result;
-        } catch (error) {
-            if (getUnprovenNativeTerminationDetail(error) === undefined) {
+            workStarted = true;
+            return await work({
+                onTerminationProof,
+                lease,
+            });
+        } finally {
+            workSettled = true;
+            const hasOutstandingOrFailedProof = pendingProofs > 0 || hasUnprovenProof;
+            // Only a lease whose own native child has a pending or unprovable
+            // proof stays charged for it. A sibling abort reason without any
+            // recorded child proof releases immediately.
+            if (!workStarted || !hasOutstandingOrFailedProof) {
                 lease.release();
-            } else if (terminationProofs.length > 0) {
-                void Promise.all(terminationProofs).then((results) => {
-                    if (results.every(Boolean)) {
-                        lease.release();
-                    }
-                });
+            } else if (this.active.has(lease.token)) {
+                this.retained.add(lease.token);
+                this.dispatch();
             }
-            throw error;
         }
+    }
+
+    /**
+     * Called when queued work waits for memory, so owners of idle caches,
+     * such as warm OCR workers, can end them and release what they hold.
+     */
+    registerMemoryReclaimer(reclaim: () => void) {
+        this.memoryReclaimers.add(reclaim);
+        return () => {
+            this.memoryReclaimers.delete(reclaim);
+        };
+    }
+
+    isActive(lease: Pick<IJobBrokerLease, 'token'>) {
+        return this.active.has(lease.token);
+    }
+
+    /**
+     * Runs admission again, for an owner whose idle cache became reclaimable
+     * without any lease changing, so queued work short of memory can reclaim it.
+     */
+    recheck() {
+        this.dispatch();
+    }
+
+    /** Whether this request still waits in the queue; false once granted, rejected or removed. */
+    isQueued(request: IJobBrokerRequest) {
+        return this.queue.some(queued => queued.request === request);
     }
 
     release(token: string) {
@@ -276,6 +400,7 @@ export class JobBroker {
             return false;
         }
         this.active.delete(token);
+        this.retained.delete(token);
         this.accountLease(active, subtractResources);
         this.dispatch();
         return true;
@@ -295,6 +420,8 @@ export class JobBroker {
             queued.removeAbortListener();
             queued.reject(new Error(reason));
         }
+        // A blocked head that leaves may have held back runnable work.
+        this.dispatch();
     }
 
     getSnapshot() {
@@ -309,10 +436,41 @@ export class JobBroker {
         };
     }
 
+    private shrink(token: string, resources: IJobResourceVector) {
+        const active = this.active.get(token);
+        if (!active) {
+            return false;
+        }
+        validateResourceVector(resources);
+        if (!this.fitsWithin(resources, active.resources)) {
+            throw new RangeError(`Lease ${token} can only shrink`);
+        }
+        this.accountLease(active, subtractResources);
+        active.resources = {...resources};
+        this.accountLease(active, addResources);
+        this.dispatch();
+        return true;
+    }
+
     private dispatch() {
         while (this.queue.length > 0) {
             const grantableIndex = this.findNextGrantableIndex();
             if (grantableIndex < 0) {
+                if (this.queue.some(queued => this.isShortOfMemory(queued.request))) {
+                    for (const reclaim of Array.from(this.memoryReclaimers)) {
+                        try {
+                            reclaim();
+                        } catch (error) {
+                            let message = 'Unknown error';
+                            try {
+                                message = getErrorMessage(error);
+                            } catch {
+                                // Null-prototype or hostile thrown objects must not abort broker dispatch.
+                            }
+                            logger.warn('Job broker memory reclaimer failed', {error: message});
+                        }
+                    }
+                }
                 return;
             }
             const [next] = this.queue.splice(grantableIndex, 1);
@@ -321,8 +479,9 @@ export class JobBroker {
             }
             next.removeAbortListener();
             const token = `job-${next.id}`;
-            const active = {
+            const active: IActiveJob = {
                 ...next.request,
+                resources: {...next.request.resources},
                 token,
             };
             this.active.set(token, active);
@@ -330,7 +489,9 @@ export class JobBroker {
             let released = false;
             next.resolve({
                 token,
-                resources: {...next.request.resources},
+                get resources() {
+                    return {...active.resources};
+                },
                 release: () => {
                     if (released) {
                         return false;
@@ -338,6 +499,7 @@ export class JobBroker {
                     released = true;
                     return this.release(token);
                 },
+                shrink: resources => !released && this.shrink(token, resources),
             });
         }
     }
@@ -352,11 +514,40 @@ export class JobBroker {
         }
     }
 
+    /**
+     * The best queued request runs as soon as it fits. While it does not, a
+     * smaller one may run ahead only when the best has neither aged nor a
+     * better priority, when it takes nothing the best needs (interactive work
+     * counted against the total it shares with the best, bulk work also
+     * against the bulk budget), or when it is a leaf escaping a lease that
+     * may be waiting for it. A stream of small jobs, interactive or not,
+     * therefore cannot keep a large one waiting once that one has aged.
+     */
     private findNextGrantableIndex() {
+        let waitingIndex = -1;
+        for (let index = 0; index < this.queue.length; index += 1) {
+            const candidate = this.queue[index];
+            if (!candidate || this.isOwnerLimited(candidate.request)) {
+                continue;
+            }
+            const waiting = waitingIndex >= 0 ? this.queue[waitingIndex] : undefined;
+            if (!waiting || this.compareQueued(candidate, waiting) < 0) {
+                waitingIndex = index;
+            }
+        }
+        const waiting = waitingIndex >= 0 ? this.queue[waitingIndex] : undefined;
+        if (waiting && this.canGrant(waiting.request)) {
+            return waitingIndex;
+        }
         let bestIndex = -1;
         for (let index = 0; index < this.queue.length; index += 1) {
             const candidate = this.queue[index];
-            if (!candidate || !this.canGrant(candidate.request)) {
+            if (
+                !candidate
+                || index === waitingIndex
+                || !this.canGrant(candidate.request)
+                || (waiting !== undefined && !this.mayRunAhead(candidate, waiting))
+            ) {
                 continue;
             }
             const best = bestIndex >= 0 ? this.queue[bestIndex] : undefined;
@@ -365,6 +556,78 @@ export class JobBroker {
             }
         }
         return bestIndex;
+    }
+
+    private mayRunAhead(candidate: IQueuedJob, waiting: IQueuedJob) {
+        const waitingIsProtected = this.getAgeSteps(waiting) >= 1
+            || this.getEffectivePriorityRank(waiting) < this.getEffectivePriorityRank(candidate);
+        if (!waitingIsProtected) {
+            return true;
+        }
+        if (this.canEscapeAsLeaf(candidate.request)) {
+            return true;
+        }
+        return !this.takesWhatWaitingNeeds(candidate.request, waiting.request);
+    }
+
+    // Whether running the candidate uses any dimension the waiting request
+    // would then no longer find room in. Interactive work is charged to the
+    // total only, bulk work to the total and the bulk budget.
+    private takesWhatWaitingNeeds(candidate: IJobBrokerRequest, waiting: IJobBrokerRequest) {
+        const totalLimit = addResources(this.capacity, this.interactiveReserve);
+        const checkBulk = waiting.admissionClass !== 'interactive' && candidate.admissionClass !== 'interactive';
+        return RESOURCE_DIMENSIONS.some(dimension => candidate.resources[dimension] > 0 && (
+            this.usedResources[dimension] + candidate.resources[dimension] + waiting.resources[dimension]
+                > totalLimit[dimension]
+            || (checkBulk && this.usedBulkResources[dimension] + candidate.resources[dimension]
+                + waiting.resources[dimension] > this.capacity[dimension])
+        ));
+    }
+
+    private isOwnerLimited(request: IJobBrokerRequest) {
+        return request.perOwnerLimit !== undefined
+            && this.getOwnerActiveCount(request.ownerId, request.kind) >= request.perOwnerLimit;
+    }
+
+    private isShortOfMemory(request: IJobBrokerRequest) {
+        const bytes = request.resources.estimatedResidentBytes;
+        return this.usedResources.estimatedResidentBytes + bytes
+            > this.capacity.estimatedResidentBytes + this.interactiveReserve.estimatedResidentBytes
+            || (request.admissionClass !== 'interactive'
+                && this.usedBulkResources.estimatedResidentBytes + bytes > this.capacity.estimatedResidentBytes);
+    }
+
+    // A leaf may pass the capacity + interactive reserve only while a lease
+    // that may be waiting for it runs and no other leaf runs, and only by one
+    // process: the escape asks for at most one, and the processes charged with
+    // it stay within capacity + interactive reserve + 1.
+    private canEscapeAsLeaf(request: IJobBrokerRequest) {
+        if (
+            request.admissionClass !== 'leaf'
+            || request.resources.nativeProcesses > 1
+            || this.usedResources.nativeProcesses + request.resources.nativeProcesses
+                > this.capacity.nativeProcesses + this.interactiveReserve.nativeProcesses + 1
+        ) {
+            return false;
+        }
+        let runningNonLeaves = 0;
+        for (const active of this.active.values()) {
+            if (this.retained.has(active.token)) {
+                continue;
+            }
+            if (active.admissionClass === 'leaf') {
+                return false;
+            }
+            if (
+                active.resources.cpuTokens === 0
+                && active.resources.nativeProcesses === 0
+                && active.resources.ioWeight === 0
+            ) {
+                continue;
+            }
+            runningNonLeaves += 1;
+        }
+        return runningNonLeaves > 0;
     }
 
     private compareQueued(left: IQueuedJob, right: IQueuedJob) {
@@ -378,19 +641,22 @@ export class JobBroker {
         return leftOwnerLoad - rightOwnerLoad || left.id - right.id;
     }
 
-    private getEffectivePriorityRank(item: IQueuedJob) {
-        const ageSteps = this.agingIntervalMs > 0
+    private getAgeSteps(item: IQueuedJob) {
+        return this.agingIntervalMs > 0
             ? Math.floor(Math.max(0, this.now() - item.enqueuedAt) / this.agingIntervalMs)
             : 0;
-        return Math.max(0, PRIORITY_RANK[item.request.priority] - ageSteps);
+    }
+
+    private getEffectivePriorityRank(item: IQueuedJob) {
+        return Math.max(0, PRIORITY_RANK[item.request.priority] - this.getAgeSteps(item));
     }
 
     private canGrant(request: IJobBrokerRequest) {
-        if (
-            request.perOwnerLimit !== undefined
-            && this.getOwnerActiveCount(request.ownerId, request.kind) >= request.perOwnerLimit
-        ) {
+        if (this.isOwnerLimited(request)) {
             return false;
+        }
+        if (this.canEscapeAsLeaf(request)) {
+            return true;
         }
         const proposedTotal = addResources(this.usedResources, request.resources);
         if (!this.fitsWithin(proposedTotal, addResources(this.capacity, this.interactiveReserve))) {
@@ -418,49 +684,80 @@ export class JobBroker {
 
 }
 
+// The system, the renderer and the app's own heap keep 2 GiB until 15 % is
+// more, at about 13.3 GiB of RAM; from there they keep 15 %, at most 4 GiB
+// (reached at about 26.7 GiB). A 4 GiB host keeps 2 GiB and gives 2 GiB to
+// jobs, an 8 GiB host keeps 2 GiB and gives 6 GiB. Hosts below 4 GiB keep half.
+const SMALL_HOST_FREE_RESERVE_BYTES = 2 * GIB;
+const MAX_FREE_RESERVE_BYTES = 4 * GIB;
+// The memory one concurrent native process is budgeted, as for the largest
+// single job.
+const NATIVE_PROCESS_MEMORY_BUDGET_BYTES = MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES.estimatedResidentBytes;
+
 export function resolveMainJobBrokerCapacity(
     profile: IHostResourceProfileSnapshot,
 ): IJobResourceVector {
     const cpuCount = Math.max(1, profile.logicalCpus);
     const totalMemoryBytes = Math.max(0, profile.totalRamBytes);
-    const freeReserveBytes = clamp(totalMemoryBytes * 0.15, GIB, 4 * GIB);
-    const cpuTokens = clamp(
-        Math.floor(cpuCount * 0.75),
+    const freeReserveBytes = clamp(
+        totalMemoryBytes * 0.15,
+        Math.min(totalMemoryBytes / 2, SMALL_HOST_FREE_RESERVE_BYTES),
+        MAX_FREE_RESERVE_BYTES,
+    );
+    const estimatedResidentBytes = Math.max(
+        MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES.estimatedResidentBytes,
+        totalMemoryBytes - freeReserveBytes,
+    );
+    const cpuTokens = Math.max(
         MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES.cpuTokens,
-        16,
+        Math.floor(cpuCount * 0.75),
     );
-    const nativeProcesses = clamp(
-        Math.floor(cpuCount / 2),
+    // Native processes scale with both cores and the memory each is budgeted.
+    // An unknown memory size leaves the CPU bound alone.
+    const memoryProcessBound = totalMemoryBytes > 0
+        ? Math.floor(estimatedResidentBytes / NATIVE_PROCESS_MEMORY_BUDGET_BYTES)
+        : Number.POSITIVE_INFINITY;
+    const nativeProcesses = Math.max(
         MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES.nativeProcesses,
-        8,
+        Math.min(Math.floor(cpuCount / 2), memoryProcessBound),
     );
+    const tierNativeProcesses = profile.tier === 'low'
+        ? MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES.nativeProcesses
+        : Math.max(nativeProcesses, profile.tier === 'medium' ? 2 : 3);
     return {
         cpuTokens: profile.performanceMode === 'low'
             ? Math.min(cpuTokens, 2)
             : cpuTokens,
-        estimatedResidentBytes: Math.max(
-            MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES.estimatedResidentBytes,
-            totalMemoryBytes - freeReserveBytes,
-        ),
+        estimatedResidentBytes,
         // DjVu export/print nests a conversion lease inside an output-slot
         // lease with an all-zero resource vector. The outer lease still owns
         // the workflow and counts toward its per-owner limit, but consumes no
         // capacity, so nested admission cannot deadlock below any process
         // capacity.
-        nativeProcesses: profile.tier === 'low'
-            ? 2
-            : Math.max(nativeProcesses, profile.tier === 'medium' ? 2 : 3),
+        nativeProcesses: tierNativeProcesses,
         // A weight of four is used by supported bulk save and combine jobs.
-        // Keep that work admissible on low-core hosts while
-        // still allowing additional I/O concurrency on larger machines.
+        // Each native command weighs one, so I/O admits at least as many
+        // processes as the process budget does.
         ioWeight: profile.tier === 'low'
-            ? 4
-            : clamp(Math.floor(cpuCount / 2), MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES.ioWeight, 8),
+            ? MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES.ioWeight
+            : Math.max(MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES.ioWeight, tierNativeProcesses),
     };
 }
 
+let mainJobBrokerConfigured = false;
+
 export function configureMainJobBroker(profile: IHostResourceProfileSnapshot) {
     mainJobBroker.reconfigureCapacity(resolveMainJobBrokerCapacity(profile));
+    mainJobBrokerConfigured = true;
+}
+
+/**
+ * The main broker once the host profile has sized it. Worker threads and
+ * utility processes never configure their copy: the work they run was
+ * admitted by the lease the main process holds for it.
+ */
+export function getConfiguredMainJobBroker() {
+    return mainJobBrokerConfigured ? mainJobBroker : null;
 }
 
 export const mainJobBroker = new JobBroker(MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES, {

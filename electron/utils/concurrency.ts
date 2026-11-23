@@ -29,9 +29,7 @@ export function getOcrConcurrency(targetCount: number) {
     if (configured) {
         return clamp(configured, 1, safeTargetCount);
     }
-    const cpuCount = getCpuCount();
-    const defaultConcurrency = Math.min(cpuCount, 8);
-    return clamp(defaultConcurrency, 1, safeTargetCount);
+    return clamp(getCpuCount(), 1, safeTargetCount);
 }
 
 export async function forEachConcurrent<T>(
