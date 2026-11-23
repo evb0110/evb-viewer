@@ -1954,11 +1954,13 @@ fn prepare_render_planes(
     } = input;
     let rasterization_started = Instant::now();
     let tonal_render_source = normalized;
-    // A colour page publishes its RGB raster; the gray twin is never encoded, so
-    // the only question it answered — blankness — moves to the analysis level.
-    let skips_gray_twin = options.output_mode == OutputMode::Color
-        && color_source.is_some()
-        && !render_plan.has_dewarp();
+    // A colour page publishes its RGB raster, and polarity-only B&W OCR only
+    // inspects or emits `rendered_source_gray`; neither consumes `rendered_gray`.
+    let skips_gray_twin_for_ocr_polarity =
+        options.ocr_polarity_only && options.output_mode == OutputMode::Bw;
+    let skips_gray_twin = !render_plan.has_dewarp()
+        && ((options.output_mode == OutputMode::Color && color_source.is_some())
+            || skips_gray_twin_for_ocr_polarity);
     let (mut rendered_gray, rendered_color, forward_transform, inverse_transform, dewarp_mapping) =
         if render_plan.has_dewarp() {
             let gray = rasterize_inverse_area_with(
@@ -2001,7 +2003,9 @@ fn prepare_render_planes(
                 .inverse()
                 .ok_or("Cleanup transform is not invertible")?;
             (
-                if skips_gray_twin {
+                if skips_gray_twin_for_ocr_polarity {
+                    GrayImage::new(0, 0, 255)
+                } else if skips_gray_twin {
                     GrayImage::new(rendered_width, rendered_height, 255)
                 } else {
                     render_affine_gray(
@@ -2034,12 +2038,14 @@ fn prepare_render_planes(
             map_auxiliary_mask_point(render_plan, mask_scale_x, mask_scale_y, point)
         })
     });
-    if let Some(diagnostics) = text_tone_diagnostics {
-        apply_text_tone_excluding(
-            &mut rendered_gray,
-            diagnostics,
-            rendered_tone_alpha.as_ref(),
-        );
+    if !skips_gray_twin {
+        if let Some(diagnostics) = text_tone_diagnostics {
+            apply_text_tone_excluding(
+                &mut rendered_gray,
+                diagnostics,
+                rendered_tone_alpha.as_ref(),
+            );
+        }
     }
     let (forward_transform, inverse_transform) =
         if let (Some(forward), Some(region)) = (forward_transform, sampled_region) {

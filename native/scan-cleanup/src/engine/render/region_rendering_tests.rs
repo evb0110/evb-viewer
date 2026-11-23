@@ -300,6 +300,76 @@ fn raster_stage_keeps_optional_color_and_alpha_planes_aligned() {
 }
 
 #[test]
+fn ocr_polarity_only_bw_preserves_source_pixels_independent_of_normalized_plane() {
+    let mut source = GrayImage::new(64, 48, 224);
+    for y in 8..40 {
+        for x in 10..54 {
+            if (x + y) % 7 == 0 {
+                source.set(x, y, 32);
+            }
+        }
+    }
+    let mismatched_normalized = GrayImage::new(64, 48, 128);
+    let options = CleanupOptions {
+        layout: crate::LayoutMode::Single,
+        output_mode: OutputMode::Bw,
+        normalize_illumination: false,
+        crop_content: false,
+        match_page_size: false,
+        ocr_mode: true,
+        ocr_polarity_only: true,
+        dpi: 300.0,
+        source_dpi: Some(300.0),
+        ..CleanupOptions::default()
+    };
+    let split = crate::split::single_page(source.width(), source.height());
+    let result = run(Input {
+        source: &source,
+        routing_source: &source,
+        normalized: &mismatched_normalized,
+        analysis_normalized: &source,
+        analysis_scale_x: 1.0,
+        analysis_scale_y: 1.0,
+        canonical_routing_sample: &source,
+        canonical_leaf_source: &source,
+        canonical_routing_dpi: options.dpi,
+        calibration: PageCalibration::estimate(&source, options.dpi, CalibrationConfig::default()),
+        color_source: None,
+        analysis_picture_mask: None,
+        faint_stroke_masks: [None, None],
+        faint_core: None,
+        source_picture_mask: None,
+        halftone_zone_mask: None,
+        spatial_tone_mask: None,
+        chroma_picture_mask: None,
+        tone_picture_mask: None,
+        preserve_confirmed_photo_tones: false,
+        use_soft_alpha_foreground: false,
+        tone_preservation_alpha: None,
+        text_mask: None,
+        text_vicinity_mask: None,
+        trusted_foreground_mask: None,
+        options: &options,
+        resolved_output_mode: options.output_mode.into(),
+        source_page_index: 0,
+        split: &split,
+        spread_plan: None,
+        region: Rect::new(0.0, 0.0, source.width() as f64, source.height() as f64),
+        half: PageHalf::Full,
+        cache: None,
+        split_cache_key: None,
+        source_effectively_blank: false,
+        create_mixed_layers: false,
+        create_mixed_composite: false,
+        render_policy: PageRenderPolicy::COMPLETE,
+        timings: &mut PageStageTimings::default(),
+    })
+    .expect("ocr polarity-only region render should succeed");
+
+    assert_eq!(result.image.to_gray().data(), source.data());
+}
+
+#[test]
 fn mask_stage_preserves_overlapping_confirmed_ownership_pixels() {
     let normalized = GrayImage::new(8, 4, 255);
     let mut picture = BinaryImage::new(8, 4);

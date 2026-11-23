@@ -351,13 +351,18 @@ function pngChunk(type: string, data: Uint8Array) {
 }
 
 /**
- * Writes a Poppler PPM as a lossless 8-bit RGB PNG. Poppler's own PNG writer
- * always uses maximum zlib compression, which costs a smooth scanned page tens
- * of seconds; the fastest level costs a fraction of one. Rows stream through
- * the zlib thread pool in bounded blocks, each compressed block becoming one
- * IDAT chunk, so neither the raster nor its PNG is held in memory.
+ * Streams a Poppler PPM through Node's zlib thread pool as a lossless 8-bit RGB
+ * PNG in bounded blocks so neither the raster nor synchronous deflate blocks
+ * the main event loop.
  */
-export async function writePngFromPpm(ppmPath: string, pngPath: string, options: IReadPpmRasterOptions) {
+async function streamPngFromPpm(
+    ppmPath: string,
+    options: IReadPpmRasterOptions,
+    createSink: () => Promise<{
+        write: (chunk: Uint8Array) => Promise<void> | void;
+        close?: () => Promise<void>;
+    }>,
+) {
     assertPpmRasterLimits(options);
     const input = await (options.open ?? defaultOpenFile)(ppmPath, 'r');
     try {
@@ -369,9 +374,9 @@ export async function writePngFromPpm(ppmPath: string, pngPath: string, options:
         header.writeUInt32BE(inspected.height, 4);
         header[8] = 8;
         header[9] = 2;
-        const output = await open(pngPath, 'w');
+        const sink = await createSink();
         try {
-            await output.write(Buffer.concat([
+            await sink.write(Buffer.concat([
                 PNG_SIGNATURE,
                 pngChunk('IHDR', header),
             ]));
@@ -403,13 +408,13 @@ export async function writePngFromPpm(ppmPath: string, pngPath: string, options:
                 }),
                 async (compressed: AsyncIterable<Buffer>) => {
                     for await (const chunk of compressed) {
-                        await output.write(pngChunk('IDAT', chunk));
+                        await sink.write(pngChunk('IDAT', chunk));
                     }
                 },
             );
-            await output.write(pngChunk('IEND', new Uint8Array()));
+            await sink.write(pngChunk('IEND', new Uint8Array()));
         } finally {
-            await output.close();
+            await sink.close?.();
         }
         const finalStats = await input.stat();
         if (finalStats.size !== inspected.fileSize || fileIdentity(finalStats) !== inspected.fileIdentity) {
@@ -422,4 +427,52 @@ export async function writePngFromPpm(ppmPath: string, pngPath: string, options:
     } finally {
         await input.close();
     }
+}
+
+/**
+ * Writes a Poppler PPM as a lossless 8-bit RGB PNG. Poppler's own PNG writer
+ * always uses maximum zlib compression, which costs a smooth scanned page tens
+ * of seconds; the fastest level costs a fraction of one. Rows stream through
+ * the zlib thread pool in bounded blocks, each compressed block becoming one
+ * IDAT chunk, so neither the raster nor its PNG is held in memory.
+ */
+export async function writePngFromPpm(ppmPath: string, pngPath: string, options: IReadPpmRasterOptions) {
+    return streamPngFromPpm(ppmPath, options, async () => {
+        const output = await open(pngPath, 'w');
+        return {
+            write: async chunk => {
+                await output.write(chunk);
+            },
+            close: () => output.close(),
+        };
+    });
+}
+
+/**
+ * Encodes a Poppler PPM to lossless 8-bit RGB PNG bytes through the streaming
+ * zlib thread pool, rejecting mid-stream if `maxOutputBytes` is exceeded.
+ */
+export async function encodePngFromPpm(
+    ppmPath: string,
+    options: IReadPpmRasterOptions & {maxOutputBytes?: number},
+) {
+    if (
+        options.maxOutputBytes !== undefined
+        && (!Number.isSafeInteger(options.maxOutputBytes) || options.maxOutputBytes < 1)
+    ) {
+        throw new TypeError('PNG output byte limit must be a positive safe integer');
+    }
+    const chunks: Uint8Array[] = [];
+    let totalBytes = 0;
+    const dimensions = await streamPngFromPpm(ppmPath, options, async () => ({write: chunk => {
+        totalBytes += chunk.byteLength;
+        if (options.maxOutputBytes !== undefined && totalBytes > options.maxOutputBytes) {
+            throw new RangeError(`Encoded PNG exceeds ${String(options.maxOutputBytes)} bytes`);
+        }
+        chunks.push(chunk);
+    }}));
+    return {
+        ...dimensions,
+        bytes: Buffer.concat(chunks, totalBytes),
+    };
 }

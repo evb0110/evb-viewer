@@ -6,10 +6,7 @@ import {createPdftoppmPageProgress} from '@electron/native-tools/createPdftoppmP
 import {runNativeCommand} from '@electron/native-tools/runNativeCommand';
 import {getErrorMessage} from '@electron/utils/error';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
-import {
-    readPpmDimensions,
-    writePngFromPpm,
-} from '@evb/scan-cleanup/core/rasterLayerDimensions';
+import {readPpmDimensions} from '@evb/scan-cleanup/core/rasterLayerDimensions';
 import type {TScanCleanupOpenFile} from '@evb/scan-cleanup/core/rasterLayerDimensions';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@evb/scan-cleanup/core/pageBatches';
 import type {
@@ -151,6 +148,7 @@ export function createScanCleanupRasterBatchRenderer(
             }
             const results: IScanCleanupRasterBatchResult[] = [];
             for (const target of input.targets) {
+                input.signal.throwIfAborted();
                 const generatedPath = generatedByPage.get(target.pageNumber);
                 if (generatedPath === undefined) {
                     throw new Error(`Poppler raster batch did not produce page ${String(target.pageNumber)}`);
@@ -165,16 +163,10 @@ export function createScanCleanupRasterBatchRenderer(
                         `PPM raster ${String(dimensions.width)}x${String(dimensions.height)} exceeds limits`,
                     );
                 }
-                const encodedPath = generatedPath.replace(/\.ppm$/u, '.png');
-                // The PPM stays until the scratch directory goes; detection's
-                // admission already reserves two raw copies per page.
-                await writePngFromPpm(generatedPath, encodedPath, {
-                    maxPixels: target.limits.maxPixels,
-                    maxDimensionPx: target.limits.maxDimensionPx,
-                    open: fileSystem.open,
-                    signal: input.signal,
-                });
-                await fileSystem.rename(encodedPath, target.outputPath);
+                // evb-scan-cleanup sniffs P6 magic bytes directly, so handing
+                // Poppler's PPM straight through skips per-page PNG encode and
+                // decode during detection.
+                await fileSystem.rename(generatedPath, target.outputPath);
                 results.push({
                     height: dimensions.height,
                     pageNumber: target.pageNumber,

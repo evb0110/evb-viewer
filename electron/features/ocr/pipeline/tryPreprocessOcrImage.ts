@@ -167,7 +167,7 @@ export async function prepareOcrPageRaster(input: {
 }): Promise<IOcrPageRaster<Uint8Array>> {
     const rendered = await readOcrRasterFile(input.renderedPath);
     if (input.cleanupMode === undefined) return rendered;
-    const cleanedPath = `${input.renderedPath}-clean.png`;
+    const cleanedPath = `${input.renderedPath}-clean.pnm`;
     const pageNumber = requirePageNumber(input.pageNumber);
     let diagnostic: IOcrDiagnostic | undefined;
     try {

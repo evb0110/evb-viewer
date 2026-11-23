@@ -26,10 +26,16 @@ import {
     createScanCleanupRasterBatchRenderer,
     type IScanCleanupRasterBatchFileSystem,
 } from '@electron/features/scan-cleanup/createScanCleanupRasterBatchRenderer';
+import {
+    readPreviewBytes,
+    readPreviewMetadata,
+} from '@electron/features/scan-cleanup/scanCleanupRasterRetentionIo';
+import {encodePngFromPpm} from '@evb/scan-cleanup/core/rasterLayerDimensions';
+import type {IScanCleanupRasterDependencies} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import type {IRunCommandOptions} from '@electron/native-tools/runNativeCommand';
 import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 
-// Keep all 1,024 real PNG encodes and pixel checks without thousands of disk
+// Keep all 1,024 real PPM handoffs and pixel checks without thousands of disk
 // operations. Other cases below still publish through the real filesystem.
 const memoryFiles = vi.hoisted(() => new Map<string, Buffer>());
 vi.mock('fs/promises', async importOriginal => {
@@ -38,19 +44,6 @@ vi.mock('fs/promises', async importOriginal => {
         ...actual,
         readFile: async (...args: Parameters<typeof actual.readFile>) =>
             memoryFiles.get(String(args[0])) ?? actual.readFile(...args),
-        open: async (path: string, flags: string) => {
-            if (!path.replaceAll('\\', '/').startsWith('/memory-raster-batch/')) return actual.open(path, flags);
-            if (flags === 'w') memoryFiles.set(path, Buffer.alloc(0));
-            return {
-                write: async (bytes: Uint8Array) => {
-                    memoryFiles.set(path, Buffer.concat([
-                        memoryFiles.get(path)!,
-                        bytes,
-                    ]));
-                },
-                close: async () => undefined,
-            };
-        },
     };
 });
 
@@ -64,14 +57,16 @@ const PPM = Buffer.concat([
     ]),
 ]);
 
-/** What a reader of the published raster sees: a PNG holding Poppler's pixels. */
+/** What a reader of the published raster sees: Poppler's direct P6 PPM bytes. */
 async function readPublishedPixels(path: string) {
-    const image = decode(await readFile(path));
+    const bytes = await readFile(path);
+    const header = 'P6\n1 1\n255\n';
+    expect(bytes.subarray(0, header.length).toString('ascii')).toBe(header);
     return {
-        width: image.width,
-        height: image.height,
-        channels: image.channels,
-        pixels: [...image.data],
+        width: 1,
+        height: 1,
+        channels: 3,
+        pixels: [...bytes.subarray(header.length)],
     };
 }
 
@@ -559,5 +554,108 @@ describe('scan cleanup raster batch renderer', () => {
         for (const target of targets) {
             expect(await readPublishedPixels(target.outputPath)).toEqual(PUBLISHED_PIXEL);
         }
+    });
+
+    it('reads detection-retained PPM rasters for both path-only preview metadata and preview PNG bytes', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-raster-batch-ppm-preview-'));
+        roots.push(root);
+        const retainedPath = join(root, 'page-1-150.png');
+        const ppm = Buffer.concat([
+            Buffer.from('P6\n2 1\n255\n', 'ascii'),
+            Buffer.from([
+                12,
+                34,
+                56,
+                200,
+                150,
+                100,
+            ]),
+        ]);
+        await writeFile(retainedPath, ppm);
+        const deps = {
+            open: (path: string, flags: 'r') => fsOpen(path, flags),
+            readFile: (path: string) => readFile(path),
+            stat: (path: string) => stat(path),
+        } as unknown as IScanCleanupRasterDependencies;
+
+        await expect(readPreviewMetadata(retainedPath, deps)).resolves.toEqual({
+            width: 2,
+            height: 1,
+            sizeBytes: ppm.byteLength,
+        });
+        const pngBytes = await readPreviewBytes(retainedPath, deps);
+        const decoded = decode(pngBytes);
+        expect({
+            width: decoded.width,
+            height: decoded.height,
+            channels: decoded.channels,
+            pixels: [...decoded.data],
+        }).toEqual({
+            width: 2,
+            height: 1,
+            channels: 3,
+            pixels: [
+                12,
+                34,
+                56,
+                200,
+                150,
+                100,
+            ],
+        });
+    });
+
+    it('streams preview PPM-to-PNG conversion asynchronously without blocking the event loop and enforces byte caps', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-raster-batch-ppm-stream-'));
+        roots.push(root);
+        const retainedPath = join(root, 'page-1-150.png');
+        // Multi-block high-entropy PPM (~6 MiB) so streaming spans multiple 1 MiB zlib thread-pool blocks.
+        const width = 1_400;
+        const height = 1_400;
+        const header = Buffer.from(`P6\n${String(width)} ${String(height)}\n255\n`, 'ascii');
+        const pixels = Buffer.allocUnsafe(width * height * 3);
+        let state = 0x1234_5678;
+        for (let index = 0; index < pixels.byteLength; index += 1) {
+            state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
+            pixels[index] = state >>> 24;
+        }
+        await writeFile(retainedPath, Buffer.concat([
+            header,
+            pixels,
+        ]));
+        const readFileSpy = vi.fn((path: string) => readFile(path));
+        const deps = {
+            open: (path: string, flags: 'r') => fsOpen(path, flags),
+            readFile: readFileSpy,
+            stat: (path: string) => stat(path),
+        } as unknown as IScanCleanupRasterDependencies;
+
+        let timerFiredBeforeCompletion = false;
+        let finished = false;
+        const encodePromise = readPreviewBytes(retainedPath, deps).finally(() => {
+            finished = true;
+        });
+        await new Promise<void>(resolve => {
+            setTimeout(() => {
+                timerFiredBeforeCompletion = !finished;
+                resolve();
+            }, 0);
+        });
+        const pngBytes = await encodePromise;
+
+        expect(timerFiredBeforeCompletion).toBe(true);
+        expect(readFileSpy).not.toHaveBeenCalled();
+        const decoded = decode(pngBytes);
+        expect(decoded.width).toBe(width);
+        expect(decoded.height).toBe(height);
+        expect(decoded.channels).toBe(3);
+        expect(Buffer.compare(Buffer.from(decoded.data), pixels)).toBe(0);
+
+        await expect(encodePngFromPpm(retainedPath, {
+            maxPixels: width * height,
+            maxDimensionPx: width,
+            maxOutputBytes: 1_024,
+            open: (path: string, flags: 'r') => fsOpen(path, flags),
+        })).rejects.toThrow('Encoded PNG exceeds 1024 bytes');
     });
 });

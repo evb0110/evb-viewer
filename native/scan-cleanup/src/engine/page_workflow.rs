@@ -888,8 +888,8 @@ impl OutputPlane<'_> {
         }
     }
 
-    pub(crate) fn write_atomic(&self, path: &Path) -> Result<(), String> {
-        match (&self.pixels, self.file) {
+    pub(crate) fn write_atomic_as(&self, path: &Path, file: PlaneFile) -> Result<(), String> {
+        match (&self.pixels, file) {
             (PlanePixels::Gray(image), PlaneFile::Png) => png::write_gray_atomic(path, image),
             (PlanePixels::Gray(image), PlaneFile::Ppm) => {
                 raster::write_gray_ppm_atomic(path, image)
@@ -902,10 +902,21 @@ impl OutputPlane<'_> {
             (PlanePixels::Bilevel(image), PlaneFile::Pbm) => {
                 pbm::write_p4_bilevel_atomic(path, image)
             }
-            _ => Err(self.unsupported()),
+            _ => Err(format!(
+                "The {:?} plane has no {:?} encoding",
+                self.role, file
+            )),
         }
     }
 
+    #[cfg(any(
+        test,
+        all(
+            target_family = "wasm",
+            target_os = "unknown",
+            feature = "wasm-exports"
+        )
+    ))]
     fn unsupported(&self) -> String {
         format!("The {:?} plane has no {:?} encoding", self.role, self.file)
     }
@@ -1528,6 +1539,17 @@ impl FilePlaneSink<'_> {
             }
         }
     }
+
+    fn composite_file(path: &Path, pixels: &PlanePixels<'_>, default: PlaneFile) -> PlaneFile {
+        match path.extension().and_then(|extension| extension.to_str()) {
+            Some(extension) if extension.eq_ignore_ascii_case("pnm") => match pixels {
+                PlanePixels::Rgb(_) => PlaneFile::Ppm,
+                PlanePixels::Gray(_) => PlaneFile::Pgm,
+                PlanePixels::Bilevel(_) => default,
+            },
+            _ => default,
+        }
+    }
 }
 
 impl PlaneSink for FilePlaneSink<'_> {
@@ -1535,7 +1557,12 @@ impl PlaneSink for FilePlaneSink<'_> {
         let path = self
             .path(plane.role)
             .ok_or_else(|| format!("No destination for the {:?} plane", plane.role))?;
-        plane.write_atomic(path)?;
+        let file = if plane.role == PlaneRole::Composite {
+            Self::composite_file(path, &plane.pixels, plane.file)
+        } else {
+            plane.file
+        };
+        plane.write_atomic_as(path, file)?;
         self.published.push(plane.role);
         Ok(())
     }
@@ -1961,7 +1988,7 @@ mod moved_tests {
             foreground_dpi: None,
         };
         let plane = plan.background_plane(&layers);
-        plane.write_atomic(&path).unwrap();
+        plane.write_atomic_as(&path, plane.file).unwrap();
         assert_eq!(plane.encode().unwrap(), fs::read(&path).unwrap());
         let bytes = fs::read(&path).unwrap();
         let header = b"P5\n2 1\n255\n";

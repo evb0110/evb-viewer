@@ -11,6 +11,7 @@ import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationPr
 const mocks = vi.hoisted(() => ({
     runOcrCommand: vi.fn(),
     readFile: vi.fn(),
+    rm: vi.fn(),
     stat: vi.fn(),
     log: vi.fn(),
     decodeMetadata: vi.fn(),
@@ -20,6 +21,7 @@ vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolComm
 vi.mock('fs/promises', () => ({
     stat: mocks.stat,
     readFile: mocks.readFile,
+    rm: mocks.rm,
 }));
 vi.mock('@contracts/scan-cleanup/nativeArtifactCodecs', () => ({decodeNativeScanCleanupOutputMetadataJson: mocks.decodeMetadata}));
 
@@ -33,6 +35,7 @@ describe('tryPreprocessOcrImage', () => {
         });
         mocks.stat.mockResolvedValue({ size: 1024 });
         mocks.readFile.mockResolvedValue('{}');
+        mocks.rm.mockResolvedValue(undefined);
         mocks.decodeMetadata.mockReturnValue({inverseTransform: null});
     });
 
@@ -267,5 +270,52 @@ describe('tryPreprocessOcrImage', () => {
             undefined,
             '/bin/evb-scan-cleanup',
         )).rejects.toBe(abortError);
+    });
+
+    it('requests and consumes raw PNM output directly in prepareOcrPageRaster', async () => {
+        const renderedPpm = Buffer.concat([
+            Buffer.from('P6\n2 1\n255\n', 'ascii'),
+            Buffer.from([
+                10,
+                20,
+                30,
+                240,
+                240,
+                240,
+            ]),
+        ]);
+        const cleanedPgm = Buffer.concat([
+            Buffer.from('P5\n2 1\n255\n', 'ascii'),
+            Buffer.from([
+                0,
+                255,
+            ]),
+        ]);
+        mocks.readFile.mockImplementation(async (path: string) => {
+            if (path === '/tmp/page-1.ppm') return renderedPpm;
+            if (path === '/tmp/page-1.ppm-clean.pnm') return cleanedPgm;
+            if (path === '/tmp/page-1.ppm-clean.pnm.json') return '{}';
+            throw new Error(`Unexpected readFile path: ${path}`);
+        });
+        const {prepareOcrPageRaster} = await import('@electron/features/ocr/pipeline/tryPreprocessOcrImage');
+
+        const result = await prepareOcrPageRaster({
+            renderedPath: '/tmp/page-1.ppm',
+            pageNumber: 1,
+            dpi: 300,
+            cleanupMode: 'polarity-only',
+            scanCleanupBinary: '/bin/evb-scan-cleanup',
+            log: mocks.log,
+            signal: new AbortController().signal,
+        });
+
+        const nativeArgs: string[] = mocks.runOcrCommand.mock.calls[0]?.[1] ?? [];
+        expect(nativeArgs[nativeArgs.indexOf('--output') + 1]).toBe('/tmp/page-1.ppm-clean.pnm');
+        expect(nativeArgs[nativeArgs.indexOf('--metadata') + 1]).toBe('/tmp/page-1.ppm-clean.pnm.json');
+        expect(result.width).toBe(2);
+        expect(result.height).toBe(1);
+        expect(Buffer.from(result.image)).toEqual(cleanedPgm);
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/page-1.ppm-clean.pnm', {force: true});
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/page-1.ppm-clean.pnm.json', {force: true});
     });
 });
