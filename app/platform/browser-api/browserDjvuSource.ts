@@ -29,8 +29,8 @@ export interface IBrowserDjvuSourceLayout {
     hasComponents: boolean;
     /** Reads one whole component as a standalone `AT&T` file. */
     readComponent(request: IDjvuComponentRequest): Promise<Uint8Array>;
-    /** Reads the start of one component, enough for its INFO chunk. */
-    readComponentHead(request: IDjvuComponentRequest): Promise<Uint8Array>;
+    /** Reads the starts of one or more components in one batched layout pass. */
+    readComponentHeads(requests: readonly IDjvuComponentRequest[], signal?: AbortSignal): Promise<Uint8Array[]>;
 }
 
 const IFF_MAGIC = 'AT&T';
@@ -42,7 +42,13 @@ const DIRM_BUNDLED_FLAG = 0x80;
 const COMPONENT_HEAD_BYTES = FORM_HEADER_BYTES + CHUNK_HEADER_BYTES + 10;
 // A component read holds this window, so neighbouring pages and the INFO
 // scan read each stored chunk once instead of once per component.
-export const DJVU_SOURCE_READ_WINDOW_BYTES = 4 * 1024 * 1024;
+const DJVU_SOURCE_READ_WINDOW_BYTES = 4 * 1024 * 1024;
+// Adjacent component heads within this gap share one range read so dense
+// multi-page files avoid per-page round-trips while sparse large-page files
+// read only their 30-byte INFO headers.
+const DJVU_HEAD_COALESCE_GAP_BYTES = 256 * 1024;
+const DJVU_HEAD_BATCH_MAX_BYTES = 16 * 1024 * 1024;
+const DJVU_HEAD_BATCH_MAX_READS = 16;
 
 const asciiDecoder = new TextDecoder('ascii');
 
@@ -86,42 +92,121 @@ function withIffMagic(component: Uint8Array) {
     return output;
 }
 
-/**
- * Serves reads from one cached window. The browser store reads whole stored
- * chunks, so reading neighbouring components through a window keeps a
- * sequential pass over the document at one read per chunk.
- */
-export function createWindowedDjvuReader(
+function abortReason(signal: AbortSignal) {
+    return signal.reason ?? new DOMException('The operation was aborted', 'AbortError');
+}
+
+function awaitWithSignal<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+    if (!signal) {
+        return promise;
+    }
+    if (signal.aborted) {
+        void promise.catch(() => undefined);
+        return Promise.reject(abortReason(signal));
+    }
+    return new Promise<T>((resolve, reject) => {
+        const onAbort = () => {
+            void promise.catch(() => undefined);
+            reject(abortReason(signal));
+        };
+        signal.addEventListener('abort', onAbort, {once: true});
+        promise.then((value) => {
+            signal.removeEventListener('abort', onAbort);
+            resolve(value);
+        }, (error: unknown) => {
+            signal.removeEventListener('abort', onAbort);
+            reject(error);
+        });
+    });
+}
+
+function createWindowedRangeStore(
     readRange: TDjvuRangeReader,
     fileSize: number,
     windowBytes = DJVU_SOURCE_READ_WINDOW_BYTES,
-): TDjvuRangeReader {
+) {
     let window: {
         start: number;
-        bytes: Uint8Array
+        bytes: Uint8Array;
     } | null = null;
-    return async (offset, length) => {
-        if (offset < 0 || length < 0 || offset + length > fileSize) {
-            invalidDjvu(`DjVu component range ${offset}+${length} is outside the ${fileSize}-byte file`);
+    const readExact = async (offset: number, length: number) => {
+        const bytes = await readRange(offset, length);
+        if (bytes.byteLength !== length) {
+            throw new Error(`DjVu source returned ${bytes.byteLength} bytes for a ${length}-byte range`);
         }
-        if (length > windowBytes) {
-            return readRange(offset, length);
-        }
+        return bytes;
+    };
+    const tryReadCached = (offset: number, length: number): Uint8Array | null => {
         if (!window || offset < window.start || offset + length > window.start + window.bytes.byteLength) {
-            const start = Math.floor(offset / windowBytes) * windowBytes;
-            const end = Math.min(fileSize, Math.max(start + windowBytes, offset + length));
-            const bytes = await readRange(start, end - start);
-            if (bytes.byteLength !== end - start) {
-                throw new Error(`DjVu source returned ${bytes.byteLength} bytes for a ${end - start}-byte range`);
-            }
-            window = {
-                start,
-                bytes,
-            };
+            return null;
         }
         const relative = offset - window.start;
         return window.bytes.slice(relative, relative + length);
     };
+    return {
+        readExact,
+        tryReadCached,
+        readRange: async (offset: number, length: number) => {
+            if (offset < 0 || length < 0 || offset + length > fileSize) {
+                invalidDjvu(`DjVu component range ${offset}+${length} is outside the ${fileSize}-byte file`);
+            }
+            if (length > windowBytes) {
+                return readRange(offset, length);
+            }
+            const cached = tryReadCached(offset, length);
+            if (cached) {
+                return cached;
+            }
+            const start = Math.floor(offset / windowBytes) * windowBytes;
+            const end = Math.min(fileSize, Math.max(start + windowBytes, offset + length));
+            const bytes = await readExact(start, end - start);
+            window = {
+                start,
+                bytes,
+            };
+            const relative = offset - window.start;
+            return window.bytes.slice(relative, relative + length);
+        },
+    };
+}
+
+interface ICoalescedHeadEntry {
+    position: number;
+    offset: number;
+    length: number;
+}
+
+interface ICoalescedHeadSpan {
+    start: number;
+    end: number;
+    entries: ICoalescedHeadEntry[];
+}
+
+function coalesceHeadRanges(targets: readonly ICoalescedHeadEntry[]): ICoalescedHeadSpan[] {
+    if (targets.length === 0) {
+        return [];
+    }
+    const sorted = [...targets].sort((left, right) => left.offset - right.offset);
+    const spans: ICoalescedHeadSpan[] = [];
+    for (const entry of sorted) {
+        const entryEnd = entry.offset + entry.length;
+        const current = spans.at(-1);
+        if (
+            current
+            && entry.offset - current.end <= DJVU_HEAD_COALESCE_GAP_BYTES
+            && Math.max(current.end, entryEnd) - current.start <= DJVU_SOURCE_READ_WINDOW_BYTES
+        ) {
+            current.end = Math.max(current.end, entryEnd);
+            current.entries.push(entry);
+        } else {
+            spans.push({
+                start: entry.offset,
+                end: entryEnd,
+                entries: [entry],
+            });
+        }
+    }
+    return spans;
 }
 
 interface IDjvmLayout {
@@ -203,7 +288,8 @@ export async function readBrowserDjvuSourceLayout(options: {
     if (fileSize < FILE_HEADER_BYTES) {
         invalidDjvu('The file is too short to be a DjVu document');
     }
-    const readRange = createWindowedDjvuReader(options.readRange, fileSize);
+    const rangeStore = createWindowedRangeStore(options.readRange, fileSize);
+    const { readRange } = rangeStore;
     const header = await readRange(0, FILE_HEADER_BYTES);
     if (readAscii(header, 0, 8) !== 'AT&TFORM') {
         invalidDjvu('The file is not a DjVu document');
@@ -219,7 +305,10 @@ export async function readBrowserDjvuSourceLayout(options: {
             documentBytes,
             hasComponents: false,
             readComponent: () => Promise.reject(new Error('A single-page DjVu has no components')),
-            readComponentHead: () => Promise.resolve(head),
+            async readComponentHeads(requests, signal) {
+                signal?.throwIfAborted();
+                return requests.map(() => head);
+            },
         };
     }
 
@@ -238,11 +327,28 @@ export async function readBrowserDjvuSourceLayout(options: {
                 message: 'This DjVu index keeps its pages in separate files; open it together with them.',
             });
         }
+        const readIndirectHead = async ({name}: IDjvuComponentRequest) => (
+            (await componentFiles.readComponent(name, IFF_MAGIC.length + COMPONENT_HEAD_BYTES)).subarray(IFF_MAGIC.length)
+        );
         return {
             documentBytes: await readRange(0, fileSize),
             hasComponents: true,
             readComponent: ({name}) => componentFiles.readComponent(name),
-            readComponentHead: async ({name}) => (await componentFiles.readComponent(name, IFF_MAGIC.length + COMPONENT_HEAD_BYTES)).subarray(IFF_MAGIC.length),
+            async readComponentHeads(requests, signal) {
+                signal?.throwIfAborted();
+                const heads: Uint8Array[] = [];
+                for (let start = 0; start < requests.length; start += DJVU_HEAD_BATCH_MAX_READS) {
+                    signal?.throwIfAborted();
+                    const batch = requests.slice(start, start + DJVU_HEAD_BATCH_MAX_READS);
+                    const batchHeads = await awaitWithSignal(
+                        Promise.all(batch.map(readIndirectHead)),
+                        signal,
+                    );
+                    signal?.throwIfAborted();
+                    heads.push(...batchHeads);
+                }
+                return heads;
+            },
         };
     }
 
@@ -278,9 +384,63 @@ export async function readBrowserDjvuSourceLayout(options: {
             }
             return withIffMagic(await readRange(offset, length));
         },
-        readComponentHead: ({index}) => {
-            const offset = componentOffset(index);
-            return readRange(offset, Math.min(COMPONENT_HEAD_BYTES, fileSize - offset));
+        async readComponentHeads(requests, signal) {
+            signal?.throwIfAborted();
+            if (requests.length === 0) {
+                return [];
+            }
+            const heads = new Array<Uint8Array>(requests.length);
+            const missing: ICoalescedHeadEntry[] = [];
+            for (const [
+                position,
+                request,
+            ] of requests.entries()) {
+                const offset = componentOffset(request.index);
+                const length = Math.min(COMPONENT_HEAD_BYTES, fileSize - offset);
+                const cached = rangeStore.tryReadCached(offset, length);
+                if (cached) {
+                    heads[position] = cached;
+                } else {
+                    missing.push({
+                        position,
+                        offset,
+                        length,
+                    });
+                }
+            }
+            const spans = coalesceHeadRanges(missing);
+            let spanIndex = 0;
+            while (spanIndex < spans.length) {
+                signal?.throwIfAborted();
+                const batch: ICoalescedHeadSpan[] = [];
+                let batchBytes = 0;
+                while (spanIndex < spans.length && batch.length < DJVU_HEAD_BATCH_MAX_READS) {
+                    const span = spans[spanIndex]!;
+                    const spanBytes = span.end - span.start;
+                    if (batch.length > 0 && batchBytes + spanBytes > DJVU_HEAD_BATCH_MAX_BYTES) {
+                        break;
+                    }
+                    batch.push(span);
+                    batchBytes += spanBytes;
+                    spanIndex += 1;
+                }
+                const buffers = await awaitWithSignal(
+                    Promise.all(batch.map(span => rangeStore.readExact(span.start, span.end - span.start))),
+                    signal,
+                );
+                signal?.throwIfAborted();
+                for (const [
+                    batchIndex,
+                    span,
+                ] of batch.entries()) {
+                    const buffer = buffers[batchIndex]!;
+                    for (const entry of span.entries) {
+                        const relative = entry.offset - span.start;
+                        heads[entry.position] = buffer.slice(relative, relative + entry.length);
+                    }
+                }
+            }
+            return heads;
         },
     };
 }

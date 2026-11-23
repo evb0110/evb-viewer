@@ -523,27 +523,463 @@ describe('DjVu document components', () => {
         const ascii = new TextDecoder('ascii');
         expect(ascii.decode(second.subarray(0, 8))).toBe('AT&TFORM');
         expect(ascii.decode(second.subarray(12, 16))).toBe('DJVU');
-        expect(parseDjvuPageHead(await layout.readComponentHead({
+        const [secondHead] = await layout.readComponentHeads([{
             index: 1,
             name: 'high-dpi.djvu',
-        }), 2)).toEqual(sizes[1]);
+        }]);
+        expect(parseDjvuPageHead(secondHead!, 2)).toEqual(sizes[1]);
     });
 
     it('reads every page of a document above the former browser page limits', async () => {
         const manyPages = new Uint8Array(readFileSync('tests/fixtures/djvu/sources/browser-boundary-501-pages.djvu'));
+        const readRange = vi.fn(async (offset: number, length: number) => manyPages.slice(offset, offset + length));
         const layout = await readBrowserDjvuSourceLayout({
             fileSize: manyPages.byteLength,
-            readRange: async (offset, length) => manyPages.slice(offset, offset + length),
+            readRange,
         });
-        const heads = await Promise.all(Array.from({length: 501}, (_, index) => layout.readComponentHead({
+        const readsAfterLayout = readRange.mock.calls.length;
+        const heads = await layout.readComponentHeads(Array.from({length: 501}, (_, index) => ({
             index,
             name: '',
         })));
+        expect(readRange.mock.calls.length).toBe(readsAfterLayout);
         expect(heads.map((head, index) => parseDjvuPageHead(head, index + 1))).toEqual(Array.from({length: 501}, () => ({
             width: 512,
             height: 512,
             dpi: 300,
         })));
+    });
+
+    function buildDjvuPageComponentBytes(size: {
+        width: number;
+        height: number;
+        dpi: number;
+    }, includeMagic = false) {
+        const prefix = includeMagic ? 4 : 0;
+        const bytes = new Uint8Array(prefix + 30);
+        const view = new DataView(bytes.buffer);
+        const writeAscii = (offset: number, text: string) => {
+            for (let index = 0; index < text.length; index += 1) {
+                bytes[offset + index] = text.charCodeAt(index);
+            }
+        };
+        if (includeMagic) {
+            writeAscii(0, 'AT&T');
+        }
+        writeAscii(prefix, 'FORM');
+        view.setUint32(prefix + 4, 22);
+        writeAscii(prefix + 8, 'DJVUINFO');
+        view.setUint32(prefix + 16, 10);
+        view.setUint16(prefix + 20, size.width);
+        view.setUint16(prefix + 22, size.height);
+        bytes[prefix + 24] = 24;
+        bytes[prefix + 25] = 0;
+        view.setUint16(prefix + 26, size.dpi, true);
+        bytes[prefix + 28] = 22;
+        bytes[prefix + 29] = 1;
+        return bytes;
+    }
+
+    function buildSyntheticBundledDjvu(components: Array<{
+        offset: number;
+        size?: {
+            width: number;
+            height: number;
+            dpi: number;
+        };
+    }>, totalSize: number) {
+        const dirmDataLength = 3 + (components.length * 4) + 1;
+        const dirmPadded = 8 + dirmDataLength + (dirmDataLength & 1);
+        const headerBytes = new Uint8Array(16 + dirmPadded);
+        const view = new DataView(headerBytes.buffer);
+        const writeAscii = (offset: number, text: string) => {
+            for (let index = 0; index < text.length; index += 1) {
+                headerBytes[offset + index] = text.charCodeAt(index);
+            }
+        };
+        writeAscii(0, 'AT&TFORM');
+        view.setUint32(8, totalSize - 12);
+        writeAscii(12, 'DJVMDIRM');
+        view.setUint32(20, dirmDataLength);
+        headerBytes[24] = 0x80;
+        view.setUint16(25, components.length);
+        for (const [
+            index,
+            component,
+        ] of components.entries()) {
+            view.setUint32(27 + (index * 4), component.offset);
+        }
+        const componentHeads = new Map<number, Uint8Array>();
+        for (const component of components) {
+            if (component.size) {
+                componentHeads.set(component.offset, buildDjvuPageComponentBytes(component.size));
+            }
+        }
+        return {
+            fileSize: totalSize,
+            readRange(offset: number, length: number) {
+                const output = new Uint8Array(length);
+                if (offset < headerBytes.byteLength) {
+                    const end = Math.min(headerBytes.byteLength, offset + length);
+                    output.set(headerBytes.subarray(offset, end), 0);
+                }
+                for (const [
+                    headOffset,
+                    headBytes,
+                ] of componentHeads) {
+                    const start = Math.max(offset, headOffset);
+                    const end = Math.min(offset + length, headOffset + headBytes.byteLength);
+                    if (start < end) {
+                        output.set(headBytes.subarray(start - headOffset, end - headOffset), start - offset);
+                    }
+                }
+                return output;
+            },
+        };
+    }
+
+    it('batches multi-page bundled page-table reads, filters DIRM flags, preserves order, and caches results', async () => {
+        const expectedSizes = [
+            {
+                width: 640,
+                height: 480,
+                dpi: 72,
+            },
+            {
+                width: 800,
+                height: 600,
+                dpi: 150,
+            },
+            {
+                width: 1024,
+                height: 768,
+                dpi: 300,
+            },
+        ];
+        const fileSize = 12 * 1024 * 1024;
+        // Place page components past the initial 4 MiB header window and out of file order,
+        // interleaved with a shared dictionary (flag 0) and a thumbnail (flag 2).
+        const synthetic = buildSyntheticBundledDjvu([
+            {offset: 4_500_000},
+            {
+                offset: 5_200_000,
+                size: expectedSizes[0]!,
+            },
+            {offset: 5_210_000},
+            {
+                offset: 5_100_000,
+                size: expectedSizes[1]!,
+            },
+            {
+                offset: 9_800_000,
+                size: expectedSizes[2]!,
+            },
+        ], fileSize);
+        const directory = {
+            names: [
+                'shared.djbz',
+                'page-1.djvu',
+                'thumb.djvu',
+                'page-2.djvu',
+                'page-3.djvu',
+            ],
+            flags: [
+                0,
+                1,
+                2,
+                0x81,
+                1,
+            ],
+        };
+        class CustomDirectoryWorker {
+            worker = {postMessage() {}};
+            doc = {evbGetComponentDirectory: () => ({run: async () => directory})};
+            async createDocument() {}
+            terminate() {}
+        }
+        vi.stubGlobal('window', {DjVu: {
+            Worker: CustomDirectoryWorker,
+            DjVuScript: () => undefined,
+        }});
+        vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
+            size: fileSize,
+            modifiedAt: 42,
+        });
+        let inFlight = 0;
+        let maxInFlight = 0;
+        const rangeCalls: Array<{
+            offset: number;
+            length: number;
+        }> = [];
+        const readRangeSpy = vi.spyOn(browserDocumentStore, 'readRange').mockImplementation(async (_ref, offset, length) => {
+            rangeCalls.push({
+                offset,
+                length,
+            });
+            inFlight += 1;
+            maxInFlight = Math.max(maxInFlight, inFlight);
+            await Promise.resolve();
+            inFlight -= 1;
+            return synthetic.readRange(offset, length);
+        });
+
+        const docRef = requireDocumentRef('browser://documents/batched-page-table.djvu');
+        const worker = await createDjvuWorkerFromPath(docRef);
+        try {
+            await expect(getDjvuWorkerPageSizes(worker)).resolves.toEqual(expectedSizes);
+            // Layout read once (0..4 MiB), then page-2 (5_100_000) & page-1 (5_200_000)
+            // coalesce into one 100 KB+30 B span while sparse page-3 (9_800_000) reads its
+            // 30-byte head concurrently in the same batch.
+            expect(rangeCalls).toHaveLength(3);
+            expect(rangeCalls.slice(1)).toEqual([
+                {
+                    offset: 5_100_000,
+                    length: 100_030,
+                },
+                {
+                    offset: 9_800_000,
+                    length: 30,
+                },
+            ]);
+            expect(maxInFlight).toBe(2);
+        } finally {
+            worker.terminate();
+        }
+
+        // Opening the same file version again reuses the cached page table without re-reading heads.
+        const callsBeforeCachedOpen = readRangeSpy.mock.calls.length;
+        const cachedWorker = await createDjvuWorkerFromPath(docRef);
+        try {
+            await expect(getDjvuWorkerPageSizes(cachedWorker)).resolves.toEqual(expectedSizes);
+            // Only the initial header/DIRM window read runs; zero head reads.
+            expect(readRangeSpy.mock.calls.length - callsBeforeCachedOpen).toBe(1);
+        } finally {
+            cachedWorker.terminate();
+        }
+    });
+
+    it('batches indirect component head reads concurrently while preserving page order and skipping non-pages', async () => {
+        const expectedSizes = [
+            {
+                width: 600,
+                height: 800,
+                dpi: 150,
+            },
+            {
+                width: 700,
+                height: 900,
+                dpi: 200,
+            },
+            {
+                width: 800,
+                height: 1000,
+                dpi: 300,
+            },
+        ];
+        const directory = {
+            names: [
+                'shared.djbz',
+                'p1.djvu',
+                'p2.djvu',
+                'p3.djvu',
+            ],
+            flags: [
+                0,
+                1,
+                1,
+                1,
+            ],
+        };
+        const resolvers = new Map<string, () => void>();
+        const started: string[] = [];
+        const pageBytesByName = new Map([
+            [
+                'p1.djvu',
+                buildDjvuPageComponentBytes(expectedSizes[0]!, true),
+            ],
+            [
+                'p2.djvu',
+                buildDjvuPageComponentBytes(expectedSizes[1]!, true),
+            ],
+            [
+                'p3.djvu',
+                buildDjvuPageComponentBytes(expectedSizes[2]!, true),
+            ],
+        ]);
+        const layout = await readBrowserDjvuSourceLayout({
+            fileSize: index.byteLength,
+            readRange: async (offset, length) => index.slice(offset, offset + length),
+            componentFiles: {async readComponent(name) {
+                started.push(name);
+                await new Promise<void>((resolve) => {
+                    resolvers.set(name, resolve);
+                });
+                return pageBytesByName.get(name)!;
+            }},
+        });
+
+        const pageRequests = directory.flags.flatMap((flags, idx) => (
+            (flags & 0x3f) === 1
+                ? [{
+                    index: idx,
+                    name: directory.names[idx]!,
+                }]
+                : []
+        ));
+        const headsPromise = layout.readComponentHeads(pageRequests);
+        await vi.waitFor(() => expect(started).toEqual([
+            'p1.djvu',
+            'p2.djvu',
+            'p3.djvu',
+        ]));
+        // Resolve out of order to confirm result ordering follows request order.
+        resolvers.get('p3.djvu')!();
+        resolvers.get('p1.djvu')!();
+        resolvers.get('p2.djvu')!();
+
+        const heads = await headsPromise;
+        expect(heads.map((head, idx) => parseDjvuPageHead(head, idx + 1))).toEqual(expectedSizes);
+    });
+
+    it('cancels batched page-table reads cleanly and does not poison the page-table cache', async () => {
+        const expectedSize = {
+            width: 640,
+            height: 480,
+            dpi: 100,
+        };
+        const fileSize = 6 * 1024 * 1024;
+        const synthetic = buildSyntheticBundledDjvu([
+            {
+                offset: 5_000_000,
+                size: expectedSize,
+            },
+        ], fileSize);
+        const directory = {
+            names: ['page-1.djvu'],
+            flags: [1],
+        };
+        let terminatedCount = 0;
+        class CancelWorker {
+            worker = {postMessage() {}};
+            doc = {evbGetComponentDirectory: () => ({run: async () => directory})};
+            async createDocument() {}
+            terminate() {
+                terminatedCount += 1;
+            }
+        }
+        vi.stubGlobal('window', {DjVu: {
+            Worker: CancelWorker,
+            DjVuScript: () => undefined,
+        }});
+        vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
+            size: fileSize,
+            modifiedAt: 77,
+        });
+        let blockHeadRead = true;
+        let releaseBlockedHeadRead: (() => void) | null = null;
+        vi.spyOn(browserDocumentStore, 'readRange').mockImplementation(async (_ref, offset, length) => {
+            if (blockHeadRead && offset >= 4 * 1024 * 1024) {
+                await new Promise<void>((resolve) => {
+                    releaseBlockedHeadRead = resolve;
+                });
+            }
+            return synthetic.readRange(offset, length);
+        });
+
+        const docRef = requireDocumentRef('browser://documents/canceled-page-table.djvu');
+        const controller = new AbortController();
+        const canceledOpen = createDjvuWorkerFromPath(docRef, {signal: controller.signal});
+        await vi.waitFor(() => expect(releaseBlockedHeadRead).not.toBeNull());
+        controller.abort();
+        await expect(canceledOpen).rejects.toThrow('DjVu conversion canceled');
+        expect(terminatedCount).toBeGreaterThanOrEqual(1);
+        releaseBlockedHeadRead!();
+
+        // Subsequent non-canceled open must succeed rather than reusing the rejected cache entry.
+        blockHeadRead = false;
+        const retryWorker = await createDjvuWorkerFromPath(docRef);
+        try {
+            await expect(getDjvuWorkerPageSizes(retryWorker)).resolves.toEqual([expectedSize]);
+        } finally {
+            retryWorker.terminate();
+        }
+    });
+
+    it('lets a concurrent browser open succeed when the first caller cancels while sharing a cached page-table scan', async () => {
+        const expectedSize = {
+            width: 800,
+            height: 600,
+            dpi: 150,
+        };
+        const fileSize = 6 * 1024 * 1024;
+        const synthetic = buildSyntheticBundledDjvu([
+            {
+                offset: 5_000_000,
+                size: expectedSize,
+            },
+        ], fileSize);
+        const directory = {
+            names: ['page-1.djvu'],
+            flags: [1],
+        };
+        const terminatedWorkers = new Set<unknown>();
+        let directoryReads = 0;
+        class ConcurrentWorker {
+            worker = {postMessage() {}};
+            doc = {evbGetComponentDirectory: () => ({run: async () => {
+                directoryReads += 1;
+                return directory;
+            }})};
+            async createDocument() {}
+            terminate() {
+                terminatedWorkers.add(this);
+            }
+        }
+        vi.stubGlobal('window', {DjVu: {
+            Worker: ConcurrentWorker,
+            DjVuScript: () => undefined,
+        }});
+        vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
+            size: fileSize,
+            modifiedAt: 88,
+        });
+        let headReadCount = 0;
+        let releaseHeadRead: (() => void) | null = null;
+        vi.spyOn(browserDocumentStore, 'readRange').mockImplementation(async (_ref, offset, length) => {
+            if (offset >= 4 * 1024 * 1024) {
+                headReadCount += 1;
+                await new Promise<void>((resolve) => {
+                    releaseHeadRead = resolve;
+                });
+            }
+            return synthetic.readRange(offset, length);
+        });
+
+        const docRef = requireDocumentRef('browser://documents/concurrent-cancel-page-table.djvu');
+        const firstController = new AbortController();
+        const firstOpen = createDjvuWorkerFromPath(docRef, {signal: firstController.signal});
+        await vi.waitFor(() => expect(releaseHeadRead).not.toBeNull());
+
+        const secondOpen = createDjvuWorkerFromPath(docRef);
+        // Wait until the second caller has read the directory and attached to the shared pageTableCache entry.
+        await vi.waitFor(() => expect(directoryReads).toBe(2));
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(headReadCount).toBe(1);
+
+        firstController.abort();
+        await expect(firstOpen).rejects.toThrow('DjVu conversion canceled');
+        expect(terminatedWorkers.size).toBe(1);
+
+        releaseHeadRead!();
+        const secondWorker = await secondOpen;
+        try {
+            expect(terminatedWorkers.has(secondWorker)).toBe(false);
+            await expect(getDjvuWorkerPageSizes(secondWorker)).resolves.toEqual([expectedSize]);
+            expect(headReadCount).toBe(1);
+        } finally {
+            secondWorker.terminate();
+        }
     });
 });
 
