@@ -158,6 +158,7 @@ export const usePdfViewerSaveTransaction = (
                 expectedUpserts,
                 deletedReplyRefs,
                 preserveSavedBaseline,
+                result.documentRevisionToken,
             ),
             affectedPageIndices: session.affectedPageIndices,
         };

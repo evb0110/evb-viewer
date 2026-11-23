@@ -58,7 +58,7 @@ export function commitPdfAnnotationParseToStore(
             options.selectedTextByPdfRef?.get(pdfAnnotationRefKey(entry.objectNumber, entry.generationNumber)),
         )),
         options.result.foreign.map(mapPdfAnnotationParseForeign),
-        undefined, [], [], options.preserveSavedBaseline,
+        undefined, [], [], options.preserveSavedBaseline, options.result.documentRevisionToken,
     );
     return true;
 }

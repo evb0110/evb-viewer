@@ -25,6 +25,7 @@ import type {
     ITextMarkupSelectionProjection,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {
+    asAnnotationId,
     buildTextMarkupSelectionPlan,
     isReadOnlyAnnotation,
     normalizeAnnotationText,
@@ -159,14 +160,11 @@ function isDirty(entity: AnnotationEntity) {
 }
 
 /**
- * A re-read reads bytes that hold no unsaved edit. A field still at the working
- * baseline takes the parse, such as a rotated page's geometry; a field changed
- * since keeps the edit. A label's rect and rotation go together, and its frame
- * and read-only state are the parser's. A tombstone merges the same way.
+ * `current` with the fields in `unchanged` taken from `parsed`, which ends as
+ * the fields taken. A label's rect and rotation go together, and its frame and
+ * read-only state are the parser's.
  */
-function mergeReread(current: AnnotationEntity, parsed: AnnotationEntity, base: ISavedSemanticEntry | undefined) {
-    if (!base || base.kind !== current.kind || parsed.kind !== current.kind) return current;
-    const unchanged = new Set(semanticFieldsUnchangedSince(current, base.fingerprint));
+export function takeParsedFields(current: AnnotationEntity, parsed: AnnotationEntity, unchanged: Set<string>) {
     const merged = {...current};
     const fields: Record<string, unknown> = merged;
     const read: Record<string, unknown> = {...parsed};
@@ -175,11 +173,23 @@ function mergeReread(current: AnnotationEntity, parsed: AnnotationEntity, base: 
         ['frame', 'readOnly'].forEach(key => unchanged.add(key));
     }
     if (current.kind === 'text-markup' && unchanged.has('quadPoints') && read.selectedText) unchanged.add('selectedText');
+    // Replies and a note's recovery graph are the parser's, read from the same bytes, pages included.
+    ['replies', 'recoveryData'].forEach(key => unchanged.add(key));
     unchanged.forEach((key) => {
         if (key in read) fields[key] = read[key];
         else delete fields[key];
     });
     return merged;
+}
+
+/**
+ * A re-read reads bytes that hold no unsaved edit. A field still at the working
+ * baseline takes the parse, such as a rotated page's geometry; a field changed
+ * since keeps the edit. A tombstone merges the same way.
+ */
+function mergeReread(current: AnnotationEntity, parsed: AnnotationEntity, base: ISavedSemanticEntry | undefined) {
+    if (!base || base.kind !== current.kind || parsed.kind !== current.kind) return current;
+    return takeParsedFields(current, parsed, new Set(semanticFieldsUnchangedSince(current, base.fingerprint)));
 }
 
 /**
@@ -350,6 +360,8 @@ export class AnnotationStore {
     #workingSemanticSnapshot = new Map<AnnotationId, ISavedSemanticEntry>();
     #mutationEpoch = 0;
     #readWholeDocument = false;
+    #readRevision: TDocumentRevisionToken | null = null;
+    #objectsRenumbered = false;
     #batchDepth = 0;
     #batchEmissionPending = false;
     #bulkImportState: IBulkImportState | null = null;
@@ -659,6 +671,8 @@ export class AnnotationStore {
      * document: a parsed annotation that matches an entity on another page, or
      * a parsed thread without a reply this store holds, which may sit on a page
      * the parse did not read.
+     *
+     * `readRevision` names the bytes parsed; null when the caller cannot name them.
      */
     replaceFromDocument(
         entities: readonly AnnotationEntity[],
@@ -667,6 +681,7 @@ export class AnnotationStore {
         expectedUpserts: ReadonlyArray<Pick<AnnotationEntity, 'identity' | 'kind'>> = [],
         deletedReplyRefs: readonly string[] = [],
         preserveSavedBaseline = false,
+        readRevision: TDocumentRevisionToken | null = null,
     ) {
         const scope = pageIndices === undefined ? null : new Set(pageIndices);
         const inScope = (entry: {pageIndex: number}) => scope === null || scope.has(entry.pageIndex);
@@ -678,6 +693,27 @@ export class AnnotationStore {
         let fingerprintCandidates: Map<string, Set<AnnotationId>> | undefined;
         const fingerprintBucketById = new Map<AnnotationId, Set<AnnotationId>>();
         let blankRefCandidates: Map<string, Set<AnnotationId>> | undefined;
+        // A page operation renumbers the document's objects (`remapPages`), so until a read of the whole document
+        // lands, refs and the ids the parser mints from page and object can name other annotations. Each annotation
+        // is then found by what the working bytes hold of it, page included, deletions not yet written as well.
+        const renumbered = this.#objectsRenumbered;
+        let baselineCandidates: Map<string, Set<AnnotationId>> | undefined;
+        const baselineBucketById = new Map<AnnotationId, Set<AnnotationId>>();
+        const workingBaselineId = (entity: AnnotationEntity) => {
+            if (!baselineCandidates) {
+                baselineCandidates = new Map();
+                this.#entities.forEach((current, id) => {
+                    const base = this.#workingSemanticSnapshot.get(id);
+                    if (!base || base.deleted || usedCurrentIds.has(id) || !inScope(current)) return;
+                    const bucket = baselineCandidates!.get(base.fingerprint) ?? new Set<AnnotationId>();
+                    bucket.add(id);
+                    baselineCandidates!.set(base.fingerprint, bucket);
+                    baselineBucketById.set(id, bucket);
+                });
+            }
+            const bucket = baselineCandidates.get(semanticEntityFingerprint(entity));
+            return bucket?.size === 1 ? bucket.values().next().value : undefined;
+        };
         const uniqueFingerprintId = (entity: AnnotationEntity) => {
             if (!fingerprintCandidates) {
                 fingerprintCandidates = new Map();
@@ -727,10 +763,27 @@ export class AnnotationStore {
             const bucket = blankRefCandidates.get(pdfRef);
             return bucket?.size === 1 ? bucket.values().next().value : undefined;
         };
-        for (let entity of entities) {
+        // Every annotation the working bytes hold claims its own parse before a minted id can claim it.
+        const baselineIds = entities.map((entity) => {
+            const baselineId = renumbered ? workingBaselineId(entity) : undefined;
+            if (baselineId !== undefined) {
+                usedCurrentIds.add(baselineId);
+                baselineBucketById.get(baselineId)?.delete(baselineId);
+            }
+            return baselineId;
+        });
+        for (let [index, entity] of entities.entries()) {
             let id = entity.identity.id;
-            if (!this.#entities.has(id)) {
-                const matchedId = referenceId(entity.identity.pdfRef) ?? uniqueFingerprintId(entity);
+            const baselineId = baselineIds[index];
+            const collidingExisting = this.#entities.get(id);
+            if (renumbered && baselineId === undefined && collidingExisting
+                && (usedCurrentIds.has(id) || collidingExisting.deleted || collidingExisting.kind !== entity.kind)) {
+                // Its minted id names another annotation or a tombstone from before renumbering.
+                id = asAnnotationId(crypto.randomUUID());
+                entity = {...entity, identity: {...entity.identity, id}};
+            }
+            if (baselineId !== undefined ? baselineId !== id : !this.#entities.has(id)) {
+                const matchedId = baselineId ?? (renumbered ? undefined : referenceId(entity.identity.pdfRef)) ?? uniqueFingerprintId(entity);
                 if (matchedId !== undefined) {
                     id = matchedId;
                     fingerprintMatchedIds.add(id);
@@ -752,6 +805,7 @@ export class AnnotationStore {
             }
             usedCurrentIds.add(id);
             fingerprintBucketById.get(id)?.delete(id);
+            baselineBucketById.get(id)?.delete(id);
             const currentRef = this.#entities.get(id)?.identity.pdfRef;
             if (currentRef !== undefined) {
                 blankRefCandidates?.get(currentRef)?.delete(id);
@@ -921,6 +975,8 @@ export class AnnotationStore {
             ...foreign.map(record => structuredClone(record)),
         ].sort((left, right) => left.pageIndex - right.pageIndex);
         this.#readWholeDocument ||= !scope;
+        if (!scope) this.#objectsRenumbered = false;
+        this.#readRevision = readRevision;
         this.#mutationEpoch += 1;
         this.#emit();
         return true;
@@ -1036,6 +1092,7 @@ export class AnnotationStore {
                     pageIndex: nextPageIndex,
                 });
         });
+        this.#objectsRenumbered = true;
         this.#rebindIdentities();
         this.#mutationEpoch += 1;
         this.#emit();
@@ -1056,6 +1113,8 @@ export class AnnotationStore {
         this.#replaceAllEntities(state.entities);
         this.#savedSemanticSnapshot = new Map(state.saved);
         this.#workingSemanticSnapshot = new Map(state.working);
+        // A page operation's Undo or Redo restores bytes whose objects the state's refs may not name.
+        this.#objectsRenumbered = true;
         this.#mutationEpoch += 1;
         this.#emit();
         return replaced;
@@ -1218,6 +1277,12 @@ export class AnnotationStore {
     get canRedo() { return this.#history.canRedo; }
     /** A parse of the whole document has fed this store, not only of some pages. */
     get readWholeDocument() { return this.#readWholeDocument; }
+
+    /**
+     * The byte revision whose read last committed here, which the geometry reflects. It stays through a page
+     * operation that publishes new bytes until their read commits; null before a read or when one was unnamed.
+     */
+    get readRevision() { return this.#readRevision; }
 
     #assertNewEntity(entity: AnnotationEntity) {
         if (entity.revision !== 0 || entity.persistedRevision !== -1) {
