@@ -37,6 +37,10 @@ import { requireTabId } from '@contracts/windowTabs';
 import { resolveDocumentRefBackend } from '@app/utils/documentRef';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { rememberReadingView } from '@app/modules/workspace-shell/document-sessions/recentReadingView';
+import {
+    NO_DOCUMENT_JOB_RELEASE,
+    type TEndDocumentJobRelease,
+} from '@app/modules/workspace-shell/document-sessions/documentJobRelease';
 import type { IPdfPageShapeRead } from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
 import type {
     IWorkspaceDocumentFile,
@@ -74,7 +78,7 @@ export interface IDocumentMutationFrontier {
     /** What an accepted close resets, against the identity the document has before it retires. */
     retire?: () => void;
     /** Ends the document's running reload or Save adoption until the returned end; `end(true)` publishes it again. */
-    release?: () => (republish: boolean) => void;
+    release?: () => TEndDocumentJobRelease;
 }
 
 export interface IDocumentOperationLease {
@@ -133,7 +137,7 @@ export interface IWorkspaceDocumentController {
     dismissFailure(): void;
     bindMutationFrontier(frontier: IDocumentMutationFrontier): void;
     readMutationFrontier(): string | null;
-    releaseJobs(): (republish: boolean) => void;
+    releaseJobs(): TEndDocumentJobRelease;
     prepareTransfer: TFrontierStep;
     getView(tabId: string): IWorkspaceDocumentView | null;
     addView(tabId: string, seed?: IWorkspaceDocumentViewSeed): IWorkspaceDocumentView;
@@ -748,7 +752,7 @@ export function createWorkspaceDocumentController(options: {
         dismissFailure,
         bindMutationFrontier: (frontier) => { mutationFrontier.value = frontier; },
         readMutationFrontier: () => mutationFrontier.value?.read() ?? null,
-        releaseJobs: () => mutationFrontier.value?.release?.() ?? (() => undefined),
+        releaseJobs: () => mutationFrontier.value?.release?.() ?? NO_DOCUMENT_JOB_RELEASE,
         prepareTransfer: async (assertCurrent) => {
             assertCurrent();
             await mutationFrontier.value?.prepare(assertCurrent);

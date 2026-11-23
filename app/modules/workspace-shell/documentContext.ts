@@ -50,6 +50,7 @@ import { captureFailureForPresentation } from '@app/utils/failureReporter';
 import { useFailureToast } from '@app/composables/useFailureToast';
 import { createDocumentViews } from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
 import { createReadingViewLifecycleHooks } from '@app/modules/workspace-shell/document-sessions/recentReadingView';
+import { createDocumentJobReleaser } from '@app/modules/workspace-shell/document-sessions/documentJobRelease';
 import { beginOpenSurfaceWithPageShape } from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
 
 /**
@@ -191,6 +192,17 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         || metadata.bookmarkState.bookmarksDirty.value
     ));
 
+    // Close and window close end the document's jobs so no reader holds their decision (#1598),
+    // while Save republishes a released revision inside its own document operation lease turn (N7).
+    const jobReleaser = createDocumentJobReleaser({
+        workingCopyPath: file.workingCopyPath,
+        pdfSrc: file.pdfSrc,
+        publishPdfSource: file.publishPdfSource,
+        hasView: () => views.viewPorts.value.size > 0,
+        running: pdfDocumentSessionSlot.running,
+        release: pdfDocumentSessionSlot.release,
+    });
+
     // This is authored state, including edits made while already dirty and drafts
     // outside the store. Parsed clean annotations are projections of the bytes.
     controller.bindMutationFrontier({
@@ -234,26 +246,8 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
                 });
             });
         },
-        // While a view shows the document, ends its running job and each one it publishes until the returned end;
-        // the end publishes the revision again when it ended one and the working copy is still this one (#1598).
-        release: () => {
-            const path = file.workingCopyPath.value;
-            let released = false;
-            const end = () => {
-                const job = file.workingCopyPath.value === path && views.viewPorts.value.size ? pdfDocumentSessionSlot.running() : null;
-                if (job) {
-                    pdfDocumentSessionSlot.release(job);
-                    released = true;
-                }
-            };
-            end();
-            const stop = watch(file.pdfSrc, end);
-            return (republish) => {
-                stop();
-                if (republish && released && file.workingCopyPath.value === path) file.publishPdfSource(file.pdfSrc.value, 'reload');
-                released = false;
-            };
-        },
+        // Close and window close end the document's jobs so no reader holds their decision (#1598).
+        release: jobReleaser.begin,
     });
 
     const unencryptedSaveNotice = useUnencryptedSaveNotice();
@@ -318,8 +312,13 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
                 // Every view's open text editors; it resolves once the store holds their drafts.
                 commitEditorsForSave: pdfDocumentAnnotations.commitPendingDraftsForSave,
                 // A Save reads the PDF after a revision published outside its turn has loaded, however that ended (CR-4).
+                // Inside Save's lease, republish a revision whose job an active close release ended while keeping the
+                // release active for Save's own adoption (#1598, N7).
                 runSaveTransaction: async (request) => {
-                    if (views.viewPorts.value.size) await pdfDocumentSessionSlot.running()?.finished;
+                    if (views.viewPorts.value.size) {
+                        jobReleaser.republishForSave();
+                        await pdfDocumentSessionSlot.running()?.finished;
+                    }
                     return pdfViewerRef.value?.runSaveTransaction(request) ?? Promise.reject(new Error('Missing PDF viewer save transaction'));
                 },
                 getSourceData: getSourcePdfData,
