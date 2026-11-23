@@ -765,7 +765,17 @@ fn local_threshold<const N: usize>(
     floor_local_wolf_deviation: bool,
     decide: impl Fn(usize, usize, [bool; N]) -> bool + Sync,
 ) -> BinaryImage {
-    let rows = default_strip_rows(image.height());
+    let max_halo_radius = if matches!(statistics, Statistics::Streamed) {
+        radii
+            .iter()
+            .copied()
+            .map(|radius| radius.min(image.height().saturating_sub(1)))
+            .max()
+            .unwrap_or(0)
+    } else {
+        0
+    };
+    let rows = default_strip_rows(image.height(), max_halo_radius);
     local_threshold_in_strips(
         image,
         excluded,
@@ -958,11 +968,12 @@ impl<'a, const N: usize> RowWindows<'a, N> {
 /// Row strips per worker: enough strips to balance the pool, each long
 /// enough that refilling a strip's leading window halo stays a small share
 /// of its work.
-fn default_strip_rows(height: usize) -> usize {
+fn default_strip_rows(height: usize, max_halo_radius: usize) -> usize {
     const MINIMUM_STRIP_ROWS: usize = 32;
+    let minimum_rows = MINIMUM_STRIP_ROWS.max(max_halo_radius.saturating_mul(2));
     height
         .div_ceil(rayon::current_num_threads().saturating_mul(2).max(1))
-        .max(MINIMUM_STRIP_ROWS)
+        .max(minimum_rows)
 }
 
 /// Exact window sums for consecutive rows of one strip.
@@ -1768,10 +1779,11 @@ mod tests {
     }
 
     /// The previous table-driven thresholding, serial: every window is read
-    /// from full-page `IntegralImages` or `MaskedIntegralImages`.
+    /// from the supplied full-page `IntegralImages` or `MaskedIntegralImages`.
     fn table_reference<const N: usize>(
         image: &GrayImage,
         excluded: Option<&BinaryImage>,
+        table: Statistics<'_>,
         radii: [usize; N],
         method: LocalThreshold,
         bias: i16,
@@ -1782,11 +1794,10 @@ mod tests {
         if width == 0 || height == 0 {
             return BinaryImage::new(width, height);
         }
-        let full = IntegralImages::new(image);
-        let masked = excluded.map(|excluded| MaskedIntegralImages::new(image, excluded));
-        let statistics = |x, y, radius| match &masked {
-            Some(masked) => masked.mean_and_deviation(x, y, radius),
-            None => Some(full.mean_and_deviation(x, y, radius)),
+        let statistics = |x, y, radius| match table {
+            Statistics::Table(full) => Some(full.mean_and_deviation(x, y, radius)),
+            Statistics::MaskedTable(masked) => masked.mean_and_deviation(x, y, radius),
+            Statistics::Streamed => unreachable!("table_reference requires a prebuilt table"),
         };
         let global_min = match method {
             LocalThreshold::Wolf {
@@ -1962,6 +1973,7 @@ mod tests {
                                             table_reference(
                                                 &image,
                                                 mask,
+                                                table,
                                                 [radius],
                                                 method,
                                                 bias,
@@ -1984,7 +1996,7 @@ mod tests {
                                             decide, strip_rows,
                                         ),
                                         table_reference(
-                                            &image, mask, radii, method, bias, false, decide
+                                            &image, mask, table, radii, method, bias, false, decide,
                                         ),
                                         "{width}x{height} strip {strip_rows} radii {radii:?} \
                                      {method:?} bias {bias} masked {}",
@@ -2064,7 +2076,16 @@ mod tests {
                 -4,
                 supports_small_scale
             ),
-            table_reference(&image, None, radii, WOLF, -4, false, decide)
+            table_reference(
+                &image,
+                None,
+                Statistics::Table(&integrals),
+                radii,
+                WOLF,
+                -4,
+                false,
+                decide
+            )
         );
         assert_eq!(
             threshold_local_multiscale_biased_with_integrals_for_consensus(
@@ -2075,7 +2096,16 @@ mod tests {
                 -4,
                 supports_small_scale
             ),
-            table_reference(&image, None, radii, WOLF, -4, false, decide)
+            table_reference(
+                &image,
+                None,
+                Statistics::Table(&integrals),
+                radii,
+                WOLF,
+                -4,
+                false,
+                decide
+            )
         );
         assert_eq!(
             threshold_local_multiscale_biased_excluding_for_consensus(
@@ -2086,25 +2116,70 @@ mod tests {
                 -4,
                 supports_small_scale
             ),
-            table_reference(&image, Some(&excluded), radii, WOLF, -4, false, decide)
+            table_reference(
+                &image,
+                Some(&excluded),
+                Statistics::MaskedTable(&masked),
+                radii,
+                WOLF,
+                -4,
+                false,
+                decide
+            )
         );
         assert_eq!(
             threshold_local_biased_excluding(&image, &excluded, 9, WOLF, 3),
-            table_reference(&image, Some(&excluded), [9], WOLF, 3, true, single)
+            table_reference(
+                &image,
+                Some(&excluded),
+                Statistics::MaskedTable(&masked),
+                [9],
+                WOLF,
+                3,
+                true,
+                single
+            )
         );
         assert_eq!(
             threshold_local_biased_excluding_with_integrals_for_consensus(
                 &image, &excluded, &masked, 9, WOLF, 3
             ),
-            table_reference(&image, Some(&excluded), [9], WOLF, 3, false, single)
+            table_reference(
+                &image,
+                Some(&excluded),
+                Statistics::MaskedTable(&masked),
+                [9],
+                WOLF,
+                3,
+                false,
+                single
+            )
         );
         assert_eq!(
             threshold_local_biased_with_integrals_for_consensus(&image, &integrals, 9, WOLF, 3),
-            table_reference(&image, None, [9], WOLF, 3, false, single)
+            table_reference(
+                &image,
+                None,
+                Statistics::Table(&integrals),
+                [9],
+                WOLF,
+                3,
+                false,
+                single
+            )
         );
         assert_eq!(
             threshold_local_biased(&image, 9, WOLF, 3),
-            table_reference(&image, None, [9], WOLF, 3, true, single)
+            table_reference(
+                &image,
+                None,
+                Statistics::Table(&integrals),
+                [9],
+                WOLF,
+                3,
+                true,
+                single
+            )
         );
     }
 

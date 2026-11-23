@@ -30,6 +30,9 @@ fn squared_euclidean_distance_banded(
     band_rows: usize,
     parallel: bool,
 ) -> Vec<u32> {
+    if image.height() == 1 {
+        return single_row_transform(image);
+    }
     // A lane can hold every row index and distance below `height`, with its
     // maximum left free as the "no seed" sentinel.
     if u16::try_from(image.height()).is_ok() {
@@ -39,6 +42,19 @@ fn squared_euclidean_distance_banded(
     } else {
         banded_transform::<usize>(image, band_rows, parallel)
     }
+}
+
+fn single_row_transform(image: &BinaryImage) -> Vec<u32> {
+    let width = image.width();
+    let mut values = vec![INF; width];
+    for_each_black(image, 0, |x| values[x] = 0);
+    let mut transform = TransformScratch::new(width);
+    transform_1d(&values, &mut transform);
+    transform
+        .output
+        .into_iter()
+        .map(|distance| distance.min(u32::MAX as i64) as u32)
+        .collect()
 }
 
 /// Unsigned storage for row indices and unsquared vertical distances.

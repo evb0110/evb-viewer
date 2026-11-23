@@ -833,7 +833,7 @@ fn finish_thresholded_with_line_budget(
 
 fn without_exclusion(image: BinaryImage, exclusion: Option<&BinaryImage>) -> BinaryImage {
     match exclusion {
-        Some(mask) => image.subtract(mask),
+        Some(mask) => image.into_subtract(mask),
         None => image,
     }
 }
