@@ -1996,7 +1996,8 @@ mod tests {
                                             decide, strip_rows,
                                         ),
                                         table_reference(
-                                            &image, mask, table, radii, method, bias, false, decide,
+                                            &image, mask, table, radii, method, bias, false,
+                                            decide,
                                         ),
                                         "{width}x{height} strip {strip_rows} radii {radii:?} \
                                      {method:?} bias {bias} masked {}",
