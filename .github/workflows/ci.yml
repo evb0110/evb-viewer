@@ -402,8 +402,10 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with: *electron-native-binaries
 
-      - name: Build native PDF page operations
-        run: pnpm run build:pdf-page-ops
+      - name: Build native PDF tools
+        run: |
+          pnpm run build:pdf-page-ops
+          pnpm run build:pdf-search
 
       - name: Run native PDF integration gate
         run: pnpm exec vitest run --project native-integration
