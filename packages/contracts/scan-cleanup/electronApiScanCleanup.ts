@@ -11,7 +11,10 @@ export {
     isScanCleanupErrorEnvelope,
     SCAN_CLEANUP_ERROR_CODES,
 } from '@contracts/scan-cleanup/ipc';
-export {SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION} from '@contracts/scan-cleanup/nativeProtocolV3';
+export {
+    NATIVE_SCAN_CLEANUP_DOCUMENT_INK_PRIOR_SCHEMA,
+    SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,
+} from '@contracts/scan-cleanup/nativeProtocolV3';
 export {SCAN_CLEANUP_MARGIN_MAX_MM} from '@contracts/scan-cleanup/geometry';
 export {
     SCAN_CLEANUP_INPUT_MAX_ID_BYTES,

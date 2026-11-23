@@ -155,7 +155,7 @@ type IScanCleanupStampBuildIdsV2 = Extract<TScanCleanupStampBuildIds, {coreSchem
 export type IScanCleanupStampEffectiveOptionsRecord = TScanCleanupProvenanceStamp['effectiveOptions']['perSourcePage'][number];
 export type IScanCleanupStampPagePlanDigest = TScanCleanupProvenanceStamp['pagePlanDigests'][number];
 
-const SCAN_CLEANUP_PROVENANCE_STAMP_SCHEMA = v.pipe(stampShapeSchema, v.check(stamp => stamp.pagePlanDigests.every(digest => {
+export const SCAN_CLEANUP_PROVENANCE_STAMP_SCHEMA = v.pipe(stampShapeSchema, v.check(stamp => stamp.pagePlanDigests.every(digest => {
     const record = stamp.effectiveOptions.perSourcePage.find(item => item.sourcePage === digest.sourcePage);
     return record !== undefined && sha256ScanCleanupJson(record.options) === digest.planSha256;
 }), 'pagePlanDigests do not match effective options'), v.check(stamp => sha256ScanCleanupJson({

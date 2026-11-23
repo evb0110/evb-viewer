@@ -1,3 +1,4 @@
+import {randomUUID} from 'node:crypto';
 import { getErrorMessage } from '@electron/utils/error';
 import {dirname} from 'path';
 import { fileURLToPath } from 'url';
@@ -14,6 +15,7 @@ import type {
     IScanCleanupWorkerPaths,
 } from '@electron/features/scan-cleanup/worker/runScanCleanupPipeline';
 import type {IScanCleanupDetectionResultStoreDescriptor} from '@electron/features/scan-cleanup/detectionResultStoreDescriptor';
+import {reclaimScanCleanupCheckpointOwner} from '@evb/scan-cleanup/core/conversionCheckpoint';
 import {
     getWorkerTaskFailureReceipt,
     rememberWorkerTaskFailureReceipt,
@@ -77,14 +79,25 @@ export async function runScanCleanupWorkerTask(
     signal: AbortSignal,
     onProgress: (progress: TScanCleanupProgress) => void,
     jobId: string,
+    options?: {
+        onCheckpointReady?: (entryDir: string) => void;
+    },
 ) {
+    const checkpointOwnerId = `${jobId}-${randomUUID()}`;
+    const workerPaths: IScanCleanupWorkerPaths = paths.checkpointDir === undefined
+        ? paths
+        : {
+            ...paths,
+            checkpointOwnerId,
+        };
     const task = startStreamingWorkerTask<TScanCleanupSummary>({
         workerPath: resolveUnpackedWorkerPath(currentDir, workerFileName),
         workerData: {
             request,
-            paths,
+            paths: workerPaths,
             runtimePolicy,
             jobId,
+            checkpointOwnerId,
         },
         invalidPayloadMessage: 'Scan cleanup worker returned an invalid payload',
         invalidResultMessage: 'Scan cleanup worker returned an invalid summary',
@@ -106,6 +119,10 @@ export async function runScanCleanupWorkerTask(
         createCancelMessage: () => ({type: 'cancel'}),
         cooperativeCancelDelayMs: 5_000,
         onProgressMessage: value => {
+            if (isRecord(value) && value.type === 'checkpoint-ready' && typeof value.entryDir === 'string') {
+                options?.onCheckpointReady?.(value.entryDir);
+                return true;
+            }
             const decoded = decodeProgress(value);
             if (decoded.kind === 'not-progress') {
                 return false;
@@ -141,5 +158,21 @@ export async function runScanCleanupWorkerTask(
             );
         }
         throw error;
+    } finally {
+        // `startStreamingWorkerTask` settles `task.promise` only after
+        // `terminateWorkerAfterTask` confirms the Node Worker has exited
+        // ('exit' event or resolved `worker.terminate()`). Reclaiming here
+        // therefore runs strictly after the worker thread is gone and cleans
+        // up any lock/lease left behind by a force-terminated worker sharing
+        // `process.pid` with main.
+        if (paths.checkpointDir !== undefined) {
+            await reclaimScanCleanupCheckpointOwner(paths.checkpointDir, checkpointOwnerId).catch(reclaimError => {
+                logger.warn('Failed to reclaim scan cleanup checkpoint owner artifacts after worker exit', {
+                    jobId,
+                    checkpointOwnerId,
+                    error: getErrorMessage(reclaimError),
+                });
+            });
+        }
     }
 }

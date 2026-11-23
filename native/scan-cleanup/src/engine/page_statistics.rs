@@ -27,6 +27,20 @@ pub(crate) fn page_needs_ink_sample(page: &PageDescriptor) -> bool {
         )
 }
 
+pub(crate) fn derive_ink_sample_from_paths(
+    selection_path: &std::path::Path,
+    background_path: &std::path::Path,
+    source_page_index: usize,
+    max_pixels: u64,
+    max_dimension: u32,
+) -> Result<Option<DocumentInkSample>, NativeError> {
+    let selection = raster::read_foreground_selection(selection_path, max_pixels, max_dimension)
+        .map_err(|error| map_raster_error(error, selection_path, source_page_index))?;
+    let (background_width, _) = raster::read_dimensions(background_path, max_pixels, max_dimension)
+        .map_err(|error| map_raster_error(error, background_path, source_page_index))?;
+    Ok(ink_sample_of(&selection, background_width))
+}
+
 pub(crate) fn derive_page_ink_sample(
     page: &PageDescriptor,
 ) -> Result<Option<DocumentInkSample>, NativeError> {
@@ -43,19 +57,13 @@ pub(crate) fn derive_page_ink_sample(
     let Some(background_path) = page.trusted_mrc_background_path.as_ref() else {
         return Ok(None);
     };
-    let selection = raster::read_foreground_selection(
+    derive_ink_sample_from_paths(
         selection_path,
-        page.options.max_pixels,
-        page.options.max_dimension,
-    )
-    .map_err(|error| map_raster_error(error, selection_path, page.source_page_index))?;
-    let (background_width, _) = raster::read_dimensions(
         background_path,
+        page.source_page_index,
         page.options.max_pixels,
         page.options.max_dimension,
     )
-    .map_err(|error| map_raster_error(error, background_path, page.source_page_index))?;
-    Ok(ink_sample_of(&selection, background_width))
 }
 
 /// Whether a page's producer-authored foreground can join the document's ink
@@ -89,7 +97,15 @@ pub(crate) fn ink_sample_of(
 pub(crate) fn derive_page_ink_contexts(
     samples: &[Option<DocumentInkSample>],
 ) -> Vec<Option<PageInkConsistencyContext>> {
-    let Some(prior) = DocumentInkPrior::from_page_samples(samples.iter().flatten().copied()) else {
+    let prior = DocumentInkPrior::from_page_samples(samples.iter().flatten().copied());
+    derive_page_ink_contexts_with_prior(samples, prior)
+}
+
+pub(crate) fn derive_page_ink_contexts_with_prior(
+    samples: &[Option<DocumentInkSample>],
+    prior: Option<DocumentInkPrior>,
+) -> Vec<Option<PageInkConsistencyContext>> {
+    let Some(prior) = prior else {
         return vec![None; samples.len()];
     };
     samples

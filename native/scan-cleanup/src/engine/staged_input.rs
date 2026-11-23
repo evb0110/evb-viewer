@@ -693,6 +693,8 @@ mod moved_tests {
             host_memory_bytes: None,
             staged_input_window: None,
             staged_input_peak_pixels: None,
+            ink_calibration_pages: None,
+            document_ink_prior: None,
             pages: vec![Page {
                 input_path: input,
                 analysis_input_path: None,
@@ -943,6 +945,8 @@ mod moved_tests {
             host_memory_bytes: None,
             staged_input_window: None,
             staged_input_peak_pixels: None,
+            ink_calibration_pages: None,
+            document_ink_prior: None,
             pages: vec![Page {
                 input_path: input,
                 analysis_input_path: None,

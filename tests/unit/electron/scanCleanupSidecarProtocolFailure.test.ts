@@ -195,4 +195,51 @@ describe('scan cleanup sidecar protocol failures', () => {
         expect(protocol.stderr).not.toMatch(/^�/u);
     });
 
+    it('rejects when options.onResult fails after the sidecar exits cleanly with code 0', async () => {
+        const child = new MockSidecarProcess();
+        const lines = new MockLineReader();
+        mocks.spawn.mockReturnValue(child);
+        mocks.createInterface.mockReturnValue(lines);
+        const {runScanCleanupSidecar} = await import(
+            '@electron/features/scan-cleanup/worker/runScanCleanupSidecar'
+        );
+        const onResultError = new Error('Late onResult failure after clean exit');
+        const releaseOnResult = Promise.withResolvers<void>();
+        let onResultEntered = false;
+        const run = runScanCleanupSidecar(
+            '/native/evb-scan-cleanup',
+            '/scratch/manifest.json',
+            new AbortController().signal,
+            vi.fn(),
+            () => {},
+            {
+                onResult: async () => {
+                    onResultEntered = true;
+                    await releaseOnResult.promise;
+                    throw onResultError;
+                },
+            },
+        );
+        const rejection = run.catch(error => error);
+
+        await vi.waitFor(() => expect(mocks.createInterface).toHaveBeenCalledOnce());
+        lines.emit('line', JSON.stringify({
+            version: 3,
+            type: 'result',
+            result: {
+                status: 'success',
+                completedPages: 1,
+                totalPages: 1,
+            },
+        }));
+        await vi.waitFor(() => expect(onResultEntered).toBe(true));
+
+        // Sidecar closes with exit code 0 before onResult settles so runNativeToolCommand resolves cleanly.
+        child.emit('close', 0, null);
+        await Promise.resolve();
+        await Promise.resolve();
+        releaseOnResult.resolve();
+
+        await expect(rejection).resolves.toBe(onResultError);
+    });
 });

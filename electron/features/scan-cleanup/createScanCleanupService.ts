@@ -2,6 +2,7 @@ import {rm} from 'fs/promises';
 import {
     dirname,
     isAbsolute,
+    join,
     normalize,
     resolve,
 } from 'path';
@@ -65,6 +66,7 @@ import {
     ScanCleanupNativeToolUnavailableError,
 } from '@evb/scan-cleanup/core/errors';
 import {createScanCleanupScratchDir} from '@evb/scan-cleanup/core/scratchCleanup';
+import {reclaimScanCleanupCheckpoint} from '@evb/scan-cleanup/core/conversionCheckpoint';
 import {
     classifyScanCleanupPreviewError as classifyPreviewError,
     resolveScanCleanupPreviewPath as resolvePreviewPath,
@@ -856,6 +858,8 @@ export function createScanCleanupService(
                                         getAppTempDir(),
                                     );
                             }
+                            const checkpointDir = join(getAppTempDir(), 'scan-cleanup-checkpoints');
+                            let completedCheckpointEntryDir: string | null = null;
                             const summary = await runScanCleanupWorkerTask(
                                 {
                                     ...workerRequest,
@@ -877,6 +881,8 @@ export function createScanCleanupService(
                                     pdfPageOpsBinary,
                                     tempDir: getAppTempDir(),
                                     scratchDir: scratchPath,
+                                    checkpointDir,
+                                    deferCheckpointCleanup: true,
                                 },
                                 runtimePolicy,
                                 job.signal,
@@ -889,14 +895,31 @@ export function createScanCleanupService(
                                     });
                                 },
                                 jobId,
+                                {
+                                    onCheckpointReady: entryDir => {
+                                        completedCheckpointEntryDir = entryDir;
+                                    },
+                                },
                             );
                             // Resolve the cancel-vs-publish race in the same main
                             // process that owns the job state. If cancel won while
                             // the worker was publishing, the catch path removes the
-                            // generated-output directory. Otherwise later cancel
-                            // requests are rejected as soon as commit begins.
+                            // generated-output directory and leaves any resumable
+                            // checkpoint intact for the next run. Otherwise later
+                            // cancel requests are rejected as soon as commit begins
+                            // and the completed checkpoint is reclaimed here.
                             job.signal.throwIfAborted();
                             job.markCommitStarted();
+                            if (completedCheckpointEntryDir !== null) {
+                                await reclaimScanCleanupCheckpoint(
+                                    checkpointDir,
+                                    completedCheckpointEntryDir,
+                                ).catch(error => {
+                                    scanCleanupJobLogger.warn(
+                                        `Could not remove completed scan-cleanup checkpoint: ${getErrorMessage(error)}`,
+                                    );
+                                });
+                            }
                             await recordScanCleanupCompletedOutput(outputPdfPath).catch(error => {
                                 scanCleanupJobLogger.warn(
                                     `Could not journal completed scan-cleanup output: ${getErrorMessage(error)}`,

@@ -1,4 +1,8 @@
-use crate::{split::DocumentPrior, CleanupOptions};
+use crate::{
+    ink_consistency::{DocumentInkPrior, MINIMUM_PRIOR_PAGES},
+    split::DocumentPrior,
+    CleanupOptions,
+};
 use evb_native_support::{bounded_io::deserialize_bounded_vec, NativeError, NativeErrorCode};
 use scan_primitives::Point;
 use serde::{Deserialize, Serialize};
@@ -30,6 +34,144 @@ where
     D: serde::Deserializer<'de>,
 {
     deserialize_bounded_vec::<D, Page, MAX_MANIFEST_PAGES_PER_BATCH>(deserializer)
+}
+
+fn deserialize_optional_ink_calibration_pages<'de, D>(
+    deserializer: D,
+) -> Result<Option<Vec<InkCalibrationPage>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    struct BoundedInkCalibrationPages(
+        #[serde(deserialize_with = "deserialize_ink_calibration_pages")] Vec<InkCalibrationPage>,
+    );
+    Option::<BoundedInkCalibrationPages>::deserialize(deserializer)
+        .map(|value| value.map(|inner| inner.0))
+}
+
+fn deserialize_ink_calibration_pages<'de, D>(
+    deserializer: D,
+) -> Result<Vec<InkCalibrationPage>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    deserialize_bounded_vec::<D, InkCalibrationPage, MAX_MANIFEST_PAGES_PER_BATCH>(deserializer)
+}
+
+fn default_ink_calibration_max_pixels() -> u64 {
+    CleanupOptions::default().max_pixels
+}
+
+fn default_ink_calibration_max_dimension() -> u32 {
+    CleanupOptions::default().max_dimension
+}
+
+/// Full-batch eligible MRC page entry supplied when a chunked render manifest
+/// calibrates `DocumentInkPrior` across the whole batch before later chunks
+/// reuse that resolved prior directly.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct InkCalibrationPage {
+    pub source_page_index: usize,
+    pub trusted_foreground_mask_path: PathBuf,
+    pub trusted_mrc_background_path: PathBuf,
+    #[serde(default = "default_ink_calibration_max_pixels")]
+    pub max_pixels: u64,
+    #[serde(
+        default = "default_ink_calibration_max_dimension",
+        rename = "maxDimensionPx"
+    )]
+    pub max_dimension: u32,
+}
+
+/// Resolved document-level ink prior transferred across chunked render
+/// manifests and witness-bound checkpoints so chunked and resumed renders match
+/// a monolithic batch bit-for-bit.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(tag = "status", rename_all = "kebab-case")]
+pub enum ResolvedDocumentInkPrior {
+    None,
+    Calibrated {
+        #[serde(rename = "sampleCount")]
+        sample_count: usize,
+        #[serde(rename = "survivalP10")]
+        survival_p10: f64,
+        #[serde(rename = "survivalMedian")]
+        survival_median: f64,
+        #[serde(rename = "survivalP90")]
+        survival_p90: f64,
+        #[serde(rename = "referenceWidth")]
+        reference_width: usize,
+        #[serde(rename = "referenceHeight")]
+        reference_height: usize,
+    },
+}
+
+impl ResolvedDocumentInkPrior {
+    pub fn from_option(prior: Option<DocumentInkPrior>) -> Self {
+        match prior {
+            Some(prior) => Self::Calibrated {
+                sample_count: prior.sample_count,
+                survival_p10: prior.survival_p10,
+                survival_median: prior.survival_median,
+                survival_p90: prior.survival_p90,
+                reference_width: prior.reference_width,
+                reference_height: prior.reference_height,
+            },
+            None => Self::None,
+        }
+    }
+
+    pub fn as_prior(self) -> Option<DocumentInkPrior> {
+        match self {
+            Self::None => None,
+            Self::Calibrated {
+                sample_count,
+                survival_p10,
+                survival_median,
+                survival_p90,
+                reference_width,
+                reference_height,
+            } => Some(DocumentInkPrior {
+                sample_count,
+                survival_p10,
+                survival_median,
+                survival_p90,
+                reference_width,
+                reference_height,
+            }),
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), NativeError> {
+        let Self::Calibrated {
+            sample_count,
+            survival_p10,
+            survival_median,
+            survival_p90,
+            reference_width,
+            reference_height,
+        } = *self
+        else {
+            return Ok(());
+        };
+        let unit = |value: f64| value.is_finite() && (0.0..=1.0).contains(&value);
+        if sample_count < MINIMUM_PRIOR_PAGES
+            || !unit(survival_p10)
+            || !unit(survival_median)
+            || !unit(survival_p90)
+            || survival_p10 > survival_median
+            || survival_median > survival_p90
+            || reference_width == 0
+            || reference_height == 0
+        {
+            return Err(invalid("documentInkPrior values are out of range"));
+        }
+        Ok(())
+    }
 }
 
 /// Optional diagnostic geometry for a non-straight page seam. The existing
@@ -352,6 +494,17 @@ pub struct ManifestV3 {
     /// bound stays a document fact instead of a staging-order accident.
     #[cfg_attr(test, ts(optional = nullable))]
     pub staged_input_peak_pixels: Option<u64>,
+    /// Optional full-batch eligible MRC page list used to calibrate the
+    /// document-level ink prior when rendering a batch in bounded chunks.
+    #[cfg_attr(test, ts(optional = nullable))]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ink_calibration_pages: Option<Vec<InkCalibrationPage>>,
+    /// Optional resolved document-level ink prior returned by an earlier
+    /// calibrating chunk (or loaded from a checkpoint) and reused verbatim by
+    /// later chunks so chunked rendering matches a monolithic batch.
+    #[cfg_attr(test, ts(optional = nullable))]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_ink_prior: Option<ResolvedDocumentInkPrior>,
     pub pages: Vec<Page>,
 }
 
@@ -397,7 +550,25 @@ fn allowed_manifest_fields(kind: &str) -> &'static [&'static str] {
             "hostMemoryBytes",
             "stagedInputWindow",
             "stagedInputPeakPixels",
+            "inkCalibrationPages",
+            "documentInkPrior",
             "pages",
+        ],
+        "inkCalibrationPage" => &[
+            "sourcePageIndex",
+            "trustedForegroundMaskPath",
+            "trustedMrcBackgroundPath",
+            "maxPixels",
+            "maxDimensionPx",
+        ],
+        "documentInkPrior" => &[
+            "status",
+            "sampleCount",
+            "survivalP10",
+            "survivalMedian",
+            "survivalP90",
+            "referenceWidth",
+            "referenceHeight",
         ],
         "canvas" => &["widthPoints", "heightPoints", "widthPx", "heightPx"],
         "page" => &[
@@ -547,6 +718,8 @@ fn sanitize_manifest_value(
     }
     let child_kind = |key: &str| match (kind, key) {
         ("manifest", "documentCanvas") => Some("canvas"),
+        ("manifest", "inkCalibrationPages") => Some("inkCalibrationPage[]"),
+        ("manifest", "documentInkPrior") => Some("documentInkPrior"),
         ("manifest", "pages") => Some("page[]"),
         ("page", "options") => Some("options"),
         ("page", "documentPrior") => Some("prior"),
@@ -631,6 +804,13 @@ struct ManifestV3Wire {
     staged_input_window: Option<usize>,
     #[serde(default)]
     staged_input_peak_pixels: Option<u64>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_optional_ink_calibration_pages"
+    )]
+    ink_calibration_pages: Option<Vec<InkCalibrationPage>>,
+    #[serde(default)]
+    document_ink_prior: Option<ResolvedDocumentInkPrior>,
     #[serde(deserialize_with = "deserialize_manifest_pages")]
     pages: Vec<Page>,
 }
@@ -647,6 +827,8 @@ impl From<ManifestV3Wire> for ManifestV3 {
             host_memory_bytes: value.host_memory_bytes,
             staged_input_window: value.staged_input_window,
             staged_input_peak_pixels: value.staged_input_peak_pixels,
+            ink_calibration_pages: value.ink_calibration_pages,
+            document_ink_prior: value.document_ink_prior,
             pages: value.pages,
         }
     }
@@ -723,6 +905,51 @@ impl ManifestV3 {
             return Err(invalid(
                 "analysisPurpose is only valid for analyze manifests",
             ));
+        }
+        if (self.ink_calibration_pages.is_some() || self.document_ink_prior.is_some())
+            && self.operation != Operation::Render
+        {
+            return Err(invalid(
+                "inkCalibrationPages and documentInkPrior are only valid for render manifests",
+            ));
+        }
+        if self.ink_calibration_pages.is_some() && self.document_ink_prior.is_some() {
+            return Err(invalid(
+                "inkCalibrationPages and documentInkPrior cannot be set on the same manifest",
+            ));
+        }
+        if let Some(prior) = &self.document_ink_prior {
+            prior.validate()?;
+        }
+        if let Some(calibration_pages) = &self.ink_calibration_pages {
+            if calibration_pages.is_empty() {
+                return Err(invalid("inkCalibrationPages cannot be empty"));
+            }
+            for page in calibration_pages {
+                let page_number = page.source_page_index.saturating_add(1);
+                if page.max_pixels == 0
+                    || page.max_pixels > crate::DEFAULT_MAX_PIXELS
+                    || page.max_dimension == 0
+                    || page.max_dimension > crate::DEFAULT_MAX_DIMENSION
+                {
+                    return Err(NativeError::new(
+                        NativeErrorCode::TooLarge,
+                        format!(
+                            "Ink calibration page {page_number} raster guardrails exceed the native admission limits"
+                        ),
+                    ));
+                }
+                validate_existing_regular_path(
+                    &page.trusted_foreground_mask_path,
+                    page_number,
+                    "inkCalibrationPages.trustedForegroundMaskPath",
+                )?;
+                validate_existing_regular_path(
+                    &page.trusted_mrc_background_path,
+                    page_number,
+                    "inkCalibrationPages.trustedMrcBackgroundPath",
+                )?;
+            }
         }
         for page in &self.pages {
             let page_number = page.source_page_index.saturating_add(1);
@@ -837,6 +1064,23 @@ impl ManifestV3 {
                 )?;
             }
         }
+        if self.operation == Operation::Render {
+            if let Some(calibration_pages) = &self.ink_calibration_pages {
+                for page in calibration_pages {
+                    let page_number = page.source_page_index.saturating_add(1);
+                    validate_required_regular_path(
+                        &page.trusted_foreground_mask_path,
+                        page_number,
+                        "inkCalibrationPages.trustedForegroundMaskPath",
+                    )?;
+                    validate_required_regular_path(
+                        &page.trusted_mrc_background_path,
+                        page_number,
+                        "inkCalibrationPages.trustedMrcBackgroundPath",
+                    )?;
+                }
+            }
+        }
         Ok(())
     }
 
@@ -844,22 +1088,30 @@ impl ManifestV3 {
     /// protocol prevents new auxiliary inputs from being missed by the output
     /// alias preflight.
     pub(crate) fn input_paths(&self) -> Vec<&Path> {
-        self.pages
+        let mut paths: Vec<&Path> = self
+            .pages
             .iter()
             .flat_map(|page| {
-                let mut paths = vec![page.input_path.as_path()];
-                paths.extend(page.analysis_input_path.as_deref());
-                paths.extend(page.trusted_foreground_mask_path.as_deref());
-                paths.extend(page.trusted_mrc_background_path.as_deref());
-                paths.extend(page.alternate_input_path.as_deref());
+                let mut page_paths = vec![page.input_path.as_path()];
+                page_paths.extend(page.analysis_input_path.as_deref());
+                page_paths.extend(page.trusted_foreground_mask_path.as_deref());
+                page_paths.extend(page.trusted_mrc_background_path.as_deref());
+                page_paths.extend(page.alternate_input_path.as_deref());
                 if let Some(detail) = &page.detail_render_plan {
-                    paths.push(detail.base_metadata_path.as_path());
-                    paths.push(detail.base_raster_path.as_path());
-                    paths.extend(detail.base_cleaned_raster_path.as_deref());
+                    page_paths.push(detail.base_metadata_path.as_path());
+                    page_paths.push(detail.base_raster_path.as_path());
+                    page_paths.extend(detail.base_cleaned_raster_path.as_deref());
                 }
-                paths
+                page_paths
             })
-            .collect()
+            .collect();
+        if let Some(calibration_pages) = &self.ink_calibration_pages {
+            for page in calibration_pages {
+                paths.push(page.trusted_foreground_mask_path.as_path());
+                paths.push(page.trusted_mrc_background_path.as_path());
+            }
+        }
+        paths
     }
 
     /// Every path the batch may publish, including per-page metadata and all
@@ -1931,5 +2183,65 @@ mod tests {
         })
         .unwrap();
         assert_eq!(curved["splitSeam"]["points"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn ink_calibration_pages_and_document_ink_prior_validate_additively_and_exclusively() {
+        let with_calibration = r#"{
+            "version":3,"operation":"render","renderMode":"final","canvasScope":"page",
+            "inkCalibrationPages":[{
+                "sourcePageIndex":0,
+                "trustedForegroundMaskPath":"mask.png",
+                "trustedMrcBackgroundPath":"bg.ppm"
+            }],
+            "pages":[{
+                "inputPath":"in.png","sourcePageIndex":0,"pageMetadataPath":"page.json",
+                "outputs":[{"outputPath":"out.png","metadataPath":"out.json"}],
+                "options":{"dpi":300,"despeckle":true,"outputMode":"bw","cropContent":false,"matchPageSize":false,"pageAlignment":"top-center"}
+            }]
+        }"#;
+        let cal_manifest: ManifestV3 = serde_json::from_str(with_calibration).unwrap();
+        cal_manifest.validate().unwrap();
+        assert_eq!(
+            cal_manifest.ink_calibration_pages.as_ref().unwrap().len(),
+            1
+        );
+
+        let with_prior = r#"{
+            "version":3,"operation":"render","renderMode":"final","canvasScope":"page",
+            "documentInkPrior":{
+                "status":"calibrated",
+                "sampleCount":16,
+                "survivalP10":0.4,
+                "survivalMedian":0.55,
+                "survivalP90":0.7,
+                "referenceWidth":200,
+                "referenceHeight":200
+            },
+            "pages":[{
+                "inputPath":"in.png","sourcePageIndex":0,"pageMetadataPath":"page.json",
+                "outputs":[{"outputPath":"out.png","metadataPath":"out.json"}],
+                "options":{"dpi":300,"despeckle":true,"outputMode":"bw","cropContent":false,"matchPageSize":false,"pageAlignment":"top-center"}
+            }]
+        }"#;
+        let mut prior_manifest: ManifestV3 = serde_json::from_str(with_prior).unwrap();
+        prior_manifest.validate().unwrap();
+
+        // Setting both inkCalibrationPages and documentInkPrior is rejected.
+        prior_manifest.ink_calibration_pages = cal_manifest.ink_calibration_pages.clone();
+        assert!(prior_manifest
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("cannot be set on the same manifest"));
+
+        // Analyze manifests reject documentInkPrior.
+        prior_manifest.ink_calibration_pages = None;
+        prior_manifest.operation = Operation::Analyze;
+        assert!(prior_manifest
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("only valid for render manifests"));
     }
 }

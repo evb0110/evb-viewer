@@ -258,6 +258,14 @@ export type FoldBand = { "status": "measured", leftXPx: number, rightXPx: number
 
 export type FoldBandUnmeasuredReason = "not-applicable" | "no-fold-evidence" | "fold-evidence-unquantified" | "cutter-invalidated" | "measurement-unavailable";
 
+/**
+ * Full-batch eligible MRC page entry supplied when a chunked render manifest
+ * calibrates `DocumentInkPrior` across the whole batch before later chunks
+ * reuse that resolved prior directly.
+ */
+
+export type InkCalibrationPage = { sourcePageIndex: number, trustedForegroundMaskPath: string, trustedMrcBackgroundPath: string, maxPixels: number, maxDimensionPx: number, };
+
 export type InkConsistencyDiagnostics = { priorSampleCount: number, priorSurvivalMedian: number, survivalBefore: number, survivalAfter: number, addedInkPixels: number, applied: boolean, };
 
 export type LayeredForegroundKind = "stencil" | "soft-alpha" | "source-mrc";
@@ -307,7 +315,18 @@ stagedInputWindow?: number | null,
  * geometry, so it declares the document's peak here and the memory-derived
  * bound stays a document fact instead of a staging-order accident.
  */
-stagedInputPeakPixels?: number | null, pages: Array<Page>, };
+stagedInputPeakPixels?: number | null, 
+/**
+ * Optional full-batch eligible MRC page list used to calibrate the
+ * document-level ink prior when rendering a batch in bounded chunks.
+ */
+inkCalibrationPages?: Array<InkCalibrationPage> | null, 
+/**
+ * Optional resolved document-level ink prior returned by an earlier
+ * calibrating chunk (or loaded from a checkpoint) and reused verbatim by
+ * later chunks so chunked rendering matches a monolithic batch.
+ */
+documentInkPrior?: ResolvedDocumentInkPrior | null, pages: Array<Page>, };
 
 export type ManualContentBoxes = { full?: NormalizedRect | null, left?: NormalizedRect | null, right?: NormalizedRect | null, };
 
@@ -492,11 +511,19 @@ export type ReconciliationCandidate = { cutterX: number | null, tier1Verdict: La
 
 export type RenderMode = "preview" | "final";
 
+/**
+ * Resolved document-level ink prior transferred across chunked render
+ * manifests and witness-bound checkpoints so chunked and resumed renders match
+ * a monolithic batch bit-for-bit.
+ */
+
+export type ResolvedDocumentInkPrior = { "status": "none" } | { "status": "calibrated", sampleCount: number, survivalP10: number, survivalMedian: number, survivalP90: number, referenceWidth: number, referenceHeight: number, };
+
 export type ResolvedTextToneDiagnostics = { full?: TextToneDiagnostics | null, left?: TextToneDiagnostics | null, right?: TextToneDiagnostics | null, };
 
 export type ResultEnvelope = { version: number, type: string, result: ResultPayload, };
 
-export type ResultPayload = { "status": "success", completedPages: number, totalPages: number, } | { "status": "failure", code: NativeErrorCode, message: string, };
+export type ResultPayload = { "status": "success", completedPages: number, totalPages: number, documentInkPrior?: ResolvedDocumentInkPrior, } | { "status": "failure", code: NativeErrorCode, message: string, };
 
 export type SplitDiagnostics = { foldBand: FoldBand, analysisDpi: number, deskewAngleDegrees: number, deskewConfidence: number, cutterSlope: number, leftDeskewAngleDegrees: number, rightDeskewAngleDegrees: number, leftDeskewConfidence: number, rightDeskewConfidence: number, whitespaceX: number, foldX: number, decisionX: number, whitespaceScore: number, bilateralScore: number, leftPageScore: number, rightPageScore: number, leftContentScore: number, rightContentScore: number, leftSurfaceScore: number, rightSurfaceScore: number, leftInkPixels: number, rightInkPixels: number, leftOuterMarginScore: number, rightOuterMarginScore: number, outerMarginScore: number, gutterScore: number, agreementScore: number, foldScore: number, gutterDarknessScore: number, softGutterScore: number, softGutterCoverage: number, softGutterContinuity: number, softGutterMeanDepression: number, sparseGutterScore: number, sparseGutterCoverage: number, sparseGutterContinuity: number, sparseGutterMeanDepression: number, aspectRatio: number, aspectSpreadScore: number, aspectSingleScore: number, independentSpreadCues: number, offcutBoundaryScore: number, offcutEmptyScore: number, offcutPopulatedScore: number, offcutWidthScore: number, offcutNoTextRowsScore: number, alternativeProduct: number, evidenceProduct: number, whitespaceGatePassed: boolean, centralPositionGatePassed: boolean, bilateralGatePassed: boolean, outerMarginGatePassed: boolean, gutterGatePassed: boolean, independentGutterGatePassed: boolean, aspectSupportGatePassed: boolean, evidenceAgreementGatePassed: boolean, outerMarginRecovery: boolean, outerMarginWeakEdge: OuterMarginSide | null, sparseSpreadRecovered: boolean, abstained: boolean, };
 

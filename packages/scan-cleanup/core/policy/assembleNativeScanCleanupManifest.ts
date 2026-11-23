@@ -1,8 +1,10 @@
 import type {
+    INativeScanCleanupInkCalibrationPageV3,
     INativeScanCleanupManifestV3,
     INativeScanCleanupOutputV3,
     IScanCleanupDocumentCanvasPlan,
     IScanCleanupOptions,
+    TNativeScanCleanupDocumentInkPriorV3,
     TNativeScanCleanupOperation,
     TNativeScanCleanupRenderMode,
     TScanCleanupCanvasScope,
@@ -74,6 +76,10 @@ export interface IBuildNativeScanCleanupManifestInput {
     stagedInputPeakPixels?: number;
     /** Optional host-admission cap that must also bound native page rasters. */
     rasterMaxPixels?: number;
+    /** Optional full-batch MRC page list used to calibrate document ink consistency across chunks. */
+    inkCalibrationPages?: INativeScanCleanupInkCalibrationPageV3[];
+    /** Optional resolved document ink prior reused across chunked render manifests. */
+    documentInkPrior?: TNativeScanCleanupDocumentInkPriorV3;
 }
 
 /**
@@ -192,6 +198,17 @@ export const MANIFEST_DETAIL_RENDER_PLAN_PATH_FIELDS = defineManifestPathFields<
     },
 ]);
 
+export const MANIFEST_INK_CALIBRATION_PAGE_PATH_FIELDS = defineManifestPathFields<INativeScanCleanupInkCalibrationPageV3>()([
+    {
+        field: 'trustedForegroundMaskPath',
+        label: 'ink calibration trusted foreground mask path',
+    },
+    {
+        field: 'trustedMrcBackgroundPath',
+        label: 'ink calibration trusted MRC background path',
+    },
+]);
+
 function assertManifestOutputContract(
     page: IScanCleanupManifestPageInput,
     pageIndex: number,
@@ -220,6 +237,7 @@ function assertManifestOutputContract(
  */
 export interface IScanCleanupManifestPathCheck {
     page: (page: IScanCleanupManifestPageInput, pageIndex: number) => void;
+    inkCalibrationPage?: (page: INativeScanCleanupInkCalibrationPageV3, pageIndex: number) => void;
     manifest: (manifest: INativeScanCleanupManifestV3) => void;
 }
 
@@ -237,11 +255,26 @@ export function assembleNativeScanCleanupManifest({
     stagedInputWindow,
     stagedInputPeakPixels,
     rasterMaxPixels,
+    inkCalibrationPages,
+    documentInkPrior,
 }: IBuildNativeScanCleanupManifestInput, pathCheck: IScanCleanupManifestPathCheck | null): INativeScanCleanupManifestV3 {
     if (pages.length > SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES) {
         throw new ScanCleanupContractError(
             `One native scan-cleanup manifest may contain at most ${String(SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES)} page records; replay bounded batches for longer documents`,
         );
+    }
+    if (inkCalibrationPages !== undefined && documentInkPrior !== undefined) {
+        throw new ScanCleanupContractError(
+            'A native scan-cleanup manifest cannot declare both inkCalibrationPages and documentInkPrior',
+        );
+    }
+    if (inkCalibrationPages !== undefined) {
+        for (const [
+            index,
+            calibrationPage,
+        ] of inkCalibrationPages.entries()) {
+            pathCheck?.inkCalibrationPage?.(calibrationPage, index);
+        }
     }
     const manifest: INativeScanCleanupManifestV3 = {
         version: SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,
@@ -265,6 +298,8 @@ export function assembleNativeScanCleanupManifest({
                 SCAN_CLEANUP_MAX_STAGED_INPUT_PEAK_PIXELS,
                 'stagedInputPeakPixels',
             )}),
+        ...(inkCalibrationPages === undefined ? {} : {inkCalibrationPages}),
+        ...(documentInkPrior === undefined ? {} : {documentInkPrior}),
         pages: pages.map((page, pageIndex) => {
             assertManifestOutputContract(page, pageIndex);
             if (

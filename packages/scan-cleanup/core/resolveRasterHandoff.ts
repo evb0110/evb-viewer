@@ -48,7 +48,8 @@ export function estimateRawRasterBytes(
     plans: readonly IScanCleanupRasterHandoffPlan[],
     residentScratchRasterCount: number,
 ) {
-    const pageEstimates: number[] = [];
+    const inputPageEstimates: number[] = [];
+    let totalAdditionalScratchBytes = 0;
     for (const plan of plans) {
         const raster = plan.raster;
         if (
@@ -90,35 +91,40 @@ export function estimateRawRasterBytes(
         ) {
             return null;
         }
-        let pageBytes = primaryBytes * renderCopies;
+        let inputPageBytes = primaryBytes * renderCopies;
         for (const dpi of plan.additionalRenderDpis ?? []) {
             const additionalBytes = rasterBytesAtDpi(dpi);
             if (additionalBytes === null) {
                 return null;
             }
-            pageBytes += additionalBytes;
+            inputPageBytes += additionalBytes;
         }
         const additionalScratchBytes = plan.additionalScratchBytes ?? 0;
         if (
             !Number.isSafeInteger(additionalScratchBytes)
             || additionalScratchBytes < 0
+            || !Number.isSafeInteger(inputPageBytes)
         ) {
             return null;
         }
-        pageBytes += additionalScratchBytes;
-        if (!Number.isSafeInteger(pageBytes)) {
+        totalAdditionalScratchBytes += additionalScratchBytes;
+        if (!Number.isSafeInteger(totalAdditionalScratchBytes)) {
             return null;
         }
-        pageEstimates.push(pageBytes);
+        inputPageEstimates.push(inputPageBytes);
     }
-    pageEstimates.sort((left, right) => right - left);
-    const estimatedBytes = pageEstimates
+    inputPageEstimates.sort((left, right) => right - left);
+    // Input rasters are bounded to `residentScratchRasterCount` pages in flight,
+    // while `additionalScratchBytes` represents cleaned outputs retained across
+    // all pages in the batch until assembly finishes.
+    const residentInputBytes = inputPageEstimates
         .slice(0, Math.max(1, residentScratchRasterCount))
         .reduce((sum, pageBytes) => sum + pageBytes, 0);
+    const estimatedBytes = residentInputBytes + totalAdditionalScratchBytes;
     return Number.isSafeInteger(estimatedBytes) ? estimatedBytes : null;
 }
 
-function resolveRasterBudgetBytes(availableBytes: number | null) {
+export function resolveRasterBudgetBytes(availableBytes: number | null) {
     return availableBytes === null
         ? RAW_RASTER_BUDGET_FLOOR_BYTES
         : Math.min(

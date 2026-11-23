@@ -17,6 +17,7 @@ import {
 } from 'os';
 import type {TNativeErrorCode} from '@contracts/nativeErrors';
 import type {
+    TNativeScanCleanupDocumentInkPriorV3,
     TNativeScanCleanupPageStageTimingsV3,
     TNativeScanCleanupProgressV3,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
@@ -51,6 +52,8 @@ interface IRunScanCleanupSidecarOptions {
      * completes. The manifest owner retains its scratch until it succeeds.
      */
     onRecoveryPending?: (recovery: Promise<boolean>) => void | Promise<void>;
+    /** Receives additive metadata from a terminal `result` success envelope. */
+    onResult?: (result: {documentInkPrior?: TNativeScanCleanupDocumentInkPriorV3}) => void | Promise<void>;
 }
 
 const DEFAULT_SCAN_CLEANUP_SIDECAR_TIMEOUT_MS = 6 * 60 * 60 * 1_000;
@@ -379,6 +382,12 @@ async function streamScanCleanupSidecar(
                 terminalResult = envelope.result.status;
                 if (envelope.result.status === 'failure') {
                     nativeFailure = new NativeScanCleanupError(envelope.result.code, envelope.result.message);
+                } else {
+                    await options.onResult?.({
+                        ...(envelope.result.documentInkPrior === undefined
+                            ? {}
+                            : {documentInkPrior: envelope.result.documentInkPrior}),
+                    });
                 }
             } catch (error) {
                 protocol.failProtocol(error, line);
@@ -515,6 +524,10 @@ async function streamScanCleanupSidecar(
         ].join(' '));
     }
 
+    if (protocolError !== null) {
+        await replayPublicationJournal();
+        throw protocolError;
+    }
     if (nativeFailure !== null) await replayPublicationJournal();
     throwIfError(nativeFailure);
     if (terminalResult !== 'success') {

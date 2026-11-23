@@ -7,6 +7,7 @@ import type {
     IScanCleanupPlacementAnchorSummary,
     IScanCleanupPlacementAnchor,
     IScanCleanupSourcePageMetadata,
+    TNativeScanCleanupDocumentInkPriorV3,
     TNativeScanCleanupProgressV3,
     TScanCleanupLayoutByPage,
     TScanCleanupOutputHalf,
@@ -411,6 +412,10 @@ export type TScanCleanupRenderPage = (
  */
 export type TScanCleanupSidecarProgress = (nativeProgress: TNativeScanCleanupProgressV3) => void | Promise<void>;
 
+export type TScanCleanupSidecarResult = {
+    documentInkPrior?: TNativeScanCleanupDocumentInkPriorV3;
+};
+
 export type TScanCleanupRunSidecar = (
     binaryPath: string,
     manifestPath: string,
@@ -426,6 +431,7 @@ export type TScanCleanupRunSidecar = (
          * this promise resolves successfully.
          */
         onRecoveryPending?: (recovery: Promise<boolean>) => void | Promise<void>;
+        onResult?: (result: TScanCleanupSidecarResult) => void | Promise<void>;
     },
 ) => Promise<void>;
 
@@ -480,6 +486,25 @@ export interface IScanCleanupWorkerPaths {
     tempDir: string;
     /** Main-owned scratch for one conversion run. */
     scratchDir?: string;
+    /** Optional root directory for witness-bound resumable conversion checkpoints. */
+    checkpointDir?: string;
+    /** Unique per-run owner identifier stored in checkpoint locks and leases for post-exit reclamation. */
+    checkpointOwnerId?: string;
+    /**
+     * When true, conversion retains the completed checkpoint directory until
+     * the owning host service crosses its commit boundary and calls
+     * `reclaimScanCleanupCheckpoint`.
+     */
+    deferCheckpointCleanup?: boolean;
+}
+
+export interface IScanCleanupStreamingHandoffLimits {
+    /** Maximum pages simultaneously staged or being rasterized in flight. */
+    maxInFlightPages?: number;
+    /** Maximum estimated/actual disk bytes of staged input rasters in flight. */
+    maxInFlightBytes?: number;
+    /** Maximum pages dispatched to one native render sidecar invocation. */
+    maxChunkPages?: number;
 }
 
 /** Provenance inputs computed by an xlarge coordinator and reused by its children. */
@@ -538,6 +563,9 @@ export interface IRunScanCleanupPipelineDependencies {
     extractMrcLayersBatch?: TScanCleanupExtractMrcLayersBatch;
     requirePublishedRaster?: TScanCleanupRequirePublishedRaster;
     hashNativeBinary?: (path: string) => Promise<string>;
+    streamingHandoff?: IScanCleanupStreamingHandoffLimits;
+    /** Notifies a host using `deferCheckpointCleanup` which checkpoint entry is ready to delete after commit. */
+    onCheckpointReadyForCleanup?: (entryDir: string) => void;
 }
 
 export interface IScanCleanupCorePolicy {

@@ -1,4 +1,7 @@
-import type {INativeScanCleanupManifestV3} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import type {
+    INativeScanCleanupInkCalibrationPageV3,
+    INativeScanCleanupManifestV3,
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {ScanCleanupContractError} from '@evb/scan-cleanup/core/errors';
 import {
     assertScanCleanupPathWithinCanonicalRoot,
@@ -10,6 +13,7 @@ import {
 import {
     assembleNativeScanCleanupManifest,
     MANIFEST_DETAIL_RENDER_PLAN_PATH_FIELDS,
+    MANIFEST_INK_CALIBRATION_PAGE_PATH_FIELDS,
     MANIFEST_OUTPUT_PATH_FIELDS,
     MANIFEST_PAGE_PATH_FIELDS,
     type IBuildRunnableNativeScanCleanupManifestInput,
@@ -17,6 +21,25 @@ import {
 } from '@evb/scan-cleanup/core/policy/assembleNativeScanCleanupManifest';
 
 export * from '@evb/scan-cleanup/core/policy/assembleNativeScanCleanupManifest';
+
+function assertManifestInkCalibrationPagePaths(
+    page: INativeScanCleanupInkCalibrationPageV3,
+    pageIndex: number,
+    allowedRoot: IScanCleanupAllowedRoot,
+    checkedPathTrails: Map<string, string>,
+    pathResolutionCache: IScanCleanupPathResolutionCache,
+) {
+    const pageLabel = `ink calibration page ${String(pageIndex + 1)}`;
+    const pageTrail = `inkCalibrationPages.${String(pageIndex)}`;
+    for (const {
+        field,
+        label,
+    } of MANIFEST_INK_CALIBRATION_PAGE_PATH_FIELDS) {
+        const path = page[field];
+        assertScanCleanupPathWithinCanonicalRoot(path, allowedRoot, `${pageLabel} ${label}`, pathResolutionCache);
+        checkedPathTrails.set(`${pageTrail}.${field}`, path);
+    }
+}
 
 function assertManifestPagePaths(
     page: IScanCleanupManifestPageInput,
@@ -126,6 +149,13 @@ export function buildRunnableNativeScanCleanupManifest(
     const checkedPathTrails = new Map<string, string>();
     return assembleNativeScanCleanupManifest(input, {
         page: (page, pageIndex) => assertManifestPagePaths(page, pageIndex, allowedRoot, checkedPathTrails, pathResolutionCache),
+        inkCalibrationPage: (page, pageIndex) => assertManifestInkCalibrationPagePaths(
+            page,
+            pageIndex,
+            allowedRoot,
+            checkedPathTrails,
+            pathResolutionCache,
+        ),
         manifest: manifest => assertNoUncheckedManifestPaths(manifest, checkedPathTrails),
     });
 }

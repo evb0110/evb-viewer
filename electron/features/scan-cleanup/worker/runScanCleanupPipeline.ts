@@ -60,12 +60,27 @@ export async function runScanCleanupPipeline(
     policy: IScanCleanupRuntimePolicy,
     log: TWorkerLog = () => undefined,
     dependencies: IRunScanCleanupPipelineDependencies = defaultDependencies,
+    options?: {
+        onCheckpointReadyForCleanup?: (entryDir: string) => void;
+    },
 ): Promise<TScanCleanupSummary> {
     attachScanCleanupPageOverrideDefaults(
         request.options.pageOverrides,
         request.options.pageOverrideDefaults,
         request.options.marginsMm,
     );
+    const resolvedDependencies: IRunScanCleanupPipelineDependencies = {
+        ...dependencies,
+        ...(dependencies.evidenceDirectory === undefined
+            ? {
+                evidenceDirectory: join(dirname(request.outputPdfPath), SCAN_CLEANUP_RUN_REPORT_DIRECTORY),
+                evidenceFileFilter: isScanCleanupRunReportFile,
+            }
+            : {}),
+        ...(options?.onCheckpointReadyForCleanup === undefined
+            ? {}
+            : {onCheckpointReadyForCleanup: options.onCheckpointReadyForCleanup}),
+    };
     // Without the developer evidence directory, the run's compact report stays
     // beside its generated PDF and shares that output's lifetime, so a support
     // question about a finished run can still be answered from disk.
@@ -76,13 +91,7 @@ export async function runScanCleanupPipeline(
         onProgress,
         policy,
         log,
-        dependencies.evidenceDirectory === undefined
-            ? {
-                ...dependencies,
-                evidenceDirectory: join(dirname(request.outputPdfPath), SCAN_CLEANUP_RUN_REPORT_DIRECTORY),
-                evidenceFileFilter: isScanCleanupRunReportFile,
-            }
-            : dependencies,
+        resolvedDependencies,
     );
 }
 
