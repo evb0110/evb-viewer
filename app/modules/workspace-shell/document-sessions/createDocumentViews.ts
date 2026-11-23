@@ -6,6 +6,7 @@ import {
 } from '@contracts/electronApiPageOps';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import {
+    createPdfPageNavigationRequest,
     createPdfReloadWaiter,
     resolvePdfReloadPage,
     type usePageContextMenu,
@@ -119,24 +120,30 @@ export const createDocumentViews = (controller: IWorkspaceDocumentController) =>
     const reportedPageCount = computed(() => Math.max(0, ...ports().map(port => port.view.totalPages.value)));
 
     /**
-     * Waits for a reload of the document in one view, which returns to `page`
-     * once it shows the new bytes, unless its reader moved meanwhile.
+     * Brings the document the view opens next to `page` (R4: a moved tab
+     * keeps its place). It is an open, not a reload: the view's open surface
+     * navigates there once it shows the document.
      */
     function prepareViewReload(port: IDocumentViewPort, page: number) {
         return createPdfReloadWaiter({
-            pdfViewerRef: port.view.pdfViewerRef,
             openSurface: port.openSurface,
             resetSearchCache: port.search.resetSearchCache,
-            pageToRestore: resolvePdfReloadPage(page),
+            admission: null,
+            place: () => port.openSurface.navigate(createPdfPageNavigationRequest(resolvePdfReloadPage(page)))?.finished,
         });
     }
 
     /**
-     * Waits for a reload of the document in every view; each keeps its own
-     * page, moved through `mapPage` when the reload changes the pages (T4).
+     * Admits a reload of the document in every view and waits for each
+     * view's receipt. Each view keeps its own reading point, its page moved
+     * through `mapPage` when the reload changes the pages (T4).
      */
     function prepareReload(mapPage: (page: number) => number = page => page) {
-        const waiters = ports().map(port => prepareViewReload(port, mapPage(port.view.currentPage.value)));
+        const waiters = ports().map(port => createPdfReloadWaiter({
+            openSurface: port.openSurface,
+            resetSearchCache: port.search.resetSearchCache,
+            admission: port.view.pdfViewerRef.value?.admitReload?.(mapPage) ?? null,
+        }));
         return {
             promise: Promise.all(waiters.map(waiter => waiter.promise)).then(() => undefined),
             cancel: () => waiters.forEach(waiter => waiter.cancel()),

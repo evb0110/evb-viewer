@@ -13,6 +13,7 @@ import type { TaggedUnion } from 'type-fest';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TDocumentRef } from '@contracts/documentRef';
 import {
+    getPageIdentityDeltaNextPageCount,
     mapPageNumberThroughPageIdentityDelta,
     type IPageIdentityDelta,
 } from '@contracts/electronApiPageOps';
@@ -1927,17 +1928,20 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             },
             /**
              * Moves a reading anchor taken before a staged page mutation to that
-             * page's number after it; a removed page reads the staged page.
+             * page's number after it. The mutation belongs to the document, so a
+             * view that could not stage its own swap is moved too. A removed page
+             * reads the page this view staged, or the nearest one that remains.
              */
             carryAnchorThroughPageMutation<TAnchor extends {page: number}>(anchor: TAnchor | null): TAnchor | null {
                 const delta = pendingPageMutationRevisionSwap?.pageIdentityDelta;
-                if (!anchor || !delta || stagedRevisionSwapPage === null) {
+                if (!anchor || !delta) {
                     return anchor;
                 }
                 const page = mapPageNumberThroughPageIdentityDelta(delta, requirePageNumber(anchor.page));
                 return {
                     ...anchor,
-                    page: page ?? stagedRevisionSwapPage,
+                    page: page ?? stagedRevisionSwapPage
+                        ?? Math.max(1, Math.min(anchor.page, getPageIdentityDeltaNextPageCount(delta) ?? anchor.page)),
                 };
             },
             get activeLoadPlan() {

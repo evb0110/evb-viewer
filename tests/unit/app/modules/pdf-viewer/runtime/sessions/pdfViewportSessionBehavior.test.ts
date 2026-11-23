@@ -52,7 +52,11 @@ import {
     type IDocumentOpenSurfaceSession,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import { createDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
-import { createPageNavigationRequest } from '@app/modules/document-viewer/navigation/documentNavigationRequest';
+import {
+    createPageNavigationRequest,
+    type IDocumentNavigationTicket,
+    type TDocumentNavigationOutcome,
+} from '@app/modules/document-viewer/navigation/documentNavigationRequest';
 import { fenceDocumentViewportPaneRelocationScroll } from '@app/modules/document-viewer/runtime/documentViewportWritePort';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
@@ -2667,6 +2671,229 @@ describe('PdfViewportSession behavior', () => {
         } finally {
             fixture.app.unmount();
         }
+    });
+
+    describe('an admitted reload', () => {
+        const reloadPlan = {
+            isReload: true,
+            isSelectiveReload: false,
+            pagesToInvalidate: null,
+            preserveVisibleContent: false,
+            preservePageStructure: false,
+        };
+
+        async function reloadWithAdmission(
+            readerMovesDuringReload: boolean,
+            prepare?: (documentSession: ReturnType<typeof createViewportFixture>['documentSession']) => void,
+        ) {
+            const fixture = createViewportFixture({pageCount: 20});
+            prepare?.(fixture.documentSession);
+            const stop = watch(fixture.viewport.demand, (demand) => {
+                if (demand.mandatoryRaster) {
+                    fixture.viewport.settleMandatoryRaster(demand.mandatoryRaster.id, true);
+                }
+            }, {flush: 'post'});
+            try {
+                fixture.container.scrollTop = 4_000;
+                const read = fixture.viewport.singlePageScroll.captureCurrentSemanticAnchor()!;
+                const admission = fixture.viewport.admitReload(page => page + 1);
+                await fixture.documentSession.emit(transition('invalidated', reloadPlan));
+                await fixture.documentSession.emit(transition('loading', reloadPlan));
+                if (readerMovesDuringReload) {
+                    fixture.viewportWrites.port.observeUserInteraction();
+                }
+                const writesBeforeReady = fixture.viewportWrites.writes.length;
+                await fixture.documentSession.emit(transition('ready', reloadPlan));
+                return {
+                    fixture,
+                    outcome: await admission.finished,
+                    read,
+                    placedWrites: fixture.viewportWrites.writes.slice(writesBeforeReady)
+                        .filter(write => write.reason === 'document-restore'),
+                };
+            } catch (error) {
+                await fixture.dispose();
+                throw error;
+            } finally {
+                stop();
+            }
+        }
+
+        it('places the reading point on the page its map moves it to, then reports it placed', async () => {
+            const {
+                fixture, outcome, read, placedWrites,
+            } = await reloadWithAdmission(false);
+            try {
+                expect(read.page).toBeGreaterThan(1);
+                expect(outcome).toBe('placed');
+                expect(placedWrites).toHaveLength(1);
+                expect(fixture.viewport.currentPage.value).toBe(read.page + 1);
+                expect(fixture.viewport.singlePageScroll.captureCurrentSemanticAnchor()).toMatchObject({
+                    page: read.page + 1,
+                    pageYFraction: expect.closeTo(read.pageYFraction, 2),
+                });
+            } finally {
+                await fixture.dispose();
+            }
+        });
+
+        it('leaves the view where the reader moved it during the reload', async () => {
+            const {
+                fixture, outcome, read, placedWrites,
+            } = await reloadWithAdmission(true);
+            try {
+                expect(outcome).toBe('superseded');
+                expect(placedWrites).toHaveLength(0);
+                expect(fixture.viewport.currentPage.value).not.toBe(read.page + 1);
+                expect(fixture.viewport.viewportWork.activeWorkKind.value).toBeNull();
+            } finally {
+                await fixture.dispose();
+            }
+        });
+
+        it('resolves a withdrawn admission at once and does not map the next reload', async () => {
+            const fixture = createViewportFixture({pageCount: 20});
+            try {
+                fixture.container.scrollTop = 4_000;
+                const read = fixture.viewport.singlePageScroll.captureCurrentSemanticAnchor()!;
+                const admission = fixture.viewport.admitReload(page => page + 1);
+                admission.withdraw();
+                await expect(admission.finished).resolves.toBe('withdrawn');
+                await fixture.documentSession.emit(transition('invalidated', reloadPlan));
+                await fixture.documentSession.emit(transition('loading', reloadPlan));
+                expect(fixture.viewport.singlePageScroll.renderTargetPage.value).toBe(read.page);
+            } finally {
+                await fixture.dispose();
+            }
+        });
+
+        it('retargets the page-top ticket a reloaded surface generation opens with to the reading point', async () => {
+            const surface = createDocumentOpenSurfaceSession();
+            surface.begin({
+                documentId: 'reloaded.pdf',
+                documentRevision: 'revision-1',
+            });
+            const fixture = createViewportFixture({
+                chassisAuthority: createChassisAuthority(surface),
+                pageCount: 20,
+            });
+            const stop = watch(fixture.viewport.demand, (demand) => {
+                if (demand.mandatoryRaster) {
+                    fixture.viewport.settleMandatoryRaster(demand.mandatoryRaster.id, true);
+                }
+            }, {flush: 'post'});
+            try {
+                fixture.container.scrollTop = 4_000;
+                const read = fixture.viewport.singlePageScroll.captureCurrentSemanticAnchor()!;
+                const admission = fixture.viewport.admitReload(page => page + 1);
+                await fixture.documentSession.emit(transition('invalidated', reloadPlan));
+                // A revision the views could not stage opens a new generation at the page-top of its current page.
+                surface.begin({
+                    documentId: 'reloaded.pdf',
+                    documentRevision: 'revision-2',
+                }, null, read.page);
+                const openingTicket = surface.navigationTicket.value;
+                await fixture.documentSession.emit(transition('loading', reloadPlan));
+
+                const ticket = surface.navigationTicket.value;
+                expect(ticket).not.toBe(openingTicket);
+                expect(ticket?.request.target).toMatchObject({
+                    kind: 'page',
+                    page: read.page + 1,
+                    anchor: {
+                        page: read.page + 1,
+                        pageYFraction: read.pageYFraction,
+                    },
+                });
+                await fixture.documentSession.emit(transition('ready', reloadPlan));
+                // The ticket's execution places the point; its terminal outcome settles the admission.
+                await vi.waitFor(() => expect(fixture.viewport.singlePageScroll.captureCurrentSemanticAnchor()).toMatchObject({
+                    page: read.page + 1,
+                    pageYFraction: expect.closeTo(read.pageYFraction, 2),
+                }));
+                const outcome = await ticket!.finished;
+                await expect(admission.finished).resolves.toBe(outcome.kind === 'arrived' ? 'placed' : 'superseded');
+            } finally {
+                stop();
+                await fixture.dispose();
+            }
+        });
+
+        it.each([
+            false,
+            true,
+        ])('settles a retargeted opening ticket as superseded once the reader moved (input after issue: %s)', async (readerMoves) => {
+            const surface = createDocumentOpenSurfaceSession();
+            surface.begin({
+                documentId: 'reloaded.pdf',
+                documentRevision: 'revision-1',
+            });
+            const fixture = createViewportFixture({
+                chassisAuthority: createChassisAuthority(surface),
+                pageCount: 20,
+            });
+            const stop = watch(fixture.viewport.demand, (demand) => {
+                if (demand.mandatoryRaster) {
+                    fixture.viewport.settleMandatoryRaster(demand.mandatoryRaster.id, true);
+                }
+            }, {flush: 'post'});
+            const arrival = Promise.withResolvers<TDocumentNavigationOutcome>();
+            try {
+                fixture.container.scrollTop = 4_000;
+                const admission = fixture.viewport.admitReload(page => page + 1);
+                await fixture.documentSession.emit(transition('invalidated', reloadPlan));
+                surface.begin({
+                    documentId: 'reloaded.pdf',
+                    documentRevision: 'revision-2',
+                }, null, 3);
+                const navigate = vi.spyOn(surface, 'navigate').mockReturnValue(cast<IDocumentNavigationTicket>({finished: arrival.promise}));
+                await fixture.documentSession.emit(transition('loading', reloadPlan));
+                expect(navigate).toHaveBeenCalledOnce();
+                if (readerMoves) {
+                    fixture.viewportWrites.port.observeUserInteraction();
+                }
+                await fixture.documentSession.emit(transition('ready', reloadPlan));
+                arrival.resolve({
+                    kind: 'arrived',
+                    page: 4,
+                });
+                await expect(admission.finished).resolves.toBe(readerMoves ? 'superseded' : 'placed');
+            } finally {
+                stop();
+                await fixture.dispose();
+            }
+        });
+
+        it('maps a view that did not stage the pending page mutation through the admitted map', async () => {
+            const {
+                fixture, outcome, read,
+            } = await reloadWithAdmission(false, (documentSession) => {
+                // Another linked view staged the swap; this one did not, so its carry keeps the page.
+                documentSession.pendingPageMutationRevisionSwap = cast({
+                    revision: 'revision-2',
+                    invalidatedPages: [1],
+                    preservePageMetrics: false,
+                    pageIdentityDelta: {
+                        previousPageCount: 20,
+                        pages: [],
+                    },
+                });
+            });
+            try {
+                expect(outcome).toBe('placed');
+                expect(fixture.documentSession.carryAnchorThroughPageMutation).not.toHaveBeenCalled();
+                expect(fixture.viewport.currentPage.value).toBe(read.page + 1);
+            } finally {
+                await fixture.dispose();
+            }
+        });
+
+        it('settles an admission that is still waiting when the view closes', async () => {
+            const fixture = createViewportFixture({pageCount: 20});
+            const admission = fixture.viewport.admitReload(page => page);
+            await fixture.dispose();
+            await expect(admission.finished).resolves.toBe('superseded');
+        });
     });
 
     it('does not hold the last picture when a different document replaces it', async () => {

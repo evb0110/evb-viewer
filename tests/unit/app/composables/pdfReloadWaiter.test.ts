@@ -1,4 +1,8 @@
-import type { IDocumentOpenSurfaceSnapshot } from '@app/modules/document-viewer/public';
+import type {
+    IDocumentNavigationTicket,
+    IDocumentOpenSurfaceSnapshot,
+} from '@app/modules/document-viewer/public';
+import { createPageNavigationRequest } from '@app/modules/document-viewer/navigation/documentNavigationRequest';
 import {
     afterEach,
     describe,
@@ -6,11 +10,9 @@ import {
     it,
     vi,
 } from 'vitest';
-import {
-    ref,
-    shallowRef,
-} from 'vue';
+import { shallowRef } from 'vue';
 import { createPdfReloadWaiter } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/createPdfReloadWaiter';
+import type { TPdfReloadOutcome } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/pdfReloadWaiterViewer';
 import { resolvePdfReloadPage } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/resolvePdfReloadPage';
 import { cast } from '@tests/helpers/cast';
 
@@ -24,22 +26,30 @@ describe('resolvePdfReloadPage', () => {
 });
 
 describe('createPdfReloadWaiter', () => {
-    function createReloadingSurface() {
+    const settledSurface = {
+        phase: 'ready',
+        presentation: 'committed',
+    } as const;
+
+    function createSurface() {
         const snapshot = shallowRef(cast<IDocumentOpenSurfaceSnapshot>({
             generation: 1,
             identity: {
                 documentId: 'document',
                 documentRevision: 'revision-a',
             },
-            phase: 'ready',
-            presentation: 'committed',
+            ...settledSurface,
         }));
+        const viewportSession = shallowRef(cast<{lifecycle: string}>({lifecycle: 'ready'}));
+        const navigationTicket = shallowRef<IDocumentNavigationTicket | null>(null);
         return {
             openSurface: cast<Parameters<typeof createPdfReloadWaiter>[0]['openSurface']>({
                 snapshot,
-                viewportSession: shallowRef({lifecycle: 'ready'}),
+                viewportSession,
+                navigationTicket,
             }),
-            reload: () => {
+            navigationTicket,
+            show: (state: Partial<IDocumentOpenSurfaceSnapshot> = settledSurface) => {
                 snapshot.value = cast({
                     ...snapshot.value,
                     generation: 2,
@@ -47,94 +57,92 @@ describe('createPdfReloadWaiter', () => {
                         documentId: 'document',
                         documentRevision: 'revision-b',
                     },
+                    ...state,
                 });
             },
+            replace: (state: Partial<IDocumentOpenSurfaceSnapshot>) => {
+                snapshot.value = cast({
+                    ...snapshot.value,
+                    ...state,
+                });
+            },
+            viewportSession,
         };
     }
 
-    it('restores the semantic page after the document reloads', async () => {
-        const surface = createReloadingSurface();
-        const scrollToPage = vi.fn();
+    function createAdmission() {
+        const settled = Promise.withResolvers<TPdfReloadOutcome>();
+        const withdraw = vi.fn(() => settled.resolve('withdrawn'));
+        return {
+            admission: {
+                finished: settled.promise,
+                withdraw,
+            },
+            settle: settled.resolve,
+            withdraw,
+        };
+    }
+
+    it('resolves with the viewer\'s receipt once the view settles on the reloaded document', async () => {
+        const surface = createSurface();
+        const receipt = createAdmission();
+        const resetSearchCache = vi.fn();
+        let resolved = false;
         const waiter = createPdfReloadWaiter({
-            pdfViewerRef: ref({scrollToPage}),
             openSurface: surface.openSurface,
-            resetSearchCache: vi.fn(),
-            pageToRestore: 5,
+            resetSearchCache,
+            admission: receipt.admission,
+        });
+        void waiter.promise.then(() => {
+            resolved = true;
         });
 
-        surface.reload();
+        surface.show();
+        await vi.waitFor(() => expect(surface.openSurface.snapshot.value.generation).toBe(2));
+        await Promise.resolve();
+        // Showing the bytes is not the reading point: the receipt is.
+        expect(resolved).toBe(false);
+        expect(resetSearchCache).not.toHaveBeenCalled();
+
+        receipt.settle('placed');
         await waiter.promise;
-        expect(scrollToPage).toHaveBeenCalledWith(5);
+        expect(resetSearchCache).toHaveBeenCalledTimes(1);
+        expect(receipt.withdraw).not.toHaveBeenCalled();
     });
 
-    it('restores the page once the reloaded open surface is ready', async () => {
+    it('ends at once when the operation withdraws its admission before reloading', async () => {
         vi.useFakeTimers();
-        const visiblePage = ref(1);
-        const surfaceSnapshot = shallowRef(cast<IDocumentOpenSurfaceSnapshot>({
-            generation: 1,
-            identity: {
-                documentId: 'document',
-                documentRevision: 'revision-a',
-            },
-            phase: 'ready',
-            presentation: 'committed',
-        }));
-        const viewportSession = shallowRef(cast({lifecycle: 'ready'}));
+        const surface = createSurface();
+        const receipt = createAdmission();
+        const resetSearchCache = vi.fn();
         const waiter = createPdfReloadWaiter({
-            pdfViewerRef: ref({scrollToPage: page => { visiblePage.value = page; }}),
-            openSurface: cast({
-                snapshot: surfaceSnapshot,
-                viewportSession,
-            }),
-            resetSearchCache: vi.fn(),
-            pageToRestore: 6,
+            openSurface: surface.openSurface,
+            resetSearchCache,
+            admission: receipt.admission,
         });
 
-        await Promise.resolve();
-        await Promise.resolve();
-        expect(visiblePage.value).toBe(1);
-
-        surfaceSnapshot.value = cast({
-            generation: 2,
-            identity: {
-                documentId: 'document',
-                documentRevision: 'open-intent:reload',
-                provisional: true,
-            },
-            phase: 'pending',
-            presentation: 'page-shell',
-        });
-        viewportSession.value = cast({lifecycle: 'opening'});
+        waiter.cancel();
         await vi.advanceTimersByTimeAsync(0);
-        expect(visiblePage.value).toBe(1);
+        await waiter.promise;
 
-        surfaceSnapshot.value = cast({
-            generation: 2,
-            identity: {
-                documentId: 'document',
-                documentRevision: 'revision-b',
-            },
-            phase: 'canvas-committed',
-            presentation: 'page-shell',
-        });
-        viewportSession.value = cast({lifecycle: 'opening'});
-        await Promise.resolve();
-        expect(visiblePage.value).toBe(1);
+        expect(receipt.withdraw).toHaveBeenCalled();
+        expect(resetSearchCache).not.toHaveBeenCalled();
+    });
 
-        surfaceSnapshot.value = cast({
-            generation: 2,
-            identity: {
-                documentId: 'document',
-                documentRevision: 'revision-b',
-            },
-            phase: 'ready',
-            presentation: 'committed',
+    it('withdraws an admission whose reload never comes', async () => {
+        vi.useFakeTimers();
+        const surface = createSurface();
+        const receipt = createAdmission();
+        const waiter = createPdfReloadWaiter({
+            openSurface: surface.openSurface,
+            resetSearchCache: vi.fn(),
+            admission: receipt.admission,
         });
-        viewportSession.value = cast({lifecycle: 'ready'});
+
         await vi.advanceTimersByTimeAsync(8000);
         await waiter.promise;
 
-        expect(visiblePage.value).toBe(6);
+        expect(receipt.withdraw).toHaveBeenCalledTimes(1);
     });
 
     it.each([
@@ -147,190 +155,200 @@ describe('createPdfReloadWaiter', () => {
             documentId: 'document',
             documentRevision: 'revision-c',
         }},
-    ])('does not place an admitted reload after its surface is replaced (%s)', async (replacement) => {
-        vi.useFakeTimers();
-        const visiblePage = ref(1);
-        const surfaceSnapshot = shallowRef(cast<IDocumentOpenSurfaceSnapshot>({
-            generation: 1,
-            identity: {
-                documentId: 'document',
-                documentRevision: 'revision-a',
-            },
-            phase: 'ready',
-            presentation: 'committed',
-        }));
-        const viewportSession = shallowRef(cast({lifecycle: 'ready'}));
+    ])('does not finish a reload whose surface was replaced meanwhile (%s)', async (replacement) => {
+        const surface = createSurface();
+        const receipt = createAdmission();
+        const resetSearchCache = vi.fn();
+        const place = vi.fn();
         const waiter = createPdfReloadWaiter({
-            pdfViewerRef: ref({scrollToPage: page => { visiblePage.value = page; }}),
-            openSurface: cast({
-                snapshot: surfaceSnapshot,
-                viewportSession,
-            }),
-            resetSearchCache: () => {},
-            pageToRestore: 6,
+            openSurface: surface.openSurface,
+            resetSearchCache,
+            admission: receipt.admission,
+            place,
         });
-        surfaceSnapshot.value = cast({
-            ...surfaceSnapshot.value,
-            generation: 2,
-            identity: {
-                documentId: 'document',
-                documentRevision: 'revision-b',
-            },
+
+        surface.show({
             phase: 'canvas-committed',
             presentation: 'page-shell',
         });
-        viewportSession.value = cast({lifecycle: 'opening'});
-        await vi.advanceTimersByTimeAsync(0);
-
-        surfaceSnapshot.value = cast({
-            ...surfaceSnapshot.value,
+        await vi.waitFor(() => expect(surface.openSurface.snapshot.value.generation).toBe(2));
+        surface.replace({
             ...replacement,
-            phase: 'ready',
-            presentation: 'committed',
+            ...settledSurface,
         });
-        viewportSession.value = cast({lifecycle: 'ready'});
-        await waiter.promise;
-        expect(visiblePage.value).toBe(1);
-    });
-
-    it('keeps replacement protection between readiness and placement', async () => {
-        const visiblePage = ref(1);
-        const surfaceSnapshot = shallowRef(cast<IDocumentOpenSurfaceSnapshot>({
-            generation: 1,
-            identity: {
-                documentId: 'document',
-                documentRevision: 'revision-a',
-            },
-            phase: 'ready',
-            presentation: 'committed',
-        }));
-        const waiter = createPdfReloadWaiter({
-            pdfViewerRef: ref({scrollToPage: page => { visiblePage.value = page; }}),
-            openSurface: cast({
-                snapshot: surfaceSnapshot,
-                viewportSession: shallowRef({lifecycle: 'ready'}),
-            }),
-            resetSearchCache: () => {
-                surfaceSnapshot.value = cast({
-                    ...surfaceSnapshot.value,
-                    generation: 3,
-                });
-            },
-            pageToRestore: 6,
-        });
-        surfaceSnapshot.value = cast({
-            ...surfaceSnapshot.value,
-            generation: 2,
-            identity: {
-                documentId: 'document',
-                documentRevision: 'revision-b',
-            },
-        });
-        await waiter.promise;
-        expect(visiblePage.value).toBe(1);
-    });
-
-    it.each([
-        'cancel',
-        'interact',
-    ])('keeps the reader position when the pending surface restore is withdrawn (%s)', async (action) => {
-        vi.useFakeTimers();
-        const visiblePage = ref(1);
-        let interactionEpoch = 1;
-        const surfaceSnapshot = shallowRef(cast<IDocumentOpenSurfaceSnapshot>({
-            generation: 1,
-            identity: {
-                documentId: 'document',
-                documentRevision: 'revision-a',
-            },
-            phase: 'ready',
-            presentation: 'committed',
-        }));
-        const viewportSession = shallowRef(cast({lifecycle: 'ready'}));
-        const waiter = createPdfReloadWaiter({
-            pdfViewerRef: ref({
-                scrollToPage: page => { visiblePage.value = page; },
-                getUserViewportInteractionEpoch: () => interactionEpoch,
-            }),
-            openSurface: cast({
-                snapshot: surfaceSnapshot,
-                viewportSession,
-            }),
-            resetSearchCache: () => {},
-            pageToRestore: 6,
-        });
-        surfaceSnapshot.value = cast({
-            ...surfaceSnapshot.value,
-            generation: 2,
-            identity: {
-                documentId: 'document',
-                documentRevision: 'revision-b',
-            },
-            phase: 'canvas-committed',
-            presentation: 'page-shell',
-        });
-        viewportSession.value = cast({lifecycle: 'opening'});
-        await vi.advanceTimersByTimeAsync(0);
-        if (action === 'cancel') waiter.cancel();
-        else interactionEpoch += 1;
-        surfaceSnapshot.value = cast({
-            ...surfaceSnapshot.value,
-            phase: 'ready',
-            presentation: 'committed',
-        });
-        viewportSession.value = cast({lifecycle: 'ready'});
-        await waiter.promise;
-        expect(visiblePage.value).toBe(1);
-    });
-
-    it('does not start a redundant navigation when the open surface already committed the target page', async () => {
-        const scrollToPage = vi.fn();
-        const surfaceSnapshot = shallowRef(cast<IDocumentOpenSurfaceSnapshot>({
-            generation: 1,
-            identity: {
-                documentId: 'document',
-                documentRevision: 'revision-a',
-            },
-            phase: 'ready',
-            presentation: 'committed',
-            committedViewport: {pageNumber: 6},
-        }));
-        const viewportSession = shallowRef(cast({lifecycle: 'ready'}));
-        const waiter = createPdfReloadWaiter({
-            pdfViewerRef: ref({scrollToPage}),
-            openSurface: cast({
-                snapshot: surfaceSnapshot,
-                viewportSession,
-            }),
-            resetSearchCache: vi.fn(),
-            pageToRestore: 6,
-        });
-
-        surfaceSnapshot.value = cast({
-            generation: 2,
-            identity: {
-                documentId: 'document',
-                documentRevision: 'revision-b',
-            },
-            phase: 'ready',
-            presentation: 'committed',
-            committedViewport: {pageNumber: 6},
-        });
-        viewportSession.value = cast({lifecycle: 'ready'});
+        receipt.settle('superseded');
         await waiter.promise;
 
-        expect(scrollToPage).not.toHaveBeenCalled();
+        expect(resetSearchCache).not.toHaveBeenCalled();
+        expect(place).not.toHaveBeenCalled();
     });
 
-    it('contains page restoration failures', async () => {
-        const surface = createReloadingSurface();
+    it('places a view without an admission once it settles, unless cancelled first', async () => {
+        const surface = createSurface();
+        const place = vi.fn();
         const waiter = createPdfReloadWaiter({
-            pdfViewerRef: ref({scrollToPage: vi.fn(() => { throw new Error('restore failed'); })}),
             openSurface: surface.openSurface,
             resetSearchCache: vi.fn(),
-            pageToRestore: 9,
+            admission: null,
+            place,
         });
-        surface.reload();
-        await expect(waiter.promise).resolves.toBeUndefined();
+        surface.show({
+            phase: 'canvas-committed',
+            presentation: 'page-shell',
+        });
+        surface.viewportSession.value = cast({lifecycle: 'opening'});
+        await Promise.resolve();
+        expect(place).not.toHaveBeenCalled();
+        surface.replace(settledSurface);
+        surface.viewportSession.value = cast({lifecycle: 'ready'});
+        await waiter.promise;
+        expect(place).toHaveBeenCalledTimes(1);
+
+        const cancelledSurface = createSurface();
+        const cancelledPlace = vi.fn();
+        const cancelled = createPdfReloadWaiter({
+            openSurface: cancelledSurface.openSurface,
+            resetSearchCache: vi.fn(),
+            admission: null,
+            place: cancelledPlace,
+        });
+        cancelled.cancel();
+        cancelledSurface.show();
+        await cancelled.promise;
+        expect(cancelledPlace).not.toHaveBeenCalled();
+    });
+
+    it('ends at once when the view goes away before its reload arrives', async () => {
+        vi.useFakeTimers();
+        const surface = createSurface();
+        const receipt = createAdmission();
+        const waiter = createPdfReloadWaiter({
+            openSurface: surface.openSurface,
+            resetSearchCache: vi.fn(),
+            admission: receipt.admission,
+        });
+        let resolved = false;
+        void waiter.promise.then(() => {
+            resolved = true;
+        });
+        receipt.settle('superseded');
+        // No timer advances: the settled admission alone ends the wait.
+        await vi.advanceTimersByTimeAsync(0);
+        expect(resolved).toBe(true);
+    });
+
+    it('ends at once when the reloaded document fails to open', async () => {
+        vi.useFakeTimers();
+        const surface = createSurface();
+        const receipt = createAdmission();
+        const resetSearchCache = vi.fn();
+        const waiter = createPdfReloadWaiter({
+            openSurface: surface.openSurface,
+            resetSearchCache,
+            admission: receipt.admission,
+        });
+        surface.show({
+            phase: 'pending',
+            presentation: 'page-shell',
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        let resolved = false;
+        void waiter.promise.then(() => {
+            resolved = true;
+        });
+        surface.replace({phase: 'failed'});
+        await vi.advanceTimersByTimeAsync(0);
+        expect(resolved).toBe(true);
+        expect(resetSearchCache).not.toHaveBeenCalled();
+        expect(receipt.withdraw).toHaveBeenCalled();
+    });
+
+    it('leaves a moved view where its reader navigated while it opened (R2)', async () => {
+        const surface = createSurface();
+        const place = vi.fn();
+        const waiter = createPdfReloadWaiter({
+            openSurface: surface.openSurface,
+            resetSearchCache: vi.fn(),
+            admission: null,
+            place,
+        });
+        surface.show({
+            phase: 'canvas-committed',
+            presentation: 'page-shell',
+        });
+        // The open's own restore ticket is not the reader's command.
+        surface.navigationTicket.value = cast({
+            generation: 2,
+            request: createPageNavigationRequest(1, 'restore'),
+        });
+        surface.navigationTicket.value = cast({
+            generation: 2,
+            request: createPageNavigationRequest(5, 'toolbar'),
+        });
+        surface.navigationTicket.value = null;
+        surface.replace(settledSurface);
+        await waiter.promise;
+        expect(place).not.toHaveBeenCalled();
+    });
+
+    it('stops waiting for a placement once the view leaves the document it opened', async () => {
+        vi.useFakeTimers();
+        const surface = createSurface();
+        const placement = Promise.withResolvers<undefined>();
+        const waiter = createPdfReloadWaiter({
+            openSurface: surface.openSurface,
+            resetSearchCache: vi.fn(),
+            admission: null,
+            place: () => placement.promise,
+        });
+        let resolved = false;
+        void waiter.promise.then(() => {
+            resolved = true;
+        });
+        surface.show();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(resolved).toBe(false);
+        // The cold tab unmounts: its surface empties and the navigation never settles.
+        surface.replace({phase: 'idle'});
+        await vi.advanceTimersByTimeAsync(0);
+        expect(resolved).toBe(true);
+    });
+
+    it('keeps a moved-tab waiter pending on a surface error until a newer document supersedes it', async () => {
+        vi.useFakeTimers();
+        const surface = createSurface();
+        const place = vi.fn();
+        const waiter = createPdfReloadWaiter({
+            openSurface: surface.openSurface,
+            resetSearchCache: vi.fn(),
+            admission: null,
+            place,
+        });
+        surface.show({
+            phase: 'pending',
+            presentation: 'page-shell',
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        let resolved = false;
+        void waiter.promise.then(() => {
+            resolved = true;
+        });
+        surface.replace({phase: 'failed'});
+        await vi.advanceTimersByTimeAsync(0);
+        expect(resolved).toBe(false);
+        expect(place).not.toHaveBeenCalled();
+
+        surface.replace({
+            generation: 3,
+            phase: 'pending',
+            identity: {
+                documentId: 'replacement-doc',
+                documentRevision: 'rev-1',
+                provisional: false,
+            },
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(resolved).toBe(true);
+        expect(place).not.toHaveBeenCalled();
     });
 });
