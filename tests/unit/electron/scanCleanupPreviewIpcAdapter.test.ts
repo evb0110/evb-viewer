@@ -582,7 +582,7 @@ export async function scenarioKeepsTheOwnerListenersUntilItsLastPreviewJobEnds()
         ],
     ]);
     const originalSidecar = deps.runSidecar;
-    deps.acquirePreviewLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+    deps.runWithPreviewLease = vi.fn((_ownerId, _visibility, _signal, _options, _rasterMaxPixels, work) => work());
     deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
         const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{sourcePageIndex: number}>};
         const pageNumber = (manifest.pages[0]?.sourcePageIndex ?? 0) + 1;

@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import {
     mkdtemp,
     rm,
+    writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import {
@@ -1299,6 +1300,144 @@ describe('runNativeCommand broker admission', () => {
 
         await expect(result).resolves.toMatchObject({exitCode: 0});
         expect(mainJobBroker.getSnapshot().active).toBe(0);
+    });
+
+    it('lets scan-cleanup sidecar and Poppler batch stage concurrently under one broker run when bulk capacity is full', async () => {
+        const sidecarProc = new MockNativeProcess();
+        const batchProc = new MockNativeProcess();
+        const spawnedArgs: string[][] = [];
+        const scratch = await mkdtemp(join(tmpdir(), 'scan-cleanup-broker-concurrent-'));
+        const manifestPath = join(scratch, 'classify-manifest.json');
+        const pageOutputPath = join(scratch, 'page-2.ppm');
+        const ppmBytes = Buffer.concat([
+            Buffer.from('P6\n1 1\n255\n', 'ascii'),
+            Buffer.from([
+                255,
+                255,
+                255,
+            ]),
+        ]);
+        mocks.spawn.mockImplementation((_command: string, args: string[]) => {
+            spawnedArgs.push(args);
+            if (args.includes('--manifest')) {
+                return sidecarProc;
+            }
+            const prefix = args.at(-1)!;
+            void writeFile(`${prefix}-2.ppm`, ppmBytes).then(() => {
+                batchProc.emit('close', 0, null);
+            });
+            return batchProc;
+        });
+        const {
+            mainJobBroker,
+            runNativeCommand,
+        } = await loadConfigured();
+        const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
+        const {createScanCleanupRasterBatchRenderer} = await import('@electron/features/scan-cleanup/createScanCleanupRasterBatchRenderer');
+        const {
+            mkdtemp: fsMkdtemp,
+            open: fsOpen,
+            readdir: fsReaddir,
+            rename: fsRename,
+            rm: fsRm,
+        } = await import('node:fs/promises');
+        const capacity = {
+            cpuTokens: 2,
+            estimatedResidentBytes: 2 * GIB,
+            nativeProcesses: 2,
+            ioWeight: 4,
+        };
+        mainJobBroker.reconfigureCapacity(capacity);
+        // Saturate the remaining bulk slot just like a concurrent scan-cleanup preview does.
+        const previewLease = await mainJobBroker.acquire({
+            ownerId: 'scan-cleanup:1:owner',
+            kind: 'scan-cleanup-preview',
+            priority: 'visible',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 512 * 1024 * 1024,
+                nativeProcesses: 1,
+                ioWeight: 1,
+            },
+        });
+        try {
+            const renderBatch = createScanCleanupRasterBatchRenderer(runNativeCommand, {
+                mkdtemp: fsMkdtemp,
+                open: fsOpen,
+                readdir: (dirPath, options) => fsReaddir(dirPath, options),
+                rename: fsRename,
+                rm: fsRm,
+            });
+            await mainJobBroker.run({
+                ownerId: 'scan-cleanup:1:owner',
+                kind: 'scan-cleanup-detect-all',
+                priority: 'user',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 512 * 1024 * 1024,
+                    nativeProcesses: 1,
+                    ioWeight: 2,
+                },
+            }, async ({onTerminationProof}) => {
+                const controller = new AbortController();
+                const sidecarPromise = runScanCleanupSidecar(
+                    '/bin/evb-scan-cleanup',
+                    manifestPath,
+                    controller.signal,
+                    () => undefined,
+                    () => undefined,
+                    {
+                        allowedPathRoot: scratch,
+                        onTerminationProof,
+                    },
+                );
+                await vi.waitFor(() => expect(spawnedArgs).toHaveLength(1));
+                // While the sidecar is still running, staging page 2 must be admitted under the
+                // same detection lease rather than blocking on the broker's single leaf slot.
+                const staged = await renderBatch({
+                    dpi: 150,
+                    log: () => undefined,
+                    pdftoppmBinary: '/bin/pdftoppm',
+                    signal: controller.signal,
+                    sourcePdfPath: join(scratch, 'source.pdf'),
+                    targets: [{
+                        limits: {
+                            expectedWidthPx: 1,
+                            expectedHeightPx: 1,
+                            maxDimensionPx: 100,
+                            maxPixels: 10_000,
+                        },
+                        outputPath: pageOutputPath,
+                        pageNumber: 2,
+                    }],
+                    onTerminationProof,
+                });
+                expect(staged).toEqual([{
+                    pageNumber: 2,
+                    width: 1,
+                    height: 1,
+                }]);
+                expect(mainJobBroker.getSnapshot()).toMatchObject({
+                    active: 2,
+                    queued: 0,
+                });
+                sidecarProc.stdout.emit('data', Buffer.from(
+                    '{"version":3,"type":"result","result":{"status":"success","completedPages":2,"totalPages":2}}\n',
+                ));
+                sidecarProc.emit('close', 0, null);
+                await sidecarPromise;
+            });
+        } finally {
+            previewLease.release();
+            await rm(scratch, {
+                recursive: true,
+                force: true,
+            });
+        }
+        expect(mainJobBroker.getSnapshot()).toMatchObject({
+            active: 0,
+            queued: 0,
+        });
     });
 
     it('keeps its own lease charged until a late termination proof arrives', async () => {

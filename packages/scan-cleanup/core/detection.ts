@@ -263,6 +263,7 @@ export interface IScanCleanupDetectionDependencies {
             pageNumber: number
         }>;
         onPageRendered?: (pageNumber: number) => void;
+        onTerminationProof?: (proof: Promise<boolean>) => void;
     }) => Promise<ReadonlyArray<{
         height: number;
         pageNumber: number;

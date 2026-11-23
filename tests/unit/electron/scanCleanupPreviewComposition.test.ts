@@ -36,7 +36,11 @@ import {
     sender,
     waitForRelease,
 } from '@tests/unit/electron/scanCleanupPreviewHarness';
-import {mainJobBroker} from '@electron/resources/jobBroker';
+import {
+    getJobBrokerLeaseForProofSink,
+    mainJobBroker,
+    type TTerminationProofSink,
+} from '@electron/resources/jobBroker';
 import {cancelMainOperationsForClosingWorkingCopy} from '@electron/operation-lifecycle/mainOperationLifecycle';
 import {
     clearWorkingCopyQuarantinesForTests,
@@ -60,7 +64,14 @@ vi.mock('@electron/resources/hostResourceProfile', () => ({getHostResourceProfil
 const dirs: string[] = [];
 const scanCleanupPreviewRasterSlotResidentBytes = resolveScanCleanupPreviewRasterSlotResidentBytes();
 const dependenciesOverride = {
-    acquirePreviewLease: (ownerId: string, visibility: TPreviewVisibility, signal: AbortSignal) => mainJobBroker.acquire({
+    runWithPreviewLease: <T>(
+        ownerId: string,
+        visibility: TPreviewVisibility,
+        signal: AbortSignal,
+        _options: unknown,
+        _rasterMaxPixels: number | undefined,
+        work: (onTerminationProof?: TTerminationProofSink) => Promise<T>,
+    ) => mainJobBroker.run({
         ownerId,
         kind: 'scan-cleanup-preview',
         priority: visibility === 'prefetch' ? 'background' as const : 'visible' as const,
@@ -71,8 +82,14 @@ const dependenciesOverride = {
             ioWeight: 1,
         },
         signal,
-    }),
-    acquireDetectionLease: (ownerId: string, signal: AbortSignal, policy: {rasterConcurrency: number;}) => mainJobBroker.acquire({
+    }, ({onTerminationProof}) => work(onTerminationProof)),
+    runWithDetectionLease: <T>(
+        ownerId: string,
+        signal: AbortSignal,
+        policy: {rasterConcurrency: number;},
+        _options: unknown,
+        work: (onTerminationProof?: TTerminationProofSink) => Promise<T>,
+    ) => mainJobBroker.run({
         ownerId,
         kind: 'scan-cleanup-detect-all',
         priority: 'user' as const,
@@ -84,7 +101,7 @@ const dependenciesOverride = {
         },
         perOwnerLimit: 1,
         signal,
-    }),
+    }, ({onTerminationProof}) => work(onTerminationProof)),
 };
 
 async function previewFixture() {
@@ -496,7 +513,13 @@ async function runRendererCancellation(eventName: 'destroyed' | 'render-process-
     } = await previewDependencies();
     const entered = Promise.withResolvers<undefined>();
     const releaseLease = vi.fn(() => true);
-    deps.acquirePreviewLease = vi.fn(async () => ({release: releaseLease}));
+    deps.runWithPreviewLease = vi.fn(async (_ownerId, _visibility, _signal, _options, _rasterMaxPixels, work) => {
+        try {
+            return await work();
+        } finally {
+            releaseLease();
+        }
+    });
     deps.runSidecar = vi.fn(async (_binary, _manifestPath, signal) => {
         entered.resolve(undefined);
         await new Promise<void>((_resolve, reject) => {
@@ -1222,7 +1245,7 @@ export async function scenarioReadmitsAnAdoptedPrefetchAsTheVisiblePageAndDropsO
     const granted = Promise.withResolvers<undefined>();
     // One native process is free, which is what a detection run at
     // capacity-1 leaves behind: a visible request fits, a prefetch does not.
-    deps.acquirePreviewLease = vi.fn(async (ownerId, visibility, signal) => {
+    deps.runWithPreviewLease = vi.fn(async (ownerId, visibility, signal, _options, _rasterMaxPixels, work) => {
         expect(ownerId).toBe('scan-cleanup:1:preview-owner');
         const admission = {
             visibility,
@@ -1230,7 +1253,7 @@ export async function scenarioReadmitsAnAdoptedPrefetchAsTheVisiblePageAndDropsO
         };
         admissions.push(admission);
         if (visibility === 'prefetch') {
-            return new Promise<{release: () => boolean}>((_resolve, reject) => {
+            return await new Promise<never>((_resolve, reject) => {
                 signal.addEventListener('abort', () => reject(
                     signal.reason instanceof Error
                         ? signal.reason
@@ -1240,7 +1263,7 @@ export async function scenarioReadmitsAnAdoptedPrefetchAsTheVisiblePageAndDropsO
         }
         admission.granted = true;
         granted.resolve(undefined);
-        return {release: vi.fn(() => true)};
+        return await work();
     });
     const service = scanCleanupPreviewLifecycle(deps);
     const owner = sender();
@@ -1279,9 +1302,9 @@ export async function scenarioDropsAPrefetchNothingAdmitsInsteadOfLeavingThePage
 
     const {deps} = await previewDependencies();
     deps.prefetchLeaseTimeoutMs = 20;
-    deps.acquirePreviewLease = vi.fn((_ownerId, visibility, signal) => {
+    deps.runWithPreviewLease = vi.fn((_ownerId, visibility, signal, _options, _rasterMaxPixels, work) => {
         if (visibility === 'prefetch') {
-            return new Promise<{release: () => boolean}>((_resolve, reject) => {
+            return new Promise<never>((_resolve, reject) => {
                 signal.addEventListener('abort', () => reject(
                     signal.reason instanceof Error
                         ? signal.reason
@@ -1289,7 +1312,7 @@ export async function scenarioDropsAPrefetchNothingAdmitsInsteadOfLeavingThePage
                 ), {once: true});
             });
         }
-        return Promise.resolve({release: vi.fn(() => true)});
+        return work();
     });
     const service = scanCleanupPreviewLifecycle(deps);
     const owner = sender();
@@ -1331,8 +1354,8 @@ export async function scenarioDoesNotQueueForAPreviewLeaseWhenTheRunIsCanceledWh
             sourceFingerprint: '',
         };
     });
-    const acquirePreviewLease = vi.fn(async () => ({release: vi.fn(() => true)}));
-    deps.acquirePreviewLease = acquirePreviewLease;
+    const runWithPreviewLease = vi.fn((_ownerId, _visibility, _signal, _options, _rasterMaxPixels, work: () => Promise<unknown>) => work());
+    deps.runWithPreviewLease = runWithPreviewLease as NonNullable<typeof deps.runWithPreviewLease>;
     const service = scanCleanupPreviewLifecycle(deps);
     const owner = sender();
 
@@ -1345,7 +1368,7 @@ export async function scenarioDoesNotQueueForAPreviewLeaseWhenTheRunIsCanceledWh
     finishMaterializing.resolve(undefined);
 
     await expect(pending).resolves.toEqual({canceled: true});
-    expect(acquirePreviewLease).not.toHaveBeenCalled();
+    expect(runWithPreviewLease).not.toHaveBeenCalled();
 
 }
 
@@ -1655,29 +1678,21 @@ export async function scenarioPreservesComposedResourcesAcrossTwoOwnersAndDispos
         open: async (...args) => trackHandle(await originalOpen(...args)),
     };
     deps.open = async (...args) => trackHandle(await originalLegacyOpen!(...args));
-    deps.acquirePreviewLease = async (..._args) => {
+    deps.runWithPreviewLease = async (_ownerId, _visibility, _signal, _options, _rasterMaxPixels, work) => {
         activeLeases += 1;
-        let released = false;
-        return {release: () => {
-            if (released) {
-                return false;
-            }
-            released = true;
+        try {
+            return await work();
+        } finally {
             activeLeases = Math.max(0, activeLeases - 1);
-            return true;
-        }};
+        }
     };
-    deps.acquireDetectionLease = async (..._args) => {
+    deps.runWithDetectionLease = async (_ownerId, _signal, _policy, _options, work) => {
         activeLeases += 1;
-        let released = false;
-        return {release: () => {
-            if (released) {
-                return false;
-            }
-            released = true;
+        try {
+            return await work();
+        } finally {
             activeLeases = Math.max(0, activeLeases - 1);
-            return true;
-        }};
+        }
     };
     deps.runSidecar = vi.fn(async (binaryPath, manifestPath, signal, log, onProgress, options) => {
         const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
@@ -1805,18 +1820,27 @@ describe('scanCleanupPreviewCompositionTest', () => {
             // Native detection sizes its page workers from host memory.
             expect(rasterPolicy.totalRamBytes).toBe(HOST_RAM_BYTES);
             const signal = new AbortController().signal;
-            const detectionLease = await defaultDependencies.acquireDetectionLease!(
+            await expect(defaultDependencies.runWithDetectionLease!(
                 'scan-cleanup-defaults-test',
                 signal,
                 rasterPolicy,
-            );
-            expect(detectionLease.release()).toBe(true);
-            const previewLease = await defaultDependencies.acquirePreviewLease!(
+                undefined,
+                async onTerminationProof => {
+                    expect(getJobBrokerLeaseForProofSink(onTerminationProof)).toBeDefined();
+                    return 'detection-ok';
+                },
+            )).resolves.toBe('detection-ok');
+            await expect(defaultDependencies.runWithPreviewLease!(
                 'scan-cleanup-defaults-test',
                 'visible',
                 signal,
-            );
-            expect(previewLease.release()).toBe(true);
+                undefined,
+                undefined,
+                async onTerminationProof => {
+                    expect(getJobBrokerLeaseForProofSink(onTerminationProof)).toBeDefined();
+                    return 'preview-ok';
+                },
+            )).resolves.toBe('preview-ok');
             expect(defaultDependencies.resolvePageOpsBinary()).toSatisfy(
                 value => value === null || typeof value === 'string',
             );
@@ -1900,18 +1924,182 @@ describe('scanCleanupPreviewCompositionTest', () => {
         try {
             const signal = new AbortController().signal;
             const rasterPolicy = defaultDependencies.resolveRasterAdmissionPolicy!();
-            const detectionLease = await defaultDependencies.acquireDetectionLease!(
+            await expect(defaultDependencies.runWithDetectionLease!(
                 'scan-cleanup-low-memory-test',
                 signal,
                 rasterPolicy,
-            );
-            expect(detectionLease.release()).toBe(true);
-            const lease = await defaultDependencies.acquirePreviewLease!(
+                undefined,
+                async onTerminationProof => {
+                    expect(getJobBrokerLeaseForProofSink(onTerminationProof)).toBeDefined();
+                    return 'detection-ok';
+                },
+            )).resolves.toBe('detection-ok');
+            await expect(defaultDependencies.runWithPreviewLease!(
                 'scan-cleanup-low-memory-test',
                 'visible',
                 signal,
-            );
-            expect(lease.release()).toBe(true);
+                undefined,
+                undefined,
+                async onTerminationProof => {
+                    expect(getJobBrokerLeaseForProofSink(onTerminationProof)).toBeDefined();
+                    return 'preview-ok';
+                },
+            )).resolves.toBe('preview-ok');
+        } finally {
+            mainJobBroker.reconfigureCapacity(previousCapacity);
+        }
+    });
+    it('binds broker proof sinks across concurrent detection and preview under full bulk capacity', async () => {
+        const previousCapacity = mainJobBroker.getSnapshot().capacity;
+        const lowTierCapacity = {
+            cpuTokens: 2,
+            estimatedResidentBytes: 12 * 1024 * 1024 * 1024,
+            nativeProcesses: 2,
+            ioWeight: 4,
+        };
+        mainJobBroker.reconfigureCapacity(lowTierCapacity);
+        try {
+            const {deps} = await createScanCleanupPreviewTestContext(dirs, {
+                runWithDetectionLease: defaultDependencies.runWithDetectionLease!,
+                runWithPreviewLease: defaultDependencies.runWithPreviewLease!,
+            });
+            const originalRenderPage = deps.renderPage;
+            const originalSidecar = deps.runSidecar;
+            const previewEntered = Promise.withResolvers<undefined>();
+            const releasePreview = Promise.withResolvers<undefined>();
+            const observedLeaseTokens = {
+                detectionSidecar: [] as string[],
+                detectionBatch: [] as string[],
+                previewRender: [] as string[],
+                previewSidecar: [] as string[],
+            };
+            const runUnderBrokerLikeNativeCommand = async <T>(
+                onTerminationProof: TTerminationProofSink | undefined,
+                work: () => Promise<T>,
+            ): Promise<T> => {
+                if (getJobBrokerLeaseForProofSink(onTerminationProof) !== undefined) {
+                    return work();
+                }
+                return mainJobBroker.run({
+                    ownerId: 'native-command:test',
+                    kind: 'native-command',
+                    priority: 'user',
+                    admissionClass: 'leaf',
+                    resources: {
+                        cpuTokens: 1,
+                        estimatedResidentBytes: 128 * 1024 * 1024,
+                        nativeProcesses: 1,
+                        ioWeight: 1,
+                    },
+                }, work);
+            };
+            deps.renderPageBatch = vi.fn(async input => runUnderBrokerLikeNativeCommand(
+                input.onTerminationProof,
+                async () => {
+                    const held = getJobBrokerLeaseForProofSink(input.onTerminationProof);
+                    if (held) observedLeaseTokens.detectionBatch.push(held.token);
+                    const results = [];
+                    for (const target of input.targets) {
+                        await writeFile(target.outputPath, PNG);
+                        input.onPageRendered?.(target.pageNumber);
+                        results.push({
+                            pageNumber: target.pageNumber,
+                            width: 1,
+                            height: 1,
+                        });
+                    }
+                    return results;
+                },
+            ));
+            deps.renderPage = vi.fn(async (...args: Parameters<typeof originalRenderPage>) => runUnderBrokerLikeNativeCommand(
+                args[12],
+                async () => {
+                    const held = getJobBrokerLeaseForProofSink(args[12]);
+                    if (held) observedLeaseTokens.previewRender.push(held.token);
+                    await originalRenderPage(...args);
+                },
+            ));
+            deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress, options) => runUnderBrokerLikeNativeCommand(
+                options?.onTerminationProof,
+                async () => {
+                    const held = getJobBrokerLeaseForProofSink(options?.onTerminationProof);
+                    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+                        operation?: string;
+                        pages: Array<{
+                            inputPath: string;
+                            sourcePageIndex: number;
+                        }>;
+                    };
+                    if (manifest.operation !== 'analyze') {
+                        if (held) observedLeaseTokens.previewSidecar.push(held.token);
+                        previewEntered.resolve(undefined);
+                        await releasePreview.promise;
+                        await originalSidecar(binary, manifestPath, signal, log, onProgress, options);
+                        return;
+                    }
+                    if (held) observedLeaseTokens.detectionSidecar.push(held.token);
+                    // Wait until preview also holds its bulk slot so bulk capacity is 100% full,
+                    // then demand pages 2 and 3 while the detection sidecar stays running.
+                    await previewEntered.promise;
+                    await writeDetectionMetadata(manifestPath);
+                    for (const page of manifest.pages) {
+                        const pageNumber = page.sourcePageIndex + 1;
+                        await onProgress({
+                            stage: 'page-input-required',
+                            completedPages: pageNumber - 1,
+                            totalPages: manifest.pages.length,
+                            pageNumber,
+                        });
+                        await vi.waitFor(async () => {
+                            expect((await stat(page.inputPath)).isFile()).toBe(true);
+                        });
+                        await onProgress({
+                            stage: 'page-input-released',
+                            completedPages: pageNumber - 1,
+                            totalPages: manifest.pages.length,
+                            pageNumber,
+                        });
+                        await onProgress({
+                            stage: 'page-complete',
+                            completedPages: pageNumber,
+                            totalPages: manifest.pages.length,
+                            pageNumber,
+                            classification: 'single-uncut-page',
+                            confidence: 0.9,
+                        });
+                    }
+                },
+            ));
+            const service = scanCleanupPreviewLifecycle(deps);
+            const owner = sender();
+            try {
+                const previewPromise = previewOf(service, owner, {
+                    ...request,
+                    visible: true,
+                });
+                const started = await service.detectAll(owner, detectionRequest);
+                await vi.waitFor(() => expect(service.getDetectionJobState(
+                    owner,
+                    started.jobId,
+                    detectionRequest,
+                )?.status).toBe('completed'));
+                releasePreview.resolve(undefined);
+                await expect(previewPromise).resolves.toMatchObject({pageNumber: 1});
+            } finally {
+                await service.dispose();
+            }
+            expect(observedLeaseTokens.detectionSidecar).toHaveLength(1);
+            expect(observedLeaseTokens.detectionBatch.length).toBeGreaterThanOrEqual(2);
+            expect(new Set([
+                ...observedLeaseTokens.detectionSidecar,
+                ...observedLeaseTokens.detectionBatch,
+            ]).size).toBe(1);
+            expect(observedLeaseTokens.previewSidecar).toHaveLength(1);
+            expect(observedLeaseTokens.previewSidecar[0]).not.toBe(observedLeaseTokens.detectionSidecar[0]);
+            expect(mainJobBroker.getSnapshot()).toMatchObject({
+                active: 0,
+                queued: 0,
+            });
         } finally {
             mainJobBroker.reconfigureCapacity(previousCapacity);
         }

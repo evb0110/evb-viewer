@@ -1024,7 +1024,7 @@ export async function scenarioKeepsAStagedRasterAPreviewAdoptedWhileDetectionRec
         heightPoints: 792,
         rotation: 0,
     })));
-    deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+    deps.runWithDetectionLease = vi.fn((_ownerId, _signal, _policy, _options, work) => work());
     const previewSidecar = deps.runSidecar;
     const pageOneAdopted = Promise.withResolvers<undefined>();
     const pageOneHeld = Promise.withResolvers<undefined>();
@@ -1151,7 +1151,7 @@ export async function scenarioKeepsARasterItsSidecarIsReadingWhenTheSamePageIsRe
 
     const {deps} = await previewDependencies();
     deps.getPageCount = vi.fn(async () => 2);
-    deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+    deps.runWithDetectionLease = vi.fn((_ownerId, _signal, _policy, _options, work) => work());
     // Preview and detection both reach page 1 while neither has retained
     // it yet, so both render it and both publish it under the same key.
     const bothRendering = Promise.withResolvers<undefined>();

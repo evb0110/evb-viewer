@@ -29,6 +29,10 @@ import {
     parseNativeScanCleanupStderr,
 } from '@electron/features/scan-cleanup/native/protocolCodec';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
+import {
+    chainTerminationProofSink,
+    type TTerminationProofSink,
+} from '@electron/resources/jobBroker';
 import {createScanCleanupSidecarProtocolHandler} from '@evb/scan-cleanup/core/createScanCleanupSidecarProtocolHandler';
 
 export class NativeScanCleanupError extends Error {
@@ -54,6 +58,8 @@ interface IRunScanCleanupSidecarOptions {
     onRecoveryPending?: (recovery: Promise<boolean>) => void | Promise<void>;
     /** Receives additive metadata from a terminal `result` success envelope. */
     onResult?: (result: {documentInkPrior?: TNativeScanCleanupDocumentInkPriorV3}) => void | Promise<void>;
+    /** Owning broker lease proof sink so the sidecar runs under that lease. */
+    onTerminationProof?: TTerminationProofSink;
 }
 
 const DEFAULT_SCAN_CLEANUP_SIDECAR_TIMEOUT_MS = 6 * 60 * 60 * 1_000;
@@ -434,7 +440,7 @@ async function streamScanCleanupSidecar(
                     void replayPublicationJournal(true);
                 }
             },
-            onTerminationProof: proof => {
+            onTerminationProof: chainTerminationProofSink(options.onTerminationProof, proof => {
                 terminationAttempted = true;
                 void proof.then(terminated => {
                     terminationConfirmed = terminated;
@@ -442,7 +448,7 @@ async function streamScanCleanupSidecar(
                         void replayPublicationJournal(true);
                     }
                 });
-            },
+            }),
             log,
         });
         await consumeProgress;

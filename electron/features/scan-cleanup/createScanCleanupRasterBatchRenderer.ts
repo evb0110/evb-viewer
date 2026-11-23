@@ -4,6 +4,10 @@ import {
 } from 'node:path';
 import {createPdftoppmPageProgress} from '@electron/native-tools/createPdftoppmPageProgress';
 import {runNativeCommand} from '@electron/native-tools/runNativeCommand';
+import {
+    chainTerminationProofSink,
+    type TTerminationProofSink,
+} from '@electron/resources/jobBroker';
 import {getErrorMessage} from '@electron/utils/error';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import {readPpmDimensions} from '@evb/scan-cleanup/core/rasterLayerDimensions';
@@ -42,6 +46,7 @@ interface IScanCleanupRasterBatchInput {
     sourcePdfPath: string;
     targets: readonly IScanCleanupRasterBatchTarget[];
     onPageRendered?: (pageNumber: number) => void;
+    onTerminationProof?: TTerminationProofSink;
 }
 
 export interface IScanCleanupRasterBatchFileSystem {
@@ -123,9 +128,9 @@ export function createScanCleanupRasterBatchRenderer(
                 timeoutMs: PDFTOPPM_BATCH_TIMEOUT_MS,
                 signal: input.signal,
                 log: input.log,
-                onTerminationProof: (proof) => {
+                onTerminationProof: chainTerminationProofSink(input.onTerminationProof, (proof) => {
                     terminationProof = proof;
-                },
+                }),
                 onStderr: createPdftoppmPageProgress(pageNumber => {
                     if (pageNumber < firstPage || pageNumber > lastPage) return;
                     // Progress is a side channel: its failure must neither

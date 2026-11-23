@@ -432,6 +432,7 @@ export type TScanCleanupRunSidecar = (
          */
         onRecoveryPending?: (recovery: Promise<boolean>) => void | Promise<void>;
         onResult?: (result: TScanCleanupSidecarResult) => void | Promise<void>;
+        onTerminationProof?: (proof: Promise<boolean>) => void;
     },
 ) => Promise<void>;
 

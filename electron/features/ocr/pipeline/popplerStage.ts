@@ -12,6 +12,7 @@ import {
 import {isAbortError} from '@electron/utils/abort';
 import {getErrorMessage} from '@electron/utils/error';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
+import {chainTerminationProofSink} from '@electron/resources/jobBroker';
 import {createScanCleanupRenderers} from '@evb/scan-cleanup/adapters/createScanCleanupRenderers';
 import type {IScanCleanupRasterRenderLimits} from '@evb/scan-cleanup/core/types';
 export {buildPopplerEnv} from '@electron/native-tools/buildPopplerEnv';
@@ -28,7 +29,7 @@ export interface IPreparedPopplerPdf {
 const renderers = createScanCleanupRenderers(runNativeToolCommand, {
     maxDimensionPx: OCR_MAX_RASTER_DIMENSION_PX,
     maxPixels: OCR_MAX_RASTER_PIXELS,
-}, error => getUnprovenNativeTerminationDetail(error) !== undefined);
+}, error => getUnprovenNativeTerminationDetail(error) !== undefined, chainTerminationProofSink);
 export const renderPdfPageToPng = renderers.renderPage;
 export const renderPdfPageToPpm = renderers.renderPagePpm;
 

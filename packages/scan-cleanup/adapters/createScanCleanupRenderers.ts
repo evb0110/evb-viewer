@@ -153,6 +153,13 @@ export function createScanCleanupRenderers(
     // The platform that observes termination supplies its existing error policy.
     // Shared renderers do not know Electron's native-termination marker.
     retainOutputOnFailure: (error: unknown) => boolean = () => false,
+    chainProof: (
+        outer: ((proof: Promise<boolean>) => void) | undefined,
+        own: (proof: Promise<boolean>) => void,
+    ) => (proof: Promise<boolean>) => void = (outer, own) => proof => {
+        own(proof);
+        outer?.(proof);
+    },
 ) {
     const validateRenderedDimensions = async (
         format: 'png' | 'ppm',
@@ -186,7 +193,9 @@ export function createScanCleanupRenderers(
             ...(format === 'png' ? [popplerPpmPath(outputPath)] : []),
         ].map(path => rm(path, {force: true}).catch(() => undefined)));
         try {
-            await renderPage(runCommand, format, args, proof => { terminationProof = proof; args[12]?.(proof); });
+            await renderPage(runCommand, format, args, chainProof(args[12], proof => {
+                terminationProof = proof;
+            }));
             signal?.throwIfAborted();
             await validateRenderedDimensions(format, outputPath, args[9]);
             signal?.throwIfAborted();
