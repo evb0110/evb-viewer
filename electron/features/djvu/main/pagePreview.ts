@@ -29,7 +29,10 @@ import {
     isNativePdfImageCombineDisabled,
     resolveNativePdfImageCombinePath,
 } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
-import { convertDjvuPageToImage } from '@electron/features/djvu/main/ddjvuConversion';
+import {
+    convertDjvuPageToImage,
+    withDjvuNativeResourceLease,
+} from '@electron/features/djvu/main/ddjvuConversion';
 import { readPpmDimensions } from '@evb/scan-cleanup/core/rasterLayerDimensions';
 import {
     clearDjvuPageSourceInfoCacheForTests,
@@ -157,7 +160,12 @@ async function resolvePreviewRenderPlan(
 ): Promise<IDjvuPreviewRenderPlan> {
     const requestedSubsample = normalizePreviewSubsample(options) ?? 1;
     const requestedTargetWidth = normalizePreviewTargetWidth(options);
-    const pageSize = await getDjvuPageSizeForViewing(djvuPath, pageNumber, lifecycleOptions).catch(() => null);
+    const pageSize = await getDjvuPageSizeForViewing(djvuPath, pageNumber, lifecycleOptions).catch((error: unknown) => {
+        if (getUnprovenNativeTerminationDetail(error) !== undefined) {
+            throw error;
+        }
+        return null;
+    });
     const subsample = Math.max(requestedSubsample, getMinimumPreviewSubsample(pageSize));
     if (!pageSize || requestedTargetWidth === undefined) {
         return { subsample };
@@ -270,6 +278,7 @@ async function runDjvuPageSizeScript(
         rejectOnStdoutTruncation: true,
         ...(options.signal ? { signal: options.signal } : {}),
         ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
+        ...(options.onTerminationProof ? { onTerminationProof: options.onTerminationProof } : {}),
     });
     throwIfAborted(options.signal);
     return parseDjvuPageSizeOutput(result.stdout, dpi);
@@ -277,6 +286,7 @@ async function runDjvuPageSizeScript(
 
 interface IDjvuPagePreviewLifecycleOptions {
     cancelGroup?: string;
+    onTerminationProof?: (proof: Promise<boolean>) => void;
     pageNumbers?: readonly number[];
     signal?: AbortSignal;
 }
@@ -361,36 +371,48 @@ export async function getDjvuPageSourceInfoForViewing(
         sourceRevision.revision,
         pageNumber,
         async (documentInfo) => {
-            const metadataOptions = options.signal ? {signal: options.signal} : {};
-            const [
-                pageCount,
-                dpi,
-            ] = documentInfo
-                ? [
-                    documentInfo.pageCount,
-                    documentInfo.dpi,
-                ]
-                : await Promise.all([
-                    getDjvuPageCount(djvuPath, metadataOptions),
-                    getDjvuResolution(djvuPath, metadataOptions),
-                ]);
-            throwIfAborted(options.signal);
-            if (pageCount < 1) {
-                throw new Error('DjVu document has no pages');
-            }
-            const effectivePageNumber = Math.min(pageNumber, pageCount);
-            const pageSize = await probeDjvuPageSize(djvuPath, effectivePageNumber, dpi, options);
-            throwIfAborted(options.signal);
-            if (!pageSize) {
-                throw new Error(`DjVu page size probe returned no size for page ${effectivePageNumber}`);
-            }
-            return {
-                pageCount,
-                pageNumber: requirePageNumber(effectivePageNumber, pageCount),
-                pageSize,
-                sourceSize: sourceRevision.sourceSize,
-                sourceModifiedAt: sourceRevision.sourceModifiedAt,
+            const runProbe = async (onTerminationProof?: (proof: Promise<boolean>) => void) => {
+                const probeOptions: IDjvuPagePreviewLifecycleOptions = {
+                    ...(options.signal ? {signal: options.signal} : {}),
+                    ...(onTerminationProof ? {onTerminationProof} : {}),
+                };
+                let pageCount: number;
+                let dpi: number;
+                if (documentInfo) {
+                    pageCount = documentInfo.pageCount;
+                    dpi = documentInfo.dpi;
+                } else {
+                    pageCount = await getDjvuPageCount(djvuPath, probeOptions);
+                    throwIfAborted(options.signal);
+                    dpi = await getDjvuResolution(djvuPath, probeOptions);
+                }
+                throwIfAborted(options.signal);
+                if (pageCount < 1) {
+                    throw new Error('DjVu document has no pages');
+                }
+                const effectivePageNumber = Math.min(pageNumber, pageCount);
+                const pageSize = await probeDjvuPageSize(djvuPath, effectivePageNumber, dpi, probeOptions);
+                throwIfAborted(options.signal);
+                if (!pageSize) {
+                    throw new Error(`DjVu page size probe returned no size for page ${effectivePageNumber}`);
+                }
+                return {
+                    pageCount,
+                    pageNumber: requirePageNumber(effectivePageNumber, pageCount),
+                    pageSize,
+                    sourceSize: sourceRevision.sourceSize,
+                    sourceModifiedAt: sourceRevision.sourceModifiedAt,
+                };
             };
+            if (options.onTerminationProof !== undefined) {
+                return runProbe(options.onTerminationProof);
+            }
+            return withDjvuNativeResourceLease({
+                jobId: `djvu-page-source-info:${djvuPath}`,
+                kind: 'metadata',
+                ...(options.signal ? {signal: options.signal} : {}),
+                task: onTerminationProof => runProbe(onTerminationProof),
+            });
         },
     );
 }
@@ -474,7 +496,10 @@ async function* getDjvuPageSizeWindowsForViewingInternal(
     if (knownSourceRevision === undefined) {
         await readDjvuSourceRevision(djvuPath);
     }
-    const dpi = await getDjvuResolution(djvuPath, options.signal ? { signal: options.signal } : {});
+    const dpi = await getDjvuResolution(djvuPath, {
+        ...(options.signal ? { signal: options.signal } : {}),
+        ...(options.onTerminationProof ? { onTerminationProof: options.onTerminationProof } : {}),
+    });
     throwIfAborted(options.signal);
 
     const runWindow = async (firstPage: number, lastPage: number) => {
@@ -557,6 +582,7 @@ export async function renderDjvuPagePreview(
                     }
                     : {}),
                 ...(lifecycleOptions.signal ? { signal: lifecycleOptions.signal } : {}),
+                ...(lifecycleOptions.onTerminationProof ? { onTerminationProof: lifecycleOptions.onTerminationProof } : {}),
             },
         );
         if (getUnprovenNativeTerminationDetail(result.cause) !== undefined) throw result.cause;
@@ -587,6 +613,7 @@ export async function renderDjvuPagePreview(
         ], {
             commandLabel: 'evb-pdf-image-combine(djvu-preview)',
             ...(lifecycleOptions.signal ? {signal: lifecycleOptions.signal} : {}),
+            ...(lifecycleOptions.onTerminationProof ? {onTerminationProof: lifecycleOptions.onTerminationProof} : {}),
             timeoutMs: 60_000,
         });
         return {

@@ -1,4 +1,6 @@
 import type * as TViMockOriginalModule from '@electron/features/djvu/main/parseDjvuOutline';
+import type * as TDdjvuConversionModule from '@electron/features/djvu/main/ddjvuConversion';
+import type * as TPagePreviewModule from '@electron/features/djvu/main/pagePreview';
 import type * as TPdfExportModule from '@electron/features/djvu/main/pdfExport';
 import type * as TViewingModule from '@electron/features/djvu/main/viewing';
 
@@ -24,7 +26,10 @@ import {
 import {resolve} from 'node:path';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
 import {createAbortError} from '@electron/utils/abort';
-import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
+import {
+    getUnprovenNativeTerminationDetail,
+    markUnprovenNativeTermination,
+} from '@electron/utils/nativeTerminationProof';
 import {
     requireJobId,
     requireRequestId,
@@ -53,6 +58,10 @@ const mocks = vi.hoisted(() => ({
     getDjvuOutputJobState: vi.fn(),
     subscribeDjvuProgress: vi.fn(),
     cancelConversion: vi.fn(),
+    convertDjvuToPdfFile: vi.fn(),
+    withDjvuNativeResourceLease: vi.fn(),
+    buildCompactDjvuAwarePdfFromDjvu: vi.fn(),
+    detectDjvuHasText: vi.fn(),
     isAllowedDjvuViewingPath: vi.fn(),
     getDjvuPageSizesForViewing: vi.fn(),
     getDjvuPageSourceInfoForViewing: vi.fn(),
@@ -108,12 +117,21 @@ vi.mock('@electron/features/djvu/main/viewing', async importOriginal => ({
 vi.mock('@electron/features/djvu/main/djvuArtifactManifest', () => ({pruneStaleDjvuArtifactJobs: mocks.pruneStaleDjvuArtifactJobs}));
 vi.mock('@electron/recentFiles', () => ({getRecentFiles: mocks.getRecentFiles}));
 vi.mock('@electron/features/djvu/main/pagePreview', () => ({
+    DJVU_PAGE_SIZE_ARRAY_MAX_PAGES: 10_000,
     getDjvuPageSourceInfoForViewing: mocks.getDjvuPageSourceInfoForViewing,
     getDjvuPageSizesForViewing: mocks.getDjvuPageSizesForViewing,
     renderDjvuPagePreview: mocks.renderDjvuPagePreview,
 }));
-vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({cancelConversion: mocks.cancelConversion}));
-vi.mock('@electron/features/djvu/main/textSearch', () => ({readDjvuPageText: mocks.readDjvuPageText}));
+vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({
+    cancelConversion: mocks.cancelConversion,
+    convertDjvuToPdfFile: mocks.convertDjvuToPdfFile,
+    withDjvuNativeResourceLease: mocks.withDjvuNativeResourceLease,
+}));
+vi.mock('@electron/features/djvu/main/buildCompactDjvuAwarePdfFromDjvu', () => ({buildCompactDjvuAwarePdfFromDjvu: mocks.buildCompactDjvuAwarePdfFromDjvu}));
+vi.mock('@electron/features/djvu/main/textSearch', () => ({
+    detectDjvuHasText: mocks.detectDjvuHasText,
+    readDjvuPageText: mocks.readDjvuPageText,
+}));
 vi.mock('@electron/features/djvu/main/safeSendToWindow', () => ({safeSendToWindow: mocks.safeSendToWindow}));
 vi.mock('@electron/resources/hostResourceProfile', () => ({getHostResourceProfileSnapshot: () => ({
     logicalCpus: 8,
@@ -129,9 +147,16 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     warn: vi.fn(),
     error: vi.fn(),
 })}));
-const {resolveDjvuPreviewBrokerPriority} = await import('@electron/features/djvu/main/djvuOperations');
+const {
+    handleDjvuGetPageSourceInfo,
+    handleDjvuRenderPagePreview,
+    resolveDjvuPreviewBrokerPriority,
+} = await import('@electron/features/djvu/main/djvuOperations');
 const {default: prepareDjvuMainBindings} = await import('@electron/features/djvu/mainBindings');
-const { configureMainJobBroker } = await import('@electron/resources/jobBroker');
+const {
+    configureMainJobBroker,
+    mainJobBroker,
+} = await import('@electron/resources/jobBroker');
 
 function registerDjvuIpcAdapter() {
     registerPlatformFeatureHandlers(
@@ -215,6 +240,8 @@ describe('registerDjvuIpcAdapter', () => {
         mocks.handleDjvuCancel.mockResolvedValue({canceled: true});
         mocks.handleDjvuOpenForViewing.mockResolvedValue({success: true});
         mocks.cancelConversion.mockResolvedValue(true);
+        mocks.convertDjvuToPdfFile.mockReset();
+        mocks.withDjvuNativeResourceLease.mockImplementation(async (options: {task: () => Promise<unknown>}) => options.task());
         mocks.isAllowedDjvuViewingPath.mockReturnValue(true);
         mocks.getDjvuPageSizesForViewing.mockResolvedValue([{
             width: 100,
@@ -1003,18 +1030,179 @@ describe('registerDjvuIpcAdapter', () => {
             const secondSignal = mocks.renderDjvuPagePreview.mock.calls[1]?.[3]?.signal as AbortSignal | undefined;
 
             const queuedRejection = expect(queuedRun).rejects.toThrow('Renderer lifecycle ended');
+            const capacity = mainJobBroker.getSnapshot().capacity;
+            let overflowingGranted = false;
+            const overflowingJob = mainJobBroker.acquire({
+                ownerId: 'other-heavy-job',
+                kind: 'heavy-competitor',
+                priority: 'user',
+                resources: {
+                    ...capacity,
+                    cpuTokens: Math.max(1, capacity.cpuTokens - 1),
+                    nativeProcesses: Math.max(1, capacity.nativeProcesses - 1),
+                    ioWeight: Math.max(1, capacity.ioWeight - 1),
+                },
+            }).then((lease) => {
+                overflowingGranted = true;
+                return lease;
+            });
             event.sender.emit('destroyed');
 
             await queuedRejection;
+            await Promise.resolve();
             expect(firstSignal?.aborted).toBe(true);
             expect(secondSignal?.aborted).toBe(true);
             expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(2);
+            expect(overflowingGranted).toBe(false);
+            expect(mainJobBroker.getSnapshot()).toMatchObject({
+                active: 2,
+                queued: 1,
+                used: {
+                    cpuTokens: 2,
+                    nativeProcesses: 2,
+                    ioWeight: 2,
+                },
+            });
 
             resolvePreview(firstPreview!, 1);
             resolvePreview(secondPreview!, 2);
             await expect(firstRun).resolves.toMatchObject({width: 100});
             await expect(secondRun).resolves.toMatchObject({width: 100});
+            const overflowingLease = await overflowingJob;
+            expect(overflowingGranted).toBe(true);
+            expect(overflowingLease.release()).toBe(true);
+            expect(mainJobBroker.getSnapshot()).toMatchObject({
+                active: 0,
+                queued: 0,
+            });
         } finally {
+            rmSync(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('cancels a sender first queued preview on main-frame navigation before broker admission', async () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'evb-djvu-preview-nav-queued-test-'));
+        const capacity = mainJobBroker.getSnapshot().capacity;
+        const blocker = await mainJobBroker.acquire({
+            ownerId: 'busy-heavy-job',
+            kind: 'heavy-work',
+            priority: 'user',
+            resources: capacity,
+        });
+        try {
+            const realPath = join(tempRoot, 'real.djvu');
+            writeFileSync(realPath, new Uint8Array([1]));
+            const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
+            const event = createIpcEvent(55);
+            allowOpenPath(realPath, event.sender as never);
+            registerDjvuIpcAdapter();
+            const handler = getHandler('djvu:renderPagePreview');
+
+            const queuedPreview = handler(event, realPath, 1, {
+                previewRequestId: 'first-queued-preview',
+                subsample: 3,
+            });
+            const queuedRejection = expect(queuedPreview).rejects.toThrow(
+                'Renderer navigation canceled DjVu preview operations',
+            );
+            await vi.waitFor(() => expect(mainJobBroker.getSnapshot().queued).toBe(1));
+
+            event.sender.emit('did-start-navigation', {}, 'https://example.test/next', false, true);
+            await queuedRejection;
+
+            expect(blocker.release()).toBe(true);
+            await Promise.resolve();
+            await Promise.resolve();
+            expect(mocks.renderDjvuPagePreview).not.toHaveBeenCalled();
+            expect(mainJobBroker.getSnapshot()).toMatchObject({
+                active: 0,
+                queued: 0,
+            });
+        } finally {
+            blocker.release();
+            rmSync(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('retains a low-tier preview slot on unproven termination and frees it when termination proof resolves true', async () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'evb-djvu-preview-proof-release-test-'));
+        const delayedProof = createDeferred<boolean>();
+        try {
+            mocks.hostResourceTier = 'low';
+            const realPath = join(tempRoot, 'real.djvu');
+            writeFileSync(realPath, new Uint8Array([1]));
+            const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
+            const event = createIpcEvent(56);
+            allowOpenPath(realPath, event.sender as never);
+            registerDjvuIpcAdapter();
+            const handler = getHandler('djvu:renderPagePreview');
+
+            const watchdogError = markUnprovenNativeTermination(
+                new Error('ddjvu watchdog expired'),
+                'ddjvu process tree not proven dead yet',
+            );
+            mocks.renderDjvuPagePreview
+                .mockImplementationOnce(async (
+                    _path: string,
+                    _page: number,
+                    _options: unknown,
+                    lifecycle?: {onTerminationProof?: (proof: Promise<boolean>) => void},
+                ) => {
+                    lifecycle?.onTerminationProof?.(delayedProof.promise);
+                    throw watchdogError;
+                })
+                .mockResolvedValueOnce({
+                    bytes: new Uint8Array([7]),
+                    width: 100,
+                    height: 200,
+                });
+
+            await expect(handler(event, realPath, 1, {
+                previewRequestId: 'low-tier-watchdog-1',
+            })).rejects.toBe(watchdogError);
+
+            let secondResolved = false;
+            const secondPreview = Promise.resolve(handler(event, realPath, 2, {
+                previewRequestId: 'low-tier-watchdog-2',
+            })).then((result) => {
+                secondResolved = true;
+                return result;
+            });
+
+            await Promise.resolve();
+            await Promise.resolve();
+            expect(secondResolved).toBe(false);
+            expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(1);
+            expect(mainJobBroker.getSnapshot()).toMatchObject({
+                active: 1,
+                queued: 1,
+                used: {
+                    cpuTokens: 1,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            });
+
+            delayedProof.resolve(true);
+            await expect(secondPreview).resolves.toMatchObject({
+                bytes: new Uint8Array([7]),
+                width: 100,
+                height: 200,
+            });
+            expect(secondResolved).toBe(true);
+            expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(2);
+            expect(mainJobBroker.getSnapshot()).toMatchObject({
+                active: 0,
+                queued: 0,
+            });
+        } finally {
+            delayedProof.resolve(true);
             rmSync(tempRoot, {
                 force: true,
                 recursive: true,
@@ -1590,6 +1778,658 @@ describe('native DjVu open admission', async () => {
             await expect(getAdmittedDjvuViewingSource(djvuPath, 95)).resolves.toBeNull();
             releaseDjvuViewingPath(context as never, djvuPath);
         } finally {
+            rmSync(directory, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('holds active DjVu conversion broker charges during cancel until the native child exits', async () => {
+        const {
+            handleDjvuCancel,
+            handleDjvuConvertToPdf,
+        } = await vi.importActual<typeof TPdfExportModule>('@electron/features/djvu/main/pdfExport');
+        const {allowDjvuWritePath} = await import('@electron/features/djvu/main/exportPaths');
+        const directory = mkdtempSync(join(tmpdir(), 'djvu-cancel-charges-'));
+        const djvuPath = join(directory, 'book.djvu');
+        const outputPath = join(directory, 'book.pdf');
+        writeFileSync(djvuPath, readFileSync(join(DJVU_FIXTURE_SOURCES, 'layered.djvu')));
+        const senderId = 99;
+        const event = createIpcEvent(senderId);
+        const context = {
+            ...event,
+            senderId,
+        };
+        allowDjvuWritePath(outputPath, senderId);
+        const jobId = requireJobId('djvu-convert-cancel-charges');
+        const capacity = mainJobBroker.getSnapshot().capacity;
+        const conversionActive = createDeferred<void>();
+        const childExited = createDeferred<void>();
+
+        mocks.getDjvuPageCount.mockResolvedValueOnce(1);
+        mocks.getDjvuResolution.mockResolvedValueOnce(300);
+        mocks.getDjvuPageSizesForViewing.mockResolvedValueOnce([{
+            width: 100,
+            height: 200,
+            dpi: 300,
+        }]);
+        mocks.withDjvuNativeResourceLease.mockImplementation(async (options: {task: () => Promise<unknown>}) => options.task());
+        mocks.cancelConversion.mockResolvedValue(true);
+        mocks.convertDjvuToPdfFile.mockImplementationOnce(async (_input: string, targetOutputPath: string, activeJobId: string) => {
+            const activeLease = await mainJobBroker.acquire({
+                ownerId: activeJobId,
+                kind: 'djvu-conversion',
+                priority: 'user',
+                resources: capacity,
+            });
+            try {
+                conversionActive.resolve(undefined);
+                await childExited.promise;
+                return {
+                    success: false,
+                    outputPath: targetOutputPath,
+                    fileSize: 0,
+                    error: 'DjVu conversion canceled',
+                };
+            } finally {
+                activeLease.release();
+            }
+        });
+
+        const competitorState: {lease: {release: () => boolean} | null} = {lease: null};
+        try {
+            const convertPromise = handleDjvuConvertToPdf(
+                context as never,
+                djvuPath as never,
+                outputPath,
+                {
+                    jobId,
+                    pdfStrategy: 'direct',
+                    preserveBookmarks: false,
+                },
+            );
+            await Promise.race([
+                conversionActive.promise,
+                convertPromise.then((earlyResult) => {
+                    throw new Error(`DjVu conversion exited before becoming active: ${JSON.stringify(earlyResult)}`);
+                }),
+            ]);
+
+            const queuedOwnerStage = mainJobBroker.acquire({
+                ownerId: jobId,
+                kind: 'djvu-range-conversion',
+                priority: 'user',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 64 * 1024 * 1024,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            });
+            let competitorGranted = false;
+            const competitor = mainJobBroker.acquire({
+                ownerId: 'other-heavy-job',
+                kind: 'djvu-conversion',
+                priority: 'user',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 64 * 1024 * 1024,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            }).then((lease) => {
+                competitorGranted = true;
+                competitorState.lease = lease;
+                return lease;
+            });
+            void competitor.catch(() => undefined);
+
+            const cancelPromise = handleDjvuCancel(context as never, jobId);
+
+            await expect(queuedOwnerStage).rejects.toThrow('DjVu conversion canceled');
+            await vi.waitFor(() => expect(mocks.cancelConversion).toHaveBeenCalledWith(jobId));
+            await Promise.resolve();
+            expect(competitorGranted).toBe(false);
+            expect(mainJobBroker.getSnapshot()).toMatchObject({
+                active: 2,
+                queued: 1,
+                used: capacity,
+                usedBulk: capacity,
+            });
+
+            childExited.resolve(undefined);
+            const competitorLease = await competitor;
+            expect(competitorGranted).toBe(true);
+            await expect(cancelPromise).resolves.toEqual({canceled: true});
+            await expect(convertPromise).resolves.toMatchObject({
+                success: false,
+                jobId,
+                error: 'DjVu conversion canceled',
+            });
+            expect(competitorLease.release()).toBe(true);
+            competitorState.lease = null;
+            expect(mainJobBroker.getSnapshot()).toMatchObject({
+                active: 0,
+                queued: 0,
+            });
+        } finally {
+            mainJobBroker.cancelOwner('other-heavy-job');
+            competitorState.lease?.release();
+            childExited.resolve(undefined);
+            rmSync(directory, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('releases the zero-resource DjVu coordination lease after an inner marked error so the jobId can be retried', async () => {
+        const {handleDjvuConvertToPdf} = await vi.importActual<typeof TPdfExportModule>('@electron/features/djvu/main/pdfExport');
+        const {allowDjvuWritePath} = await import('@electron/features/djvu/main/exportPaths');
+        const directory = mkdtempSync(join(tmpdir(), 'djvu-coordination-lease-'));
+        const djvuPath = join(directory, 'book.djvu');
+        const outputPath = join(directory, 'book.pdf');
+        writeFileSync(djvuPath, readFileSync(join(DJVU_FIXTURE_SOURCES, 'layered.djvu')));
+        const senderId = 104;
+        const event = createIpcEvent(senderId);
+        const context = {
+            ...event,
+            senderId,
+        };
+        allowDjvuWritePath(outputPath, senderId);
+        const jobId = requireJobId('djvu-convert-retryable-slot');
+        const innerError = markUnprovenNativeTermination(
+            new Error('ddjvu child not proven dead'),
+            'ddjvu process tree still running',
+        );
+
+        mocks.getDjvuPageCount.mockResolvedValueOnce(1);
+        mocks.getDjvuResolution.mockResolvedValueOnce(300);
+        mocks.getDjvuPageSizesForViewing.mockResolvedValueOnce([{
+            width: 100,
+            height: 200,
+            dpi: 300,
+        }]);
+        mocks.withDjvuNativeResourceLease.mockImplementation(async (options: {task: () => Promise<unknown>}) => options.task());
+        mocks.convertDjvuToPdfFile.mockRejectedValueOnce(innerError);
+
+        try {
+            await expect(handleDjvuConvertToPdf(
+                context as never,
+                djvuPath as never,
+                outputPath,
+                {
+                    jobId,
+                    pdfStrategy: 'direct',
+                    preserveBookmarks: false,
+                },
+            )).resolves.toMatchObject({
+                success: false,
+                jobId,
+                error: 'ddjvu child not proven dead',
+            });
+
+            expect(mainJobBroker.getSnapshot()).toMatchObject({
+                active: 0,
+                queued: 0,
+            });
+            const retrySlot = await mainJobBroker.acquire({
+                ownerId: jobId,
+                kind: 'djvu-output',
+                priority: 'user',
+                perOwnerLimit: 1,
+                resources: {
+                    cpuTokens: 0,
+                    estimatedResidentBytes: 0,
+                    nativeProcesses: 0,
+                    ioWeight: 0,
+                },
+            });
+            expect(retrySlot.release()).toBe(true);
+        } finally {
+            rmSync(directory, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('releases the export metadata DPI broker lease when delayed termination proof resolves true', async () => {
+        const {handleDjvuConvertToPdf} = await vi.importActual<typeof TPdfExportModule>('@electron/features/djvu/main/pdfExport');
+        const {withDjvuNativeResourceLease} = await vi.importActual<typeof TDdjvuConversionModule>('@electron/features/djvu/main/ddjvuConversion');
+        const {allowDjvuWritePath} = await import('@electron/features/djvu/main/exportPaths');
+        const directory = mkdtempSync(join(tmpdir(), 'djvu-metadata-dpi-proof-'));
+        const djvuPath = join(directory, 'book.djvu');
+        const outputPath = join(directory, 'book.pdf');
+        writeFileSync(djvuPath, readFileSync(join(DJVU_FIXTURE_SOURCES, 'layered.djvu')));
+        const senderId = 105;
+        const event = createIpcEvent(senderId);
+        const context = {
+            ...event,
+            senderId,
+        };
+        allowDjvuWritePath(outputPath, senderId);
+        const jobId = requireJobId('djvu-convert-dpi-proof');
+        const delayedProof = createDeferred<boolean>();
+        const dpiError = markUnprovenNativeTermination(
+            new Error('djvused dpi watchdog expired'),
+            'djvused dpi tree not proven dead yet',
+        );
+
+        mocks.withDjvuNativeResourceLease.mockImplementation(withDjvuNativeResourceLease);
+        mocks.getDjvuPageCount.mockResolvedValueOnce(1);
+        mocks.getDjvuResolution.mockImplementationOnce(async (
+            _path: string,
+            options?: {onTerminationProof?: (proof: Promise<boolean>) => void},
+        ) => {
+            options?.onTerminationProof?.(delayedProof.promise);
+            throw dpiError;
+        });
+
+        const competitorState: {lease: {release: () => boolean} | null} = {lease: null};
+        try {
+            await expect(handleDjvuConvertToPdf(
+                context as never,
+                djvuPath as never,
+                outputPath,
+                {
+                    jobId,
+                    pdfStrategy: 'direct',
+                    preserveBookmarks: false,
+                },
+            )).resolves.toMatchObject({
+                success: false,
+                jobId,
+                error: 'djvused dpi watchdog expired',
+            });
+
+            const capacity = mainJobBroker.getSnapshot().capacity;
+            let competitorGranted = false;
+            const competitor = mainJobBroker.acquire({
+                ownerId: 'competitor-after-dpi',
+                kind: 'djvu-conversion',
+                priority: 'user',
+                resources: capacity,
+            }).then((lease) => {
+                competitorGranted = true;
+                competitorState.lease = lease;
+                return lease;
+            });
+            void competitor.catch(() => undefined);
+
+            await Promise.resolve();
+            expect(competitorGranted).toBe(false);
+            expect(mainJobBroker.getSnapshot()).toMatchObject({
+                active: 1,
+                queued: 1,
+                used: {
+                    cpuTokens: 1,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            });
+
+            delayedProof.resolve(true);
+            const competitorLease = await competitor;
+            expect(competitorGranted).toBe(true);
+            expect(competitorLease.release()).toBe(true);
+            competitorState.lease = null;
+            expect(mainJobBroker.getSnapshot()).toMatchObject({
+                active: 0,
+                queued: 0,
+            });
+        } finally {
+            mainJobBroker.cancelOwner('competitor-after-dpi');
+            competitorState.lease?.release();
+            delayedProof.resolve(true);
+            rmSync(directory, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('preserves unproven termination in getDjvuConversionPageSizes even when the conversion signal is aborted', async () => {
+        const {
+            handleDjvuCancel,
+            handleDjvuConvertToPdf,
+        } = await vi.importActual<typeof TPdfExportModule>('@electron/features/djvu/main/pdfExport');
+        const {withDjvuNativeResourceLease} = await vi.importActual<typeof TDdjvuConversionModule>('@electron/features/djvu/main/ddjvuConversion');
+        const {allowDjvuWritePath} = await import('@electron/features/djvu/main/exportPaths');
+        const directory = mkdtempSync(join(tmpdir(), 'djvu-page-sizes-unproven-'));
+        const djvuPath = join(directory, 'book.djvu');
+        const outputPath = join(directory, 'book.pdf');
+        writeFileSync(djvuPath, readFileSync(join(DJVU_FIXTURE_SOURCES, 'layered.djvu')));
+        const senderId = 106;
+        const event = createIpcEvent(senderId);
+        const context = {
+            ...event,
+            senderId,
+        };
+        allowDjvuWritePath(outputPath, senderId);
+        const jobId = requireJobId('djvu-convert-page-sizes-proof');
+        const probeStarted = createDeferred<void>();
+        const releaseProbe = createDeferred<void>();
+        const delayedProof = createDeferred<boolean>();
+        const sizeProbeError = markUnprovenNativeTermination(
+            new Error('djvused page-sizes watchdog expired'),
+            'djvused page-sizes tree not proven dead yet',
+        );
+
+        mocks.withDjvuNativeResourceLease.mockImplementation(withDjvuNativeResourceLease);
+        mocks.getDjvuPageCount.mockResolvedValueOnce(1);
+        mocks.getDjvuResolution.mockResolvedValueOnce(300);
+        mocks.cancelConversion.mockResolvedValue(true);
+        mocks.getDjvuPageSizesForViewing.mockImplementationOnce(async (
+            _path: string,
+            _count: number,
+            options?: {
+                signal?: AbortSignal;
+                onTerminationProof?: (proof: Promise<boolean>) => void;
+            },
+        ) => {
+            probeStarted.resolve(undefined);
+            await releaseProbe.promise;
+            expect(options?.signal?.aborted).toBe(true);
+            options?.onTerminationProof?.(delayedProof.promise);
+            throw sizeProbeError;
+        });
+
+        const competitorState: {lease: {release: () => boolean} | null} = {lease: null};
+        try {
+            const convertPromise = handleDjvuConvertToPdf(
+                context as never,
+                djvuPath as never,
+                outputPath,
+                {
+                    jobId,
+                    pdfStrategy: 'direct',
+                    preserveBookmarks: false,
+                },
+            );
+            await Promise.race([
+                probeStarted.promise,
+                convertPromise.then((earlyResult) => {
+                    throw new Error(`DjVu conversion exited before page-size probe started: ${JSON.stringify(earlyResult)}`);
+                }),
+            ]);
+
+            const cancelPromise = handleDjvuCancel(context as never, jobId);
+            await vi.waitFor(() => expect(mocks.cancelConversion).toHaveBeenCalledWith(jobId));
+            releaseProbe.resolve(undefined);
+
+            await expect(cancelPromise).resolves.toEqual({canceled: true});
+            await expect(convertPromise).resolves.toMatchObject({
+                success: false,
+                jobId,
+                error: 'DjVu conversion canceled',
+            });
+
+            const capacity = mainJobBroker.getSnapshot().capacity;
+            let competitorGranted = false;
+            const competitor = mainJobBroker.acquire({
+                ownerId: 'competitor-after-page-sizes',
+                kind: 'djvu-conversion',
+                priority: 'user',
+                resources: capacity,
+            }).then((lease) => {
+                competitorGranted = true;
+                competitorState.lease = lease;
+                return lease;
+            });
+            void competitor.catch(() => undefined);
+
+            await Promise.resolve();
+            expect(competitorGranted).toBe(false);
+            expect(mainJobBroker.getSnapshot()).toMatchObject({
+                active: 1,
+                queued: 1,
+                used: {
+                    cpuTokens: 1,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            });
+
+            delayedProof.resolve(true);
+            const competitorLease = await competitor;
+            expect(competitorGranted).toBe(true);
+            expect(competitorLease.release()).toBe(true);
+            competitorState.lease = null;
+            expect(mainJobBroker.getSnapshot()).toMatchObject({
+                active: 0,
+                queued: 0,
+            });
+        } finally {
+            mainJobBroker.cancelOwner('competitor-after-page-sizes');
+            competitorState.lease?.release();
+            releaseProbe.resolve(undefined);
+            delayedProof.resolve(true);
+            rmSync(directory, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('releases the compact export detectDjvuHasText metadata lease once delayed termination proof resolves true', async () => {
+        const {handleDjvuConvertToPdf} = await vi.importActual<typeof TPdfExportModule>('@electron/features/djvu/main/pdfExport');
+        const {withDjvuNativeResourceLease} = await vi.importActual<typeof TDdjvuConversionModule>('@electron/features/djvu/main/ddjvuConversion');
+        const {allowDjvuWritePath} = await import('@electron/features/djvu/main/exportPaths');
+        const directory = mkdtempSync(join(tmpdir(), 'djvu-compact-has-text-proof-'));
+        const djvuPath = join(directory, 'book.djvu');
+        const outputPath = join(directory, 'book.pdf');
+        writeFileSync(djvuPath, readFileSync(join(DJVU_FIXTURE_SOURCES, 'layered.djvu')));
+        const senderId = 107;
+        const event = createIpcEvent(senderId);
+        const context = {
+            ...event,
+            senderId,
+        };
+        allowDjvuWritePath(outputPath, senderId);
+        const jobId = requireJobId('djvu-convert-has-text-proof');
+        const delayedProof = createDeferred<boolean>();
+        const hasTextError = markUnprovenNativeTermination(
+            new Error('djvused text probe watchdog expired'),
+            'djvused text probe tree not proven dead yet',
+        );
+
+        mocks.withDjvuNativeResourceLease.mockImplementation(withDjvuNativeResourceLease);
+        mocks.getDjvuPageCount.mockResolvedValueOnce(1);
+        mocks.getDjvuResolution.mockResolvedValueOnce(300);
+        mocks.getDjvuPageSizesForViewing.mockResolvedValueOnce([{
+            width: 100,
+            height: 200,
+            dpi: 300,
+        }]);
+        mocks.buildCompactDjvuAwarePdfFromDjvu.mockImplementationOnce(async (options: {outputPath: string}) => ({
+            success: true,
+            outputPath: options.outputPath,
+            fileSize: 16,
+        }));
+        mocks.detectDjvuHasText.mockImplementationOnce(async (
+            _path: string,
+            _signal?: AbortSignal,
+            onTerminationProof?: (proof: Promise<boolean>) => void,
+        ) => {
+            onTerminationProof?.(delayedProof.promise);
+            throw hasTextError;
+        });
+
+        const competitorState: {lease: {release: () => boolean} | null} = {lease: null};
+        try {
+            await expect(handleDjvuConvertToPdf(
+                context as never,
+                djvuPath as never,
+                outputPath,
+                {
+                    jobId,
+                    pdfStrategy: 'compact-djvu-aware',
+                    preserveBookmarks: false,
+                },
+            )).resolves.toMatchObject({
+                success: false,
+                jobId,
+                error: 'djvused text probe watchdog expired',
+            });
+
+            const capacity = mainJobBroker.getSnapshot().capacity;
+            let competitorGranted = false;
+            const competitor = mainJobBroker.acquire({
+                ownerId: 'competitor-after-has-text',
+                kind: 'djvu-conversion',
+                priority: 'user',
+                resources: capacity,
+            }).then((lease) => {
+                competitorGranted = true;
+                competitorState.lease = lease;
+                return lease;
+            });
+            void competitor.catch(() => undefined);
+
+            await Promise.resolve();
+            expect(competitorGranted).toBe(false);
+            expect(mainJobBroker.getSnapshot()).toMatchObject({
+                active: 1,
+                queued: 1,
+                used: {
+                    cpuTokens: 1,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            });
+
+            delayedProof.resolve(true);
+            const competitorLease = await competitor;
+            expect(competitorGranted).toBe(true);
+            expect(competitorLease.release()).toBe(true);
+            competitorState.lease = null;
+            expect(mainJobBroker.getSnapshot()).toMatchObject({
+                active: 0,
+                queued: 0,
+            });
+        } finally {
+            mainJobBroker.cancelOwner('competitor-after-has-text');
+            competitorState.lease?.release();
+            delayedProof.resolve(true);
+            rmSync(directory, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('holds the initiator broker lease when handleDjvuGetPageSourceInfo starts a shared probe joined by renderDjvuPagePreview', async () => {
+        const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+        const {withDjvuNativeResourceLease} = await vi.importActual<typeof TDdjvuConversionModule>('@electron/features/djvu/main/ddjvuConversion');
+        const actualPagePreview = await vi.importActual<typeof TPagePreviewModule>('@electron/features/djvu/main/pagePreview');
+        const directory = mkdtempSync(join(tmpdir(), 'djvu-shared-source-info-proof-'));
+        const djvuPath = join(directory, 'book.djvu');
+        const senderId = 108;
+        const event = createIpcEvent(senderId);
+        const context = {
+            ...event,
+            senderId,
+        };
+        const probeStarted = createDeferred<void>();
+        const releaseProbe = createDeferred<void>();
+        const delayedProof = createDeferred<boolean>();
+        const unprovenError = markUnprovenNativeTermination(
+            new Error('djvused shared page-source probe watchdog expired'),
+            'djvused shared page-source tree not proven dead yet',
+        );
+        const competitorState: {lease: {release: () => boolean} | null} = {lease: null};
+
+        try {
+            writeFileSync(djvuPath, readFileSync(join(DJVU_FIXTURE_SOURCES, 'layered.djvu')));
+            allowOpenPath(djvuPath, event.sender as never);
+            mocks.withDjvuNativeResourceLease.mockImplementation(withDjvuNativeResourceLease);
+            mocks.getDjvuPageSourceInfoForViewing.mockImplementationOnce(actualPagePreview.getDjvuPageSourceInfoForViewing);
+            mocks.renderDjvuPagePreview.mockImplementationOnce(actualPagePreview.renderDjvuPagePreview);
+            mocks.getDjvuPageCount.mockImplementationOnce(async (
+                _path: string,
+                options?: {onTerminationProof?: (proof: Promise<boolean>) => void},
+            ) => {
+                probeStarted.resolve(undefined);
+                await releaseProbe.promise;
+                options?.onTerminationProof?.(delayedProof.promise);
+                throw unprovenError;
+            });
+
+            const initiatorPromise = handleDjvuGetPageSourceInfo(context as never, djvuPath, 1);
+            void initiatorPromise.catch(() => undefined);
+            await Promise.race([
+                probeStarted.promise,
+                initiatorPromise.then((earlyResult) => {
+                    throw new Error(`handleDjvuGetPageSourceInfo settled before probe started: ${JSON.stringify(earlyResult)}`);
+                }),
+            ]);
+
+            const joinerPromise = handleDjvuRenderPagePreview(context as never, djvuPath, 1, {subsample: 2});
+            void joinerPromise.catch(() => undefined);
+            await vi.waitFor(() => expect(mainJobBroker.getSnapshot().active).toBe(2));
+            expect(mocks.getDjvuPageCount).toHaveBeenCalledTimes(1);
+
+            releaseProbe.resolve(undefined);
+            const initiatorError = await initiatorPromise.then(
+                () => {
+                    throw new Error('Expected initiatorPromise to reject');
+                },
+                (error: unknown) => error,
+            );
+            const joinerError = await joinerPromise.then(
+                () => {
+                    throw new Error('Expected joinerPromise to reject');
+                },
+                (error: unknown) => error,
+            );
+
+            expect(initiatorError).toBe(unprovenError);
+            expect(joinerError).toBeInstanceOf(Error);
+            expect(getUnprovenNativeTerminationDetail(joinerError)).toBeUndefined();
+
+            const capacity = mainJobBroker.getSnapshot().capacity;
+            let competitorGranted = false;
+            const competitor = mainJobBroker.acquire({
+                ownerId: 'competitor-after-shared-source-info',
+                kind: 'djvu-conversion',
+                priority: 'user',
+                resources: capacity,
+            }).then((lease) => {
+                competitorGranted = true;
+                competitorState.lease = lease;
+                return lease;
+            });
+            void competitor.catch(() => undefined);
+
+            await Promise.resolve();
+            expect(competitorGranted).toBe(false);
+            expect(mainJobBroker.getSnapshot()).toMatchObject({
+                active: 1,
+                queued: 1,
+                used: {
+                    cpuTokens: 1,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            });
+
+            delayedProof.resolve(true);
+            const competitorLease = await competitor;
+            expect(competitorGranted).toBe(true);
+            expect(competitorLease.release()).toBe(true);
+            competitorState.lease = null;
+            expect(mainJobBroker.getSnapshot()).toMatchObject({
+                active: 0,
+                queued: 0,
+            });
+        } finally {
+            mainJobBroker.cancelOwner('competitor-after-shared-source-info');
+            competitorState.lease?.release();
+            releaseProbe.resolve(undefined);
+            delayedProof.resolve(true);
+            actualPagePreview.clearDjvuPageSizeCacheForTests();
             rmSync(directory, {
                 force: true,
                 recursive: true,

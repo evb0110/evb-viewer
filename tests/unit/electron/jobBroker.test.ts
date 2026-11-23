@@ -512,40 +512,40 @@ describe('JobBroker', () => {
         sameOwnerLease.release();
     });
 
-    it('drops the active leases of a cancelled owner and dispatches queued work', async () => {
+    it('cancels queued owner work in cancelOwner while holding active charges until release', async () => {
         const broker = new JobBroker({
             ...CAPACITY,
             cpuTokens: 1,
         });
-        const first = await broker.acquire(createRequest({ownerId: 'closing-owner'}));
-        const queued = broker.acquire(createRequest({ownerId: 'next-owner'}));
+        const active = await broker.acquire(createRequest({ownerId: 'closing-owner'}));
+        const ownerQueued = broker.acquire(createRequest({ownerId: 'closing-owner'}));
+        let competitorGranted = false;
+        const competitorQueued = broker.acquire(createRequest({ownerId: 'next-owner'})).then((lease) => {
+            competitorGranted = true;
+            return lease;
+        });
 
-        broker.cancelOwner('closing-owner');
-        const next = await queued;
+        broker.cancelOwner('closing-owner', 'native cleanup is still pending');
+
+        await expect(ownerQueued).rejects.toThrow('native cleanup is still pending');
+        await Promise.resolve();
+        expect(competitorGranted).toBe(false);
         expect(broker.getSnapshot()).toMatchObject({
             active: 1,
-            queued: 0,
+            queued: 1,
+            used: active.resources,
+            usedBulk: active.resources,
         });
-        expect(first.release()).toBe(false);
-        expect(next.release()).toBe(true);
-    });
 
-    it('cancels queued owner work without dropping its active leases', async () => {
-        const broker = new JobBroker({
-            ...CAPACITY,
-            cpuTokens: 1,
-        });
-        const active = await broker.acquire(createRequest({ownerId: 'retained-owner'}));
-        const queued = broker.acquire(createRequest({ownerId: 'retained-owner'}));
-
-        broker.cancelPendingOwner('retained-owner', 'native cleanup is still pending');
-
-        await expect(queued).rejects.toThrow('native cleanup is still pending');
-        expect(broker.getSnapshot()).toMatchObject({
-            active: 1,
-            queued: 0,
-        });
         expect(active.release()).toBe(true);
+        const next = await competitorQueued;
+        expect(competitorGranted).toBe(true);
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 1,
+            queued: 0,
+            used: next.resources,
+        });
+        expect(next.release()).toBe(true);
     });
 
     it('keeps a long-held lease accounted until its holder releases it', async () => {
@@ -799,16 +799,29 @@ describe('JobBroker', () => {
         expect(next.release()).toBe(true);
     });
 
-    it('retains the exact paid vector after a marked failure without releasing it for cleanup', async () => {
+    it('retains the exact paid vector after a marked failure even if cancelOwner is called', async () => {
         const {markUnprovenNativeTermination} = await import('@electron/utils/nativeTerminationProof');
         const broker = new JobBroker(CAPACITY);
         const error = markUnprovenNativeTermination(new Error('native timeout'), 'native descendant still alive');
-        await expect(broker.run(createRequest({resources: CAPACITY}), async () => { throw error; })).rejects.toBe(error);
+        await expect(broker.run(createRequest({
+            ownerId: 'unproven-owner',
+            resources: CAPACITY,
+        }), async () => { throw error; })).rejects.toBe(error);
+        const ownerQueued = broker.acquire(createRequest({ownerId: 'unproven-owner'}));
         const controller = new AbortController();
+        let competitorGranted = false;
         const competitor = broker.acquire(createRequest({
             ownerId: 'competitor',
             signal: controller.signal,
-        }));
+        })).then((lease) => {
+            competitorGranted = true;
+            return lease;
+        });
+
+        broker.cancelOwner('unproven-owner', 'owner canceled after unproven termination');
+        await expect(ownerQueued).rejects.toThrow('owner canceled after unproven termination');
+        await Promise.resolve();
+        expect(competitorGranted).toBe(false);
         expect(broker.getSnapshot()).toMatchObject({
             active: 1,
             queued: 1,
@@ -817,6 +830,61 @@ describe('JobBroker', () => {
         });
         controller.abort(new Error('remove test competitor'));
         await expect(competitor).rejects.toThrow('remove test competitor');
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 1,
+            queued: 0,
+            used: CAPACITY,
+        });
+    });
+
+    it('releases a retained lease when delayed termination proof resolves true and keeps it on false', async () => {
+        const {markUnprovenNativeTermination} = await import('@electron/utils/nativeTerminationProof');
+        const broker = new JobBroker(CAPACITY);
+
+        const positiveProof = Promise.withResolvers<boolean>();
+        const timeoutError = markUnprovenNativeTermination(new Error('watchdog expired'), 'still exiting');
+        await expect(broker.run(createRequest({
+            ownerId: 'delayed-proof-owner',
+            resources: CAPACITY,
+        }), async ({onTerminationProof}) => {
+            onTerminationProof(positiveProof.promise);
+            throw timeoutError;
+        })).rejects.toBe(timeoutError);
+
+        let competitorGranted = false;
+        const competitor = broker.acquire(createRequest({ownerId: 'competitor'})).then((lease) => {
+            competitorGranted = true;
+            return lease;
+        });
+        await Promise.resolve();
+        expect(competitorGranted).toBe(false);
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 1,
+            queued: 1,
+            used: CAPACITY,
+        });
+
+        positiveProof.resolve(true);
+        const competitorLease = await competitor;
+        expect(competitorGranted).toBe(true);
+        expect(competitorLease.release()).toBe(true);
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 0,
+            queued: 0,
+        });
+
+        const negativeProof = Promise.withResolvers<boolean>();
+        await expect(broker.run(createRequest({
+            ownerId: 'unproven-survivor',
+            resources: CAPACITY,
+        }), async ({onTerminationProof}) => {
+            onTerminationProof(negativeProof.promise);
+            throw timeoutError;
+        })).rejects.toBe(timeoutError);
+
+        negativeProof.resolve(false);
+        await Promise.resolve();
+        await Promise.resolve();
         expect(broker.getSnapshot()).toMatchObject({
             active: 1,
             queued: 0,

@@ -242,15 +242,30 @@ export class JobBroker {
         });
     }
 
-    async run<T>(request: IJobBrokerRequest, work: () => Promise<T>): Promise<T> {
+    async run<T>(
+        request: IJobBrokerRequest,
+        work: (context: {onTerminationProof: (proof: Promise<boolean>) => void}) => Promise<T>,
+    ): Promise<T> {
         const lease = await this.acquire(request);
+        const terminationProofs: Array<Promise<boolean>> = [];
+        const onTerminationProof = (proof: Promise<boolean>) => {
+            terminationProofs.push(proof.catch(() => false));
+        };
         try {
             request.signal?.throwIfAborted();
-            const result = await work();
+            const result = await work({onTerminationProof});
             lease.release();
             return result;
         } catch (error) {
-            if (getUnprovenNativeTerminationDetail(error) === undefined) lease.release();
+            if (getUnprovenNativeTerminationDetail(error) === undefined) {
+                lease.release();
+            } else if (terminationProofs.length > 0) {
+                void Promise.all(terminationProofs).then((results) => {
+                    if (results.every(Boolean)) {
+                        lease.release();
+                    }
+                });
+            }
             throw error;
         }
     }
@@ -266,7 +281,11 @@ export class JobBroker {
         return true;
     }
 
-    cancelPendingOwner(ownerId: string, reason = `Resource requests canceled for owner ${ownerId}`) {
+    // Active leases represent live OS resources that remain charged until their
+    // holder exits or proves native termination and calls `lease.release()`.
+    // Cancelling an owner therefore rejects only queued requests so active
+    // native children cannot be under-accounted before they exit.
+    cancelOwner(ownerId: string, reason = `Resource requests canceled for owner ${ownerId}`) {
         for (let index = this.queue.length - 1; index >= 0; index -= 1) {
             const queued = this.queue[index];
             if (queued?.request.ownerId !== ownerId) {
@@ -275,28 +294,6 @@ export class JobBroker {
             this.queue.splice(index, 1);
             queued.removeAbortListener();
             queued.reject(new Error(reason));
-        }
-    }
-
-    cancelOwner(ownerId: string, reason = `Resource requests canceled for owner ${ownerId}`) {
-        this.cancelPendingOwner(ownerId, reason);
-        // Cancelling an owner has to drop its granted leases too. The holder is
-        // being torn down and will never call `release()`, so leaving the leases
-        // active would hold the resources until the process exits.
-        let releasedLeaseCount = 0;
-        for (const [
-            token,
-            active,
-        ] of this.active) {
-            if (active.ownerId !== ownerId) {
-                continue;
-            }
-            this.active.delete(token);
-            this.accountLease(active, subtractResources);
-            releasedLeaseCount += 1;
-        }
-        if (releasedLeaseCount > 0) {
-            this.dispatch();
         }
     }
 

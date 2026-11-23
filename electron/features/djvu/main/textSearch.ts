@@ -95,6 +95,7 @@ interface IDjvuTextStreamOptions extends IDjvuTextParserOptions {
     script?: string;
     signal?: AbortSignal | undefined;
     timeoutMs?: number;
+    onTerminationProof?: ((proof: Promise<boolean>) => void) | undefined;
 }
 
 /** `/\s/u` for the code point at `index`, without a string per ASCII character. */
@@ -407,6 +408,7 @@ async function streamDjvuTextPages(filePath: string, options: IDjvuTextStreamOpt
             includeProcessEnv: true,
             windowsHide: true,
             signal: internalController.signal,
+            ...(options.onTerminationProof ? {onTerminationProof: options.onTerminationProof} : {}),
             onStdout(chunk) {
                 if (parseFailure.error || internalController.signal.aborted) {
                     return;
@@ -468,13 +470,14 @@ export async function readDjvuPageText(
         admissionClass: 'interactive',
         resources: DJVU_PAGE_TEXT_BROKER_RESOURCES,
         ...(signal === undefined ? {} : {signal}),
-    }, async () => {
+    }, async ({onTerminationProof}) => {
         let pageText = '';
         try {
             await streamDjvuTextPages(filePath, {
                 commandLabel: 'djvused page text',
                 script: `select ${pageNumber}; print-txt`,
                 signal,
+                onTerminationProof,
                 timeoutMs: DJVU_PAGE_TEXT_TIMEOUT_MS,
                 onPage(page) {
                     if (page.pageNumber === 1) {
@@ -581,10 +584,15 @@ export async function addDjvuMatchGeometry(
     });
 }
 
-export async function detectDjvuHasText(filePath: string, signal?: AbortSignal) {
+export async function detectDjvuHasText(
+    filePath: string,
+    signal?: AbortSignal,
+    onTerminationProof?: (proof: Promise<boolean>) => void,
+) {
     let hasText = false as boolean;
     await streamDjvuTextPages(filePath, {
         signal,
+        onTerminationProof,
         onText(text) {
             if (text.trim().length > 0) {
                 hasText = true;

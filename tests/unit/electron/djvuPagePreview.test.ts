@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import { escapeRegExp } from 'es-toolkit/string';
 import type * as TDjvuNativeToolPathsModule from '@electron/features/djvu/main/nativeToolPaths';
 import type * as TDjvuMetadataModule from '@electron/features/djvu/main/metadata';
+import type * as TDdjvuConversionModule from '@electron/features/djvu/main/ddjvuConversion';
 import {
     beforeEach,
     describe,
@@ -92,7 +93,10 @@ vi.mock('@electron/image/tryCreatePdfWithNativeImageCombiner', () => ({
     isNativePdfImageCombineDisabled: mocks.isNativePdfImageCombineDisabled,
     resolveNativePdfImageCombinePath: () => '/tools/evb-pdf-image-combine',
 }));
-vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({convertDjvuPageToImage: mocks.convertDjvuPageToImage}));
+vi.mock('@electron/features/djvu/main/ddjvuConversion', async importOriginal => ({
+    ...await importOriginal<typeof TDdjvuConversionModule>(),
+    convertDjvuPageToImage: mocks.convertDjvuPageToImage,
+}));
 
 const {
     clearDjvuPageSizeCacheForTests,
@@ -666,5 +670,242 @@ describe('DjVu native page preview helpers', () => {
             .toThrow('large Netpbm fallback is intentionally disabled');
 
         expect(mocks.readFile).not.toHaveBeenCalled();
+    });
+
+    it('propagates unproven termination from page-size probing so the preview broker lease stays retained until proof', async () => {
+        const {JobBroker} = await import('@electron/resources/jobBroker');
+        const {markUnprovenNativeTermination} = await import('@electron/utils/nativeTerminationProof');
+        const capacity = {
+            cpuTokens: 1,
+            estimatedResidentBytes: 64 * 1024 * 1024,
+            nativeProcesses: 1,
+            ioWeight: 1,
+        };
+        const broker = new JobBroker(capacity);
+        const controller = new AbortController();
+        const delayedProof = Promise.withResolvers<boolean>();
+        const unprovenError = markUnprovenNativeTermination(
+            new Error('djvused watchdog expired'),
+            'djvused process tree not proven dead yet',
+        );
+        mocks.runNativeCommand.mockImplementationOnce(async (...rawArgs: unknown[]) => {
+            const options = rawArgs[2] as {onTerminationProof?: (proof: Promise<boolean>) => void} | undefined;
+            controller.abort(new Error('DjVu preview operation canceled'));
+            options?.onTerminationProof?.(delayedProof.promise);
+            throw unprovenError;
+        });
+
+        await expect(broker.run({
+            ownerId: 'djvu-preview:1',
+            kind: 'djvu-preview',
+            priority: 'visible',
+            resources: capacity,
+        }, ({onTerminationProof}) => renderDjvuPagePreview('/tmp/book.djvu', 1, {subsample: 2}, {
+            onTerminationProof,
+            signal: controller.signal,
+        }))).rejects.toBe(unprovenError);
+
+        expect(mocks.convertDjvuPageToImage).not.toHaveBeenCalled();
+        let nextGranted = false;
+        const nextPreview = broker.acquire({
+            ownerId: 'djvu-preview:2',
+            kind: 'djvu-preview',
+            priority: 'visible',
+            resources: capacity,
+        }).then((lease) => {
+            nextGranted = true;
+            return lease;
+        });
+
+        await Promise.resolve();
+        expect(nextGranted).toBe(false);
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 1,
+            queued: 1,
+            used: capacity,
+        });
+
+        delayedProof.resolve(true);
+        const nextLease = await nextPreview;
+        expect(nextGranted).toBe(true);
+        expect(nextLease.release()).toBe(true);
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 0,
+            queued: 0,
+        });
+    });
+
+    it('runs preview pageCount and dpi probes sequentially under one lease and holds the lease until delayed dpi proof resolves', async () => {
+        const {JobBroker} = await import('@electron/resources/jobBroker');
+        const {markUnprovenNativeTermination} = await import('@electron/utils/nativeTerminationProof');
+        const capacity = {
+            cpuTokens: 1,
+            estimatedResidentBytes: 64 * 1024 * 1024,
+            nativeProcesses: 1,
+            ioWeight: 1,
+        };
+        const broker = new JobBroker(capacity);
+        const controller = new AbortController();
+        const pageCountGate = Promise.withResolvers<number>();
+        const delayedProof = Promise.withResolvers<boolean>();
+        const dpiUnprovenError = markUnprovenNativeTermination(
+            new Error('djvused dpi watchdog expired'),
+            'djvused dpi tree not proven dead yet',
+        );
+        const callOrder: string[] = [];
+
+        mocks.getDjvuPageCount.mockImplementationOnce(async () => {
+            callOrder.push('pageCount:start');
+            const count = await pageCountGate.promise;
+            callOrder.push('pageCount:end');
+            return count;
+        });
+        mocks.getDjvuResolution.mockImplementationOnce(async (...rawArgs: unknown[]) => {
+            const options = rawArgs[1] as {onTerminationProof?: (proof: Promise<boolean>) => void} | undefined;
+            callOrder.push('dpi:start');
+            controller.abort(new Error('DjVu preview operation canceled'));
+            options?.onTerminationProof?.(delayedProof.promise);
+            throw dpiUnprovenError;
+        });
+
+        const runPromise = broker.run({
+            ownerId: 'djvu-preview:seq',
+            kind: 'djvu-preview',
+            priority: 'visible',
+            resources: capacity,
+        }, ({onTerminationProof}) => renderDjvuPagePreview('/tmp/sequential-probe.djvu', 1, {subsample: 2}, {
+            onTerminationProof,
+            signal: controller.signal,
+        }));
+
+        await vi.waitFor(() => expect(callOrder).toEqual(['pageCount:start']));
+        expect(mocks.getDjvuResolution).not.toHaveBeenCalled();
+
+        pageCountGate.resolve(5);
+        await expect(runPromise).rejects.toBe(dpiUnprovenError);
+        expect(callOrder).toEqual([
+            'pageCount:start',
+            'pageCount:end',
+            'dpi:start',
+        ]);
+
+        let nextGranted = false;
+        const nextPreview = broker.acquire({
+            ownerId: 'djvu-preview:next',
+            kind: 'djvu-preview',
+            priority: 'visible',
+            resources: capacity,
+        }).then((lease) => {
+            nextGranted = true;
+            return lease;
+        });
+        await Promise.resolve();
+        expect(nextGranted).toBe(false);
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 1,
+            queued: 1,
+            used: capacity,
+        });
+
+        delayedProof.resolve(true);
+        const nextLease = await nextPreview;
+        expect(nextGranted).toBe(true);
+        expect(nextLease.release()).toBe(true);
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 0,
+            queued: 0,
+        });
+    });
+
+    it('releases both initiator and joiner preview leases when two concurrent previews share one pageSizeProbe', async () => {
+        const {JobBroker} = await import('@electron/resources/jobBroker');
+        const {
+            getUnprovenNativeTerminationDetail,
+            markUnprovenNativeTermination,
+        } = await import('@electron/utils/nativeTerminationProof');
+        const slot = {
+            cpuTokens: 1,
+            estimatedResidentBytes: 64 * 1024 * 1024,
+            nativeProcesses: 1,
+            ioWeight: 1,
+        };
+        const broker = new JobBroker({
+            cpuTokens: 2,
+            estimatedResidentBytes: 128 * 1024 * 1024,
+            nativeProcesses: 2,
+            ioWeight: 2,
+        });
+        const initiatorController = new AbortController();
+        const joinerController = new AbortController();
+        const probeStarted = Promise.withResolvers<void>();
+        const releaseProbe = Promise.withResolvers<void>();
+        const delayedProof = Promise.withResolvers<boolean>();
+        const unprovenError = markUnprovenNativeTermination(
+            new Error('djvused shared probe watchdog expired'),
+            'djvused shared probe not proven dead yet',
+        );
+
+        mocks.runNativeCommand.mockImplementationOnce(async (...rawArgs: unknown[]) => {
+            const options = rawArgs[2] as {onTerminationProof?: (proof: Promise<boolean>) => void} | undefined;
+            probeStarted.resolve(undefined);
+            await releaseProbe.promise;
+            initiatorController.abort(new Error('DjVu preview operation canceled'));
+            joinerController.abort(new Error('DjVu preview operation canceled'));
+            options?.onTerminationProof?.(delayedProof.promise);
+            throw unprovenError;
+        });
+
+        const initiatorRun = broker.run({
+            ownerId: 'djvu-preview:initiator',
+            kind: 'djvu-preview',
+            priority: 'visible',
+            resources: slot,
+        }, ({onTerminationProof}) => renderDjvuPagePreview('/tmp/shared-probe.djvu', 1, {subsample: 2}, {
+            onTerminationProof,
+            signal: initiatorController.signal,
+        }));
+        await probeStarted.promise;
+
+        const joinerRun = broker.run({
+            ownerId: 'djvu-preview:joiner',
+            kind: 'djvu-preview',
+            priority: 'visible',
+            resources: slot,
+        }, ({onTerminationProof}) => renderDjvuPagePreview('/tmp/shared-probe.djvu', 1, {subsample: 2}, {
+            onTerminationProof,
+            signal: joinerController.signal,
+        }));
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(mocks.runNativeCommand).toHaveBeenCalledOnce();
+
+        releaseProbe.resolve(undefined);
+        const initiatorError = await initiatorRun.then(
+            () => {
+                throw new Error('Expected initiatorRun to reject');
+            },
+            (error: unknown) => error,
+        );
+        const joinerError = await joinerRun.then(
+            () => {
+                throw new Error('Expected joinerRun to reject');
+            },
+            (error: unknown) => error,
+        );
+
+        expect(initiatorError).toBe(unprovenError);
+        expect(joinerError).toBeInstanceOf(Error);
+        expect(getUnprovenNativeTerminationDetail(joinerError)).toBeUndefined();
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 1,
+            queued: 0,
+            used: slot,
+        });
+
+        delayedProof.resolve(true);
+        await vi.waitFor(() => expect(broker.getSnapshot()).toMatchObject({
+            active: 0,
+            queued: 0,
+        }));
     });
 });
