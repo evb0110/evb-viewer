@@ -240,6 +240,8 @@ function createViewportFixture(input: {
     isResizing?: Ref<boolean>;
     isPageFreshlyRenderedForNavigation?: (pageNumber: number) => boolean;
     pageCount?: number;
+    /** Holds every page-metric read until it settles, from before the view mounts. */
+    pageMetricsGate?: Promise<boolean>;
     /** Attaches a rendering session whose rasters go through this scheduler. */
     rasterScheduler?: IPdfPageRasterScheduler;
     rasterDemand?: Ref<IPdfViewportDemand>;
@@ -256,6 +258,7 @@ function createViewportFixture(input: {
     container.scrollTop = 0;
     const viewerContainer = ref<HTMLElement | null>(container);
     const documentSession = createDocumentFixture(input.pageCount);
+    if (input.pageMetricsGate) documentSession.ensurePageMetricsInRange.mockReturnValue(input.pageMetricsGate);
     const zoom = input.zoom ?? ref(1);
     const outputScale = ref(1);
     const zoomMode = ref(input.zoomMode ?? 'fit-width');
@@ -2657,7 +2660,7 @@ describe('PdfViewportSession behavior', () => {
         }
     });
 
-    it('replays the settled PDF page when the shared opening surface becomes ready', async () => {
+    it('names the placed PDF page when the shared opening surface becomes ready', async () => {
         const surface = createDocumentOpenSurfaceSession();
         const generation = surface.begin({
             documentId: 'ready-reprojection.pdf',
@@ -2713,7 +2716,7 @@ describe('PdfViewportSession behavior', () => {
 
             expect(surface.markReady(renderFence!)).toBe(true);
 
-            // At the ready edge the viewport reports the page it settled on.
+            // The placement commit already named the page the viewport settled on.
             expect(surface.viewportSession.value.observedPage ?? surface.viewportSession.value.committedPage).toBe(6);
             expect(fixture.viewport.scale.effectiveScale.value).toBeCloseTo(845 / 612);
             expect(surface.reportNavigation(surface.navigationTicket.value!, {
@@ -2922,6 +2925,484 @@ describe('PdfViewportSession behavior', () => {
             metrics.resolve(true);
             fixture.app.unmount();
         }
+    });
+
+    describe('one opening reconciliation', () => {
+        function beginOpening(documentId: string, initialPage = 1) {
+            const surface = createDocumentOpenSurfaceSession();
+            const generation = surface.begin({
+                documentId,
+                documentRevision: 'revision-1',
+            }, null, initialPage);
+            surface.metadataReady(10);
+            expect(surface.commitGeometry(generation, {
+                width: 600,
+                height: 900,
+                margin: 20,
+            })).toBe(true);
+            const placements = vi.spyOn(surface, 'commitViewport');
+            return {
+                surface,
+                generation,
+                openingTicket: surface.navigationTicket.value!,
+                /** Pages the opening placed, in order. */
+                placedPages: () => placements.mock.calls.map(([commit]) => commit.pageNumber),
+                /** The distinct places the view was put, in order. */
+                placedPositions: () => [...new Set(placements.mock.calls.map(([commit]) => `${String(commit.pageNumber)}@${String(commit.top)}`))],
+            };
+        }
+        /** A view whose page raster is fresh only once the test paints it. */
+        function createOpeningFixture(surface: IDocumentOpenSurfaceSession, input: {
+            isActive?: Ref<boolean>;
+            pageMetricsGate?: Promise<boolean>;
+        } = {}) {
+            const paintedPages = new Set<number>();
+            const fixture = createViewportFixture({
+                bufferPages: 0,
+                chassisAuthority: createChassisAuthority(surface),
+                isPageFreshlyRenderedForNavigation: page => paintedPages.has(page),
+                pageCount: 10,
+                ...input,
+            });
+            return {
+                fixture,
+                paintedPages,
+            };
+        }
+        /** The opening canvas lands and the placement's raster settles, as the renderer does. */
+        async function paintOpening(
+            view: ReturnType<typeof createOpeningFixture>,
+            opening: ReturnType<typeof beginOpening>,
+            page: number,
+        ) {
+            let rasterId = 0;
+            await vi.waitFor(() => {
+                const raster = view.fixture.viewport.demand.value.mandatoryRaster;
+                expect(raster?.range.start).toBeLessThanOrEqual(page);
+                expect(raster?.range.end).toBeGreaterThanOrEqual(page);
+                rasterId = raster!.id;
+            });
+            const fence = commitOpeningCanvas(opening.surface, opening.generation, page);
+            view.paintedPages.add(page);
+            view.fixture.viewport.settleMandatoryRaster(rasterId, true);
+            await vi.waitFor(() => expect(opening.surface.snapshot.value.committedViewport?.pageNumber).toBe(page));
+            expect(opening.surface.markReady(fence)).toBe(true);
+        }
+        function commitOpeningCanvas(surface: IDocumentOpenSurfaceSession, generation: number, page: number) {
+            const fence = surface.createRenderFence({
+                generation,
+                documentRevision: 'revision-1',
+                renderVersion: 1,
+                requestId: page,
+                pageNumber: page,
+            });
+            expect(fence).not.toBeNull();
+            expect(surface.commitCanvas(fence!)).toBe(true);
+            return fence!;
+        }
+
+        it.each([
+            1,
+            6,
+        ])('places a cold open at page %i once and does not place it again once ready', async (page) => {
+            const opening = beginOpening(`cold-open-${String(page)}.pdf`, page);
+            const view = createOpeningFixture(opening.surface);
+            try {
+                await paintOpening(view, opening, page);
+                const placedTop = view.fixture.container.scrollTop;
+                await expect(opening.openingTicket.finished).resolves.toMatchObject({
+                    kind: 'arrived',
+                    page,
+                });
+
+                // Layout and metric publication after the open settled.
+                view.fixture.documentSession.pageMetricsVersion.value += 1;
+                await yieldToBrowser();
+                await yieldToBrowser();
+
+                expect(opening.placedPages()).toEqual([page]);
+                expect(opening.surface.viewportSession.value).toMatchObject({
+                    lifecycle: 'ready',
+                    committedPage: page,
+                });
+                expect(view.fixture.viewport.currentPage.value).toBe(page);
+                expect(view.fixture.container.scrollTop).toBe(placedTop);
+            } finally {
+                await view.fixture.dispose();
+            }
+        });
+
+        it('leaves a settled opening where the reader then moves it', async () => {
+            const opening = beginOpening('reader-after-open.pdf');
+            const view = createOpeningFixture(opening.surface);
+            try {
+                await paintOpening(view, opening, 1);
+                await expect(opening.openingTicket.finished).resolves.toMatchObject({kind: 'arrived'});
+
+                view.fixture.container.scrollTop = 3_700;
+                setCurrentPage(view.fixture.viewport, 5);
+                view.fixture.documentSession.pageMetricsVersion.value += 1;
+                await yieldToBrowser();
+                await yieldToBrowser();
+
+                expect(opening.placedPages()).toEqual([1]);
+                expect(view.fixture.container.scrollTop).toBe(3_700);
+                expect(view.fixture.viewport.currentPage.value).toBe(5);
+                expect(opening.surface.viewportSession.value.observedPage).toBe(5);
+            } finally {
+                await view.fixture.dispose();
+            }
+        });
+
+        it('places only the newer navigation that replaced an unplaced opening', async () => {
+            const opening = beginOpening('navigated-during-open.pdf');
+            const view = createOpeningFixture(opening.surface);
+            try {
+                await vi.waitFor(() => expect(view.fixture.viewport.demand.value.mandatoryRaster).not.toBeNull());
+                const navigation = view.fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(4));
+                expect(navigation).toBe(opening.surface.navigationTicket.value);
+                await expect(opening.openingTicket.finished).resolves.toMatchObject({kind: 'superseded'});
+
+                await paintOpening(view, opening, 4);
+                await expect((navigation as IDocumentNavigationTicket).finished).resolves.toMatchObject({
+                    kind: 'arrived',
+                    page: 4,
+                });
+                await yieldToBrowser();
+
+                // The navigation reports its one place again when its raster
+                // settles; the view is put on page 4 once and never on page 1.
+                expect(opening.placedPages().every(page => page === 4)).toBe(true);
+                expect(opening.placedPositions()).toEqual([`4@${String(view.fixture.container.scrollTop)}`]);
+                expect(opening.surface.viewportSession.value).toMatchObject({
+                    lifecycle: 'ready',
+                    committedPage: 4,
+                });
+                expect(view.fixture.viewport.currentPage.value).toBe(4);
+            } finally {
+                await view.fixture.dispose();
+            }
+        });
+
+        it('restores the requested page once when a search that replaced the opening is withdrawn', async () => {
+            const opening = beginOpening('withdrawn-search.pdf');
+            const view = createOpeningFixture(opening.surface);
+            const metrics = Promise.withResolvers<boolean>();
+            try {
+                await vi.waitFor(() => expect(view.fixture.viewport.demand.value.mandatoryRaster).not.toBeNull());
+                view.fixture.documentSession.ensurePageMetricsInRange.mockReturnValueOnce(metrics.promise);
+                const search = view.fixture.viewport.singlePageScroll.revealSearchNavigationTarget(3);
+                expect(search).toBe(opening.surface.navigationTicket.value);
+                await vi.waitFor(() => expect(
+                    view.fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value?.kind,
+                ).toBe('search'));
+
+                // The reader closes search before its page was placed.
+                view.fixture.viewport.singlePageScroll.endSearchNavigation();
+                await expect((search as IDocumentNavigationTicket).finished).resolves.toMatchObject({kind: 'superseded'});
+                metrics.resolve(true);
+                const restore = opening.surface.navigationTicket.value;
+                expect(restore?.request).toMatchObject({
+                    source: 'restore',
+                    target: {page: 3},
+                });
+
+                await paintOpening(view, opening, 3);
+                await expect(restore!.finished).resolves.toMatchObject({
+                    kind: 'arrived',
+                    page: 3,
+                });
+                await yieldToBrowser();
+
+                expect(opening.placedPositions()).toEqual([`3@${String(view.fixture.container.scrollTop)}`]);
+                expect(opening.surface.viewportSession.value).toMatchObject({
+                    lifecycle: 'ready',
+                    committedPage: 3,
+                });
+                expect(view.fixture.viewport.currentPage.value).toBe(3);
+            } finally {
+                metrics.resolve(true);
+                await view.fixture.dispose();
+            }
+        });
+
+        it('restores the requested page when a withdrawn search was no longer running', async () => {
+            const opening = beginOpening('withdrawn-idle-search.pdf');
+            const view = createOpeningFixture(opening.surface);
+            const metrics = Promise.withResolvers<boolean>();
+            try {
+                await vi.waitFor(() => expect(view.fixture.viewport.demand.value.mandatoryRaster).not.toBeNull());
+                view.fixture.documentSession.ensurePageMetricsInRange.mockReturnValueOnce(metrics.promise);
+                const search = view.fixture.viewport.singlePageScroll.revealSearchNavigationTarget(3);
+                const authority = view.fixture.viewport.singlePageScroll.viewportAuthority;
+                await vi.waitFor(() => expect(authority.activeIntent.value?.kind).toBe('search'));
+                // Its attempt ends first; the ticket waits for its next attempt.
+                authority.suspend();
+                expect(authority.activeIntent.value).toBeNull();
+                expect(opening.surface.navigationTicket.value).toBe(search);
+
+                view.fixture.viewport.singlePageScroll.endSearchNavigation();
+                metrics.resolve(true);
+                await yieldToBrowser();
+
+                expect(opening.surface.navigationTicket.value?.request).toMatchObject({
+                    source: 'restore',
+                    target: {page: 3},
+                });
+                await paintOpening(view, opening, 3);
+                expect(opening.surface.viewportSession.value).toMatchObject({
+                    lifecycle: 'ready',
+                    committedPage: 3,
+                });
+            } finally {
+                metrics.resolve(true);
+                await view.fixture.dispose();
+            }
+        });
+
+        it('does not restore again after a restore fails', async () => {
+            const opening = beginOpening('failed-restore.pdf');
+            const view = createOpeningFixture(opening.surface);
+            const metrics = Promise.withResolvers<boolean>();
+            try {
+                await vi.waitFor(() => expect(view.fixture.viewport.demand.value.mandatoryRaster).not.toBeNull());
+                view.fixture.documentSession.ensurePageMetricsInRange.mockReturnValueOnce(metrics.promise);
+                view.fixture.viewport.singlePageScroll.revealSearchNavigationTarget(3);
+                await vi.waitFor(() => expect(
+                    view.fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value?.kind,
+                ).toBe('search'));
+                view.fixture.documentSession.ensurePageMetricsInRange.mockRejectedValue(new Error('metrics unreadable'));
+                view.fixture.viewport.singlePageScroll.endSearchNavigation();
+                metrics.resolve(true);
+
+                await vi.waitFor(() => expect(opening.surface.viewportSession.value.lifecycle).toBe('failed'));
+                const readsAfterFailure = view.fixture.documentSession.ensurePageMetricsInRange.mock.calls.length;
+                await yieldToBrowser();
+                await yieldToBrowser();
+
+                expect(opening.surface.navigationTicket.value).toBeNull();
+                expect(view.fixture.documentSession.ensurePageMetricsInRange.mock.calls.length).toBe(readsAfterFailure);
+                expect(opening.placedPages()).toEqual([]);
+            } finally {
+                metrics.resolve(true);
+                await view.fixture.dispose();
+            }
+        });
+
+        it('restores the requested page when open, search, and withdrawal happen before the post flush', async () => {
+            const surface = createDocumentOpenSurfaceSession();
+            const view = createOpeningFixture(surface);
+            try {
+                expect(surface.navigationTicket.value).toBeNull();
+                const generation = surface.begin({
+                    documentId: 'same-tick-withdraw.pdf',
+                    documentRevision: 'revision-1',
+                }, null, 1);
+                surface.metadataReady(10);
+                expect(surface.commitGeometry(generation, {
+                    width: 600,
+                    height: 900,
+                    margin: 20,
+                })).toBe(true);
+                const search = surface.navigate(createPageNavigationRequest(3, 'search'));
+                expect(search).not.toBeNull();
+                expect(surface.reportNavigation(search!, {
+                    kind: 'abandoned',
+                    by: 'command',
+                })).toBe(true);
+                expect(surface.navigationTicket.value).toBeNull();
+
+                await yieldToBrowser();
+
+                expect(surface.navigationTicket.value?.request).toMatchObject({
+                    source: 'restore',
+                    target: {page: 3},
+                });
+                const opening = {
+                    surface,
+                    generation,
+                    openingTicket: surface.navigationTicket.value!,
+                    placedPages: () => [] as number[],
+                    placedPositions: () => [] as string[],
+                };
+                await paintOpening(view, opening, 3);
+                expect(surface.viewportSession.value).toMatchObject({
+                    lifecycle: 'ready',
+                    committedPage: 3,
+                });
+            } finally {
+                await view.fixture.dispose();
+            }
+        });
+
+        it('restores the requested page when the viewport mounts after an unplaced search was withdrawn', async () => {
+            const opening = beginOpening('mounted-after-withdraw.pdf', 1);
+            const search = opening.surface.navigate(createPageNavigationRequest(3, 'search'));
+            expect(search).not.toBeNull();
+            expect(opening.surface.reportNavigation(search!, {
+                kind: 'abandoned',
+                by: 'command',
+            })).toBe(true);
+            expect(opening.surface.navigationTicket.value).toBeNull();
+
+            const view = createOpeningFixture(opening.surface);
+            try {
+                await yieldToBrowser();
+
+                expect(opening.surface.navigationTicket.value?.request).toMatchObject({
+                    source: 'restore',
+                    target: {page: 3},
+                });
+                await paintOpening(view, opening, 3);
+                expect(opening.surface.viewportSession.value).toMatchObject({
+                    lifecycle: 'ready',
+                    committedPage: 3,
+                });
+            } finally {
+                await view.fixture.dispose();
+            }
+        });
+
+        it('restores the requested page when an earlier opening ticket committed another page before search withdrew', async () => {
+            const opening = beginOpening('stale-opening-placement.pdf', 1);
+            const view = createOpeningFixture(opening.surface);
+            const metrics = Promise.withResolvers<boolean>();
+            try {
+                let rasterId = 0;
+                await vi.waitFor(() => {
+                    const raster = view.fixture.viewport.demand.value.mandatoryRaster;
+                    expect(raster?.range.start).toBeLessThanOrEqual(1);
+                    expect(raster?.range.end).toBeGreaterThanOrEqual(1);
+                    rasterId = raster!.id;
+                });
+                commitOpeningCanvas(opening.surface, opening.generation, 1);
+                view.paintedPages.add(1);
+                view.fixture.viewport.settleMandatoryRaster(rasterId, true);
+                await vi.waitFor(() => expect(opening.surface.snapshot.value.committedViewport?.pageNumber).toBe(1));
+                expect(opening.surface.viewportSession.value.lifecycle).toBe('opening');
+
+                view.fixture.documentSession.ensurePageMetricsInRange.mockReturnValueOnce(metrics.promise);
+                const search = view.fixture.viewport.singlePageScroll.revealSearchNavigationTarget(3);
+                expect(search).toBe(opening.surface.navigationTicket.value);
+                await vi.waitFor(() => expect(
+                    view.fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value?.kind,
+                ).toBe('search'));
+
+                view.fixture.viewport.singlePageScroll.endSearchNavigation();
+                metrics.resolve(true);
+                await yieldToBrowser();
+
+                expect(opening.surface.navigationTicket.value?.request).toMatchObject({
+                    source: 'restore',
+                    target: {page: 3},
+                });
+                await paintOpening(view, opening, 3);
+                expect(opening.surface.viewportSession.value).toMatchObject({
+                    lifecycle: 'ready',
+                    committedPage: 3,
+                });
+            } finally {
+                metrics.resolve(true);
+                await view.fixture.dispose();
+            }
+        });
+
+        it('ends an unplaced opening cleanly when its only document closes', async () => {
+            const opening = beginOpening('closed-during-open.pdf', 6);
+            const view = createOpeningFixture(opening.surface);
+            try {
+                await vi.waitFor(() => expect(
+                    view.fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value,
+                ).toBe(true));
+
+                opening.surface.reset();
+                view.fixture.documentSession.numPages.value = 0;
+                view.fixture.documentSession.pageMetrics.value = [];
+                view.fixture.documentSession.pdfDocument.value = null;
+                await view.fixture.documentSession.emit(transition('invalidated', {
+                    isReload: false,
+                    isSelectiveReload: false,
+                    pagesToInvalidate: null,
+                    preserveVisibleContent: false,
+                    preservePageStructure: false,
+                }));
+                await expect(opening.openingTicket.finished).resolves.toEqual({kind: 'document-ended'});
+                await yieldToBrowser();
+
+                expect(opening.placedPages()).toEqual([]);
+                expect(opening.surface.viewportSession.value.lifecycle).toBe('empty');
+                expect(view.fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value).toBe(false);
+            } finally {
+                await view.fixture.dispose();
+            }
+        });
+
+        it('ends an opening cleanly when its view closes before the surface does', async () => {
+            const opening = beginOpening('view-closed-during-open.pdf', 6);
+            const view = createOpeningFixture(opening.surface);
+            try {
+                await vi.waitFor(() => expect(
+                    view.fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value,
+                ).toBe(true));
+            } finally {
+                await view.fixture.dispose();
+            }
+            opening.surface.reset();
+            await expect(opening.openingTicket.finished).resolves.toEqual({kind: 'document-ended'});
+            await yieldToBrowser();
+
+            expect(opening.placedPages()).toEqual([]);
+        });
+
+        it('places an opening restored in an inactive tab once, and not again when the tab returns', async () => {
+            const isActive = ref(false);
+            const opening = beginOpening('inactive-tab.pdf', 6);
+            const view = createOpeningFixture(opening.surface, {isActive});
+            try {
+                await paintOpening(view, opening, 6);
+                await expect(opening.openingTicket.finished).resolves.toMatchObject({
+                    kind: 'arrived',
+                    page: 6,
+                });
+                const placedTop = view.fixture.container.scrollTop;
+
+                isActive.value = true;
+                await yieldToBrowser();
+                await yieldToBrowser();
+
+                expect(opening.placedPages()).toEqual([6]);
+                expect(view.fixture.container.scrollTop).toBe(placedTop);
+                expect(view.fixture.viewport.currentPage.value).toBe(6);
+            } finally {
+                await view.fixture.dispose();
+            }
+        });
+
+        it('places an opening once when its page metrics hydrate after its intent began', async () => {
+            const opening = beginOpening('late-metrics.pdf', 6);
+            const metrics = Promise.withResolvers<boolean>();
+            const view = createOpeningFixture(opening.surface, {pageMetricsGate: metrics.promise});
+            try {
+                await vi.waitFor(() => expect(view.fixture.documentSession.ensurePageMetricsInRange).toHaveBeenCalled());
+                await yieldToBrowser();
+                // The opening waits on its page's metrics: no raster, no placement.
+                expect(view.fixture.viewport.demand.value.mandatoryRaster).toBeNull();
+                expect(opening.surface.snapshot.value.committedViewport).toBeNull();
+
+                metrics.resolve(true);
+                await paintOpening(view, opening, 6);
+                await expect(opening.openingTicket.finished).resolves.toMatchObject({
+                    kind: 'arrived',
+                    page: 6,
+                });
+
+                expect(opening.placedPages()).toEqual([6]);
+                expect(view.fixture.viewport.currentPage.value).toBe(6);
+            } finally {
+                metrics.resolve(true);
+                await view.fixture.dispose();
+            }
+        });
     });
 
     it.each([

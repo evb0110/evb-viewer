@@ -419,32 +419,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         activeWorkKind: viewportAuthority.activeWorkKind,
         commitVisibleRange,
     };
-    watch(
-        () => {
-            const viewportSession = chassisAuthority?.openSurface.viewportSession.value;
-            return [
-                viewportSession?.lifecycle ?? null,
-                viewportSession?.requestedPage ?? null,
-                viewportSession?.committedPage ?? null,
-                viewportSession?.viewportIntent?.id ?? null,
-            ] as const;
-        },
-        (viewportSession, previousViewportSession) => {
-            // The viewport can settle on a page before the shared surface is
-            // ready. Report it at that lifecycle edge so the surface names the
-            // page that already settled physically.
-            if (
-                viewportSession[0] === 'ready'
-                && previousViewportSession?.[0] !== 'ready'
-            ) {
-                chassisAuthority?.observePage(currentPage.value);
-            }
-        },
-        {
-            flush: 'sync',
-            immediate: true,
-        },
-    );
     const viewModel = usePdfViewportViewModel({
         performancePolicy: options.performancePolicy,
         isActive: options.isActive,
@@ -991,29 +965,45 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         singlePageScroll.submitNavigationRequest(request);
     }
     /**
-     * The opening's first canvas is committed and no ticket carries a
-     * destination: place the requested page's top, which reports the
-     * opening viewport to the surface.
+     * An opening is placed by its ticket: the placement receipt reports the
+     * opening viewport, and with it the page, to the surface. Should an
+     * opening end up without a ticket and without a matching placement for its
+     * current intent and requested page — whether withdrawn before Vue's post
+     * flush, withdrawn before this view mounted, or after a prior ticket's
+     * placement stayed on an earlier page — restore the requested page with a
+     * new ticket, which hydrates its metrics and raster as the first one would
+     * have. A ticket that fails ends the opening as failed instead.
      */
-    function reconcileIdleOpenSurfaceViewport() {
-        const surface = chassisAuthority?.openSurface;
-        const snapshot = surface?.snapshot.value;
-        const render = snapshot?.committedRender;
-        if (
-            !surface
-            || surface.navigationTicket.value
-            || !render
-            || snapshot?.committedViewport
-            || surface.viewportSession.value.lifecycle !== 'opening'
-            || surface.viewportSession.value.requestedPage !== render.pageNumber
-        ) {
-            return;
-        }
-        singlePageScroll.retireStaleViewportIntent(documentSession.captureFence().loadToken);
-        if (singlePageScroll.viewportAuthority.activeIntent.value === null) {
-            singlePageScroll.place(getRequestAnchor(undefined, clampPageNumber(render.pageNumber, numPages.value)), 'document-restore');
-        }
-    }
+    watch(
+        () => {
+            const surface = chassisAuthority?.openSurface;
+            const viewport = surface?.viewportSession.value;
+            const snapshot = surface?.snapshot.value;
+            const committed = snapshot?.committedViewport;
+            const hasMatchingPlacement = committed !== null
+                && committed !== undefined
+                && committed.generation === snapshot?.generation
+                && committed.pageNumber === viewport?.requestedPage
+                && (viewport.viewportIntent === null || committed.viewportIntentId === viewport.viewportIntent.id);
+            return surface
+                && viewport?.lifecycle === 'opening'
+                && !surface.navigationTicket.value
+                && !hasMatchingPlacement
+                ? `${String(snapshot?.generation ?? 0)}:${viewport.viewportIntent?.id ?? ''}:${String(viewport.requestedPage)}`
+                : null;
+        },
+        (unplaced) => {
+            const surface = chassisAuthority?.openSurface;
+            const viewport = surface?.viewportSession.value;
+            if (unplaced && surface && viewport?.lifecycle === 'opening' && !surface.navigationTicket.value) {
+                surface.navigate(createPageNavigationRequest(viewport.requestedPage, 'restore'));
+            }
+        },
+        {
+            flush: 'post',
+            immediate: true,
+        },
+    );
     watch(() => singlePageScroll.viewportAuthority.activeIntent.value, (activeIntent, previous) => {
         if (activeIntent !== null) {
             return;
@@ -1026,13 +1016,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             ? singlePageScroll.captureRelayoutAnchor()
             : null;
         if (anchor) viewportAuthority.observeSettledAnchor(anchor);
-        reconcileIdleOpenSurfaceViewport();
     }, { flush: 'sync' });
-    watch([
-        () => chassisAuthority?.openSurface.snapshot.value.committedRender,
-        () => chassisAuthority?.openSurface.snapshot.value.committedViewport,
-        scroll.getPageLayoutMetrics,
-    ], reconcileIdleOpenSurfaceViewport, {flush: 'post'});
     function fitToViewport() {
         scale.computeFitWidthScale(options.viewerContainer.value, {page: currentPage.value});
     }
