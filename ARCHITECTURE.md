@@ -60,8 +60,11 @@ handles and Recent Files metadata, not document bytes.
 
 Undo and redo restore retained store revisions in the same directory. One draft
 writer per document persists unsaved annotation, editor and metadata state as
-it changes, without copying the user's file. Workspace checkpoints hold layout
-and document references.
+it changes, without copying the user's file. Its annotation drafts are the
+pending Save plan the annotation store derives: the annotations the working
+bytes do not hold, and those open editors name. Recovery replays that plan onto
+the same bytes, and Save writes it. Workspace checkpoints hold layout and
+document references.
 
 Save commits a snapshot, checks the destination, publishes it and acknowledges
 that revision. An annotation edit during Save stays unsaved. Desktop checks

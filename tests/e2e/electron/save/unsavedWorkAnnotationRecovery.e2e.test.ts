@@ -28,7 +28,7 @@ import {
     activatePaneByTab, createNewWorkspaceTab, splitActiveTabFromTabMenu,
 } from '@tests/e2e/electron/helpers/workspaceTabs';
 import {callWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose';
-import {waitForCrashCheckpointPath} from '@tests/e2e/electron/nightly/large-pdf/largePdfAnnotationSaveShared';
+import {waitForCrashCheckpointPath, waitForWholeAnnotationInventory} from '@tests/e2e/electron/nightly/large-pdf/largePdfAnnotationSaveShared';
 import {
     startElectronE2ESession, type IElectronE2ESession,
 } from '@tests/e2e/electron/helpers/startElectronE2ESession';
@@ -41,7 +41,7 @@ import {isProcessAlive} from '@scripts/electron-run/electronRunProcessTree';
 import {decodeWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
 import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 import {
-    PDFArray, PDFDict, PDFDocument, PDFName, PDFRef,
+    PDFArray, PDFDict, PDFDocument, PDFName, PDFRef, PDFString,
 } from 'pdf-lib';
 
 const FIXTURE_PATH = resolve(process.cwd(), 'tests/fixtures/electron/test-scanned.pdf');
@@ -932,6 +932,57 @@ if(process.type==='browser'){
             await session.stop();
         }
     }, 240_000);
+
+    // #1593: the drafts used to hold every annotation, so past the 4 MiB budget no edit was protected.
+    it('protects and saves a new label on a document whose annotations alone exceed the draft budget', async () => {
+        outputDirectory = mkdtempSync(join(tmpdir(), 'evb-heavy-annotation-recovery-'));
+        const sourcePath = join(outputDirectory, 'reviewed.pdf');
+        const destinationPath = join(outputDirectory, 'reviewed-saved.pdf');
+        const comment = 'Reviewer comment. '.repeat(450).trimEnd();
+        const heavy = await PDFDocument.create();
+        for (let pageIndex = 0; pageIndex < 4; pageIndex += 1) {
+            const page = heavy.addPage([612, 792]);
+            page.node.set(PDFName.of('Annots'), heavy.context.obj(Array.from({length: 150}, (_, index) => heavy.context.register(heavy.context.obj({
+                Type: PDFName.of('Annot'),
+                Subtype: PDFName.of('Text'),
+                Rect: [40 + (index % 25) * 21, 40 + Math.floor(index / 25) * 30, 58 + (index % 25) * 21, 58 + Math.floor(index / 25) * 30],
+                Contents: PDFString.of(`${String(pageIndex * 150 + index)} ${comment}`),
+                NM: PDFString.of(`review-${String(pageIndex)}-${String(index)}`),
+            })))));
+        }
+        writeFileSync(sourcePath, await heavy.save());
+        const sourceBytes = readFileSync(sourcePath);
+        const sessionName = `e2e-heavy-annotation-recovery-${Date.now()}`;
+        const saveAsEnv = {EVB_E2E_SAVE_DIALOG_PATH: destinationPath};
+        session = await startElectronE2ESession(sessionName, {clean: true, extraEnv: saveAsEnv, initialOpenPaths: [sourcePath]});
+        await waitForPdfLoaded(session.page, 60_000);
+        await waitForViewerInteractive(session.page, 60_000);
+        // The store has read every comment, so the full snapshot main captured would exceed the budget.
+        await waitForWholeAnnotationInventory(session.page);
+        const marker = `Protected beside 600 comments ${Date.now()}`;
+        await createCanonicalTextBoxWithPointer(session.page, marker, {x: 0.4, y: 0.15});
+        await expect.poll(() => {
+            const entry = readWorkspaceRecoveryRecords(session!.name)[0] as {checkpoint?: {tabs?: Array<{annotationRecovery?: {artifactId?: string}}>}} | undefined;
+            const artifactId = entry?.checkpoint?.tabs?.[0]?.annotationRecovery?.artifactId;
+            return artifactId ? readAnnotationRecoveryDraft(session!.name, artifactId)?.includes(marker) ?? false : false;
+        }, {timeout: 60_000}).toBe(true);
+
+        const crashed = session;
+        await crashed.browser.disconnect();
+        await stopSingleSession(crashed.name, {preserveWorkspaceCheckpoint: true, crashElectronBeforeStop: true});
+        session = await startElectronE2ESession(sessionName, {clean: false, extraEnv: saveAsEnv});
+        await waitForPdfLoaded(session.page, 60_000);
+        await waitForViewerInteractive(session.page, 60_000);
+        await session.page.waitForFunction((text: string) => Array.from(
+            document.querySelectorAll<HTMLElement>('.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"]'),
+        ).some(entity => entity.textContent?.trim() === text), {timeout: 60_000}, marker);
+
+        await expect(callWorkspaceCommand<boolean>(session.page, 'handleSaveAs')).resolves.toEqual({called: true, value: true});
+        const records = await readPdfTextAnnotationRecords(destinationPath);
+        expect(records.filter(record => record.contents === marker)).toHaveLength(1);
+        expect(records.filter(record => record.contents.endsWith(comment))).toHaveLength(600);
+        expect(readFileSync(sourcePath)).toEqual(sourceBytes);
+    }, 300_000);
 
     it('recovers and saves an admitted large image alongside another dirty document', async () => {
         outputDirectory = mkdtempSync(join(tmpdir(), 'evb-recovery-isolation-'));

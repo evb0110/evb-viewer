@@ -342,9 +342,11 @@ function createRecovery(options: {
     bookmarks?: boolean;
     joinRead?: ((store: AnnotationStore, snapshot: {value: IRecoveryControllerSnapshot}) => Promise<boolean> | null) | undefined;
     commentsStatus?: {value: string};
+    /** The store has not read the document yet, as at a restart before its first annotation read. */
+    unread?: boolean;
 } = {}) {
     const store = new AnnotationStore();
-    store.replaceFromDocument([highlight], []);
+    if (!options.unread) store.replaceFromDocument([highlight], [], undefined, [], [], false, requireDocumentRevisionToken('1'));
     const viewer = cast<IPdfViewerExpose>({
         captureCanonicalAnnotationRecovery: () => {
             const text = options.noteText?.() ?? null;
@@ -419,7 +421,7 @@ describe('createWorkspaceDocumentRecovery', () => {
         expect(waiting.store.get(asAnnotationId('recovered-note'))).toMatchObject({contents: 'Recovered'});
         await expect(restore(readOf(true))).resolves.toMatchObject({restored: true, note: {contents: 'Recovered'}});
         await expect(restore(readOf(false))).resolves.toEqual({restored: false, note: null});
-        // A tab whose document has not loaded waits for its first read; drafts taken after the current read need none.
+        // A tab whose document has not loaded waits for its first read; drafts of the read the store holds need none.
         await expect(restore(() => null)).resolves.toEqual({restored: true, note: null});
         await expect(restore(readOf(false), {...duringOlderRead, annotationReadRevision: '1'}))
             .resolves.toMatchObject({restored: true, note: {contents: 'Recovered'}});
@@ -428,6 +430,61 @@ describe('createWorkspaceDocumentRecovery', () => {
             snapshot.value = {...snapshot.value, identity: {...snapshot.value.identity, revisionInfo: {token: '2'}}};
             return readOf(true)(store);
         })).resolves.toEqual({restored: false, note: null});
+    });
+
+    it.each([
+        ['alone', false],
+        ['beside another edit', true],
+    ])('replays a plan with a deletion %s once the first read of the same bytes lands, never before', async (_label, withEdit) => {
+        const setDocumentDrafts = vi.spyOn(getWindowTabsCapability(), 'setDocumentDrafts').mockResolvedValue(true);
+        const captured = new AnnotationStore();
+        captured.replaceFromDocument([highlight], [], undefined, [], [], false, requireDocumentRevisionToken('1'));
+        captured.delete(highlight.identity.id);
+        if (withEdit) captured.createNote(cast<INoteEntity>({
+            kind: 'note', identity: {id: asAnnotationId('typed-note')}, pageIndex: requirePageIndex(0), revision: 0, persistedRevision: -1,
+            deleted: false, createdAt: null, modifiedAt: null, author: null, contents: 'Typed', position: {left: 0.1, top: 0.1, width: 0.02, height: 0.02},
+            color: '#ffff00', open: false,
+        }));
+        const payload = JSON.parse(JSON.stringify(captureCanonicalAnnotationRecovery(captured)));
+        const read = Promise.withResolvers<boolean>();
+        const {store, recovery, viewer} = createRecovery({
+            unread: true,
+            joinRead: target => read.promise.then((landed) => {
+                target.replaceFromDocument([highlight], [], undefined, [], [], false, requireDocumentRevisionToken('1'));
+                return landed;
+            }),
+        });
+        const settle = recovery.holdDrafts();
+        const replayed = recovery.restoreCanonicalAnnotationRecovery(viewer, payload);
+        await Promise.resolve();
+        expect(store.list({includeDeleted: true})).toEqual([]);
+        read.resolve(true);
+        await replayed;
+        settle(true);
+
+        expect(store.get(highlight.identity.id)).toMatchObject({deleted: true});
+        await recovery.commitDrafts();
+        const stored = setDocumentDrafts.mock.calls.at(-1)?.[0].payload as {changedFields?: Record<string, readonly string[]>} | undefined;
+        expect(stored?.changedFields).toMatchObject({[highlight.identity.id]: ['deleted'], ...(withEdit ? {'typed-note': expect.any(Array)} : {})});
+        setDocumentDrafts.mockRestore();
+    });
+
+    it('keeps the stored drafts, as after a failed replay, when a recovered draft names no recovered annotation', async () => {
+        const setDocumentDrafts = vi.spyOn(getWindowTabsCapability(), 'setDocumentDrafts').mockResolvedValue(true);
+        const {recovery, viewer} = createRecovery();
+        const source = new AnnotationStore();
+        source.replaceFromDocument([highlight], [], undefined, [], [], false, requireDocumentRevisionToken('1'));
+        const payload = {
+            ...JSON.parse(JSON.stringify(captureCanonicalAnnotationRecovery(source))),
+            drafts: [{annotationId: 'missing-note', kind: 'note', canonicalRevision: 0, text: 'Typed before the crash', generation: 1}],
+        };
+        const settle = recovery.holdDrafts();
+        await expect(recovery.restoreCanonicalAnnotationRecovery(viewer, payload)).resolves.toMatchObject({draftErrors: [expect.objectContaining({text: 'Typed before the crash'})]});
+        settle(true);
+
+        await expect(recovery.commitDrafts()).rejects.toThrow('stay stored');
+        expect(setDocumentDrafts).not.toHaveBeenCalled();
+        setDocumentDrafts.mockRestore();
     });
 
     it('keeps the stored drafts while the document is not presented', () => {

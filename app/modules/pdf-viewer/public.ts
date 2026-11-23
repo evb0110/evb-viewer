@@ -40,6 +40,7 @@ export {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/
 export type {AnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 export {
     captureCanonicalAnnotationRecovery,
+    isAnnotationRecoveryWritten,
     restoreCanonicalAnnotationRecovery,
     validateCanonicalAnnotationRecovery,
     AnnotationRecoveryAdmissionError,

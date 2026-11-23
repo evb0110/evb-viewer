@@ -797,6 +797,6 @@ describe('AnnotationStore external identity history', () => {
             position: rotatedRect,
             deleted: false,
         });
-        expect(store.hasChangesSinceWorkingBaseline()).toBe(false);
+        expect(store.pendingChanges().filter(change => change.changedFields.length > 0)).toEqual([]);
     });
 });

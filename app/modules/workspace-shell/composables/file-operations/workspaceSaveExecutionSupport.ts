@@ -551,7 +551,10 @@ export function createPageMutationWriterSave(deps: {
                 materializedIdentityBindings = bindings;
             },
         });
-        if (!isCapturedTargetCurrent(false)) {
+        // The working bytes now hold the edits. The views share the document's annotation store, so it learns that and
+        // every view loads the bytes even when a linked view that answered for the document closed meanwhile; the page
+        // operation itself goes on only through the viewer that planned it.
+        if (saveDeps.document.workingCopyPath.value !== capturedWorkingCopyPath) {
             return false;
         }
         transaction.commitAnnotationSave?.(materializedIdentityBindings);

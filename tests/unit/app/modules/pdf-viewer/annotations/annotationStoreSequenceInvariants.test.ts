@@ -72,30 +72,52 @@ function visible(entities: readonly AnnotationEntity[]): IExpectedEntity[] {
     })).sort((a, b) => a.id.localeCompare(b.id));
 }
 
+/** The annotations the pending Save plan changes against what the working bytes hold. */
+function unwritten(store: AnnotationStore) {
+    return store.pendingChanges().filter(change => change.changedFields.length > 0).map(change => change.entity.identity.id);
+}
+
 describe('AnnotationStore interleaved sequence invariants', () => {
     it('distinguishes current working bytes from the last published Save through undo and recovery', () => {
         const store = new AnnotationStore();
         store.replaceFromDocument([], []);
-        expect(store.hasChangesSinceWorkingBaseline()).toBe(false);
+        expect(store.pendingChanges()).toEqual([]);
         const created = store.createNote(note('working-note'));
-        expect(store.hasChangesSinceWorkingBaseline()).toBe(true);
+        expect(unwritten(store)).toEqual(['working-note']);
         store.markPersisted(store.beginSave(), [], null, true);
         expect(store.hasChangesSinceSavedBaseline()).toBe(true);
-        expect(store.hasChangesSinceWorkingBaseline()).toBe(false);
+        expect(store.pendingChanges()).toEqual([]);
+        store.updateNote(created.identity.id, {contents: 'edited after the write'});
+        expect(unwritten(store)).toEqual(['working-note']);
         store.undo();
-        expect(store.hasChangesSinceSavedBaseline()).toBe(false);
-        expect(store.hasChangesSinceWorkingBaseline()).toBe(true);
+        // Back at what the working bytes hold, which the saved file does not.
+        expect(store.hasChangesSinceSavedBaseline()).toBe(true);
+        expect(unwritten(store)).toEqual([]);
         store.redo();
-        expect(store.hasChangesSinceWorkingBaseline()).toBe(false);
+        expect(unwritten(store)).toEqual(['working-note']);
+        store.undo();
         const recovered = new AnnotationStore();
         const persisted = store.get(created.identity.id)!;
         if (persisted.kind !== 'note') throw new Error('Expected the saved note');
         recovered.replaceFromDocument([persisted], []);
         recovered.import({...persisted, contents: 'recovered edit', revision: persisted.revision + 1}, {preserveSavedBaseline: true});
-        expect(recovered.hasChangesSinceWorkingBaseline()).toBe(true);
+        expect(unwritten(recovered)).toEqual(['working-note']);
         recovered.markPersisted(recovered.beginSave());
-        expect(recovered.hasChangesSinceWorkingBaseline()).toBe(false);
+        expect(recovered.pendingChanges()).toEqual([]);
         expect(recovered.hasChangesSinceSavedBaseline()).toBe(false);
+    });
+
+    it('plans an edit undone to the saved file\'s state after a write put it in the working bytes', () => {
+        const store = new AnnotationStore();
+        store.replaceFromDocument([{...note('saved'), persistedRevision: 0}], []);
+        store.updateNote(asAnnotationId('saved'), {contents: 'written'});
+        store.markPersisted(store.beginSave(), [], null, true);
+        expect(store.pendingChanges()).toEqual([]);
+        store.undo();
+
+        // Its revision counts as saved, as the file holds it, yet the working bytes Save writes from do not.
+        expect(store.dirtyEntities()).toEqual([]);
+        expect(store.pendingChanges()).toEqual([{entity: expect.objectContaining({contents: 'saved'}), changedFields: ['contents'], heldFields: {contents: 'written'}}]);
     });
 
     it('ignores a never-written create-delete pair and load epochs for working-byte drafts', () => {
@@ -103,10 +125,10 @@ describe('AnnotationStore interleaved sequence invariants', () => {
         const parsed = {...note('loaded'), persistedRevision: 0};
         store.import(parsed);
         expect(store.mutationEpoch).toBeGreaterThan(0);
-        expect(store.hasChangesSinceWorkingBaseline()).toBe(false);
+        expect(store.pendingChanges()).toEqual([]);
         const created = store.createNote(note('transient'));
         store.delete(created.identity.id);
-        expect(store.hasChangesSinceWorkingBaseline()).toBe(false);
+        expect(unwritten(store)).toEqual([]);
     });
 
     it('keeps create-delete history without marking an unchanged document dirty', () => {

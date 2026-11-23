@@ -136,6 +136,15 @@ interface IHistoryEntry {
     readonly after: AnnotationEntity | null;
 }
 
+/** An entry of the pending Save plan. */
+export interface IPendingAnnotationChange {
+    readonly entity: AnnotationEntity;
+    /** The semantic fields that differ from what the working bytes hold; none when they hold an edit Save has not persisted. */
+    readonly changedFields: readonly string[];
+    /** What the working bytes hold of each changed field; null when they hold nothing of the annotation. */
+    readonly heldFields: Readonly<Record<string, unknown>> | null;
+}
+
 export interface IAnnotationSaveFrontier {
     readonly documentRevisionToken: TDocumentRevisionToken | null;
     readonly epoch: number;
@@ -157,6 +166,25 @@ function liveIdentityOf(entity: AnnotationEntity | null | undefined) {
 
 function isDirty(entity: AnnotationEntity) {
     return entity.revision > entity.persistedRevision;
+}
+
+function sameSemanticEntry(left: ISavedSemanticEntry | undefined, right: ISavedSemanticEntry | undefined) {
+    return left === right || (left !== undefined && right !== undefined
+        && left.kind === right.kind && left.deleted === right.deleted && left.fingerprint === right.fingerprint);
+}
+
+/**
+ * The semantic fields of `entity` that differ from `working`, what the working bytes hold of it, and their values
+ * there: every field when they hold no live annotation for it, such as one whose saved deletion was undone, and none
+ * for a deletion they hold or an annotation they never held.
+ */
+function semanticChangesSince(entity: AnnotationEntity, working: ISavedSemanticEntry | undefined) {
+    const holdsNone = working === undefined || working.deleted;
+    if (entity.deleted && holdsNone) return {changedFields: [], heldFields: null};
+    const current = JSON.parse(semanticEntityFingerprint(entity)) as Record<string, unknown>;
+    const base = holdsNone ? null : JSON.parse(working.fingerprint) as Record<string, unknown>;
+    const changedFields = Object.keys(current).filter(key => !base || JSON.stringify(current[key]) !== JSON.stringify(base[key]));
+    return {changedFields, heldFields: base && Object.fromEntries(changedFields.map(key => [key, base[key]]))};
 }
 
 /**
@@ -484,10 +512,6 @@ export class AnnotationStore {
 
     get foreign(): readonly IPdfForeignAnnotationRecord[] {
         return this.#foreign.map(record => structuredClone(record));
-    }
-
-    restoreForeignAnnotations(foreign: readonly IPdfForeignAnnotationRecord[]) {
-        this.#foreign = foreign.map(record => structuredClone(record));
     }
 
     getForeignAnnotations() {
@@ -1222,9 +1246,21 @@ export class AnnotationStore {
         );
     }
 
-    /** Whether `entities` differ from what the current working bytes hold, which a write can advance past the saved file. */
-    hasChangesSinceWorkingBaseline(entities: Iterable<AnnotationEntity> = this.#entities.values()) {
-        return !semanticSnapshotsEqual(semanticSnapshot(entities), this.#workingSemanticSnapshot);
+    /**
+     * The pending Save plan, which crash recovery stores as well: each annotation whose edit Save has not persisted
+     * or that differs from what the working bytes hold, which a write can advance past the saved file. Any other
+     * annotation holds the bytes' state unread: its revision is persisted, so it equals its saved entry, and the
+     * working bytes hold what the saved file does.
+     */
+    pendingChanges(): readonly IPendingAnnotationChange[] {
+        const changes: IPendingAnnotationChange[] = [];
+        this.#entities.forEach((entity, id) => {
+            const working = this.#workingSemanticSnapshot.get(id);
+            if (!isDirty(entity) && working !== undefined && sameSemanticEntry(working, this.#savedSemanticSnapshot.get(id))) return;
+            const {changedFields, heldFields} = semanticChangesSince(entity, working);
+            if (isDirty(entity) || changedFields.length > 0) changes.push({entity: cloneEntity(entity), changedFields, heldFields});
+        });
+        return changes;
     }
 
     countDirtyPersistedDeletions() {

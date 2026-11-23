@@ -310,7 +310,8 @@ export class AnnotationApplication {
 
     beginSave(documentRevisionToken: TDocumentRevisionToken | null = null): IAnnotationSaveSession {
         const frontier = this.store.beginSave(documentRevisionToken);
-        const dirty = this.store.dirtyEntities();
+        // The plan crash recovery stores as drafts, and replays as the same pending changes.
+        const dirty = this.store.pendingChanges().map(change => change.entity);
         // Only an objectless note restores its recovery graph.
         const pageLocal = dirty.every(entity => entity.deleted || Boolean(entity.identity.pdfRef) || (
             entity.kind === 'note' ? !entity.recoveryData : entity.kind !== 'placed-image' || 'kind' in entity.image
