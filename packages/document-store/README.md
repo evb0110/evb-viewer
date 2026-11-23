@@ -94,14 +94,17 @@ An in-place edit that restores size and modification time is not detected.
 
 Browser handle checks use size and millisecond modification time. Publication
 stages a `content-v2` hash, then reads one File snapshot after closing the
-writable and records that snapshot's metadata and content hash together. Other
-content is a conflict. Recovery compares content when the staged witness names
+writable and records that snapshot's metadata and content hash together, still
+holding the origin-wide publication lock. Other content is a conflict. The
+browser's storage worker computes both hashes, so the window neither reads nor
+hashes the bytes. Recovery compares content when the staged witness names
 it. Downloads use a content witness and dispatch as their receipt.
 
 ## Ports and ownership
 
 `IStorePort` owns random reads, writes, truncation, flush, durable atomic
-replacement and copies. `nodeStorePort.ts` uses local files, flushes file data
+replacement and copies; a store file's `content-v2` witness is hashed in the
+context that holds it. `nodeStorePort.ts` uses local files, flushes file data
 and, outside Windows, parent directory entries. It retains revision handles
 read-only so qpdf can share them on Windows, opening write access only for the
 store write, truncate or flush. Copies clone where the volume supports it,

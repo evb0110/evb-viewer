@@ -1,5 +1,8 @@
 import { getErrorMessage } from '@app/utils/error';
-import { loadWasmWithDeadline } from '@app/platform/browser/loadWasmWithDeadline';
+import {
+    exceedsWasmMemoryHighWater,
+    loadWasmWithDeadline,
+} from '@app/platform/browser/loadWasmWithDeadline';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 import {
     getCheckedWasmMemoryView,
@@ -171,10 +174,12 @@ export function callNativeWasmTool(
 
 /**
  * Loads a native WASM tool once per thread. A failed load is forgotten so the
- * next call loads again, and `discard` drops an instance that trapped.
+ * next call loads again, `discard` drops an instance that trapped, and a call
+ * that leaves its instance's memory past the high-water mark drops it too.
  */
 export function createNativeWasmToolLoader(descriptor: INativeWasmToolDescriptor) {
     let pending: Promise<INativeWasmTool> | null = null;
+    let loaded: INativeWasmTool | null = null;
 
     function load() {
         const current = pending ??= (async () => {
@@ -192,7 +197,10 @@ export function createNativeWasmToolLoader(descriptor: INativeWasmToolDescriptor
             }
             return tool;
         })();
-        current.catch(() => {
+        // Registered before any caller awaits the load, so the instance is known as this thread's before its first call.
+        current.then(tool => {
+            if (pending === current) loaded = tool;
+        }, () => {
             if (pending === current) pending = null;
         });
         return current;
@@ -200,6 +208,7 @@ export function createNativeWasmToolLoader(descriptor: INativeWasmToolDescriptor
 
     function discard() {
         pending = null;
+        loaded = null;
     }
 
     /** Loads the tool if needed and runs one request through it. */
@@ -214,10 +223,13 @@ export function createNativeWasmToolLoader(descriptor: INativeWasmToolDescriptor
             );
         }
         try {
-            return callNativeWasmTool(tool, descriptor, request);
+            const result = callNativeWasmTool(tool, descriptor, request);
+            // The call has ended; whoever still holds the instance finishes on it.
+            if (loaded === tool && exceedsWasmMemoryHighWater(tool.memory)) discard();
+            return result;
         } catch (error) {
             // A trap leaves the instance's allocator and result slots unknown.
-            discard();
+            if (loaded === tool) discard();
             return failure(
                 error instanceof WebAssembly.RuntimeError ? 'panic' : 'invalid-request',
                 `The ${descriptor.label} failed: ${getErrorMessage(error)}`,

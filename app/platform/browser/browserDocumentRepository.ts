@@ -7,6 +7,7 @@ import {
     type TDocumentInit,
     type TMutation,
     type TMutationResult,
+    type TRevisionWriter,
 } from '@document-store/documentDirectory';
 import {
     saveDocument,
@@ -100,6 +101,8 @@ export interface IBrowserDocumentEntry {
     store: IDocumentStore | null;
     file: File | null;
     release: (() => void) | null;
+    instance: symbol;
+    closed?: boolean;
     chunkSize?: number;
     /** An edit appended to the current revision's file and not committed: its lease, base revision and end. */
     pendingAppend?: {lease: string; token: TDocumentRevisionToken; length: number} | undefined;
@@ -126,14 +129,15 @@ export interface ICreateStoredDocumentOptions {
     saveHandle?: FileSystemFileHandle | null;
     /** `handle`: the bytes are the file `saveHandle` names, written by the caller. */
     storageMode?: 'handle';
-    /** Copies the new document's bytes from this one instead of `data`. */
-    contentFrom?: string;
 }
 
 interface IWriteOptions {
     expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
     /** Bytes an open made: not an edit, and without a file to save to the document's baseline in the same commit. */
     opened?: boolean;
+    strictRevisionToken?: boolean;
+    expectedByteRevision?: number | undefined;
+    expectedInstance?: symbol;
 }
 
 export class BrowserDocumentSourceChangedError extends Error {
@@ -151,6 +155,44 @@ function extensionOf(fileName: string) {
 function bytesBlob(data: Uint8Array | ArrayBuffer | Blob) {
     if (data instanceof Blob) return data;
     return new Blob([data instanceof Uint8Array ? data as Uint8Array<ArrayBuffer> : new Uint8Array(data)]);
+}
+
+/**
+ * Writes `stream` into a new revision file as it arrives, in batches of at most `BROWSER_DOCUMENT_CHUNK_SIZE`: no
+ * more of it is held at once, and nothing copies it whole. A stream reads once, so a second write, such as the
+ * memory store's retry after the browser's store filled up, is refused rather than given what was left of it.
+ */
+function streamWriter(stream: ReadableStream<Uint8Array>): TRevisionWriter {
+    let read = false;
+    return async file => {
+        if (read) throw new Error('A streamed document can be stored only once');
+        read = true;
+        const reader = stream.getReader();
+        const batch = new Uint8Array(BROWSER_DOCUMENT_CHUNK_SIZE);
+        let filled = 0;
+        let offset = 0;
+        // A store file's write finishes with the bytes before it resolves, so the batch is reused at once.
+        const write = async () => {
+            await file.writeAt(offset, batch.subarray(0, filled));
+            offset += filled;
+            filled = 0;
+        };
+        try {
+            for (let next = await reader.read(); !next.done; next = await reader.read()) {
+                for (let at = 0; at < next.value.byteLength;) {
+                    const count = Math.min(next.value.byteLength - at, batch.byteLength - filled);
+                    batch.set(next.value.subarray(at, at + count), filled);
+                    filled += count;
+                    at += count;
+                    if (filled === batch.byteLength) await write();
+                }
+            }
+            if (filled > 0) await write();
+        } catch (error) {
+            await reader.cancel(error).catch(() => undefined);
+            throw error;
+        }
+    };
 }
 
 function isQuotaError(error: unknown) {
@@ -246,9 +288,10 @@ export class BrowserDocumentStore {
         return {ref, created: true};
     }
 
+    /** A new stored document of `data`; a stream is written as it arrives (see `streamWriter`). */
     public async createStoredDocument(
         fileName: string,
-        data: Uint8Array | ArrayBuffer | Blob,
+        data: Uint8Array | ArrayBuffer | Blob | ReadableStream<Uint8Array>,
         options: ICreateStoredDocumentOptions,
     ): Promise<TDocumentRef> {
         const ref = options.ref ?? createBrowserDocumentRef(fileName);
@@ -265,7 +308,7 @@ export class BrowserDocumentStore {
             await this.attachHandleSource(ref, options.saveHandle, null, meta);
             return ref;
         }
-        const source = options.contentFrom ? await this.externalSource(options.contentFrom) : bytesBlob(data);
+        const source = data instanceof ReadableStream ? streamWriter(data) : bytesBlob(data);
         // Bytes the app made for a document to be edited are unsaved until saved; outputs start clean.
         const entry = await this.createEntry(ref, {source, imported: kind !== 'working'}, meta);
         entry.saveHandle = options.saveHandle ?? null;
@@ -385,10 +428,29 @@ export class BrowserDocumentStore {
         return this.revisionInfo(entry);
     }
 
-    public async assertDocumentRevisionCurrent(ref: string, expected: TDocumentRevisionToken | null | undefined) {
+    public async assertDocumentRevisionCurrent(
+        ref: string,
+        expected: TDocumentRevisionToken | null | undefined,
+        options: {strict?: boolean; expectedByteRevision?: number; expectedInstance?: symbol; allowStagedBase?: boolean} = {},
+    ) {
         const entry = await this.requireEntry(ref);
         await this.refreshPickedFile(entry);
-        this.expectedRevision(entry, expected);
+        if (options.strict) {
+            if (!expected && entry.kind === 'working') throw createMissingRevisionError({documentRef: entry.ref});
+            if (
+                !expected
+                || !this.isActiveEntry(entry, entry.doc, options.expectedInstance)
+                || expected !== this.tokenOf(entry)
+                || (options.expectedByteRevision !== undefined && entry.doc?.state().byteRevision !== options.expectedByteRevision)
+            ) {
+                this.throwStale(entry, expected);
+            }
+            return;
+        }
+        if (options.expectedInstance !== undefined && !this.isActiveEntry(entry, entry.doc, options.expectedInstance)) {
+            this.throwStale(entry, expected);
+        }
+        this.expectedRevision(entry, expected, {allowStagedBase: options.allowStagedBase ?? entry.pendingAppend !== undefined});
     }
 
     public onDocumentRevisionChanged(listener: (event: IDocumentRevisionChangedEvent) => void) {
@@ -412,7 +474,18 @@ export class BrowserDocumentStore {
     public async write(ref: string, data: Uint8Array | ArrayBuffer, options: IWriteOptions = {}) {
         const entry = await this.requireEntry(ref);
         const imported = options.opened === true && !entry.doc?.state().destination;
-        await this.mutate(entry, options.expectedDocumentRevisionToken, {kind: 'rewrite', source: bytesBlob(data), drafts: 'clear', imported}, options.opened ? 'open' : 'write');
+        await this.mutate(
+            entry,
+            options.expectedDocumentRevisionToken,
+            {kind: 'rewrite', source: bytesBlob(data), drafts: 'clear', imported},
+            options.opened ? 'open' : 'write',
+            true,
+            {
+                ...(options.strictRevisionToken === true ? {strictRevisionToken: true} : {}),
+                ...(options.expectedByteRevision !== undefined ? {expectedByteRevision: options.expectedByteRevision} : {}),
+                ...(options.expectedInstance !== undefined ? {expectedInstance: options.expectedInstance} : {}),
+            },
+        );
         return true;
     }
 
@@ -432,35 +505,82 @@ export class BrowserDocumentStore {
     ) {
         const entry = await this.requireEntry(ref);
         const doc = this.requireDoc(entry);
+        const instance = entry.instance;
         if (!imported) await this.nameEdited(entry);
+        if (!this.isActiveEntry(entry, doc, instance)) this.throwStale(entry, token);
         const previous = this.tokenOf(entry);
+        const capturedByteRevision = doc.state().byteRevision;
         this.expectedRevision(entry, token);
         const source = await this.readableBlob(ref);
+        if (!this.isActiveEntry(entry, doc, instance) || this.tokenOf(entry) !== previous || doc.state().byteRevision !== capturedByteRevision) {
+            this.throwStale(entry, token);
+        }
         let info: IDocumentRevisionInfo;
         if (!isOpfsStorePort(entry.store!.port)) {
             const bytes = await write(source, null);
             if (!bytes) throw new Error('The rewrite returned no bytes');
-            info = await this.mutate(entry, token, {kind: 'rewrite', source: bytesBlob(bytes), drafts: 'clear', imported}, 'write');
+            info = await this.mutate(
+                entry,
+                token,
+                {kind: 'rewrite', source: bytesBlob(bytes), drafts: 'clear', imported},
+                'write',
+                true,
+                {expectedByteRevision: capturedByteRevision, expectedInstance: instance},
+            );
         } else {
-            const {current, next, ext} = doc.snapshot();
-            const name = `r${current ? next : next + 1}.${ext}`;
-            const output = doc.path(name);
             try {
-                await write(source, output);
                 info = this.settle(entry, token, previous, await doc.run(async (): Promise<TMutationResult> => {
                     const manifest = doc.snapshot();
-                    if (this.tokenOf(entry) !== previous) return {status: 'stale-revision', current: manifest.current ?? null};
-                    // A first copy of the file made meanwhile is revision `next`, and `name` is its next revision.
-                    if (manifest.current) return doc.applyMutation(manifest.current.id, {kind: 'rewrite', source: () => Promise.resolve(), drafts: 'clear', imported});
-                    if (!sameWitness(await browserPublication.witness(manifest.destination!), manifest.baseline)) return {status: 'conflict'};
-                    const file = await entry.store!.port.open(output);
-                    const revision = {id: next + 1, file: name, length: await file.size()};
-                    await file.flush();
-                    await doc.commit({...manifest, next: revision.id + 1, current: revision, drafts: undefined}, file);
-                    return {status: 'committed', revision};
+                    if (!this.isActiveEntry(entry, doc, instance) || this.tokenOf(entry) !== previous || doc.state().byteRevision !== capturedByteRevision) {
+                        return {status: 'stale-revision', current: manifest.current ?? null};
+                    }
+                    const {current, next, ext} = manifest;
+                    const name = `r${current ? next : next + 1}.${ext}`;
+                    const output = doc.path(name);
+                    let committed = false;
+                    try {
+                        await write(source, output);
+                        const afterWrite = doc.snapshot();
+                        if (
+                            !this.isActiveEntry(entry, doc, instance)
+                            || this.tokenOf(entry) !== previous
+                            || doc.state().byteRevision !== capturedByteRevision
+                            || Boolean(afterWrite.current) !== Boolean(current)
+                            || afterWrite.next !== next
+                            || afterWrite.ext !== ext
+                        ) {
+                            return {status: 'stale-revision', current: afterWrite.current ?? null};
+                        }
+                        // A first copy of the file made meanwhile is revision `next`, and `name` is its next revision.
+                        if (afterWrite.current) {
+                            const outcome = await doc.applyMutation(afterWrite.current.id, {kind: 'rewrite', source: () => Promise.resolve(), drafts: 'clear', imported});
+                            committed = outcome.status === 'committed';
+                            return outcome;
+                        }
+                        if (!sameWitness(await browserPublication.witness(afterWrite.destination!), afterWrite.baseline)) return {status: 'conflict'};
+                        const file = await entry.store!.port.open(output);
+                        let revision: {id: number; file: string; length: number};
+                        try {
+                            revision = {id: next + 1, file: name, length: await file.size()};
+                            await file.flush();
+                        } catch (error) {
+                            await file.close().catch(() => undefined);
+                            throw error;
+                        }
+                        await doc.commit({...afterWrite, next: revision.id + 1, current: revision, drafts: undefined}, file);
+                        committed = true;
+                        return {status: 'committed', revision};
+                    } finally {
+                        if (!committed) {
+                            const latest = doc.snapshot();
+                            const stillReferenced = latest.current?.file === name
+                                || latest.history.some(rev => 'file' in rev && rev.file === name);
+                            if (!stillReferenced) await entry.store!.port.remove(output).catch(() => undefined);
+                        }
+                    }
                 }), 'write');
             } catch (error) {
-                await entry.store!.port.remove(output).catch(() => undefined);
+                if (!this.isActiveEntry(entry, doc, instance)) this.throwStale(entry, token);
                 throw error;
             }
         }
@@ -477,6 +597,24 @@ export class BrowserDocumentStore {
         if (!entry.doc || !current) return this.fileOf(entry);
         if (!isOpfsStorePort(entry.store!.port)) return this.externalSource(ref) as Promise<Blob>;
         return (await (await opfsFileHandle(entry.doc.path(current.file))).getFile()).slice(0, current.length);
+    }
+
+    /**
+     * `readableBlob` with the revision token that names its bytes. A change made while the Blob is prepared, even
+     * one undone again, refuses as stale, so the pair never joins one revision's token to another's bytes. With
+     * `expected`, they are that revision's or the call refuses, as `assertDocumentRevisionCurrent` does.
+     */
+    public async readableRevision(ref: string, expected?: {token: TDocumentRevisionToken | null | undefined}) {
+        const entry = await this.requireEntry(ref);
+        const instance = entry.instance;
+        await this.refreshPickedFile(entry);
+        if (expected) this.expectedRevision(entry, expected.token);
+        const token = this.tokenOf(entry);
+        // Revision ids come back on undo; the directory's epoch moves on every change of its bytes.
+        const epoch = entry.doc?.state().byteRevision;
+        const blob = await this.readableBlob(ref);
+        if (!this.isActiveEntry(entry, entry.doc, instance) || this.tokenOf(entry) !== token || entry.doc?.state().byteRevision !== epoch) this.throwStale(entry, token);
+        return {blob, token, byteRevision: epoch, instance};
     }
 
     /** Streamed output: chunks are appended in order, and `finalizeChunkedDocument` checks the result. */
@@ -513,7 +651,7 @@ export class BrowserDocumentStore {
         if (!handle) throw new Error(`No file to back browser document ${ref}`);
         const previous = this.tokenOf(entry);
         await this.closeEntry(entry, true);
-        Object.assign(entry, {doc: null, store: null, file: await handle.getFile(), saveHandle: handle, updatedAt: Date.now()});
+        Object.assign(entry, {doc: null, store: null, file: await handle.getFile(), saveHandle: handle, updatedAt: Date.now(), closed: false, instance: Symbol('browser-document-entry')});
         if (options.saveName) entry.saveName = entry.fileName = options.saveName;
         await this.persistHandle(entry);
         this.attach(entry);
@@ -553,23 +691,29 @@ export class BrowserDocumentStore {
     public async save(ref: string, token: TDocumentRevisionToken | null | undefined, options: {commit?: string; saveAs?: string} = {}): Promise<TSaveResult> {
         const entry = await this.requireEntry(ref);
         const doc = this.requireDoc(entry);
+        const instance = entry.instance;
         const previous = this.tokenOf(entry);
         try {
-            let expected = this.expectedRevision(entry, token);
+            let expected = this.expectedRevision(entry, token, {allowStagedBase: true});
             const {commit} = options;
             if (commit !== undefined) {
                 await this.nameEdited(entry);
-                const committed = await doc.run(() => this.commitPendingAppend(entry, token, commit));
+                if (!this.isActiveEntry(entry, doc, instance)) this.throwStale(entry, token);
+                const committed = await doc.run(() => this.commitPendingAppend(entry, token, commit, instance));
                 if (committed.status === 'stale-revision') this.throwStale(entry, token);
                 if (committed.status === 'conflict') return committed;
                 expected = committed.revision.id;
             }
+            if (!this.isActiveEntry(entry, doc, instance)) this.throwStale(entry, token);
             const result = await saveDocument(doc, {
                 expected,
                 ...(options.saveAs ? {saveAs: options.saveAs} : {}),
             });
             if (result.status === 'stale-revision') this.throwStale(entry, token);
             return result;
+        } catch (error) {
+            if (!this.isActiveEntry(entry, doc, instance)) this.throwStale(entry, token);
+            throw error;
         } finally {
             if (this.tokenOf(entry) !== previous) {
                 entry.file = null;
@@ -584,9 +728,28 @@ export class BrowserDocumentStore {
     public async restoreRevision(ref: string, revision: TDocumentRevisionToken, token: TDocumentRevisionToken | null | undefined) {
         const entry = await this.requireEntry(ref);
         const doc = this.requireDoc(entry);
+        const instance = entry.instance;
+        const capturedByteRevision = doc.state().byteRevision;
+        this.expectedRevision(entry, token);
         await this.nameEdited(entry);
+        if (!this.isActiveEntry(entry, doc, instance)) this.throwStale(entry, token);
         const previous = this.tokenOf(entry);
-        const result = await doc.restore(this.expectedRevision(entry, token), this.revisionIdOf(doc, revision));
+        let result;
+        try {
+            result = await doc.run(async () => {
+                if (
+                    !this.isActiveEntry(entry, doc, instance)
+                    || (token && token !== this.tokenOf(entry))
+                    || doc.state().byteRevision !== capturedByteRevision
+                ) {
+                    return {status: 'stale-revision' as const, current: doc.snapshot().current ?? null};
+                }
+                return doc.applyRestore(this.expectedRevision(entry, token), this.revisionIdOf(doc, revision));
+            });
+        } catch (error) {
+            if (!this.isActiveEntry(entry, doc, instance)) this.throwStale(entry, token);
+            throw error;
+        }
         if (result.status === 'stale-revision') this.throwStale(entry, token);
         if (result.status === 'conflict') {
             const {history, baseline} = doc.state();
@@ -633,35 +796,48 @@ export class BrowserDocumentStore {
     ) {
         const entry = await this.requireEntry(ref);
         const doc = this.requireDoc(entry);
+        const instance = entry.instance;
         this.expectedRevision(entry, token);
-        if (await doc.materialize(true) === null) throw new BrowserDocumentSourceChangedError(entry.ref);
-        await doc.ownCurrentFile();
-        return doc.run(async () => {
-            this.expectedRevision(entry, token);
-            entry.pendingAppend = undefined;
-            const base = doc.state().current!.length;
-            const file = doc.currentFile();
-            let lease: string | null = null;
-            try {
-                if (await file.size() > base) await file.truncate(base);
-                const length = await append(file, base);
-                if (length === null) return null;
-                lease = crypto.randomUUID();
-                entry.pendingAppend = {lease, token: this.tokenOf(entry), length};
-                return lease;
-            } finally {
-                if (lease === null) await file.truncate(base).catch(() => undefined);
-            }
-        });
+        try {
+            return await doc.run(async () => {
+                if (!this.isActiveEntry(entry, doc, instance)) this.throwStale(entry, token);
+                this.expectedRevision(entry, token);
+                if (await doc.ensureCurrent(true) === null) throw new BrowserDocumentSourceChangedError(entry.ref);
+                if (!this.isActiveEntry(entry, doc, instance)) this.throwStale(entry, token);
+                await doc.applyOwnCurrentFile();
+                if (!this.isActiveEntry(entry, doc, instance)) this.throwStale(entry, token);
+                this.expectedRevision(entry, token, {allowStagedBase: true});
+                entry.pendingAppend = undefined;
+                const base = doc.state().current!.length;
+                const file = doc.currentFile();
+                let lease: string | null = null;
+                try {
+                    if (await file.size() > base) await file.truncate(base);
+                    const length = await append(file, base);
+                    if (length === null) return null;
+                    if (!this.isActiveEntry(entry, doc, instance)) this.throwStale(entry, token);
+                    lease = crypto.randomUUID();
+                    entry.pendingAppend = {lease, token: this.tokenOf(entry), length};
+                    return lease;
+                } finally {
+                    if (lease === null) await file.truncate(base).catch(() => undefined);
+                }
+            });
+        } catch (error) {
+            if (!this.isActiveEntry(entry, doc, instance)) this.throwStale(entry, token);
+            throw error;
+        }
     }
 
     /** Commits the pending append `lease` names as the document's next revision; drafts described the bytes before it. */
     public async commitAppend(ref: string, token: TDocumentRevisionToken | null | undefined, lease: string) {
         const entry = await this.requireEntry(ref);
         const doc = this.requireDoc(entry);
+        const instance = entry.instance;
         await this.nameEdited(entry);
+        if (!this.isActiveEntry(entry, doc, instance)) this.throwStale(entry, token);
         const previous = this.tokenOf(entry);
-        return this.settle(entry, token, previous, await doc.run(() => this.commitPendingAppend(entry, token, lease)), 'write');
+        return this.settle(entry, token, previous, await doc.run(() => this.commitPendingAppend(entry, token, lease, instance)), 'write');
     }
 
     /** Cuts the pending append `lease` names; nothing when another append or revision followed it. */
@@ -706,9 +882,15 @@ export class BrowserDocumentStore {
     }
 
     /** Runs in the document's queue: the pending append, still where it was written, becomes the next revision. */
-    private async commitPendingAppend(entry: IBrowserDocumentEntry, token: TDocumentRevisionToken | null | undefined, lease: string) {
+    private async commitPendingAppend(
+        entry: IBrowserDocumentEntry,
+        token: TDocumentRevisionToken | null | undefined,
+        lease: string,
+        expectedInstance?: symbol,
+    ) {
         const doc = this.requireDoc(entry);
-        const expected = this.expectedRevision(entry, token);
+        if (!this.isActiveEntry(entry, doc, expectedInstance)) return {status: 'stale-revision', current: doc.state().current ?? null} as const;
+        const expected = this.expectedRevision(entry, token, {allowStagedBase: true});
         const {length} = this.requirePendingAppend(entry, lease);
         if (await doc.currentFile().size() !== length) throw new Error('The edit staged for this document is no longer its next revision');
         entry.pendingAppend = undefined;
@@ -868,6 +1050,7 @@ export class BrowserDocumentStore {
             store: null,
             file: null,
             release: null,
+            instance: Symbol('browser-document-entry'),
         };
     }
 
@@ -908,7 +1091,8 @@ export class BrowserDocumentStore {
     /**
      * Creates a store document under its lock, taken before the directory exists so that no other window's
      * startup collection can take it for an abandoned one. A store that refuses the bytes (full, unavailable)
-     * leaves the document in memory, which is said once.
+     * leaves the document in memory, which is said once. A creation that fails for any other reason, such as a
+     * download that breaks part way, removes what it wrote before letting go of the lock.
      */
     private async createEntry(ref: TDocumentRef, init: Omit<TDocumentInit, 'ext' | 'id'>, meta: TEntryMeta) {
         const {durable, memory} = await this.stores();
@@ -916,15 +1100,17 @@ export class BrowserDocumentStore {
         const release = await this.lock(id, 0);
         const fileName = meta.fileName ?? getBrowserDocumentFileName(ref);
         const documentInit = {...init, id, ext: extensionOf(fileName)} as TDocumentInit;
+        let store = durable ?? memory;
+        let doc: DocumentDirectory | null = null;
+        let existedInStore = (await store.port.list('documents').catch((): string[] => [])).includes(id);
         try {
-            let store = durable ?? memory;
-            let doc: DocumentDirectory;
             try {
                 doc = await createDocument(store, documentInit);
             } catch (error) {
                 if (!durable || !isQuotaError(error)) throw error;
-                await store.port.remove(`documents/${id}`).catch(() => undefined);
+                if (!existedInStore) await store.port.remove(`documents/${id}`).catch(() => undefined);
                 store = memory;
+                existedInStore = (await store.port.list('documents').catch((): string[] => [])).includes(id);
                 doc = await createDocument(store, documentInit);
             }
             const entry = this.docEntry(ref, doc, store, release, {...meta, fileName});
@@ -934,6 +1120,8 @@ export class BrowserDocumentStore {
             }
             return await this.hold(entry);
         } catch (error) {
+            await doc?.close().catch(() => undefined);
+            if (!existedInStore) await store.port.remove(`documents/${id}`).catch(() => undefined);
             release();
             throw error;
         }
@@ -981,6 +1169,7 @@ export class BrowserDocumentStore {
     }
 
     private async closeEntry(entry: IBrowserDocumentEntry, removeBytes = false) {
+        entry.closed = true;
         try {
             await entry.doc?.close();
             if (removeBytes && entry.doc && entry.store) await entry.store.port.remove(`documents/${entry.doc.id}`);
@@ -1082,13 +1271,24 @@ export class BrowserDocumentStore {
         });
     }
 
+    private isActiveEntry(entry: IBrowserDocumentEntry, doc?: DocumentDirectory | null, expectedInstance?: symbol) {
+        return !entry.closed
+            && this.entries.get(entry.ref) === entry
+            && (doc === undefined || entry.doc === doc)
+            && (expectedInstance === undefined || entry.instance === expectedInstance);
+    }
+
     /** The core's expected revision for a caller's token; a working copy's edits must name the revision they saw. */
-    private expectedRevision(entry: IBrowserDocumentEntry, token: TDocumentRevisionToken | null | undefined) {
+    private expectedRevision(
+        entry: IBrowserDocumentEntry,
+        token: TDocumentRevisionToken | null | undefined,
+        options: {allowStagedBase?: boolean} = {},
+    ) {
         if (!token) {
             if (entry.kind === 'working') throw createMissingRevisionError({documentRef: entry.ref});
         } else if (
             token !== this.tokenOf(entry)
-            && !(entry.doc?.state().current?.foreign === 'staged' && token === this.revisionToken(entry.doc, 1))
+            && !(options.allowStagedBase && entry.doc?.state().current?.foreign === 'staged' && token === this.revisionToken(entry.doc, 1))
         ) {
             this.throwStale(entry, token);
         }
@@ -1101,12 +1301,39 @@ export class BrowserDocumentStore {
         mutation: TMutation,
         reason: TDocumentRevisionChangeReason,
         announce = true,
+        options: {strictRevisionToken?: boolean; expectedByteRevision?: number; expectedInstance?: symbol} = {},
     ) {
         const doc = this.requireDoc(entry);
+        const expectedInstance = options.expectedInstance ?? entry.instance;
+        const capturedByteRevision = options.expectedByteRevision ?? doc.state().byteRevision;
+        const isCurrent = () => {
+            if (!this.isActiveEntry(entry, doc, expectedInstance)) return false;
+            if (options.strictRevisionToken) {
+                return Boolean(token)
+                    && token === this.tokenOf(entry)
+                    && entry.pendingAppend === undefined
+                    && doc.state().byteRevision === capturedByteRevision;
+            }
+            if (token) {
+                return token === this.tokenOf(entry)
+                    && doc.state().byteRevision === capturedByteRevision;
+            }
+            return true;
+        };
+        if (!token && entry.kind === 'working') throw createMissingRevisionError({documentRef: entry.ref});
+        if (!isCurrent()) this.throwStale(entry, token);
         // An open's bytes and imported ones hold no work of the person's.
         if (reason !== 'open' && !(mutation.kind === 'rewrite' && mutation.imported)) await this.nameEdited(entry);
-        const previous = this.tokenOf(entry);
-        return this.settle(entry, token, previous, await doc.mutate(this.expectedRevision(entry, token), mutation), reason, announce);
+        if (!this.isActiveEntry(entry, doc, expectedInstance)) this.throwStale(entry, token);
+        let previous = this.tokenOf(entry);
+        const result = await doc.run(async (): Promise<TMutationResult> => {
+            previous = this.tokenOf(entry);
+            if (!isCurrent()) {
+                return {status: 'stale-revision', current: doc.state().current ?? null};
+            }
+            return doc.applyMutation(doc.state().current?.id ?? null, mutation);
+        });
+        return this.settle(entry, token, previous, result, reason, announce);
     }
 
     private settle(

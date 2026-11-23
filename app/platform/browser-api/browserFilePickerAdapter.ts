@@ -697,30 +697,3 @@ async function writeBytesAfterPermission(
 
     await closeBrowserFileWritable(writable);
 }
-
-/** Streams a stored document into `handle`; the caller asked for write permission first. */
-export async function writeDocumentRefToHandle(
-    handle: FileSystemFileHandle,
-    ref: TDocumentRef,
-) {
-    const writable = await handle.createWritable();
-    let size = 0;
-    try {
-        ({ size } = await browserDocumentStore.stat(ref));
-        for (let offset = 0; offset < size; offset += BROWSER_DOCUMENT_CHUNK_SIZE) {
-            const chunk = await browserDocumentStore.readRange(
-                ref,
-                offset,
-                Math.min(BROWSER_DOCUMENT_CHUNK_SIZE, size - offset),
-            );
-            await writable.write(toBrowserOwnedArrayBuffer(chunk));
-            if (offset > 0) {
-                await yieldToBrowser();
-            }
-        }
-    } catch (error) {
-        await abortAfterBrowserFileWriteError(writable, error);
-    }
-
-    await closeBrowserFileWritable(writable);
-}

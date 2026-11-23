@@ -5,6 +5,7 @@ import {
     promises as fs,
 } from 'node:fs';
 import path from 'node:path';
+import { contentWitness } from './contentWitness';
 import type {
     IStoreFile,
     IStorePort,
@@ -62,18 +63,20 @@ async function ensureDirectory(dir: string): Promise<void> {
 }
 
 function nodeStoreFile(handle: fs.FileHandle): IStoreFile {
+    async function readAt(offset: number, length: number) {
+        const bytes = new Uint8Array(length);
+        let done = 0;
+        while (done < length) {
+            const { bytesRead } = await handle.read(bytes, done, length - done, offset + done);
+            if (bytesRead === 0) break;
+            done += bytesRead;
+        }
+        return bytes.subarray(0, done);
+    }
     return {
         size: async () => (await handle.stat()).size,
-        async readAt(offset, length) {
-            const bytes = new Uint8Array(length);
-            let done = 0;
-            while (done < length) {
-                const { bytesRead } = await handle.read(bytes, done, length - done, offset + done);
-                if (bytesRead === 0) break;
-                done += bytesRead;
-            }
-            return bytes.subarray(0, done);
-        },
+        readAt,
+        witness: length => contentWitness(length, readAt),
         async writeAt(offset, bytes) {
             let done = 0;
             while (done < bytes.byteLength) {

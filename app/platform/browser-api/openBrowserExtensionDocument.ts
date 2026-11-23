@@ -24,7 +24,8 @@ import {
 type TLaunchDocumentKind = 'pdf' | 'djvu';
 
 interface ILaunchResponse {
-    blob: Blob;
+    /** The document's bytes as they arrive; nothing holds them whole. */
+    body: ReadableStream<Uint8Array>;
     contentDisposition: string | null;
     url: string;
 }
@@ -42,8 +43,51 @@ const FILE_EXTENSION_PATTERN: Record<TLaunchDocumentKind, RegExp> = {
     djvu: /\.djvu?$/iu,
 };
 
-async function detectDocumentKind(blob: Blob): Promise<TLaunchDocumentKind | null> {
-    const format = detectDocumentFormat(new Uint8Array(await blob.slice(0, DOCUMENT_HEADER_BYTES).arrayBuffer()), blob.size);
+/**
+ * Reads the start of `body` far enough to know what it is, and returns a stream of all of it from its first byte:
+ * the chunks read so far, then the rest as it arrives. Only the header's chunks are held.
+ */
+async function peekDocumentHeader(body: ReadableStream<Uint8Array>) {
+    const reader = body.getReader();
+    const chunks: Uint8Array[] = [];
+    let length = 0;
+    let ended = false;
+    while (length < DOCUMENT_HEADER_BYTES) {
+        const next = await reader.read();
+        if (next.done) {
+            ended = true;
+            break;
+        }
+        chunks.push(next.value);
+        length += next.value.byteLength;
+    }
+    const header = new Uint8Array(Math.min(length, DOCUMENT_HEADER_BYTES));
+    let offset = 0;
+    for (const chunk of chunks) {
+        if (offset === header.byteLength) break;
+        const part = chunk.subarray(0, header.byteLength - offset);
+        header.set(part, offset);
+        offset += part.byteLength;
+    }
+    const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+            for (const chunk of chunks) controller.enqueue(chunk);
+            chunks.length = 0;
+            if (ended) controller.close();
+        },
+        async pull(controller) {
+            const next = await reader.read();
+            if (next.done) controller.close();
+            else controller.enqueue(next.value);
+        },
+        cancel: reason => reader.cancel(reason),
+    });
+    // A body that ended within its header has that size; any other is longer than a DjVu header can claim.
+    return {header, size: ended ? length : Number.MAX_SAFE_INTEGER, stream};
+}
+
+function detectDocumentKind(header: Uint8Array, size: number): TLaunchDocumentKind | null {
+    const format = detectDocumentFormat(header, size);
     // A truncated DjVu still goes to the DjVu decoder, which can show the pages it holds.
     if (format === 'invalid-djvu') return 'djvu';
     return format === 'pdf' || format === 'djvu' ? format : null;
@@ -85,7 +129,7 @@ function readLocalFile(url: string) {
         request.onload = () => {
             if (request.response instanceof Blob) {
                 resolve({
-                    blob: request.response,
+                    body: request.response.stream(),
                     contentDisposition: null,
                     url,
                 });
@@ -103,11 +147,17 @@ async function readLaunchDocument(url: string): Promise<ILaunchResponse> {
         return readLocalFile(url);
     }
     const response = await fetch(url, {credentials: 'include'});
-    if (!response.ok) {
-        throw new Error(`The document request failed with HTTP ${String(response.status)}`);
+    // An error page is not the document, nor is a range of it: storing that would keep, and reopen, a truncated
+    // copy. A refused response's body is cancelled, so its connection does not go on downloading it.
+    const refusal = !response.ok
+        ? `The document request failed with HTTP ${String(response.status)}`
+        : response.status === 206 || response.headers.has('content-range') ? 'The server sent part of the document' : null;
+    if (refusal !== null) {
+        await response.body?.cancel().catch(() => undefined);
+        throw new Error(refusal);
     }
     return {
-        blob: await response.blob(),
+        body: response.body ?? new Blob().stream(),
         contentDisposition: response.headers.get('content-disposition'),
         url: response.url || url,
     };
@@ -141,13 +191,26 @@ function rememberLaunchedDocument(ref: TDocumentRef) {
 
 async function fetchLaunchDocument(documentUrl: string) {
     const response = await readLaunchDocument(documentUrl);
-    const kind = await detectDocumentKind(response.blob);
+    const {header, size, stream} = await peekDocumentHeader(response.body);
+    const kind = detectDocumentKind(header, size);
     if (!kind) {
+        await stream.cancel().catch(() => undefined);
         throw new Error('The response is not a PDF or DjVu document');
     }
     const fileName = resolveLaunchFileName(response, kind);
-    // The stored copy is locked before it exists, so no window's startup collection takes it.
-    return browserDocumentStore.registerFile(new File([response.blob], fileName, {type: kind === 'pdf' ? 'application/pdf' : 'image/vnd.djvu'}));
+    // The body streams into the stored copy as it downloads. That copy is locked before it exists, so no window's
+    // startup collection takes it; a download that fails part way leaves no document, and Chrome opens the URL.
+    // A store that fails before it reads the body still lets it go, so the connection stops downloading it.
+    try {
+        return await browserDocumentStore.createStoredDocument(fileName, stream, {
+            kind: 'source',
+            retention: 'durable',
+            mimeType: kind === 'pdf' ? 'application/pdf' : 'image/vnd.djvu',
+        });
+    } catch (error) {
+        await stream.cancel().catch(() => undefined);
+        throw error;
+    }
 }
 
 // A window with unsaved work restores its own tabs, the launched document among them.

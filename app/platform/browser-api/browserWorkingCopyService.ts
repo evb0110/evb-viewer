@@ -115,11 +115,13 @@ export async function decryptBrowserWorkingCopy(workingPath: string, password?: 
  */
 async function normalizeAppendBase(workingPath: string, unlocked: Uint8Array | null, fileName: string) {
     // The page tool, which writes every edit, takes no larger base; an empty PDF is refused later.
-    const size = unlocked?.byteLength ?? (await browserDocumentStore.stat(workingPath)).size;
+    const input = unlocked?.slice() ?? await browserDocumentStore.readableBlob(workingPath);
+    const size = input instanceof Blob ? input.size : input.byteLength;
     if (size === 0 || size > BROWSER_QPDF_MAX_INPUT_BYTES) return null;
     try {
-        // The engine takes its input over: a copy keeps the unlocked bytes.
-        const {output} = await normalizeBrowserPdfAppendBase(unlocked?.slice() ?? await browserDocumentStore.read(workingPath, {maxBytes: BROWSER_QPDF_MAX_INPUT_BYTES}));
+        // The engine takes bytes over, so a copy keeps the unlocked bytes. A document's own bytes reach the engine
+        // as the Blob of its file, which the engine's worker reads itself: the window never holds them whole.
+        const {output} = await normalizeBrowserPdfAppendBase(input);
         if (output) BrowserLogger.warn('working-copy', 'Rewrote a PDF whose cross-reference chain cannot take an edit');
         return output;
     } catch (error) {
@@ -142,18 +144,29 @@ async function normalizeAppendBase(workingPath: string, unlocked: Uint8Array | n
  * asking the append admission; its edit then runs once more. Whether a new revision holds the rewrite.
  */
 export async function repairBrowserWorkingCopy(workingPath: string, signal?: AbortSignal) {
-    const {size} = await browserDocumentStore.stat(workingPath);
-    if (size === 0 || size > BROWSER_QPDF_MAX_INPUT_BYTES) return false;
-    const revision = await browserDocumentStore.getDocumentRevision(workingPath);
-    const output = await repairBrowserPdfBytes(await browserDocumentStore.read(workingPath, {maxBytes: BROWSER_QPDF_MAX_INPUT_BYTES}), signal);
+    // One revision's file, read by range in the engine's worker, with the token that names it; the write below
+    // refuses once the document changed, even by an edit undone again or a staged foreign revision.
+    const {
+        blob,
+        token,
+        byteRevision,
+        instance,
+    } = await browserDocumentStore.readableRevision(workingPath);
+    if (blob.size === 0 || blob.size > BROWSER_QPDF_MAX_INPUT_BYTES) return false;
+    const output = await repairBrowserPdfBytes(blob, signal);
     if (output === null) return false;
-    await browserDocumentStore.write(workingPath, output, {expectedDocumentRevisionToken: revision.token});
+    await browserDocumentStore.write(workingPath, output, {
+        expectedDocumentRevisionToken: token,
+        strictRevisionToken: true,
+        expectedInstance: instance,
+        ...(byteRevision === undefined ? {} : {expectedByteRevision: byteRevision}),
+    });
     return true;
 }
 
 /** The open's qpdf rewrite, which rebuilds damage a PDF already had. */
-export async function repairBrowserPdfBytes(bytes: Uint8Array, signal?: AbortSignal) {
-    return (await runBrowserQpdfCommand('rewrite', bytes, signal ? {signal} : {})).output;
+export async function repairBrowserPdfBytes(input: Uint8Array | Blob, signal?: AbortSignal) {
+    return (await runBrowserQpdfCommand('rewrite', input, signal ? {signal} : {})).output;
 }
 
 type TBrowserWorkingCopyDecryptionResult = Awaited<ReturnType<typeof decryptBrowserWorkingCopy>>;

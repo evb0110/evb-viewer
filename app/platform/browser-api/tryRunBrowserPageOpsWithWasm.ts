@@ -41,6 +41,7 @@ import {
     discardPdfPageOpsWasm,
     loadPdfPageOpsWasm,
     readWasmFailure,
+    releasePdfPageOpsWasmAboveHighWater,
     runFileRequest,
     toWasmU32,
     withOpenFiles,
@@ -532,7 +533,7 @@ function runWasmRequest<K extends TByteRequestType>(
             // not satisfy. The aborted request's memory is never freed, so the
             // next request loads a fresh engine.
             trapped = true;
-            discardPdfPageOpsWasm();
+            discardPdfPageOpsWasm(exports);
             return createWasmFailure('too-large', `The browser page tool ran out of memory: ${getErrorMessage(error)}`);
         }
         return createWasmFailure(
@@ -554,7 +555,10 @@ function runWasmRequest<K extends TByteRequestType>(
                     ).fill(0, passwordOffset, passwordOffset + passwordLength);
                 }
             } finally {
-                if (!trapped) exports.evb_pdf_page_ops_free(pointer, requestByteLength);
+                if (!trapped) {
+                    exports.evb_pdf_page_ops_free(pointer, requestByteLength);
+                    releasePdfPageOpsWasmAboveHighWater(exports);
+                }
             }
         }
     }

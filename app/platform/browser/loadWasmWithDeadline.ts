@@ -1,4 +1,18 @@
 const DEFAULT_WASM_STALL_TIMEOUT_MS = 30_000;
+const MIB = 1024 * 1024;
+
+/**
+ * The linear memory above which a thread lets go of its cached instance of a WASM tool once a request on it
+ * ends. WebAssembly memory never shrinks, so without this one large document's heap growth stays held for the
+ * rest of the session. 256 MiB on a device that reports more than 4 GiB, 128 MiB otherwise: the performance
+ * profile treats an unreported device as a low-memory one too.
+ */
+export function wasmMemoryHighWaterBytes(deviceMemory = (globalThis.navigator as (Navigator & {deviceMemory?: number}) | undefined)?.deviceMemory) {
+    return (deviceMemory ?? 4) > 4 ? 256 * MIB : 128 * MIB;
+}
+
+/** Whether an instance's memory grew past `wasmMemoryHighWaterBytes`, so its thread should load a fresh one. */
+export const exceedsWasmMemoryHighWater = (memory: WebAssembly.Memory) => memory.buffer.byteLength > wasmMemoryHighWaterBytes();
 
 // The SHA-256 of each module this context compiled, by URL path, so
 // provenance can name the bytes that actually run rather than a later download.

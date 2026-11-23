@@ -29,23 +29,52 @@ function createPdfjsDocumentInit(pdfjsLib: TPdfjsLib, data: Uint8Array) {
     return init;
 }
 
-async function createPdfjsDocumentInitFromBrowserDocument(
-    pdfjsLib: TPdfjsLib,
-    path: string,
-    options: ICreateBrowserPdfjsDocumentInitOptions = {},
-) {
+interface IBrowserPdfjsRangeSource {
+    size: number;
+    /** The bytes `begin..end`, whole, or a rejection. */
+    read(begin: number, end: number): Promise<Uint8Array>;
+}
+
+/** A stored document read by path, refused once its content changes. */
+async function storedDocumentRanges(path: string): Promise<IBrowserPdfjsRangeSource> {
     const {
         size,
         contentSignature,
     } = await browserDocumentStore.getContentSnapshot(path);
-    const initialData = await browserDocumentStore.readRange(
-        path,
-        0,
-        Math.min(size, PDFJS_RANGE_CHUNK_SIZE),
-    );
-    await assertBrowserDocumentUnchanged(path, size, contentSignature);
-    if (initialData.byteLength !== Math.min(size, PDFJS_RANGE_CHUNK_SIZE)) {
-        throw new Error(`Browser PDF source returned ${initialData.byteLength} bytes for initial ${Math.min(size, PDFJS_RANGE_CHUNK_SIZE)} byte range`);
+    return {
+        size,
+        read: async (begin, end) => {
+            await assertBrowserDocumentUnchanged(path, size, contentSignature);
+            const bytes = await readCompleteBrowserDocumentRange(path, begin, end);
+            await assertBrowserDocumentUnchanged(path, size, contentSignature);
+            return bytes;
+        },
+    };
+}
+
+/** One revision's Blob: its bytes cannot change, so nothing is checked between reads. */
+function blobRanges(blob: Blob): IBrowserPdfjsRangeSource {
+    return {
+        size: blob.size,
+        read: async (begin, end) => new Uint8Array(await blob.slice(begin, end).arrayBuffer()),
+    };
+}
+
+/**
+ * PDF.js reads a stored document, by path or as the Blob of one of its revisions, in ranges: no larger
+ * document enters memory whole.
+ */
+async function createPdfjsDocumentInitFromBrowserDocument(
+    pdfjsLib: TPdfjsLib,
+    stored: string | Blob,
+    options: ICreateBrowserPdfjsDocumentInitOptions = {},
+) {
+    const source = typeof stored === 'string' ? await storedDocumentRanges(stored) : blobRanges(stored);
+    const {size} = source;
+    const initialLength = Math.min(size, PDFJS_RANGE_CHUNK_SIZE);
+    const initialData = await source.read(0, initialLength);
+    if (initialData.byteLength !== initialLength) {
+        throw new Error(`Browser PDF source returned ${initialData.byteLength} bytes for initial ${initialLength} byte range`);
     }
 
     if (size <= PDFJS_RANGE_CHUNK_SIZE) {
@@ -78,11 +107,12 @@ async function createPdfjsDocumentInitFromBrowserDocument(
          */
         private async loadRange(begin: number, end: number) {
             try {
-                await assertBrowserDocumentUnchanged(path, size, contentSignature);
                 for (let pieceBegin = begin; pieceBegin < end;) {
                     const pieceEnd = Math.min(end, pieceBegin + PDFJS_RANGE_CHUNK_SIZE);
-                    const piece = await readCompleteBrowserDocumentRange(path, pieceBegin, pieceEnd);
-                    await assertBrowserDocumentUnchanged(path, size, contentSignature);
+                    const piece = await source.read(pieceBegin, pieceEnd);
+                    if (piece.byteLength !== pieceEnd - pieceBegin) {
+                        throw new Error(`Browser PDF source returned ${piece.byteLength} bytes for ${pieceBegin}..${pieceEnd}`);
+                    }
                     if (this.aborted) {
                         return;
                     }
