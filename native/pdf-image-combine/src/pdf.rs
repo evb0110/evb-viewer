@@ -1,9 +1,33 @@
+use evb_native_support::{NativeError, NativeErrorCode};
 use fax::{encoder::Encoder as FaxEncoder, slice_bits, Color, VecWriter};
 use flate2::{write::ZlibEncoder, Compression};
 use jbig2_codec::Bilevel;
 use std::{fmt::Write as FmtWrite, io::Write as IoWrite};
 
 use crate::{flate::deflate_up_filtered_slices, netpbm::PbmP4Image, PdfBilevelDecode, Result};
+
+/// The largest byte offset representable in a classic 10-digit PDF
+/// cross-reference table entry (`0000000000`..=`9999999999`, ~9.31 GiB).
+const MAX_CLASSIC_XREF_OFFSET: u64 = 9_999_999_999;
+
+fn classic_xref_limit_error(offset: Option<u64>) -> Box<dyn std::error::Error> {
+    let message = match offset {
+        Some(offset) => format!(
+            "PDF output offset {offset} exceeds the classic PDF 10-digit xref limit ({MAX_CLASSIC_XREF_OFFSET} bytes)"
+        ),
+        None => format!(
+            "PDF output offset exceeds the classic PDF 10-digit xref limit ({MAX_CLASSIC_XREF_OFFSET} bytes)"
+        ),
+    };
+    Box::new(NativeError::new(NativeErrorCode::TooLarge, message))
+}
+
+fn ensure_classic_xref_offset(offset: u64) -> Result<()> {
+    if offset > MAX_CLASSIC_XREF_OFFSET {
+        return Err(classic_xref_limit_error(Some(offset)));
+    }
+    Ok(())
+}
 
 pub(crate) enum ImagePayload {
     RawFlate {
@@ -205,10 +229,10 @@ pub(crate) fn write_pdf_to_writer<W: IoWrite>(
 
 pub(crate) struct PdfWriter<W: IoWrite> {
     inner: W,
-    offsets: Vec<Option<usize>>,
+    offsets: Vec<Option<u64>>,
     page_objects: Vec<usize>,
     next_object: usize,
-    bytes_written: usize,
+    bytes_written: u64,
     provenance_stamp_hex: Option<String>,
 }
 
@@ -583,15 +607,19 @@ impl<W: IoWrite> PdfWriter<W> {
 
         let object_count = self.next_object - 1;
         let xref_offset = self.bytes_written;
-        writeln!(&mut self, "xref")?;
-        writeln!(&mut self, "0 {}", object_count + 1)?;
-        writeln!(&mut self, "0000000000 65535 f ")?;
+        ensure_classic_xref_offset(xref_offset)?;
+        let offsets = std::mem::take(&mut self.offsets);
         for object_number in 1..=object_count {
-            let offset = self
-                .offsets
+            let offset = offsets
                 .get(object_number)
                 .and_then(|offset| *offset)
                 .ok_or_else(|| format!("Missing PDF object offset: {object_number}"))?;
+            ensure_classic_xref_offset(offset)?;
+        }
+        writeln!(&mut self, "xref")?;
+        writeln!(&mut self, "0 {}", object_count + 1)?;
+        writeln!(&mut self, "0000000000 65535 f ")?;
+        for offset in offsets[1..=object_count].iter().flatten() {
             writeln!(&mut self, "{offset:010} 00000 n ")?;
         }
         match info_object {
@@ -816,10 +844,13 @@ impl<W: IoWrite> PdfWriter<W> {
     }
 
     fn push_object(&mut self, object_number: usize, body: &[u8]) -> Result<()> {
+        let header = format!("{object_number} 0 obj\n");
+        let footer = b"\nendobj\n";
+        self.ensure_body_write_fits(&[header.len(), body.len(), footer.len()])?;
         self.record_object_offset(object_number);
-        writeln!(self, "{object_number} 0 obj")?;
+        self.write_all(header.as_bytes())?;
         self.write_all(body)?;
-        self.write_all(b"\nendobj\n")?;
+        self.write_all(footer)?;
         Ok(())
     }
 
@@ -829,12 +860,34 @@ impl<W: IoWrite> PdfWriter<W> {
         dict: &[u8],
         stream: &[u8],
     ) -> Result<()> {
+        let header = format!("{object_number} 0 obj\n");
+        let stream_start = b"\nstream\n";
+        let stream_end = b"\nendstream\nendobj\n";
+        self.ensure_body_write_fits(&[
+            header.len(),
+            dict.len(),
+            stream_start.len(),
+            stream.len(),
+            stream_end.len(),
+        ])?;
         self.record_object_offset(object_number);
-        writeln!(self, "{object_number} 0 obj")?;
+        self.write_all(header.as_bytes())?;
         self.write_all(dict)?;
-        self.write_all(b"\nstream\n")?;
+        self.write_all(stream_start)?;
         self.write_all(stream)?;
-        self.write_all(b"\nendstream\nendobj\n")?;
+        self.write_all(stream_end)?;
+        Ok(())
+    }
+
+    fn ensure_body_write_fits(&self, part_lengths: &[usize]) -> Result<()> {
+        ensure_classic_xref_offset(self.bytes_written)?;
+        let mut end_offset = self.bytes_written;
+        for &len in part_lengths {
+            end_offset = end_offset
+                .checked_add(len as u64)
+                .ok_or_else(|| classic_xref_limit_error(None))?;
+            ensure_classic_xref_offset(end_offset)?;
+        }
         Ok(())
     }
 
@@ -872,7 +925,10 @@ fn resolve_image_transform(value: u16) -> Result<(u16, bool)> {
 impl<W: IoWrite> IoWrite for PdfWriter<W> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         let written = self.inner.write(buf)?;
-        self.bytes_written += written;
+        self.bytes_written = self
+            .bytes_written
+            .checked_add(written as u64)
+            .ok_or_else(|| std::io::Error::other("PDF byte offset overflow"))?;
         Ok(written)
     }
 
@@ -1090,11 +1146,18 @@ fn image_mask_dictionary(width: u32, height: u32, payload: &BilevelPayload) -> S
     )
 }
 
+/// Initial bit capacity for `fax::VecWriter::with_capacity` (which reserves
+/// `(n + 7) / 8` bytes). Keeps pre-allocation bounded well below the raw 1-bit
+/// bitmap size while avoiding tiny initial reallocations.
+fn ccitt_initial_capacity_bits(bitmap_len: usize) -> usize {
+    (bitmap_len / 4).max(4096)
+}
+
 fn encode_mask_ccitt_g4(mask: &PbmP4Image) -> Result<Option<Vec<u8>>> {
     let Ok(width) = u16::try_from(mask.width) else {
         return Ok(None);
     };
-    let writer = VecWriter::with_capacity(mask.bitmap.len() * 8);
+    let writer = VecWriter::with_capacity(ccitt_initial_capacity_bits(mask.bitmap.len()));
     let mut encoder = FaxEncoder::new(writer);
     for row in mask
         .bitmap
@@ -2139,6 +2202,188 @@ mod tests {
                 BilevelPayload::Jbig2(_)
             ));
         }
+    }
+
+    #[test]
+    fn ccitt_g4_encoder_matches_reference_bytes_without_excessive_preallocation() {
+        use crate::netpbm::parse_pbm_p4;
+
+        fn encode_reference(mask: &PbmP4Image) -> Vec<u8> {
+            let mut encoder = FaxEncoder::new(VecWriter::new());
+            for row in mask
+                .bitmap
+                .chunks(mask.row_stride)
+                .take(mask.height as usize)
+            {
+                let colors = slice_bits(row).take(mask.width as usize).map(|bit| {
+                    if bit {
+                        Color::Black
+                    } else {
+                        Color::White
+                    }
+                });
+                encoder.encode_line(colors, mask.width).unwrap();
+            }
+            encoder.finish().unwrap().finish()
+        }
+
+        // Real scanned bilevel fixtures produce byte-identical output.
+        for pbm in [
+            include_bytes!("../../jbig2-codec/tests/fixtures/scan-page-000-body.pbm").as_slice(),
+            include_bytes!("../../jbig2-codec/tests/fixtures/scan-page-007-notes.pbm").as_slice(),
+        ] {
+            let mask = parse_pbm_p4(pbm, u64::MAX).unwrap();
+            let encoded = encode_mask_ccitt_g4(&mask).unwrap().unwrap();
+            assert_eq!(encoded, encode_reference(&mask));
+        }
+
+        // Large hi-res sparse bitmap (4000x4000, 2 MB raw packed 1-bit):
+        // must encode identically without pre-allocating anything near bitmap.len().
+        let width = 4_000u32;
+        let height = 4_000u32;
+        let row_stride = (width as usize).div_ceil(8);
+        let mut bitmap = vec![0u8; row_stride * height as usize];
+        for y in (100..height as usize).step_by(64) {
+            let row = &mut bitmap[y * row_stride..(y + 1) * row_stride];
+            row[20..40].fill(0xAA);
+            row[200..240].fill(0xFF);
+        }
+        let large_mask = PbmP4Image {
+            width,
+            height,
+            row_stride,
+            bitmap,
+        };
+        let encoded = encode_mask_ccitt_g4(&large_mask).unwrap().unwrap();
+        assert_eq!(encoded, encode_reference(&large_mask));
+        let expected_initial_bytes =
+            ccitt_initial_capacity_bits(large_mask.bitmap.len()).div_ceil(8);
+        assert!(
+            encoded.len() <= expected_initial_bytes,
+            "sparse test bitmap should fit inside initial capacity"
+        );
+        assert!(
+            encoded.capacity() <= expected_initial_bytes * 2,
+            "unexpectedly large CCITT buffer capacity {} for raw bitmap {} bytes",
+            encoded.capacity(),
+            large_mask.bitmap.len()
+        );
+        assert!(
+            encoded.capacity() < large_mask.bitmap.len() / 8,
+            "capacity {} must remain far below raw bitmap size {}",
+            encoded.capacity(),
+            large_mask.bitmap.len()
+        );
+
+        // Edge cases: tiny 1x1 bitmap and capacity bounds.
+        assert_eq!(ccitt_initial_capacity_bits(0), 4096);
+        assert_eq!(ccitt_initial_capacity_bits(1), 4096);
+        assert_eq!(ccitt_initial_capacity_bits(20_000_000), 5_000_000);
+
+        let tiny_mask = PbmP4Image {
+            width: 1,
+            height: 1,
+            row_stride: 1,
+            bitmap: vec![0x80],
+        };
+        assert_eq!(
+            encode_mask_ccitt_g4(&tiny_mask).unwrap().unwrap(),
+            encode_reference(&tiny_mask)
+        );
+    }
+
+    #[test]
+    fn classic_xref_offset_allows_exact_ten_digit_boundary() {
+        ensure_classic_xref_offset(0).unwrap();
+        ensure_classic_xref_offset(MAX_CLASSIC_XREF_OFFSET).unwrap();
+
+        let error = ensure_classic_xref_offset(MAX_CLASSIC_XREF_OFFSET + 1).unwrap_err();
+        let native = error.downcast_ref::<NativeError>().unwrap();
+        assert_eq!(native.code, NativeErrorCode::TooLarge);
+        assert!(native.message.contains("10-digit xref"));
+        assert!(native.message.contains("9999999999"));
+
+        // Exact boundary: object 2 ("2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\n")
+        // is 52 bytes, placing xref_offset at exactly MAX_CLASSIC_XREF_OFFSET (9_999_999_999).
+        let mut writer = PdfWriter::new(Vec::new(), None).unwrap();
+        let pages_object_len =
+            "2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\n".len() as u64;
+        writer.bytes_written = MAX_CLASSIC_XREF_OFFSET - pages_object_len;
+        let pdf = writer.finish().unwrap();
+        let xref_start = find_bytes(&pdf, b"xref\n").unwrap();
+        let xref_section = std::str::from_utf8(&pdf[xref_start..]).unwrap();
+        assert!(xref_section.contains("9999999947 00000 n \n"));
+        assert!(xref_section.contains("startxref\n9999999999\n%%EOF\n"));
+        for line in xref_section.lines().skip(2).take(3) {
+            assert_eq!(
+                line.len(),
+                19,
+                "classic xref entry must stay 20 bytes incl. LF: {line:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn push_object_and_stream_object_fail_fast_past_classic_xref_limit() {
+        let mut writer = PdfWriter::new(Vec::new(), None).unwrap();
+        let bytes_before = writer.inner.len();
+        writer.bytes_written = MAX_CLASSIC_XREF_OFFSET - 10;
+
+        let error = writer.push_object(3, b"<< /Type /Page >>").unwrap_err();
+        let native = error.downcast_ref::<NativeError>().unwrap();
+        assert_eq!(native.code, NativeErrorCode::TooLarge);
+        assert!(native.message.contains("10-digit xref"));
+        assert_eq!(writer.inner.len(), bytes_before);
+        assert!(writer.offsets.get(3).and_then(|offset| *offset).is_none());
+
+        writer.bytes_written = MAX_CLASSIC_XREF_OFFSET + 1;
+        let error = writer.push_object(3, b"<< >>").unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<NativeError>().unwrap().code,
+            NativeErrorCode::TooLarge
+        );
+        assert_eq!(writer.inner.len(), bytes_before);
+
+        writer.bytes_written = MAX_CLASSIC_XREF_OFFSET - 20;
+        let error = writer
+            .push_stream_object(4, b"<< /Length 16 >>", &[0u8; 16])
+            .unwrap_err();
+        let native = error.downcast_ref::<NativeError>().unwrap();
+        assert_eq!(native.code, NativeErrorCode::TooLarge);
+        assert!(native.message.contains("10-digit xref"));
+        assert_eq!(writer.inner.len(), bytes_before);
+        assert!(writer.offsets.get(4).and_then(|offset| *offset).is_none());
+    }
+
+    #[test]
+    fn finish_refuses_xref_and_object_offsets_past_classic_xref_limit() {
+        // 1 byte past the exact boundary so xref_offset would become 10_000_000_000.
+        let pages_object_len =
+            "2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\n".len() as u64;
+        let mut buffer = Vec::new();
+        {
+            let mut writer = PdfWriter::new(&mut buffer, None).unwrap();
+            writer.bytes_written = MAX_CLASSIC_XREF_OFFSET - pages_object_len + 1;
+            let error = writer.finish().unwrap_err();
+            let native = error.downcast_ref::<NativeError>().unwrap();
+            assert_eq!(native.code, NativeErrorCode::TooLarge);
+            assert!(native.message.contains("10-digit xref"));
+        }
+        assert!(find_bytes(&buffer, b"xref\n").is_none());
+        assert!(find_bytes(&buffer, b"10000000000").is_none());
+
+        // Recorded object offset past the 10-digit limit must also be refused before writing xref.
+        let mut buffer = Vec::new();
+        {
+            let mut writer = PdfWriter::new(&mut buffer, None).unwrap();
+            writer.offsets[1] = Some(MAX_CLASSIC_XREF_OFFSET + 1);
+            let error = writer.finish().unwrap_err();
+            let native = error.downcast_ref::<NativeError>().unwrap();
+            assert_eq!(native.code, NativeErrorCode::TooLarge);
+            assert!(native.message.contains("10-digit xref"));
+        }
+        assert!(find_bytes(&buffer, b"xref\n").is_none());
+        assert!(find_bytes(&buffer, b"10000000000").is_none());
     }
 
     fn build_test_mask_pdf(mask: &PbmP4Image, payload: &BilevelPayload) -> Vec<u8> {
