@@ -58,8 +58,8 @@ interface IDragReorderContext {
     compactMove?: {ranges: IPageMoveRangeSegment[];};
 }
 
-// The legacy browser reorder path sends a full permutation to pdf-lib. Keep
-// that fallback bounded while desktop callers use the compact native move.
+// Keep the full-permutation fallback reorder path bounded when a caller does
+// not provide a compact range-based onMove handler.
 const LEGACY_REORDER_MAX_PAGES = 10_000;
 
 export const usePageDragDrop = (deps: IPageDragDropDeps) => {

@@ -7,6 +7,7 @@ import {
 } from 'fs/promises';
 import { join } from 'path';
 import type { ICropMargins } from '@contracts/shared';
+import { normalizeCropMargins } from '@contracts/shared';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { hasNativeErrorCode } from '@contracts/nativeErrors';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
@@ -17,6 +18,7 @@ import {
     abortErrorFromSignal,
     isAbortError,
 } from '@electron/utils/abort';
+import type { TTerminationProofSink } from '@electron/resources/jobBroker';
 import {
     PdfPageOpsCapabilityError,
     type TPdfPageOpsCapabilityErrorCode,
@@ -31,9 +33,13 @@ import {resolveNativePageOpsPath} from '@electron/features/page-ops/main/resolve
 
 type TCropOperation = 'crop' | 'remove-crop';
 
+export interface INativeCropExecutionOptions {
+    signal?: AbortSignal;
+    onTerminationProof?: TTerminationProofSink;
+}
+
 const log = createLogger('native-page-ops-crop');
 const NATIVE_PAGE_OPS_TIMEOUT_MS = 2 * 60 * 1000;
-const PAGE_OPS_LOCAL_FALLBACK_MAX_BYTES = 16 * 1024 * 1024;
 
 function capabilityError(
     code: TPdfPageOpsCapabilityErrorCode,
@@ -51,50 +57,6 @@ function nativeFailureCode(error: unknown): TPdfPageOpsCapabilityErrorCode {
     return hasNativeErrorCode(error) && error.code === 'too-large'
         ? 'too-large'
         : 'native-failure';
-}
-
-export async function assertPageOpsLocalFallbackAllowed(
-    workingCopyPath: string,
-    operation: string,
-    signal?: AbortSignal,
-    failureCode: TPdfPageOpsCapabilityErrorCode = 'too-large',
-    cause?: unknown,
-) {
-    if (signal?.aborted) {
-        throw abortErrorFromSignal(signal);
-    }
-
-    let inputStat: Awaited<ReturnType<typeof stat>>;
-    try {
-        inputStat = await stat(workingCopyPath);
-    } catch (error) {
-        if (isAbortError(error)) {
-            throw error;
-        }
-        throw capabilityError(
-            'native-unavailable',
-            `Unable to inspect the page-operation input "${workingCopyPath}": ${getErrorMessage(error)}`,
-            operation,
-            error,
-        );
-    }
-    if (!inputStat.isFile()) {
-        throw capabilityError(
-            'native-failure',
-            `Page-operation input is not a regular file: ${workingCopyPath}`,
-            operation,
-            cause,
-        );
-    }
-    if (inputStat.size > PAGE_OPS_LOCAL_FALLBACK_MAX_BYTES) {
-        const maxMb = Math.floor(PAGE_OPS_LOCAL_FALLBACK_MAX_BYTES / (1024 * 1024));
-        throw capabilityError(
-            failureCode,
-            `Native page operation ${operation} failed and the JavaScript compatibility path is limited to ${maxMb} MiB PDFs`,
-            operation,
-            cause,
-        );
-    }
 }
 
 function createPageFileContents(pages: number[]) {
@@ -145,22 +107,25 @@ async function assertNativeOutputReady(outputPath: string) {
     }
 }
 
-async function tryRunNativeCropOperation(
+async function runNativeCropOperation(
     operation: TCropOperation,
     workingCopyPath: string,
     pages: number[],
     margins?: ICropMargins,
-    signal?: AbortSignal,
+    options?: INativeCropExecutionOptions,
 ) {
+    const signal = options?.signal;
+    if (signal?.aborted) {
+        throw abortErrorFromSignal(signal);
+    }
+
     const binaryPath = resolveNativePageOpsPath();
     if (!binaryPath) {
-        await assertPageOpsLocalFallbackAllowed(
-            workingCopyPath,
-            operation,
-            signal,
+        throw capabilityError(
             'native-unavailable',
+            `Native page operation ${operation} is unavailable because evb-pdf-page-ops was not found`,
+            operation,
         );
-        return false;
     }
 
     const tempPath = makeTempPdfOutputPath(workingCopyPath);
@@ -181,24 +146,27 @@ async function tryRunNativeCropOperation(
             timeoutMs: NATIVE_PAGE_OPS_TIMEOUT_MS,
             commandLabel: `evb-pdf-page-ops(${operation})`,
             ...(signal ? { signal } : {}),
+            ...(options?.onTerminationProof ? { onTerminationProof: options.onTerminationProof } : {}),
         });
         await assertNativeOutputReady(tempPath);
+        if (signal?.aborted) {
+            throw abortErrorFromSignal(signal);
+        }
         await replaceTempOutput(tempPath, workingCopyPath);
-        return true;
     } catch (error) {
         await cleanupTempOutput(tempPath, log, 'native page crop temp file');
         if (isAbortError(error) || signal?.aborted) {
             throw error;
         }
-        await assertPageOpsLocalFallbackAllowed(
-            workingCopyPath,
-            operation,
-            signal,
+        if (error instanceof PdfPageOpsCapabilityError) {
+            throw error;
+        }
+        throw capabilityError(
             nativeFailureCode(error),
+            `Native page operation ${operation} failed: ${getErrorMessage(error)}`,
+            operation,
             error,
         );
-        log.debug(`Native page crop failed: ${getErrorMessage(error)}`);
-        return false;
     } finally {
         await rm(tempDir, {
             recursive: true,
@@ -207,19 +175,20 @@ async function tryRunNativeCropOperation(
     }
 }
 
-export function tryCropPagesWithNativePageOps(
+export function runNativeCropPages(
     workingCopyPath: string,
     pages: number[],
     margins: ICropMargins,
-    signal?: AbortSignal,
+    options?: INativeCropExecutionOptions,
 ) {
-    return tryRunNativeCropOperation('crop', workingCopyPath, pages, margins, signal);
+    const normalizedMargins = normalizeCropMargins(margins);
+    return runNativeCropOperation('crop', workingCopyPath, pages, normalizedMargins, options);
 }
 
-export function tryRemoveCropWithNativePageOps(
+export function runNativeRemoveCrop(
     workingCopyPath: string,
     pages: number[],
-    signal?: AbortSignal,
+    options?: INativeCropExecutionOptions,
 ) {
-    return tryRunNativeCropOperation('remove-crop', workingCopyPath, pages, undefined, signal);
+    return runNativeCropOperation('remove-crop', workingCopyPath, pages, undefined, options);
 }

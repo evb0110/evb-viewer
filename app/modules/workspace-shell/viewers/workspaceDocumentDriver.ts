@@ -513,9 +513,6 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
                 workingCopyPath: options.workingCopyPath.value,
                 originalPath: options.originalPath.value ?? options.pendingDocumentPath?.value ?? null,
                 authorName: options.authorName.value,
-                // Temporary direct command seam. #193 removes the legacy
-                // workspace stamp persistence route after writer ownership is
-                // complete.
             };
         }
 

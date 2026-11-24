@@ -1,5 +1,5 @@
 /**
- * @typedef {'pdf-conformance' | 'document-save-utility' | 'scan-cleanup' | 'pdf-text' | 'page-ops-crop' | 'image-export-tiff' | 'djvu-pdf' | 'ocr-engine-host' | 'ocr-engine'} TWorkerBundleId
+ * @typedef {'pdf-conformance' | 'document-save-utility' | 'scan-cleanup' | 'pdf-text' | 'image-export-tiff' | 'djvu-pdf' | 'ocr-engine-host' | 'ocr-engine'} TWorkerBundleId
  */
 
 /**
@@ -39,13 +39,6 @@ export const WORKER_BUNDLES = [
         id: 'pdf-text',
         entryPoint: 'electron/features/search/pdfTextWorker.ts',
         fileName: 'pdf-text-worker.js',
-        format: 'esm',
-        unpacked: true,
-    },
-    {
-        id: 'page-ops-crop',
-        entryPoint: 'electron/features/page-ops/main/cropWorker.ts',
-        fileName: 'page-ops-cropWorker.js',
         format: 'esm',
         unpacked: true,
     },

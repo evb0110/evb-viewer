@@ -77,7 +77,6 @@ const REQUIRED_SYMBOLS_BY_WORKER: Partial<Record<TWorkerBundleId, string[]>> = {
     ],
     'image-export-tiff': ['combinePagesIntoMultiPageTiffLocal'],
     'ocr-engine-host': ['OCR engine host started without a parent port'],
-    'page-ops-crop': ['cropPagesLocal'],
     'pdf-conformance': ['analyzePdfConformanceFileDirect'],
 };
 

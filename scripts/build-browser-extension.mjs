@@ -182,14 +182,19 @@ async function readLocaleStrings() {
 /** Chrome takes up to four dot-separated integers; a prerelease tag goes in version_name. */
 function createManifest() {
     const manifest = JSON.parse(readFileSync(path.join(extensionSourceRoot, 'manifest.json'), 'utf8'));
-    const { version } = JSON.parse(readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
-    const release = /^(\d+)\.(\d+)\.(\d+)/u.exec(version);
-    if (!release || release.slice(1).some(part => Number(part) > 65_535)) {
-        throw new Error(`package.json version ${version} cannot be a Chrome extension version`);
+    const envVersion = process.env.EVB_APP_VERSION?.trim();
+    const versionSource = envVersion ? 'EVB_APP_VERSION' : 'package.json version';
+    const rawVersion = envVersion
+        ? envVersion.replace(/^v/u, '')
+        : String(JSON.parse(readFileSync(path.join(projectRoot, 'package.json'), 'utf8')).version).trim();
+    const release = /^(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?(?:$|[-+])/u.exec(rawVersion);
+    const parts = release?.slice(1).filter(part => part !== undefined);
+    if (!parts || parts.some(part => (part.length > 1 && part.startsWith('0')) || Number(part) > 65_535)) {
+        throw new Error(`${versionSource} ${rawVersion} cannot be a Chrome extension version`);
     }
-    manifest.version = release.slice(1).join('.');
-    if (manifest.version !== version) {
-        manifest.version_name = version;
+    manifest.version = parts.join('.');
+    if (manifest.version !== rawVersion) {
+        manifest.version_name = rawVersion;
     }
     return manifest;
 }

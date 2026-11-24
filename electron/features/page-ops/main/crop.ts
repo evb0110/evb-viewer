@@ -1,18 +1,13 @@
-import { existsSync } from 'fs';
-import { dirname } from 'path';
-import { fileURLToPath } from 'url';
 import type {
     ICropMargins,
     IPageGeometry,
 } from '@contracts/shared';
 import {decodePageGeometry} from '@contracts/decodePageGeometry';
-import { createLogger } from '@electron/utils/createLogger';
 import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsync';
 import {
-    cropPagesLocal,
-    removeCropFromPagesLocal,
-} from '@electron/features/page-ops/main/cropLocal';
-import { assertPageOpsLocalFallbackAllowed } from '@electron/features/page-ops/main/nativeCrop';
+    runNativeCropPages,
+    runNativeRemoveCrop,
+} from '@electron/features/page-ops/main/nativeCrop';
 import { getErrorMessage } from '@electron/utils/error';
 import { hasNativeErrorCode } from '@contracts/nativeErrors';
 import {
@@ -20,12 +15,9 @@ import {
     isAbortError,
 } from '@electron/utils/abort';
 import {
-    resolveUnpackedWorkerPath,
-    runResultWorkerTask,
-} from '@electron/utils/workerTask';
-import { mainJobBroker } from '@electron/resources/jobBroker';
-import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
-import type { TCropWorkerInput } from '@electron/features/page-ops/main/cropWorkerProtocol';
+    mainJobBroker,
+    type TTerminationProofSink,
+} from '@electron/resources/jobBroker';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/main/resolveNativePageOpsPath';
@@ -34,43 +26,21 @@ import {
     type TPdfPageOpsCapabilityErrorCode,
 } from '@electron/features/page-ops/main/pageOpsErrors';
 
-const log = createLogger('page-ops-crop');
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const CROP_WORKER_FILENAME = WORKER_BUNDLES_BY_ID['page-ops-crop'].fileName;
-const CROP_WORKER_TIMEOUT_MS = 2 * 60 * 1000;
 const PAGE_GEOMETRY_NATIVE_TIMEOUT_MS = 2 * 60 * 1000;
 const PAGE_GEOMETRY_MAX_OUTPUT_BYTES = 64 * 1024;
 
-class CropWorkerUnavailableError extends Error {
-    constructor(message: string) {
-        super(message);
-        this.name = 'CropWorkerUnavailableError';
-    }
-}
-
-function resolveCropWorkerPath() {
-    return resolveUnpackedWorkerPath(__dirname, CROP_WORKER_FILENAME);
-}
-
-function decodeUndefinedResult(data: unknown): undefined | null {
-    return data === undefined ? undefined : null;
-}
-
-
-async function runCropWorkerTask<T>(
-    workerInput: TCropWorkerInput,
-    decodeResult: (data: unknown) => T | null,
-    signal?: AbortSignal,
-): Promise<T> {
-    const workerPath = resolveCropWorkerPath();
-    if (!existsSync(workerPath)) {
-        throw new CropWorkerUnavailableError(`Crop worker unavailable at path: ${workerPath}`);
-    }
-
+function runBrokeredCropTask(
+    type: 'crop' | 'removeCrop',
+    workingCopyPath: string,
+    pageCount: number,
+    senderWebContentsId: number | undefined,
+    signal: AbortSignal | undefined,
+    work: (onTerminationProof: TTerminationProofSink) => Promise<void>,
+) {
     return mainJobBroker.run({
-        ownerId: workerInput.senderWebContentsId !== undefined
-            ? `page-ops-crop:${workerInput.senderWebContentsId}:${workerInput.workingCopyPath}`
-            : `page-ops-crop:${workerInput.workingCopyPath}`,
+        ownerId: senderWebContentsId !== undefined
+            ? `page-ops-crop:${senderWebContentsId}:${workingCopyPath}`
+            : `page-ops-crop:${workingCopyPath}`,
         kind: 'page-ops-crop',
         priority: 'user',
         resources: {
@@ -80,36 +50,13 @@ async function runCropWorkerTask<T>(
             ioWeight: 3,
         },
         ...(signal ? { signal } : {}),
-    }, ({onTerminationProof}) => measureElectronPerfAsync(`page-ops:${workerInput.type}`, () => runResultWorkerTask<T>({
-        workerPath,
-        workerData: workerInput,
-        invalidPayloadMessage: 'Crop worker returned an invalid payload',
-        invalidResultMessage: 'Crop worker returned an invalid result',
-        createStartError: message => new CropWorkerUnavailableError(`Crop worker failed to start: ${message}`),
-        createStartupError: message => new CropWorkerUnavailableError(`Crop worker startup failed: ${message}`),
-        createStartupExitError: code => new CropWorkerUnavailableError(`Crop worker exited before startup with code ${code}`),
-        createWorkerExitError: code => new Error(`Crop worker exited with code ${code}`),
-        timeoutMs: CROP_WORKER_TIMEOUT_MS,
-        ...(signal ? { signal } : {}),
-        createCancelMessage: () => ({type: 'cancel'}),
-        resourceLimits: {
-            maxOldGenerationSizeMb: 512,
-            maxYoungGenerationSizeMb: 64,
-            stackSizeMb: 8,
-        },
-        decodeResult,
-        onTerminationProof,
-    }), {
+    }, ({onTerminationProof}) => measureElectronPerfAsync(`page-ops:${type}`, () => work(onTerminationProof), {
         thresholdMs: 25,
         details: {
-            workingCopyPath: workerInput.workingCopyPath,
-            pageCount: 'pages' in workerInput ? workerInput.pages.length : 1,
+            workingCopyPath,
+            pageCount,
         },
     }));
-}
-
-function shouldFallbackToLocalCrop(error: unknown) {
-    return error instanceof CropWorkerUnavailableError;
 }
 
 function throwIfAborted(signal?: AbortSignal) {
@@ -135,21 +82,59 @@ function createNativePageGeometryFailure(error: unknown) {
     );
 }
 
-async function tryGetPageGeometryWithNativePageOps(
+export async function cropPages(
+    workingCopyPath: string,
+    pages: number[],
+    margins: ICropMargins,
+    senderWebContentsId?: number,
+    signal?: AbortSignal,
+) {
+    await runBrokeredCropTask(
+        'crop',
+        workingCopyPath,
+        pages.length,
+        senderWebContentsId,
+        signal,
+        onTerminationProof => runNativeCropPages(workingCopyPath, pages, margins, {
+            ...(signal ? { signal } : {}),
+            onTerminationProof,
+        }),
+    );
+}
+
+export async function removeCropFromPages(
+    workingCopyPath: string,
+    pages: number[],
+    senderWebContentsId?: number,
+    signal?: AbortSignal,
+) {
+    await runBrokeredCropTask(
+        'removeCrop',
+        workingCopyPath,
+        pages.length,
+        senderWebContentsId,
+        signal,
+        onTerminationProof => runNativeRemoveCrop(workingCopyPath, pages, {
+            ...(signal ? { signal } : {}),
+            onTerminationProof,
+        }),
+    );
+}
+
+export async function getPageGeometry(
     workingCopyPath: string,
     pageNumber: number,
+    _senderWebContentsId?: number,
     signal?: AbortSignal,
-): Promise<IPageGeometry | null> {
+): Promise<IPageGeometry> {
     throwIfAborted(signal);
     const binaryPath = resolveNativePageOpsPath();
     if (!binaryPath) {
-        await assertPageOpsLocalFallbackAllowed(
-            workingCopyPath,
-            'get-page-geometry',
-            signal,
+        throw new PdfPageOpsCapabilityError(
             'native-unavailable',
+            'Native page geometry is unavailable because evb-pdf-page-ops was not found',
+            { operation: 'get-page-geometry' },
         );
-        return null;
     }
 
     try {
@@ -182,84 +167,9 @@ async function tryGetPageGeometryWithNativePageOps(
         if (isAbortError(error) || signal?.aborted) {
             throw error;
         }
-        await assertPageOpsLocalFallbackAllowed(
-            workingCopyPath,
-            'get-page-geometry',
-            signal,
-            nativePageGeometryFailureCode(error),
-            error,
-        );
-        log.debug(createNativePageGeometryFailure(error).message);
-        return null;
-    }
-}
-
-export async function cropPages(
-    workingCopyPath: string,
-    pages: number[],
-    margins: ICropMargins,
-    senderWebContentsId?: number,
-    signal?: AbortSignal,
-) {
-    try {
-        await runCropWorkerTask<undefined>({
-            type: 'crop',
-            workingCopyPath,
-            pages,
-            margins,
-            ...(senderWebContentsId !== undefined ? { senderWebContentsId } : {}),
-        }, decodeUndefinedResult, signal);
-    } catch (error) {
-        if (!shouldFallbackToLocalCrop(error)) {
+        if (error instanceof PdfPageOpsCapabilityError) {
             throw error;
         }
-        await assertPageOpsLocalFallbackAllowed(workingCopyPath, 'crop', signal);
-        log.warn(`Crop worker unavailable, falling back to in-process crop: ${getErrorMessage(error)}`);
-        await cropPagesLocal(workingCopyPath, pages, margins, signal);
+        throw createNativePageGeometryFailure(error);
     }
-}
-
-export async function removeCropFromPages(
-    workingCopyPath: string,
-    pages: number[],
-    senderWebContentsId?: number,
-    signal?: AbortSignal,
-) {
-    try {
-        await runCropWorkerTask<undefined>({
-            type: 'removeCrop',
-            workingCopyPath,
-            pages,
-            ...(senderWebContentsId !== undefined ? { senderWebContentsId } : {}),
-        }, decodeUndefinedResult, signal);
-    } catch (error) {
-        if (!shouldFallbackToLocalCrop(error)) {
-            throw error;
-        }
-        await assertPageOpsLocalFallbackAllowed(workingCopyPath, 'remove-crop', signal);
-        log.warn(`Crop worker unavailable, falling back to in-process crop reset: ${getErrorMessage(error)}`);
-        await removeCropFromPagesLocal(workingCopyPath, pages, signal);
-    }
-}
-
-export async function getPageGeometry(
-    workingCopyPath: string,
-    pageNumber: number,
-    senderWebContentsId?: number,
-    signal?: AbortSignal,
-): Promise<IPageGeometry> {
-    const nativeGeometry = await tryGetPageGeometryWithNativePageOps(
-        workingCopyPath,
-        pageNumber,
-        signal,
-    );
-    if (nativeGeometry) {
-        return nativeGeometry;
-    }
-    await assertPageOpsLocalFallbackAllowed(workingCopyPath, 'get-page-geometry', signal);
-    throw new PdfPageOpsCapabilityError(
-        'native-failure',
-        'Native page geometry was unavailable and no JavaScript fallback is permitted',
-        {operation: 'get-page-geometry'},
-    );
 }

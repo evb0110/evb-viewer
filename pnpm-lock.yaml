@@ -211,9 +211,6 @@ importers:
       marked:
         specifier: 17.0.6
         version: 17.0.6
-      pdf-lib:
-        specifier: ^1.17.1
-        version: 1.17.1
       pdfjs-dist:
         specifier: file:vendor/pdfjs-dist/pdfjs-dist-6.3.316-c6bd7213.tgz
         version: file:vendor/pdfjs-dist/pdfjs-dist-6.3.316-c6bd7213.tgz
@@ -332,6 +329,9 @@ importers:
       oxlint:
         specifier: 1.91.0
         version: 1.91.0
+      pdf-lib:
+        specifier: ^1.17.1
+        version: 1.17.1
       pdfjs-dist-codex-preview:
         specifier: npm:pdfjs-dist@5.4.296
         version: pdfjs-dist@5.4.296
@@ -512,9 +512,6 @@ importers:
       es-toolkit:
         specifier: ^1.52.0
         version: 1.52.0
-      pdf-lib:
-        specifier: ^1.17.1
-        version: 1.17.1
 
   packages/release-selection:
     dependencies:
