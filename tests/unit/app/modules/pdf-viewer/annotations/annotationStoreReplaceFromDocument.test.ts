@@ -2,6 +2,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
     AnnotationStore,
@@ -1102,4 +1103,146 @@ describe('scoped committed additive upserts', () => {
             expect(store.hasChangesSinceSavedBaseline()).toBe(false);
         });
     }
+
+    it('re-reads one page without reaching annotations on other pages', () => {
+        const inkOnPage = (id: string, pageIndex: number, persisted = false): IShapeEntity => ({
+            kind: 'shape',
+            identity: persisted ? {
+                id: asAnnotationId(id),
+                pdfRef: `${id} 0 R`,
+            } : {id: asAnnotationId(id)},
+            pageIndex: requirePageIndex(pageIndex),
+            revision: 0,
+            persistedRevision: persisted ? 0 : -1,
+            deleted: false,
+            createdAt: requireEpochMs(1),
+            modifiedAt: requireEpochMs(1),
+            author: null,
+            tool: 'draw',
+            pdfSubtype: 'Ink',
+            rect,
+            strokes: [[
+                {
+                    x: 0.1,
+                    y: 0.2,
+                },
+                {
+                    x: 0.3,
+                    y: 0.25,
+                },
+            ]],
+            strokeColor: '#d92626',
+            strokeWidth: 2,
+            fill: null,
+            opacity: 1,
+        });
+        const documentOfPages = (pageCount: number) => {
+            const store = new AnnotationStore();
+            store.importMany(() => {
+                for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
+                    for (let slot = 0; slot < 3; slot += 1) store.import(inkOnPage(`ink-${pageIndex}-${slot}`, pageIndex, true));
+                }
+            });
+            return store;
+        };
+        const parseOfPage = (store: AnnotationStore) => store.list()
+            .filter(entity => entity.pageIndex === 0)
+            .map((entity, index) => (index === 0 && entity.kind === 'shape' ? {
+                ...entity,
+                strokeColor: '#0000ff',
+            } : entity));
+        // The work of a one-page read must not grow with the document: count the fingerprints it computes.
+        const fingerprintsForPageRead = (pageCount: number) => {
+            const store = documentOfPages(pageCount);
+            const otherPage = store.list().filter(entity => entity.pageIndex === pageCount - 1);
+            const stringify = vi.spyOn(JSON, 'stringify');
+            try {
+                expect(store.replaceFromDocument(parseOfPage(store), [], [0])).toBe(true);
+                return stringify.mock.calls.length;
+            } finally {
+                stringify.mockRestore();
+                expect(store.get(asAnnotationId('ink-0-0'))).toMatchObject({
+                    strokeColor: '#0000ff',
+                    revision: 0,
+                    persistedRevision: 0,
+                });
+                expect(store.hasChangesSinceSavedBaseline()).toBe(false);
+                // Annotations on other pages keep their very objects: the read never rebuilt them.
+                otherPage.forEach(entity => expect(store.get(entity.identity.id)).toBe(entity));
+                expect(store.list()).toHaveLength(pageCount * 3);
+            }
+        };
+        const small = fingerprintsForPageRead(4);
+        expect(small).toBeGreaterThan(0);
+        expect(fingerprintsForPageRead(400)).toBe(small);
+    });
+
+    it('keeps store order for a page read that adds an annotation and for a page operation Undo', () => {
+        const inkOnPage = (id: string, pageIndex: number, persisted = false): IShapeEntity => ({
+            kind: 'shape',
+            identity: persisted ? {
+                id: asAnnotationId(id),
+                pdfRef: `${id} 0 R`,
+            } : {id: asAnnotationId(id)},
+            pageIndex: requirePageIndex(pageIndex),
+            revision: 0,
+            persistedRevision: persisted ? 0 : -1,
+            deleted: false,
+            createdAt: requireEpochMs(1),
+            modifiedAt: requireEpochMs(1),
+            author: null,
+            tool: 'draw',
+            pdfSubtype: 'Ink',
+            rect,
+            strokes: [[
+                {
+                    x: 0.1,
+                    y: 0.2,
+                },
+                {
+                    x: 0.3,
+                    y: 0.25,
+                },
+            ]],
+            strokeColor: '#d92626',
+            strokeWidth: 2,
+            fill: null,
+            opacity: 1,
+        });
+        const store = new AnnotationStore();
+        store.importMany(() => {
+            for (let pageIndex = 0; pageIndex < 3; pageIndex += 1) {
+                for (let slot = 0; slot < 3; slot += 1) store.import(inkOnPage(`ink-${pageIndex}-${slot}`, pageIndex, true));
+            }
+        });
+        const before = store.list().map(entity => entity.identity.id);
+        const added = inkOnPage('ink-1-new', 1, true);
+        expect(store.replaceFromDocument([
+            ...store.list().filter(entity => entity.pageIndex === 1),
+            added,
+        ], [], [1])).toBe(true);
+        expect(store.list().map(entity => entity.identity.id)).toEqual([
+            ...before,
+            added.identity.id,
+        ]);
+        expect(store.hasChangesSinceSavedBaseline()).toBe(false);
+
+        const state = store.snapshotState();
+        store.delete(asAnnotationId('ink-0-0'));
+        store.createShape(inkOnPage('later', 2));
+        const replaced = store.exchangeState(state);
+        expect(store.list().map(entity => entity.identity.id)).toEqual([
+            ...before,
+            added.identity.id,
+        ]);
+        expect(store.hasChangesSinceSavedBaseline()).toBe(false);
+        store.exchangeState(replaced);
+        expect(store.list({includeDeleted: true}).map(entity => entity.identity.id)).toEqual([
+            ...before,
+            added.identity.id,
+            asAnnotationId('later'),
+        ]);
+        expect(store.get(asAnnotationId('ink-0-0'))?.deleted).toBe(true);
+        expect(store.hasChangesSinceSavedBaseline()).toBe(true);
+    });
 });

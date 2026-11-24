@@ -6,6 +6,7 @@ import {
 import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import {
     asAnnotationId,
+    type AnnotationEntity,
     type IShapeEntity,
     type ITextBoxEntity,
     type INoteEntity,
@@ -90,8 +91,44 @@ function persist(store: AnnotationStore, id: string, pdfRef?: string) {
     }]);
 }
 
+function inkShape(id: string, pageIndex = 0): IShapeEntity {
+    return {
+        kind: 'shape',
+        identity: {id: asAnnotationId(id)},
+        pageIndex: requirePageIndex(pageIndex),
+        revision: 0,
+        persistedRevision: -1,
+        deleted: false,
+        createdAt: null,
+        modifiedAt: null,
+        author: null,
+        tool: 'draw',
+        pdfSubtype: 'Ink',
+        rect: {
+            left: 0.1,
+            top: 0.2,
+            width: 0.3,
+            height: 0.1,
+        },
+        strokes: [[
+            {
+                x: 0.1,
+                y: 0.2,
+            },
+            {
+                x: 0.3,
+                y: 0.25,
+            },
+        ]],
+        strokeColor: '#d92626',
+        strokeWidth: 2,
+        fill: null,
+        opacity: 1,
+    };
+}
+
 describe('AnnotationStore dirty and persistence projection', () => {
-    it('returns cloned canonical entities for edits and deletes', () => {
+    it('returns frozen canonical entities for edits and deletes', () => {
         const store = new AnnotationStore();
         const created = store.createNote(note('dirty'));
         store.updateNote(created.identity.id, {contents: 'edited'});
@@ -106,7 +143,7 @@ describe('AnnotationStore dirty and persistence projection', () => {
 
         const dirtyEntity = dirty[0];
         expect(dirtyEntity).toBeDefined();
-        Object.assign(dirtyEntity!, {contents: 'mutated outside'});
+        expect(() => Object.assign(dirtyEntity!, {contents: 'mutated outside'})).toThrow(TypeError);
         expect((store.get(created.identity.id) as INoteEntity | null)?.contents).toBe('edited');
 
         store.delete(created.identity.id);
@@ -296,6 +333,111 @@ describe('AnnotationStore dirty and persistence projection', () => {
         store.markPersisted(store.beginSave());
         expect(store.get(first.identity.id)?.identity.pdfRef).toBeUndefined();
         expect(store.hasChangesSinceSavedBaseline()).toBe(false);
+    });
+
+    it('hands readers frozen entities and snapshots that writes cannot reach', () => {
+        const store = new AnnotationStore();
+        const input = inkShape('a');
+        const created = store.createShape(input);
+        // The caller's own object stays theirs: neither frozen nor shared.
+        expect(Object.isFrozen(input)).toBe(false);
+        input.rect.left = 0.9;
+        expect(store.get(created.identity.id)).toMatchObject({rect: {left: 0.1}});
+
+        const patch = {
+            rect: {
+                left: 0.5,
+                top: 0.2,
+                width: 0.3,
+                height: 0.1,
+            },
+        };
+        store.updateShape(created.identity.id, patch);
+        patch.rect.left = 0.7;
+        expect(store.get(created.identity.id)).toMatchObject({rect: {left: 0.5}});
+
+        let published: readonly AnnotationEntity[] = [];
+        store.subscribe(entities => published = entities);
+        const reads: AnnotationEntity[] = [
+            store.get(created.identity.id)!,
+            store.list()[0]!,
+            published[0]!,
+            store.dirtyEntities()[0]!,
+            store.pendingChanges()[0]!.entity,
+            store.snapshotState().entities.get(created.identity.id)!,
+        ];
+        reads.forEach((entity) => {
+            expect(entity.kind).toBe('shape');
+            if (entity.kind !== 'shape') return;
+            expect(() => {
+                entity.rect.left = 0.3;
+            }).toThrow(TypeError);
+            expect(() => {
+                entity.strokes![0]![0]!.x = 0.3;
+            }).toThrow(TypeError);
+            expect(() => Object.assign(entity, {strokeColor: '#000000'})).toThrow(TypeError);
+        });
+        expect(() => (published as AnnotationEntity[]).push(inkShape('b'))).toThrow(TypeError);
+        expect(() => (store.list() as AnnotationEntity[]).pop()).toThrow(TypeError);
+        expect(store.get(created.identity.id)).toMatchObject({
+            rect: {left: 0.5},
+            strokeColor: '#d92626',
+        });
+        expect(store.list()).toHaveLength(1);
+
+        // A state built outside the store is copied before the store freezes it.
+        const outside = store.snapshotState();
+        const foreignShape = inkShape('outside');
+        const externalSavedEntry = {
+            kind: 'shape' as const,
+            deleted: false,
+            fingerprint: 'orig',
+        };
+        store.exchangeState({
+            ...outside,
+            entities: new Map([[foreignShape.identity.id, foreignShape]]),
+            saved: new Map([[foreignShape.identity.id, externalSavedEntry]]),
+        });
+        expect(Object.isFrozen(foreignShape)).toBe(false);
+        expect(Object.isFrozen(externalSavedEntry)).toBe(false);
+        foreignShape.rect.left = 0.8;
+        externalSavedEntry.fingerprint = 'mutated';
+        expect(store.get(foreignShape.identity.id)).toMatchObject({rect: {left: 0.1}});
+        const storedSaved = store.snapshotState().saved.get(foreignShape.identity.id)!;
+        expect(storedSaved).toEqual({
+            kind: 'shape',
+            deleted: false,
+            fingerprint: 'orig',
+        });
+        expect(() => {
+            (storedSaved as {fingerprint: string}).fingerprint = 'hack';
+        }).toThrow(TypeError);
+    });
+
+    it('publishes a new snapshot for every change and keeps every untouched entity as it was', () => {
+        const store = new AnnotationStore();
+        const first = store.createShape(inkShape('first', 0));
+        const second = store.createShape(inkShape('second', 1));
+        const published: (readonly AnnotationEntity[])[] = [];
+        store.subscribe(entities => published.push(entities));
+        const untouched = store.get(second.identity.id);
+
+        store.updateShape(first.identity.id, {strokeWidth: 5});
+        expect(published).toHaveLength(2);
+        expect(published[1]).not.toBe(published[0]);
+        expect(published[1]!.map(entity => entity.identity.id)).toEqual([
+            first.identity.id,
+            second.identity.id,
+        ]);
+        expect(published[1]![0]).toMatchObject({strokeWidth: 5});
+        expect(published[0]![0]).toMatchObject({strokeWidth: 2});
+        expect(store.get(second.identity.id)).toBe(untouched);
+        expect(published[1]![1]).toBe(untouched);
+
+        // An emission that changes no entity still publishes a distinct array.
+        store.markPersisted(store.beginSave());
+        store.markPersisted(store.beginSave());
+        expect(published.at(-1)).not.toBe(published.at(-2));
     });
 
 });
