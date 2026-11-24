@@ -189,14 +189,32 @@ async function readCheckpoints() {
     return decoded;
 }
 
-function isAdmittedSource(sourceRef: TDocumentRef, owner: number | WebContents, documentOriginal: string | undefined) {
-    if (sourceRef === documentOriginal) return true;
+function isAdmittedOpenPath(sourceRef: TDocumentRef, owner: number | WebContents) {
     try {
         requireOpenPath(sourceRef, owner);
         return true;
     } catch {
         return false;
     }
+}
+
+function isAdmittedSource(sourceRef: TDocumentRef, owner: number | WebContents, documentOriginal: string | undefined) {
+    return sourceRef === documentOriginal || isAdmittedOpenPath(sourceRef, owner);
+}
+
+function emptyCheckpointTab(tab: IWorkspaceCheckpointTab): IWorkspaceCheckpointTab {
+    return {
+        tabId: tab.tabId,
+        paneId: tab.paneId,
+        fileName: null,
+        sourceRef: null,
+        workingCopyRef: null,
+        isDirty: false,
+        isDjvu: false,
+        currentPage: null,
+        zoom: null,
+        zoomMode: null,
+    };
 }
 
 /** Stores this window's tabs, panes and views and the directory each tab shows; resolves once durable. */
@@ -206,18 +224,42 @@ export function saveWorkspaceCheckpoint(
     owner: number | WebContents = ownerWebContentsId,
 ) {
     const ownerId = getOwnerId(ownerWebContentsId, owner);
+    // Capture source admission synchronously at IPC entry: a reload (`did-start-navigation`)
+    // that starts while this save is queued clears the sender's open-path grants before serialize() runs.
+    const admittedOpenPaths = new Map<TDocumentRef, boolean>();
+    const isAdmittedOpenPathAtEntry = (sourceRef: TDocumentRef) => {
+        const cached = admittedOpenPaths.get(sourceRef);
+        if (cached !== undefined) return cached;
+        const admitted = isAdmittedOpenPath(sourceRef, owner);
+        admittedOpenPaths.set(sourceRef, admitted);
+        return admitted;
+    };
+    const admittedAtEntry = checkpoint.tabs.map((tab) => {
+        if (!tab.sourceRef) return false;
+        const entry = tab.workingCopyRef ? getWorkingCopyBackingEntry(tab.workingCopyRef, ownerWebContentsId) : null;
+        return (entry?.ownerWebContentsId === ownerWebContentsId && tab.sourceRef === entry.originalPath)
+            || isAdmittedOpenPathAtEntry(tab.sourceRef);
+    });
     return serialize(async () => {
         if (discardedOwners.has(ownerId)) return false;
         const directories = new Map<string, string>();
         const tabs: IWorkspaceCheckpointTab[] = [];
-        for (const tab of checkpoint.tabs) {
+        for (const [index, tab] of checkpoint.tabs.entries()) {
             const entry = tab.workingCopyRef ? getWorkingCopyBackingEntry(tab.workingCopyRef, ownerWebContentsId) : null;
             if (tab.workingCopyRef && (!entry || entry.ownerWebContentsId !== ownerWebContentsId)) {
                 throw new Error('Workspace checkpoint contains an unowned working copy');
             }
             if (entry) directories.set(tab.tabId, entry.doc.id);
-            const sourceRef = tab.sourceRef && isAdmittedSource(tab.sourceRef, owner, entry?.originalPath) ? tab.sourceRef : null;
-            tabs.push({...tab, sourceRef});
+            const sourceRef = tab.sourceRef && (
+                admittedAtEntry[index]
+                || isAdmittedSource(tab.sourceRef, owner, entry?.originalPath)
+            ) ? tab.sourceRef : null;
+            // Never persist a ghost tab with a dangling file name when it has no working copy and no admitted source.
+            if (!entry && sourceRef === null && (tab.sourceRef !== null || tab.fileName !== null || tab.linkedToTabId !== undefined)) {
+                tabs.push(emptyCheckpointTab(tab));
+            } else {
+                tabs.push({...tab, sourceRef});
+            }
             // A generated output a tab shows must outlive the scratch sweep until the tab is gone.
             if (sourceRef) void touchScanCleanupGeneratedOutput(sourceRef).catch(() => undefined);
         }
@@ -431,18 +473,7 @@ async function closeRestoreDocuments(ownerId: string, documents: {tabIds: Set<st
         if (!notReopened.some(document => document.sourceRef === tab.sourceRef && document.fileName === tab.fileName)) {
             notReopened.push({fileName: tab.fileName, sourceRef: tab.sourceRef});
         }
-        return {
-            tabId: tab.tabId,
-            paneId: tab.paneId,
-            fileName: null,
-            sourceRef: null,
-            workingCopyRef: null,
-            isDirty: false,
-            isDjvu: false,
-            currentPage: null,
-            zoom: null,
-            zoomMode: null,
-        };
+        return emptyCheckpointTab(tab);
     });
     if (closedTabCount === 0) return;
     log.warn(`Renderer ended while restoring; ${String(closedTabCount)} document tab(s) will not reopen`);
