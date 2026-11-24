@@ -1,10 +1,17 @@
 import type {ICanonicalAnnotationRecovery} from '@app/modules/pdf-viewer/public';
+import type {TDocumentRef} from '@contracts/documentRef';
 import type {IWorkspaceMetadataRecovery} from '@contracts/workspaceCheckpoint';
 
 export interface IWorkspaceDocumentRecovery extends ICanonicalAnnotationRecovery {metadata?: IWorkspaceMetadataRecovery;}
+/** Where the window's checkpoint finds a document: its file, its working copy, and whether its first save must ask where. */
+export interface IWorkspaceDocumentRefs {
+    sourceRef: TDocumentRef | null;
+    workingCopyRef: TDocumentRef | null;
+    requiresSaveAsOnFirstSave: boolean;
+}
 export interface IWorkspaceDocumentRecoveryPort {
-    /** The document references the window's checkpoint names, for its change signature. */
-    getWorkspaceDocumentRefsSignature?: () => readonly unknown[];
+    /** The document references the window's checkpoint names. Reading them costs nothing the document is not already holding. */
+    getWorkspaceDocumentRefs: () => IWorkspaceDocumentRefs;
     /** What the document's drafts would hold now: `null` while the edit state is unavailable, `undefined` when the working bytes hold all of it. */
     captureCanonicalAnnotationRecovery?: () => IWorkspaceDocumentRecovery | null | undefined;
     /** Resolves once the document's drafts hold its unsaved work as it is now; rejects when it could not be stored. */

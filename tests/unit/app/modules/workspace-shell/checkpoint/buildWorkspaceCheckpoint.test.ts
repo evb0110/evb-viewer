@@ -197,9 +197,10 @@ describe('buildWorkspaceCheckpoint', () => {
             // A mounted view's toolbar is its workspace's; another view shows the copy it retained.
             if (options.mountedTabIds.includes(tabId)) {
                 session.attachWorkspace(tabId, createWorkspaceExposeFixture({
-                    getAutomationStateSnapshot: () => cast({
-                        originalPath,
-                        workingCopyPath: workingCopyRef,
+                    getWorkspaceDocumentRefs: () => ({
+                        sourceRef: originalPath,
+                        workingCopyRef,
+                        requiresSaveAsOnFirstSave: false,
                     }),
                     getToolbarSnapshot: () => toolbar,
                 }));

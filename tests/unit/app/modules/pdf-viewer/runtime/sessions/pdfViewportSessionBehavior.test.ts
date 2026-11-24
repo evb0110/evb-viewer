@@ -879,7 +879,7 @@ describe('PdfViewportSession behavior', () => {
             hiddenAnnotationIds: ref(new Set<string>()),
             canvasHiddenAnnotationIds: ref(new Set<string>()),
             thumbnailHiddenAnnotationIds: ref(new Set<string>()),
-            paintIdentities: ref(new Map<number, string>()),
+            paintIdentity: () => '',
             async preparePagePaint() {
                 preparationStarted.resolve(undefined);
                 await ownership.promise;
@@ -1143,7 +1143,7 @@ describe('PdfViewportSession behavior', () => {
             hiddenAnnotationIds: ref(new Set<string>()),
             canvasHiddenAnnotationIds: ref(new Set<string>()),
             thumbnailHiddenAnnotationIds: ref(new Set<string>()),
-            paintIdentities: ref(new Map<number, string>()),
+            paintIdentity: () => '',
             preparePagePaint: () => undefined,
         };
         rendering.attachAnnotationProjection(projection);
@@ -1293,7 +1293,7 @@ describe('PdfViewportSession behavior', () => {
             hiddenAnnotationIds: ref(new Set<string>()),
             canvasHiddenAnnotationIds: ref(new Set<string>()),
             thumbnailHiddenAnnotationIds: ref(new Set<string>()),
-            paintIdentities,
+            paintIdentity: pageNumber => paintIdentities.value.get(pageNumber) ?? '',
             preparePagePaint: page => ({
                 document: fixture.documentSession.pdfDocument.value!,
                 original: null,

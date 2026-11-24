@@ -781,10 +781,14 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             signature: nativeAnnotationPaintIdentity(entities, editingId, options.documentRevisionToken.value, draft),
         };
     }
-    const paintIdentities = computed(() => new Map([...annotationEditorSurface.entitiesByPage.value.keys()].map(pageIndex => [
-        pageIndex + 1,
-        pagePaint(pageIndex).signature,
-    ])));
+    // Computed for the pages a view paints and only when it paints them: a document with thousands
+    // of annotated pages would otherwise serialize every page whenever one annotation changes.
+    const paintIdentities = new Map<number, ComputedRef<string>>();
+    function paintIdentity(pageNumber: number) {
+        const identity = paintIdentities.get(pageNumber) ?? computed(() => pagePaint(pageNumber - 1).signature);
+        paintIdentities.set(pageNumber, identity);
+        return identity.value;
+    }
     function preparePagePaint(page: IPdfPage, annotations: readonly IPdfAnnotation[], signal?: AbortSignal, reserveAppearanceBytes?: (bytes: number) => void, accepted?: IAcceptedNativeTextBox) {
         const document = documentSession.pdfDocument.value;
         if (!document) return;
@@ -807,7 +811,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         annotationProjectionReady,
         canvasHiddenAnnotationIds: hiddenPdfAnnotationIds,
         thumbnailHiddenAnnotationIds,
-        paintIdentities,
+        paintIdentity,
         preparePagePaint,
     });
     async function ensureAnnotationProjectionReady(isCurrent?: () => boolean) {
@@ -824,6 +828,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         if (transition.phase === 'invalidated') {
             annotationProjectionReady.value = true;
             textSelectionCache.clearSelectionCache();
+            paintIdentities.clear();
             return;
         }
         // Each load and revision this view presents is read once into the

@@ -51,8 +51,8 @@ interface IPdfAnnotationProjection {
     readonly annotationProjectionReady: Readonly<Ref<boolean>>;
     readonly canvasHiddenAnnotationIds: Readonly<Ref<Set<string>>>;
     readonly thumbnailHiddenAnnotationIds: Readonly<Ref<Set<string>>>;
-    /** Each page's paint identity; a page that has none is absent. */
-    readonly paintIdentities: Readonly<Ref<ReadonlyMap<number, string>>>;
+    /** A page's paint identity, empty for a page without annotations. */
+    paintIdentity(pageNumber: number): string;
     preparePagePaint(page: IPdfPage, annotations: readonly IPdfAnnotation[], signal?: AbortSignal, reserveAppearanceBytes?: (bytes: number) => void, accepted?: IAcceptedNativeTextBox): IPdfAnnotationRenderInput | undefined | Promise<IPdfAnnotationRenderInput | undefined>;
 }
 
@@ -111,7 +111,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         },
     });
     const resources = options.pageResources;
-    const annotationPaintIdentities = computed(() => projection.value?.paintIdentities.value ?? new Map<number, string>());
+    const annotationPaintIdentity = (pageNumber: number) => projection.value?.paintIdentity(pageNumber) ?? '';
     const pendingHydrations = new Set<Promise<void>>();
     let disposed = false;
     async function promoteQueuedTextLayer(pageNumber: TPageNumber) {
@@ -177,12 +177,15 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     });
     function releasePageLayers(pageNumber: TPageNumber) {
         const root = options.container.value;
-        const container = getMountedPageContainer(pageNumber, root);
+        // The container the page published into: a view released after it unmounted finds nothing under its root,
+        // and a text layer left registered for selection would keep the whole view alive.
+        const container = resources.get(pageNumber).shown?.container ?? getMountedPageContainer(pageNumber, root);
         clearPdfSelectionForLayerTeardown({
             target: container,
             root,
             includeDetached: true,
-            includeAnyPdfTextSelection: pageNumber === viewport.currentPage.value,
+            // Without its root the view cannot tell its text from another tab's or pane's.
+            includeAnyPdfTextSelection: Boolean(root) && pageNumber === viewport.currentPage.value,
         });
         const textLayer = container?.querySelector<HTMLDivElement>('.text-layer');
         const annotationLayer = container?.querySelector<HTMLElement>('.annotation-layer');
@@ -579,9 +582,9 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         releasePageLayers,
         applySearchHighlights: searchController.applySearchHighlights,
         annotationProjectionReady,
-        annotationPaintIdentities,
+        annotationPaintIdentity,
         isAnnotationInputCurrent: (pageNumber: TPageNumber, input: IPdfAnnotationRenderInput | undefined) => !input
-            || input.document === pdfDocument.value && input.signature === (annotationPaintIdentities.value.get(pageNumber) ?? ''),
+            || input.document === pdfDocument.value && input.signature === annotationPaintIdentity(pageNumber),
         async prepareCanvasAnnotations(page: IPdfPage, captureSettlement?: TPdfPageOperationSettlementCapture, signal?: AbortSignal, reserveAppearanceBytes?: (bytes: number) => void, accepted?: IAcceptedNativeTextBox) {
             const parsed = getParsedPageAnnotations(page);
             captureSettlement?.(parsed.then(() => undefined, () => undefined));
