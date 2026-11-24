@@ -34,8 +34,9 @@ describe('native resource manifest', () => {
         for (const tool of GENERATED_NATIVE_TOOL_RESOURCES) {
             expect(familyIds.has(tool.familyId)).toBe(true);
         }
-        expect(NATIVE_TOOL_RESOURCE_FAMILIES.find(family => family.id === 'windows-job-launcher'))
-            .toMatchObject({packagedEntries: [{platforms: ['win32']}]});
+        const supervisorFamily = NATIVE_TOOL_RESOURCE_FAMILIES.find(family => family.id === 'windows-job-launcher');
+        expect(supervisorFamily?.packagedEntries).toEqual([expect.objectContaining({id: 'evb-windows-job-launcher'})]);
+        expect(supervisorFamily?.packagedEntries[0]?.platforms).toBeUndefined();
 
         expect(NATIVE_TOOL_RESOURCE_FAMILIES
             .filter(family => GENERATED_NATIVE_TOOL_RESOURCES.some(tool => tool.familyId === family.id))

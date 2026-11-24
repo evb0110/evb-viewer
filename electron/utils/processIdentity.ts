@@ -12,6 +12,7 @@ import {
 } from 'node:path';
 import {createInterface} from 'node:readline';
 import {promisify} from 'node:util';
+import {resolveNativeProcessSupervisorPath} from '@electron/native-tools/resolveNativeToolsBase';
 
 // Who started a process: its pid and the creation time the OS keeps for it,
 // read from the OS and compared exactly. The managed process reaper and the
@@ -40,20 +41,6 @@ function parseProcStartTime(stat: string, bootId: string) {
     const fields = stat.slice(commandEnd + 2).trim().split(/\s+/u);
     // The slice starts at field 3 (state), while starttime is field 22.
     return fields[19] === undefined ? null : `${bootId.trim()}:${fields[19]}`;
-}
-
-function normalizeProcessStartTime(value: string) {
-    const normalized = value.trim().replace(/\s+/gu, ' ');
-    return normalized.length > 0 ? normalized : null;
-}
-
-function parseCommandLine(commandLine: string) {
-    return (commandLine.match(/"[^"]*"|'[^']*'|\S+/gu) ?? [])
-        .map(argument => argument.length >= 2
-            && ((argument.startsWith('"') && argument.endsWith('"'))
-                || (argument.startsWith('\'') && argument.endsWith('\'')))
-            ? argument.slice(1, -1)
-            : argument);
 }
 
 async function execFileForIdentity(
@@ -106,168 +93,31 @@ async function readLinuxProcessIdentity(pid: number): Promise<IProcessIdentity |
     }
 }
 
-// kinfo_proc starts with p_starttime (seconds and microseconds). KERN_PROCARGS2
-// retains NUL-delimited argv and environment; proc_pidpath names the executable.
-// The shared JXA reader asks these OS APIs directly, so spaces are never parsed.
-const MAC_PROCESS_SCRIPT = `ObjC.import('Foundation');
-ObjC.bindFunction('sysctl', ['int', ['void *', 'unsigned int', 'void *', 'unsigned long *', 'void *', 'unsigned long']]);
-ObjC.bindFunction('proc_pidpath', ['int', ['int', 'void *', 'unsigned int']]);
-function read(encoded) {
-    const mib = $.NSData.alloc.initWithBase64EncodedStringOptions(encoded, 0);
-    const size = Ref();
-    if ($.sysctl(mib.bytes, mib.length / 4, null, size, null, 0) !== 0) return null;
-    const data = $.NSMutableData.dataWithLength(size[0]);
-    if ($.sysctl(mib.bytes, mib.length / 4, data.mutableBytes, size, null, 0) !== 0) return null;
-    return data.subdataWithRange($.NSMakeRange(0, size[0]));
-}
-function run(argv) {
-    const info = read(argv[0]);
-    if (!info || Number(info.length) !== 648) return '';
-    const fields = [info.subdataWithRange($.NSMakeRange(0, 12))];
-    if (argv[1]) {
-        const path = $.NSMutableData.dataWithLength(4096);
-        const length = $.proc_pidpath(Number(argv[1]), path.mutableBytes, 4096);
-        const args = read(argv[2]);
-        if (length <= 0 || !args) return '';
-        fields.push(path.subdataWithRange($.NSMakeRange(0, length)), args);
-    }
-    return fields.map(data => data.base64EncodedStringWithOptions(0).js).join(' ');
-}`;
-
-async function readMacProcessData(pid: number, includeArguments = false) {
-    const mib = Buffer.from(Int32Array.of(1, 14, 1, pid).buffer); // CTL_KERN, KERN_PROC, KERN_PROC_PID
-    const procArgs = Buffer.from(Int32Array.of(1, 49, pid).buffer); // CTL_KERN, KERN_PROCARGS2
-    try {
-        const {stdout} = await execFileForIdentity('/usr/bin/osascript', [
-            '-l',
-            'JavaScript',
-            '-e',
-            MAC_PROCESS_SCRIPT,
-            mib.toString('base64'),
-            ...(includeArguments ? [
-                String(pid),
-                procArgs.toString('base64'),
-            ] : []),
-        ], {
-            timeout: 2_000,
-            maxBuffer: 2 * 1024 * 1024,
-        });
-        return String(stdout).trim().split(' ').map(part => Buffer.from(part, 'base64'));
-    } catch {
-        return [];
-    }
-}
-
-function macStartTime(head: Buffer | undefined) {
-    return head?.length === 12 ? `${String(head.readBigInt64LE(0))}.${String(head.readInt32LE(8)).padStart(6, '0')}` : null;
-}
-
-async function readMacProcessIdentity(pid: number): Promise<IProcessIdentity | null> {
-    const [
-        head,
-        path,
-        procArgs,
-    ] = await readMacProcessData(pid, true);
-    const startTime = macStartTime(head);
-    const executablePath = path?.toString('utf8');
-    if (startTime === null || !executablePath || !isAbsolute(executablePath) || !procArgs || procArgs.length < 4) return null;
-    const argc = procArgs.readInt32LE(0);
-    // Skip exec_path and its alignment padding. Empty argv entries after argv[0] still count.
-    let offset = procArgs.indexOf(0, 4) + 1;
-    if (offset < 5 || argc <= 0) return null;
-    while (procArgs[offset] === 0) offset += 1;
-    const fields = procArgs.subarray(offset).toString('utf8').split('\0');
-    if (fields.length <= argc) return null;
-    return {
-        executablePath: resolve(executablePath),
-        arguments: fields.slice(0, argc),
-        startTime,
-        environment: fields.slice(argc).filter(Boolean).join('\0'),
-    };
-}
-
-async function readWindowsProcessIdentity(pid: number): Promise<IProcessIdentity | null> {
-    const command = [
-        `$process = Get-Process -Id ${String(pid)} -ErrorAction Stop`,
-        `$native = Get-CimInstance Win32_Process -Filter "ProcessId = ${String(pid)}" -ErrorAction Stop`,
-        '@($process.StartTime.ToUniversalTime().ToString(\'o\'), $native.ParentProcessId, $native.ExecutablePath, $native.CommandLine) -join "`n"',
-    ].join('; ');
-    try {
-        const {stdout} = await execFileForIdentity('powershell.exe', [
-            '-NoProfile',
-            '-NonInteractive',
-            '-Command',
-            command,
-        ], {
-            timeout: 2_000,
-            windowsHide: true,
-            maxBuffer: 16 * 1024,
-        });
-        const lines = String(stdout).trim().split(/\r?\n/u);
-        const startTime = normalizeProcessStartTime(lines.shift() ?? '');
-        const parentPid = Number(lines.shift());
-        const executablePath = lines.shift()?.trim();
-        const argumentsList = parseCommandLine(lines.join(' '));
-        if (startTime === null || executablePath === undefined || !isAbsolute(executablePath)) {
-            return null;
-        }
-        return {
-            executablePath: resolve(executablePath),
-            arguments: argumentsList,
-            startTime,
-            parentPid,
-        };
-    } catch {
-        return null;
-    }
-}
-
-export async function readProcessIdentity(pid: number, platform = process.platform) {
-    if (platform === 'linux') {
-        return readLinuxProcessIdentity(pid);
-    }
-    if (platform === 'darwin') {
-        return readMacProcessIdentity(pid);
-    }
-    if (platform === 'win32') {
-        return readWindowsProcessIdentity(pid);
-    }
-    return null;
-}
-
-// Windows keeps a process's creation time to 100 ns, which Get-Process prints
-// in full. One PowerShell per process answers in order, one line per pid: one
-// launched per question cost every native command about a second (#930). It
-// prints nothing for a pid that is gone and "denied" for a process it may not
-// inspect. Its pipes keep this process alive only while a question is open.
-const WINDOWS_START_TIME_HOST_SCRIPT = `while ($null -ne ($line = [Console]::In.ReadLine())) {
-    $answer = ''
-    try { $answer = (Get-Process -Id ([int]$line) -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o') }
-    catch [Microsoft.PowerShell.Commands.ProcessCommandException] {}
-    catch { $answer = 'denied' }
-    if ($null -eq $answer) { $answer = 'denied' }
-    [Console]::Out.WriteLine($answer)
-    [Console]::Out.Flush()
-}`;
-
-interface IWindowsStartTimeHost {
+// Native process identity host (`evb-windows-job-launcher --process-start-time-host`):
+// answers start-time (`<pid>`) and full identity (`identity <pid>`) queries
+// over stdin/stdout using OS syscalls directly (Win32 GetProcessTimes +
+// NtQueryInformationProcess on Windows; sysctl + proc_pidpath on macOS),
+// replacing both PowerShell and osascript shell-outs. Its pipes keep this
+// process alive only while a query is in flight.
+interface INativeIdentityHost {
     child: ChildProcess;
     answers: Array<(answer: string | null) => void>;
     // Ends this reader: its open questions answer null, and the next read starts another.
     end: () => void;
 }
 
-let windowsStartTimeHost: IWindowsStartTimeHost | null = null;
+let nativeIdentityHost: INativeIdentityHost | null = null;
 
-function readWindowsStartTime(pid: number) {
+function queryNativeIdentityHost(command: string) {
     return new Promise<string | null>(resolveAnswer => {
-        if (windowsStartTimeHost === null) {
-            const child = process.getBuiltinModule('node:child_process').spawn('powershell.exe', [
-                '-NoProfile',
-                '-NonInteractive',
-                '-Command',
-                WINDOWS_START_TIME_HOST_SCRIPT,
-            ], {
+        if (nativeIdentityHost === null) {
+            const {existsSync} = process.getBuiltinModule('node:fs');
+            const supervisorPath = resolveNativeProcessSupervisorPath(import.meta.dirname, {exists: existsSync});
+            if (!supervisorPath) {
+                resolveAnswer(null);
+                return;
+            }
+            const child = process.getBuiltinModule('node:child_process').spawn(supervisorPath, ['--process-start-time-host'], {
                 stdio: [
                     'pipe',
                     'pipe',
@@ -275,16 +125,18 @@ function readWindowsStartTime(pid: number) {
                 ],
                 windowsHide: true,
             });
-            const started: IWindowsStartTimeHost = {
+            const lines = createInterface({input: child.stdout});
+            const started: INativeIdentityHost = {
                 child,
                 answers: [],
                 end: () => {
-                    if (windowsStartTimeHost === started) windowsStartTimeHost = null;
+                    if (nativeIdentityHost === started) nativeIdentityHost = null;
+                    lines.close();
                     started.answers.splice(0).forEach(answer => answer(null));
                     child.kill();
                 },
             };
-            createInterface({input: child.stdout}).on('line', line => {
+            lines.on('line', line => {
                 started.answers.shift()?.(line.trim());
                 if (started.answers.length === 0) (child.stdout as Socket).unref();
             });
@@ -292,15 +144,77 @@ function readWindowsStartTime(pid: number) {
             child.stdin.once('error', started.end);
             child.unref();
             (child.stdin as Socket).unref();
-            windowsStartTimeHost = started;
+            nativeIdentityHost = started;
         }
-        const host = windowsStartTimeHost;
-        host.answers.push(resolveAnswer);
-        (host.child.stdout as Socket).ref();
-        host.child.stdin!.write(`${String(pid)}\n`);
+        const host = nativeIdentityHost;
         // The two-second bound of every identity read: a reader that has not answered by then is ended.
-        setTimeout(() => host.answers.includes(resolveAnswer) && host.end(), 2_000).unref();
+        const timeout = setTimeout(() => {
+            if (host.answers.includes(settle)) {
+                host.end();
+            }
+        }, 2_000);
+        timeout.unref();
+        const settle = (answer: string | null) => {
+            clearTimeout(timeout);
+            resolveAnswer(answer);
+        };
+        host.answers.push(settle);
+        (host.child.stdout as Socket).ref();
+        host.child.stdin!.write(`${command}\n`);
     });
+}
+
+function parseNativeProcessIdentity(line: string | null): IProcessIdentity | null {
+    if (!line) {
+        return null;
+    }
+    try {
+        const parsed: unknown = JSON.parse(line);
+        if (typeof parsed !== 'object' || parsed === null) {
+            return null;
+        }
+        const record = parsed as Record<string, unknown>;
+        const executablePath = record.executablePath;
+        const rawArguments = record.arguments;
+        const startTime = record.startTime;
+        if (
+            typeof executablePath !== 'string'
+            || !isAbsolute(executablePath)
+            || !Array.isArray(rawArguments)
+            || !rawArguments.every((arg): arg is string => typeof arg === 'string')
+            || typeof startTime !== 'string'
+            || startTime.length === 0
+        ) {
+            return null;
+        }
+        const identity: IProcessIdentity = {
+            executablePath: resolve(executablePath),
+            arguments: rawArguments,
+            startTime,
+        };
+        if (typeof record.parentPid === 'number' && Number.isSafeInteger(record.parentPid)) {
+            identity.parentPid = record.parentPid;
+        }
+        if (typeof record.environment === 'string') {
+            identity.environment = record.environment;
+        }
+        return identity;
+    } catch {
+        return null;
+    }
+}
+
+export async function readProcessIdentity(pid: number, platform = process.platform) {
+    if (!Number.isInteger(pid) || pid <= 0) {
+        return null;
+    }
+    if (platform === 'linux') {
+        return readLinuxProcessIdentity(pid);
+    }
+    if ((platform === 'darwin' || platform === 'win32') && platform === process.platform) {
+        return parseNativeProcessIdentity(await queryNativeIdentityHost(`identity ${String(pid)}`));
+    }
+    return null;
 }
 
 /**
@@ -310,11 +224,11 @@ function readWindowsStartTime(pid: number) {
  * (Windows), null when it could not be asked.
  */
 export async function readProcessStartTime(pid: number): Promise<string | null> {
-    if (process.platform === 'win32') {
-        return readWindowsStartTime(pid);
+    if (!Number.isInteger(pid) || pid <= 0) {
+        return '';
     }
-    if (process.platform === 'darwin') {
-        return isProcessAlive(pid) ? macStartTime((await readMacProcessData(pid))[0]) : '';
+    if (process.platform === 'win32' || process.platform === 'darwin') {
+        return queryNativeIdentityHost(String(pid));
     }
     if (process.platform !== 'linux') {
         return null;
