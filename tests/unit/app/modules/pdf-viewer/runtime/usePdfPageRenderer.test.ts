@@ -34,6 +34,7 @@ import { createPdfDocumentProxy } from '@tests/helpers/createPdfDocumentProxy';
 const rendererFixture = vi.hoisted(() => ({
     canReuseTextLayer: vi.fn(() => false),
     renderTextLayer: vi.fn(),
+    wakeDeferredTextLayer: vi.fn(() => false),
     applyPageSearchHighlights: vi.fn(),
     cleanupTextLayerDom: vi.fn(),
     clearOcrDebug: vi.fn(),
@@ -675,6 +676,70 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
             })).rejects.toThrow('page proxy destroyed');
             expect(isPdfPageBusy(harness.pageResources.get(page1))).toBe(false);
         } finally {
+            harness.root.remove();
+        }
+    });
+
+    it('promotes sibling pages concurrently so a deferred page does not block another page and wakes deferred pages on promoteTextLayers', async () => {
+        const harness = createHarness();
+        const page2 = requirePageNumber(2);
+        harness.document.numPages.value = 2;
+        const page2Container = document.createElement('div');
+        page2Container.className = 'page_container';
+        page2Container.dataset.page = '2';
+        const page2TextLayer = document.createElement('div');
+        page2TextLayer.className = 'text-layer';
+        const page2AnnotationLayer = document.createElement('div');
+        page2AnnotationLayer.className = 'annotation-layer';
+        const page2Canvas = document.createElement('canvas');
+        page2Container.append(page2Canvas, page2TextLayer, page2AnnotationLayer);
+        harness.root.append(page2Container);
+
+        const page1Deferred = createDeferred();
+        rendererFixture.renderTextLayer.mockImplementation(async (_pdfPage: unknown, targetDiv: HTMLElement) => {
+            if (targetDiv.closest<HTMLElement>('.page_container')?.dataset.page === '1') {
+                await page1Deferred.promise;
+            }
+        });
+        try {
+            showRaster(harness);
+            const page2Job = {
+                ...createJob(),
+                demand: cast<IPdfRasterJob['demand']>({
+                    pageNumber: page2,
+                    renderKey: 'page-2',
+                }),
+            };
+            harness.pageResources.want(page2, page2Job);
+            harness.pageResources.beginRaster(page2, page2Job, page2Container);
+            harness.pageResources.publish(page2, page2Job, {
+                ...publication(harness, 'canvas-only'),
+                container: page2Container,
+            });
+
+            const promotion = harness.renderer.renderLayerPromotions({
+                start: 1,
+                end: 2,
+            }, {
+                contentIntent: 'layers-only-promotion',
+                rasterDemandPages: [
+                    1,
+                    2,
+                ],
+            });
+
+            // Page 2 finishes hydrating even while page 1 is still deferred.
+            await vi.waitFor(() => expect(harness.pageResources.get(page2).layers).toBe('ready'));
+            expect(harness.pageResources.get(page1).layers).not.toBe('ready');
+
+            await harness.renderer.promoteTextLayers([1]);
+            expect(rendererFixture.wakeDeferredTextLayer).toHaveBeenCalledWith(1);
+
+            page1Deferred.resolve();
+            await promotion;
+            expect(harness.pageResources.get(page1).layers).toBe('ready');
+        } finally {
+            page1Deferred.resolve();
             harness.root.remove();
         }
     });

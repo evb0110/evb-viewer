@@ -1,4 +1,5 @@
 import type { ComputedRef } from 'vue';
+import { pdfViewportScrollActivity } from '@app/modules/pdf-viewer/runtime/composables/pdf/pdfViewportScrollActivity';
 
 interface IUsePdfViewerMouseInteractionsOptions {
     isSnipActive: () => boolean;
@@ -49,6 +50,13 @@ export const usePdfViewerMouseInteractions = (options: IUsePdfViewerMouseInterac
         if (isSnipActive() || isImagePlacementTarget(event.target)) {
             return;
         }
+        if (
+            !isViewerPanDragModeActive.value
+            && event.target instanceof Element
+            && event.target.closest('.page_container')
+        ) {
+            pdfViewportScrollActivity.flushSettled(event.target.closest<HTMLElement>('.pdfViewer'));
+        }
         markUserViewportInteraction?.();
         if (isCommentTarget(event.target)) {
             event.preventDefault();
@@ -85,6 +93,15 @@ export const usePdfViewerMouseInteractions = (options: IUsePdfViewerMouseInterac
     function handleSelectStart(event: Event) {
         if (isViewerPanDragModeActive.value) {
             event.preventDefault();
+            return;
+        }
+        const targetElement = event.target instanceof Element
+            ? event.target
+            : event.target instanceof Node
+                ? event.target.parentElement
+                : null;
+        if (targetElement) {
+            pdfViewportScrollActivity.flushSettled(targetElement.closest<HTMLElement>('.pdfViewer'));
         }
     }
 

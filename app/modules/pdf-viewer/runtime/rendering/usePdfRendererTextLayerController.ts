@@ -24,6 +24,7 @@ interface ITextLayerRenderContext {
     pdfPage: IPdfPage;
     renderResult: Pick<IPdfLayerRenderResult, 'viewport'>;
     textLayerDiv: HTMLDivElement | null;
+    eagerTextLayer?: boolean | undefined;
 }
 
 interface IUsePdfRendererTextLayerControllerOptions {
@@ -47,7 +48,12 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
         shouldContinue: () => boolean,
         publish: () => boolean = () => true,
     ): Promise<boolean | IPdfLayerStageFailure> {
-        const {pdfPage, renderResult, textLayerDiv} = context;
+        const {
+            pdfPage,
+            renderResult,
+            textLayerDiv,
+            eagerTextLayer,
+        } = context;
         if (!textLayerDiv) {
             return publish();
         }
@@ -62,7 +68,13 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
         let failure: IPdfLayerStageFailure | null = null;
         try {
             await withPageStageTimeout(
-                textLayerRenderer.renderTextLayer(pdfPage, textLayerDiv, renderResult.viewport, signal),
+                textLayerRenderer.renderTextLayer(
+                    pdfPage,
+                    textLayerDiv,
+                    renderResult.viewport,
+                    signal,
+                    eagerTextLayer ? { eagerTextLayer: true } : undefined,
+                ),
                 {
                     pageNumber,
                     stage: 'text-layer',

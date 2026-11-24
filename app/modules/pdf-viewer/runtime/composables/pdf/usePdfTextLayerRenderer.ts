@@ -1,7 +1,9 @@
-import type {
-    IPdfPage,
-    IPdfTextContent,
-    IPdfViewport,
+import {
+    readPdfPageDocumentTeardownSignal,
+    type IPdfDocumentPageLease,
+    type IPdfPage,
+    type IPdfTextContent,
+    type IPdfViewport,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     pageNumberToPageIndex,
@@ -10,7 +12,10 @@ import {
     type TPageNumber,
 } from '@contracts/pageNumbers';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { MaybeRefOrGetter } from 'vue';
+import {
+    watch,
+    type MaybeRefOrGetter,
+} from 'vue';
 import { tryOnScopeDispose } from '@vueuse/core';
 import type {
     IPdfPageMatches,
@@ -23,6 +28,10 @@ import { usePdfSearchHighlight } from '@app/modules/pdf-viewer/runtime/composabl
 import { useTextLayerSelection } from '@app/modules/pdf-viewer/runtime/composables/useTextLayerSelection';
 import { usePdfWordBoxes } from '@app/modules/pdf-viewer/runtime/composables/usePdfWordBoxes';
 import { useOcrTextContent } from '@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent';
+import {
+    pdfViewportScrollActivity,
+    type IPdfViewportScrollActivity,
+} from '@app/modules/pdf-viewer/runtime/composables/pdf/pdfViewportScrollActivity';
 import type {
     IPageHighlightSignatureState,
     TPageMatchEntry,
@@ -51,6 +60,7 @@ const HIGHLIGHT_REFRESH_MAX_PAGES_PER_SLICE = 4;
 interface IRenderedTextLayer {
     textLayer: IPdfTextLayer | null;
     structTreeDom: HTMLElement | null;
+    structTreeAbortController: AbortController | null;
     pdfPage: IPdfPage;
     viewport: IPdfViewport;
     workingCopyPath: TDocumentRef | null;
@@ -74,7 +84,13 @@ export const usePdfTextLayerRenderer = (deps: {
     currentSearchMatch: MaybeRefOrGetter<IPdfSearchMatch | null>;
     workingCopyPath: MaybeRefOrGetter<TDocumentRef | null>;
     documentRevisionToken: MaybeRefOrGetter<TDocumentRevisionToken | null>;
+    viewportContainer?: MaybeRefOrGetter<HTMLElement | null> | undefined;
+    leasePage?: ((pageNumber: TPageNumber) => Promise<IPdfDocumentPageLease>) | undefined;
+    scrollActivity?: IPdfViewportScrollActivity | undefined;
 }) => {
+    const scrollActivity = deps.scrollActivity ?? pdfViewportScrollActivity;
+    const activeDeferredStructTreeControllers = new Set<AbortController>();
+    const deferredTextLayerWakers = new Map<number, Set<() => void>>();
     const { setupTextLayer, teardownTextLayer } = useTextLayerSelection();
     const {
         clearHighlights,
@@ -90,6 +106,7 @@ export const usePdfTextLayerRenderer = (deps: {
     const {
         getOcrTextContent,
         hasPageOcrData,
+        peekPageOcrData,
     } = useOcrTextContent();
 
     const pageHighlightState: IPageHighlightSignatureState = {
@@ -100,7 +117,37 @@ export const usePdfTextLayerRenderer = (deps: {
         refreshVersion: 0,
     };
 
+    function wakeDeferredTextLayer(pageNumber: number) {
+        const wakers = deferredTextLayerWakers.get(pageNumber);
+        if (!wakers) {
+            return false;
+        }
+        deferredTextLayerWakers.delete(pageNumber);
+        for (const wake of [...wakers]) {
+            wake();
+        }
+        return true;
+    }
+
+    const stopCurrentSearchMatchWatch = watch(
+        () => toValue(deps.currentSearchMatch)?.pageIndex ?? null,
+        (pageIndex) => {
+            if (pageIndex === null) {
+                return;
+            }
+            const pageNumber = pageIndex + 1;
+            if (wakeDeferredTextLayer(pageNumber)) {
+                const explicitViewport = toValue(deps.viewportContainer);
+                if (explicitViewport) {
+                    scrollActivity.flushSettled(explicitViewport);
+                }
+            }
+        },
+        { flush: 'sync' },
+    );
+
     tryOnScopeDispose(() => {
+        stopCurrentSearchMatchWatch();
         if (pageHighlightState.rafId !== 0 && typeof window !== 'undefined') {
             window.cancelAnimationFrame(pageHighlightState.rafId);
             pageHighlightState.rafId = 0;
@@ -109,6 +156,11 @@ export const usePdfTextLayerRenderer = (deps: {
             window.cancelAnimationFrame(pageHighlightState.continuationRafId);
             pageHighlightState.continuationRafId = 0;
         }
+        for (const controller of activeDeferredStructTreeControllers) {
+            controller.abort();
+        }
+        activeDeferredStructTreeControllers.clear();
+        deferredTextLayerWakers.clear();
         pageHighlightState.pendingRoot = null;
         pageHighlightState.signatureByPage.clear();
     });
@@ -627,6 +679,224 @@ export const usePdfTextLayerRenderer = (deps: {
             && rendered.documentRevisionToken === toValue(deps.documentRevisionToken));
     }
 
+    function isElementConnected(element: HTMLElement) {
+        return element.isConnected !== false;
+    }
+
+    function resolveViewportContainer(textLayerDiv: HTMLElement) {
+        const explicitContainer = toValue(deps.viewportContainer);
+        if (explicitContainer) {
+            return explicitContainer;
+        }
+        if (!isElementConnected(textLayerDiv)) {
+            return null;
+        }
+        return textLayerDiv.closest<HTMLElement>('.pdfViewer');
+    }
+
+    function isCurrentSearchMatchPage(pageNumber: number) {
+        const currentMatch = toValue(deps.currentSearchMatch);
+        return Boolean(currentMatch && currentMatch.pageIndex + 1 === pageNumber);
+    }
+
+    function isTextLayerRecordCurrent(
+        record: IRenderedTextLayer,
+        textLayerDiv: HTMLElement,
+        requireConnected: boolean,
+    ) {
+        if (renderedTextLayers.get(textLayerDiv) !== record) {
+            return false;
+        }
+        if (requireConnected && !isElementConnected(textLayerDiv)) {
+            return false;
+        }
+        const pageContainer = textLayerDiv.closest<HTMLElement>('.page_container');
+        if (!pageContainer) {
+            return !requireConnected;
+        }
+        const mountedPage = pageContainer.dataset.page;
+        return mountedPage === undefined || mountedPage === String(record.pdfPage.pageNumber);
+    }
+
+    function waitForScrollOrWake(
+        pageNumber: number,
+        viewportContainer: HTMLElement | null,
+        signal?: AbortSignal,
+    ) {
+        if (signal?.aborted) {
+            return Promise.reject(createAbortError());
+        }
+        if (!scrollActivity.isMotionActive(viewportContainer)) {
+            return Promise.resolve();
+        }
+        return new Promise<void>((resolve, reject) => {
+            const localAbort = new AbortController();
+            let settled = false;
+            const cleanup = () => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                signal?.removeEventListener('abort', onExternalAbort);
+                const pageWakers = deferredTextLayerWakers.get(pageNumber);
+                if (pageWakers) {
+                    pageWakers.delete(wake);
+                    if (pageWakers.size === 0) {
+                        deferredTextLayerWakers.delete(pageNumber);
+                    }
+                }
+            };
+            const wake = () => {
+                cleanup();
+                localAbort.abort();
+                resolve();
+            };
+            const onExternalAbort = () => {
+                cleanup();
+                localAbort.abort();
+                reject(createAbortError());
+            };
+            const pageWakers = deferredTextLayerWakers.get(pageNumber) ?? new Set<() => void>();
+            pageWakers.add(wake);
+            deferredTextLayerWakers.set(pageNumber, pageWakers);
+            signal?.addEventListener('abort', onExternalAbort, { once: true });
+
+            scrollActivity.waitUntilSettled(viewportContainer, localAbort.signal).then(() => {
+                cleanup();
+                resolve();
+            }, (error) => {
+                if (settled) {
+                    return;
+                }
+                cleanup();
+                reject(error);
+            });
+        });
+    }
+
+    function attachStructTreeDom(
+        record: IRenderedTextLayer,
+        textLayerDiv: HTMLElement,
+        structTreeLayer: IPdfStructTreeLayer,
+        structTreeDom: HTMLElement,
+    ) {
+        const pageContainer = textLayerDiv.closest<HTMLElement>('.page_container');
+        pageContainer?.querySelector<HTMLElement>('.structTree')?.remove();
+        structTreeLayer.updateTextLayer();
+        exposeMarkedContentNames(structTreeDom, textLayerDiv);
+        const structureHost = pageContainer
+            ?.querySelector<HTMLElement>('.page_canvas__render-layer, .page_canvas');
+        structureHost?.append(structTreeDom);
+        record.structTreeDom = structTreeDom;
+    }
+
+    async function loadStructTreeDom(
+        record: IRenderedTextLayer,
+        signal?: AbortSignal,
+        pageOverride?: IPdfPage,
+    ): Promise<{
+        structTreeLayer: IPdfStructTreeLayer;
+        structTreeDom: HTMLElement;
+    } | null> {
+        const pdfPage = pageOverride ?? record.pdfPage;
+        const { viewport } = record;
+        if (typeof pdfPage.getStructTree !== 'function') {
+            return null;
+        }
+        try {
+            const structTreeLayer = await createPdfjsStructTreeLayer({
+                page: pdfPage,
+                rawDims: viewport.rawDims,
+            });
+            throwIfAborted(signal);
+            const renderedStructure = await structTreeLayer.render();
+            throwIfAborted(signal);
+            const structTreeDom = typeof HTMLElement !== 'undefined' && renderedStructure instanceof HTMLElement
+                ? renderedStructure
+                : null;
+            return structTreeDom
+                ? {
+                    structTreeLayer,
+                    structTreeDom,
+                }
+                : null;
+        } catch (structureError) {
+            if (!signal?.aborted) {
+                BrowserLogger.warn('pdf-text-layer', 'PDF structure tree unavailable', structureError);
+            }
+            return null;
+        }
+    }
+
+    function isCancellationError(error: unknown) {
+        const name = error && typeof error === 'object' ? (error as { name?: unknown }).name : undefined;
+        return name === 'AbortError' || name === 'RenderingCancelledException';
+    }
+
+    function scheduleDeferredStructTreeHydration(
+        record: IRenderedTextLayer,
+        textLayerDiv: HTMLElement,
+    ) {
+        if (typeof record.pdfPage.getStructTree !== 'function') {
+            return;
+        }
+        const controller = new AbortController();
+        record.structTreeAbortController = controller;
+        activeDeferredStructTreeControllers.add(controller);
+        const documentTeardown = readPdfPageDocumentTeardownSignal(record.pdfPage);
+        const combinedSignal = documentTeardown
+            ? AbortSignal.any([
+                controller.signal,
+                documentTeardown,
+            ])
+            : controller.signal;
+
+        void (async () => {
+            let lease: IPdfDocumentPageLease | null = null;
+            try {
+                while (scrollActivity.isMotionActive(resolveViewportContainer(textLayerDiv))) {
+                    await scrollActivity.waitUntilSettled(
+                        resolveViewportContainer(textLayerDiv),
+                        combinedSignal,
+                    );
+                    if (combinedSignal.aborted || renderedTextLayers.get(textLayerDiv) !== record) {
+                        return;
+                    }
+                }
+                if (combinedSignal.aborted || !isTextLayerRecordCurrent(record, textLayerDiv, true)) {
+                    return;
+                }
+                let pageForStructure: IPdfPage = record.pdfPage;
+                if (deps.leasePage) {
+                    lease = await deps.leasePage(requirePageNumber(record.pdfPage.pageNumber));
+                    if (
+                        combinedSignal.aborted
+                        || !isTextLayerRecordCurrent(record, textLayerDiv, true)
+                        || lease.page !== record.pdfPage
+                    ) {
+                        return;
+                    }
+                    pageForStructure = lease.page;
+                }
+                const result = await loadStructTreeDom(record, combinedSignal, pageForStructure);
+                if (!result || combinedSignal.aborted || !isTextLayerRecordCurrent(record, textLayerDiv, true)) {
+                    return;
+                }
+                attachStructTreeDom(record, textLayerDiv, result.structTreeLayer, result.structTreeDom);
+            } catch (error) {
+                if (!combinedSignal.aborted && !isCancellationError(error)) {
+                    BrowserLogger.warn('pdf-text-layer', 'Deferred PDF structure tree hydration failed', error);
+                }
+            } finally {
+                lease?.release();
+                activeDeferredStructTreeControllers.delete(controller);
+                if (record.structTreeAbortController === controller) {
+                    record.structTreeAbortController = null;
+                }
+            }
+        })();
+    }
+
     /**
      * Renders the page's text into `textLayerDiv`. A scale or rotation step
      * updates the mounted spans in place, so selections survive it; a content
@@ -638,6 +908,7 @@ export const usePdfTextLayerRenderer = (deps: {
         textLayerDiv: HTMLElement,
         viewport: ReturnType<IPdfPage['getViewport']>,
         signal?: AbortSignal,
+        renderOptions?: { eagerTextLayer?: boolean | undefined },
     ) {
         throwIfAborted(signal);
 
@@ -652,6 +923,7 @@ export const usePdfTextLayerRenderer = (deps: {
         const record: IRenderedTextLayer = {
             textLayer: null,
             structTreeDom: null,
+            structTreeAbortController: null,
             pdfPage,
             viewport,
             workingCopyPath: toValue(deps.workingCopyPath),
@@ -667,7 +939,7 @@ export const usePdfTextLayerRenderer = (deps: {
         textLayerDiv.style.removeProperty(PDF_PAGE_SCALE_CSS_VARS.userUnit);
         textLayerDiv.style.removeProperty(PDF_PAGE_SCALE_CSS_VARS.totalScaleFactor);
         try {
-            await buildTextLayer(record, textLayerDiv, signal);
+            await buildTextLayer(record, textLayerDiv, signal, renderOptions);
         } catch (error) {
             if (renderedTextLayers.get(textLayerDiv) === record) cleanupTextLayerDom(textLayerDiv);
             throw error;
@@ -678,15 +950,19 @@ export const usePdfTextLayerRenderer = (deps: {
         const {pdfPage, viewport, workingCopyPath, documentRevisionToken} = record;
         const pageNumber = requirePageNumber(pdfPage.pageNumber);
         if (!workingCopyPath || !documentRevisionToken) return getPdfjsTextContentSource(pdfPage);
-        let hasOcrFallbackForPage = false;
-        try {
-            hasOcrFallbackForPage = await hasPageOcrData(workingCopyPath, documentRevisionToken, pageNumber);
-            throwIfAborted(signal);
-        } catch (ocrAvailabilityError) {
-            if (signal?.aborted) {
-                throw ocrAvailabilityError;
+        const cachedPageOcrAvailability = peekPageOcrData(workingCopyPath, documentRevisionToken, pageNumber);
+        if (cachedPageOcrAvailability === false) return getPdfjsTextContentSource(pdfPage);
+        let hasOcrFallbackForPage = cachedPageOcrAvailability === true;
+        if (cachedPageOcrAvailability === null) {
+            try {
+                hasOcrFallbackForPage = await hasPageOcrData(workingCopyPath, documentRevisionToken, pageNumber);
+                throwIfAborted(signal);
+            } catch (ocrAvailabilityError) {
+                if (signal?.aborted) {
+                    throw ocrAvailabilityError;
+                }
+                BrowserLogger.warn('pdf-text-layer', 'OCR availability check failed', ocrAvailabilityError);
             }
-            BrowserLogger.warn('pdf-text-layer', 'OCR availability check failed', ocrAvailabilityError);
         }
         if (!hasOcrFallbackForPage) return getPdfjsTextContentSource(pdfPage);
         // Native PDF text wins; OCR text stands in only for a page without any.
@@ -706,10 +982,40 @@ export const usePdfTextLayerRenderer = (deps: {
         return getPdfjsTextContentSource(pdfPage);
     }
 
-    async function buildTextLayer(record: IRenderedTextLayer, textLayerDiv: HTMLElement, signal?: AbortSignal) {
+    async function buildTextLayer(
+        record: IRenderedTextLayer,
+        textLayerDiv: HTMLElement,
+        signal?: AbortSignal,
+        renderOptions?: { eagerTextLayer?: boolean | undefined },
+    ) {
         const {pdfPage, viewport} = record;
+        const wasConnected = isElementConnected(textLayerDiv);
+
+        // Connected layer promotions already show their page canvas. Defer
+        // non-essential text extraction and DOM span creation while the
+        // viewport is actively scrolling/zooming so scrolled-past pages abort
+        // before touching PDF.js or the DOM. Search target and prioritized pages
+        // stay eager.
+        if (
+            wasConnected
+            && renderOptions?.eagerTextLayer !== true
+            && !isCurrentSearchMatchPage(pdfPage.pageNumber)
+        ) {
+            const viewportContainer = resolveViewportContainer(textLayerDiv);
+            if (scrollActivity.isMotionActive(viewportContainer)) {
+                await waitForScrollOrWake(pdfPage.pageNumber, viewportContainer, signal);
+                if (!isTextLayerRecordCurrent(record, textLayerDiv, true)) {
+                    throw createAbortError();
+                }
+                throwIfAborted(signal);
+            }
+        }
+
         const textContentSource = await resolveTextContentSource(record, signal);
         throwIfAborted(signal);
+        if (!isTextLayerRecordCurrent(record, textLayerDiv, wasConnected)) {
+            throw createAbortError();
+        }
 
         const textLayer = createPdfjsTextLayer({
             textContentSource,
@@ -726,48 +1032,41 @@ export const usePdfTextLayerRenderer = (deps: {
             signal?.removeEventListener('abort', abortTextLayer);
         }
         throwIfAborted(signal);
-
-        let structTreeLayer: IPdfStructTreeLayer | undefined;
-        let structTreeDom: HTMLElement | null = null;
-        if (typeof pdfPage.getStructTree === 'function') {
-            try {
-                structTreeLayer = await createPdfjsStructTreeLayer({
-                    page: pdfPage,
-                    rawDims: viewport.rawDims,
-                });
-                const renderedStructure = await structTreeLayer.render();
-                structTreeDom = typeof HTMLElement !== 'undefined' && renderedStructure instanceof HTMLElement
-                    ? renderedStructure
-                    : null;
-            } catch (structureError) {
-                if (!signal?.aborted) {
-                    BrowserLogger.warn('pdf-text-layer', 'PDF structure tree unavailable', structureError);
-                }
-                structTreeDom = null;
-            }
+        if (!isTextLayerRecordCurrent(record, textLayerDiv, wasConnected)) {
+            throw createAbortError();
         }
 
-        // A render that waited on optional structure past a cleanup or a newer
-        // render of this element publishes nothing.
-        if (renderedTextLayers.get(textLayerDiv) !== record) {
+        const deferStructTree = typeof pdfPage.getStructTree === 'function'
+            && scrollActivity.isMotionActive(resolveViewportContainer(textLayerDiv));
+        const structTreeResult = deferStructTree
+            ? null
+            : await loadStructTreeDom(record, signal);
+
+        // A render that waited on optional structure past a cleanup, reuse, or
+        // a newer render of this element publishes nothing.
+        if (!isTextLayerRecordCurrent(record, textLayerDiv, wasConnected)) {
             throw createAbortError();
         }
         throwIfAborted(signal);
-        if (structTreeLayer && structTreeDom) {
-            structTreeLayer.updateTextLayer();
-            exposeMarkedContentNames(structTreeDom, textLayerDiv);
-            const structureHost = textLayerDiv.closest<HTMLElement>('.page_container')
-                ?.querySelector<HTMLElement>('.page_canvas__render-layer, .page_canvas');
-            structureHost?.append(structTreeDom);
+        if (structTreeResult) {
+            attachStructTreeDom(
+                record,
+                textLayerDiv,
+                structTreeResult.structTreeLayer,
+                structTreeResult.structTreeDom,
+            );
         }
 
         registerTextLayerTextMapping(textLayerDiv, {
             textDivs: textLayer.textDivs,
             textContentItemsStr: textLayer.textContentItemsStr,
         });
-        record.structTreeDom = structTreeDom;
         record.textLayer = textLayer;
         setupTextLayer(textLayerDiv);
+
+        if (deferStructTree) {
+            scheduleDeferredStructTreeHydration(record, textLayerDiv);
+        }
     }
 
     function applyPageSearchHighlights(
@@ -843,6 +1142,11 @@ export const usePdfTextLayerRenderer = (deps: {
     function cleanupTextLayerDom(textLayerDiv: HTMLElement) {
         teardownTextLayer(textLayerDiv);
         const rendered = renderedTextLayers.get(textLayerDiv);
+        if (rendered?.structTreeAbortController) {
+            rendered.structTreeAbortController.abort();
+            activeDeferredStructTreeControllers.delete(rendered.structTreeAbortController);
+            rendered.structTreeAbortController = null;
+        }
         rendered?.structTreeDom?.remove();
         renderedTextLayers.delete(textLayerDiv);
         clearHighlights(textLayerDiv);
@@ -928,6 +1232,7 @@ export const usePdfTextLayerRenderer = (deps: {
     return {
         canReuseTextLayer,
         renderTextLayer,
+        wakeDeferredTextLayer,
         applyPageSearchHighlights,
         applyAllSearchHighlights,
         cleanupTextLayerDom,

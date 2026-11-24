@@ -96,6 +96,8 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         currentSearchMatch,
         workingCopyPath: options.workingCopyPath ?? null,
         documentRevisionToken: options.documentRevisionToken ?? null,
+        viewportContainer: options.container,
+        leasePage: pageNumber => options.document.leasePage(pageNumber),
     });
     const annotationLayerRenderer = usePdfAnnotationLayerRenderer({
         numPages,
@@ -387,6 +389,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 pdfPage: lease.page,
                 renderResult,
                 textLayerDiv: incomingText,
+                eagerTextLayer: renderOptions.prioritizeTextLayer === true,
             };
             const stagedAnnotations = publishRaster && renderResult.annotationOutput?.ownCanvases.length !== 0
                 ? await renderAnnotationLayerForPage(pageNumber, {
@@ -452,6 +455,9 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         range: IPageRange,
         renderOptions: IRenderVisiblePagesOptions,
     ) {
+        const currentMatchPage = toValue(currentSearchMatch)
+            ? toValue(currentSearchMatch)!.pageIndex + 1
+            : null;
         const pages = (renderOptions.rasterDemandPages
             ?? Array.from(
                 {length: range.end - range.start + 1},
@@ -459,6 +465,15 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             ))
             .filter(pageNumber => pageNumber >= 1 && pageNumber <= numPages.value)
             .map(pageNumber => requirePageNumber(pageNumber, numPages.value));
+        // Order the active search-match page ahead of sibling visible pages
+        // and launch layer promotions concurrently so a scroll-deferred page
+        // never blocks a search target or readiness waiter behind it.
+        if (currentMatchPage !== null && pages.length > 1) {
+            pages.sort((left, right) => (
+                Number(right === currentMatchPage) - Number(left === currentMatchPage)
+            ));
+        }
+        const layerPromotions: Array<Promise<void>> = [];
         for (const pageNumber of pages) {
             const resource = resources.get(pageNumber);
             const container = getMountedPageContainer(pageNumber, options.container.value);
@@ -471,12 +486,15 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 await options.requestSearchPageRaster(pageNumber, true);
                 continue;
             }
-            await renderCommittedPageLayers({
+            layerPromotions.push(renderCommittedPageLayers({
                 pageNumber,
                 container,
                 renderResult,
                 renderOptions,
-            });
+            }));
+        }
+        if (layerPromotions.length > 0) {
+            await Promise.all(layerPromotions);
         }
     }
 
@@ -508,6 +526,9 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
     /** Promotes the pages' layers text-first now, or as soon as each page is idle. */
     async function promoteTextLayers(pages: readonly number[]) {
+        for (const rawPageNumber of pages) {
+            textLayerRenderer.wakeDeferredTextLayer?.(rawPageNumber);
+        }
         const promotion = resolveLayerPromotionDemand(pages);
         if (promotion) {
             await renderLayerPromotions(promotion.range, {
