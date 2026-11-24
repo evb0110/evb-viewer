@@ -121,6 +121,7 @@ impl ComponentMap {
         self.height
     }
 
+    #[inline]
     pub fn label_at(&self, x: usize, y: usize) -> u32 {
         let row = &self.runs[self.row_offsets[y]..self.row_offsets[y + 1]];
         let candidate = row.partition_point(|run| run.end as usize <= x);

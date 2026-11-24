@@ -73,6 +73,7 @@ impl GrayImage {
         }
     }
 
+    #[inline]
     pub fn get(&self, x: usize, y: usize) -> u8 {
         self.data[y * self.stride + x]
     }
@@ -252,6 +253,7 @@ impl<'a> GrayView<'a> {
     pub fn stride(self) -> usize {
         self.stride
     }
+    #[inline]
     pub fn get(self, x: usize, y: usize) -> u8 {
         self.data[y * self.stride + x]
     }

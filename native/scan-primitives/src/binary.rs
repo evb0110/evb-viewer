@@ -71,6 +71,7 @@ impl BinaryImage {
         &mut self.words
     }
 
+    #[inline]
     pub fn get(&self, x: usize, y: usize) -> bool {
         let word = self.words[y * self.words_per_line + x / 32];
         word & (1 << (31 - x % 32)) != 0
