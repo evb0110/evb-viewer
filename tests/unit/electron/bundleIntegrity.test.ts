@@ -76,6 +76,7 @@ const REQUIRED_SYMBOLS_BY_WORKER: Partial<Record<TWorkerBundleId, string[]>> = {
         'evb-pdf-page-ops(djvu-bookmarks)',
     ],
     'image-export-tiff': ['combinePagesIntoMultiPageTiffLocal'],
+    'ocr-engine-host': ['OCR engine host started without a parent port'],
     'page-ops-crop': ['cropPagesLocal'],
     'pdf-conformance': ['analyzePdfConformanceFileDirect'],
 };
@@ -133,7 +134,8 @@ let mainBundleFixture: IElectronBundleMetafileFixture;
 
 const WORKER_BUNDLE_FILES = new Set(WORKER_BUNDLES.map(bundle => bundle.fileName));
 const ELECTRON_FREE_WORKER_BUNDLE_FILES = new Set(WORKER_BUNDLES
-    .filter(bundle => bundle.id === 'pdf-text' || bundle.id === 'djvu-pdf')
+    // The OCR utility process and its engine threads run outside Electron main.
+    .filter(bundle => bundle.id === 'pdf-text' || bundle.id === 'djvu-pdf' || bundle.id === 'ocr-engine-host' || bundle.id === 'ocr-engine')
     .map(bundle => bundle.fileName));
 const STATIC_ELECTRON_IMPORT_PATTERN = /\bimport\s*(?:\{[^}]*\}|\*\s*as\s+\w+|[\w$]+(?:\s*,\s*(?:\{[^}]*\}|\*\s*as\s+\w+))?)\s*from\s*["']electron["']|\bimport\s*["']electron["']/;
 const CJS_ELECTRON_REQUIRE_PATTERN = /\brequire\(\s*["']electron["']\s*\)/;

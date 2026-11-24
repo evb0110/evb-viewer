@@ -8,6 +8,16 @@ import {
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createOcrEnginePool} from '@electron/features/ocr/main/ocrEnginePool';
+import {
+    createOcrEngineHost,
+    OcrEngineHostExitError,
+} from '@electron/features/ocr/main/ocrEngineHostClient';
+import {OCR_ENGINE_SERVICE_NAME} from '@electron/processDeathRecovery';
+import {
+    decodeOcrEngineHostEvent,
+    type TOcrEngineHostEvent,
+    type TOcrEngineHostRequest,
+} from '@electron/features/ocr/main/ocrEngineHostProtocol';
 import {JobBroker} from '@electron/resources/jobBroker';
 import type { TRegisteredHandler } from '@tests/unit/electron/helpers/ipcRegistryHarness';
 import {
@@ -44,10 +54,13 @@ const mocks = vi.hoisted(() => ({
     resolveAllowedWritePath: vi.fn<(path: string) => Promise<string | null>>(),
 }));
 
+const utility = vi.hoisted(() => ({fork: undefined as unknown as (path: string, args: string[], options: {serviceName?: string}) => unknown}));
+
 vi.mock('electron', () => ({
     app: { isPackaged: false },
     BrowserWindow: { fromWebContents: vi.fn(() => null) },
     ipcMain: { handle: vi.fn() },
+    utilityProcess: {fork: (path: string, args: string[], options: {serviceName?: string}) => utility.fork(path, args, options)},
 }));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
@@ -681,27 +694,21 @@ describe('OCR platform feature main bindings', () => {
 });
 
 const boundary = vi.hoisted(() => ({
-    workers: [] as Array<{
-        emit: (event: string, ...args: unknown[]) => boolean;
-        dead: boolean;
-        terminatedAfterDeath: boolean;
-    }>,
+    workers: [] as FakeLane[],
     // Hold a pass's reply, or a worker's exit after terminate, until resolved.
     replyGate: undefined as Promise<void> | undefined,
     terminateGate: undefined as Promise<void> | undefined,
     constructorError: undefined as (() => Error | undefined) | undefined,
 }));
 
-vi.mock('node:worker_threads', () => ({Worker: class extends EventEmitter {
+/** An engine lane as the pool sees it, answering every page with no passes. */
+class FakeLane extends EventEmitter {
     dead = false;
     terminatedAfterDeath = false;
     constructor() {
         super();
-        const error = boundary.constructorError?.();
-        if (error) throw error;
         boundary.workers.push(this);
     }
-    unref() {}
     postMessage({id}: {id: number}) {
         // As in Node, a message to an exited worker is dropped without an error.
         if (this.dead) return;
@@ -714,7 +721,13 @@ vi.mock('node:worker_threads', () => ({Worker: class extends EventEmitter {
         this.emit('exit', 0);
         return 0;
     }
-}}));
+}
+
+function startFakeLane() {
+    const error = boundary.constructorError?.();
+    if (error) throw error;
+    return new FakeLane();
+}
 
 const MIB = 1024 ** 2;
 const POOL_CAPACITY = {
@@ -741,8 +754,8 @@ describe('OCR engine pool idle shutdown', () => {
         vi.useFakeTimers();
         const pool = createOcrEnginePool({
             size: () => 1,
-            workerPath: '/unused/ocr-engine.mjs',
-            workerData: {engineDir: '/unused/engine', tessdataDir: '/unused/models'},
+            tessdataDir: '/unused/models',
+            startLane: startFakeLane,
             broker: new JobBroker(POOL_CAPACITY),
         });
         await expect(pool.run({
@@ -787,8 +800,8 @@ describe('OCR engine pool idle shutdown', () => {
         const broker = new JobBroker(POOL_CAPACITY);
         const pool = createOcrEnginePool({
             size: () => 1,
-            workerPath: '/unused/ocr-engine.mjs',
-            workerData: {engineDir: '/unused/engine', tessdataDir: await createTessdata(40 * MIB)},
+            tessdataDir: await createTessdata(40 * MIB),
+            startLane: startFakeLane,
             broker,
         });
         const largest = 2.5 * 40 * MIB + PAGE_HEAP_BYTES;
@@ -829,8 +842,8 @@ describe('OCR engine pool idle shutdown', () => {
         const broker = new JobBroker(POOL_CAPACITY);
         const pool = createOcrEnginePool({
             size: () => 1,
-            workerPath: '/unused/ocr-engine.mjs',
-            workerData: {engineDir: '/unused/engine', tessdataDir: await createTessdata(40 * MIB, {fra: 30 * MIB})},
+            tessdataDir: await createTessdata(40 * MIB, {fra: 30 * MIB}),
+            startLane: startFakeLane,
             broker,
         });
         try {
@@ -851,8 +864,8 @@ describe('OCR engine pool idle shutdown', () => {
         });
         const pool = createOcrEnginePool({
             size: () => 2,
-            workerPath: '/unused/ocr-engine.mjs',
-            workerData: {engineDir: '/unused/engine', tessdataDir: await createTessdata(60 * MIB)},
+            tessdataDir: await createTessdata(60 * MIB),
+            startLane: startFakeLane,
             broker,
         });
         try {
@@ -888,8 +901,8 @@ describe('OCR engine pool idle shutdown', () => {
         });
         const pool = createOcrEnginePool({
             size: () => 1,
-            workerPath: '/unused/ocr-engine.mjs',
-            workerData: {engineDir: '/unused/engine', tessdataDir: await createTessdata(60 * MIB)},
+            tessdataDir: await createTessdata(60 * MIB),
+            startLane: startFakeLane,
             broker,
         });
         try {
@@ -948,8 +961,8 @@ describe('OCR engine pool idle shutdown', () => {
         });
         const pool = createOcrEnginePool({
             size: () => 1,
-            workerPath: '/unused/ocr-engine.mjs',
-            workerData: {engineDir: '/unused/engine', tessdataDir: await createTessdata(40 * MIB)},
+            tessdataDir: await createTessdata(40 * MIB),
+            startLane: startFakeLane,
             broker,
         });
         try {
@@ -998,8 +1011,8 @@ describe('OCR engine pool idle shutdown', () => {
     it('starts no worker for a waiting pass once the pool is shut down', async () => {
         const pool = createOcrEnginePool({
             size: () => 1,
-            workerPath: '/unused/ocr-engine.mjs',
-            workerData: {engineDir: '/unused/engine', tessdataDir: await createTessdata(40 * MIB)},
+            tessdataDir: await createTessdata(40 * MIB),
+            startLane: startFakeLane,
             broker: new JobBroker(POOL_CAPACITY),
         });
         const reply = Promise.withResolvers<void>();
@@ -1024,8 +1037,8 @@ describe('OCR engine pool idle shutdown', () => {
         });
         const pool = createOcrEnginePool({
             size: () => 1,
-            workerPath: '/unused/ocr-engine.mjs',
-            workerData: {engineDir: '/unused/engine', tessdataDir: await createTessdata(40 * MIB)},
+            tessdataDir: await createTessdata(40 * MIB),
+            startLane: startFakeLane,
             broker,
         });
         const largest = 2.5 * 40 * MIB + PAGE_HEAP_BYTES;
@@ -1067,8 +1080,8 @@ describe('OCR engine pool idle shutdown', () => {
         });
         const pool = createOcrEnginePool({
             size: () => 1,
-            workerPath: '/unused/ocr-engine.mjs',
-            workerData: {engineDir: '/unused/engine', tessdataDir: await createTessdata(60 * MIB)},
+            tessdataDir: await createTessdata(60 * MIB),
+            startLane: startFakeLane,
             broker,
         });
         try {
@@ -1124,8 +1137,8 @@ describe('OCR engine pool idle shutdown', () => {
         });
         const pool = createOcrEnginePool({
             size: () => 1,
-            workerPath: '/unused/ocr-engine.mjs',
-            workerData: {engineDir: '/unused/engine', tessdataDir: await createTessdata(40 * MIB)},
+            tessdataDir: await createTessdata(40 * MIB),
+            startLane: startFakeLane,
             broker,
         });
         try {
@@ -1170,8 +1183,8 @@ describe('OCR engine pool idle shutdown', () => {
         });
         const pool = createOcrEnginePool({
             size: () => 1,
-            workerPath: '/unused/ocr-engine.mjs',
-            workerData: {engineDir: '/unused/engine', tessdataDir: await createTessdata(40 * MIB)},
+            tessdataDir: await createTessdata(40 * MIB),
+            startLane: startFakeLane,
             broker,
         });
         try {
@@ -1219,8 +1232,8 @@ describe('OCR engine pool idle shutdown', () => {
         });
         const pool = createOcrEnginePool({
             size: () => 1,
-            workerPath: '/unused/ocr-engine.mjs',
-            workerData: {engineDir: '/unused/engine', tessdataDir: await createTessdata(40 * MIB)},
+            tessdataDir: await createTessdata(40 * MIB),
+            startLane: startFakeLane,
             broker,
         });
         try {
@@ -1236,7 +1249,7 @@ describe('OCR engine pool idle shutdown', () => {
         }
     });
 
-    it('propagates a synchronous Worker constructor error without retrying', async () => {
+    it('propagates a synchronous lane start error without retrying', async () => {
         const broker = new JobBroker(POOL_CAPACITY);
         let attempts = 0;
         boundary.constructorError = () => {
@@ -1245,11 +1258,8 @@ describe('OCR engine pool idle shutdown', () => {
         };
         const pool = createOcrEnginePool({
             size: () => 1,
-            workerPath: '/unused/ocr-engine.mjs',
-            workerData: {
-                engineDir: '/unused/engine',
-                tessdataDir: await createTessdata(40 * MIB),
-            },
+            tessdataDir: await createTessdata(40 * MIB),
+            startLane: startFakeLane,
             broker,
         });
         try {
@@ -1291,11 +1301,8 @@ describe('OCR engine pool idle shutdown', () => {
         });
         const pool = createOcrEnginePool({
             size: () => 1,
-            workerPath: '/unused/ocr-engine.mjs',
-            workerData: {
-                engineDir: '/unused/engine',
-                tessdataDir: await createTessdata(40 * MIB),
-            },
+            tessdataDir: await createTessdata(40 * MIB),
+            startLane: startFakeLane,
             broker,
         });
         try {
@@ -1322,5 +1329,487 @@ describe('OCR engine pool idle shutdown', () => {
         } finally {
             pool.terminate();
         }
+    });
+});
+
+/** The OCR utility process as main sees it, running its lanes as the real host does. */
+class FakeUtilityChild extends EventEmitter {
+    static nextPid = 4_000;
+    // Whether a forked child starts on its own, or waits for `spawn()`.
+    static autoSpawn = true;
+    readonly pid = FakeUtilityChild.nextPid++;
+    readonly requests: TOcrEngineHostRequest[] = [];
+    readonly lanes = new Set<number>();
+    exitOnShutdown = true;
+    exited = false;
+    killed = false;
+    constructor(readonly path: string, readonly serviceName: string | undefined) {
+        super();
+        if (FakeUtilityChild.autoSpawn) void Promise.resolve().then(() => this.spawn());
+    }
+    spawn() {
+        if (!this.exited) this.emit('spawn');
+    }
+    postMessage(request: TOcrEngineHostRequest) {
+        if (this.exited) return;
+        this.requests.push(request);
+        switch (request.type) {
+            case 'start':
+                this.lanes.add(request.lane);
+                return;
+            case 'run': {
+                const {lane, message} = request;
+                void Promise.resolve(boundary.replyGate).then(() => {
+                    if (this.lanes.has(lane)) this.send({type: 'reply', lane, reply: {id: message.id, ok: true, result: {passes: []}}});
+                });
+                return;
+            }
+            case 'end':
+                if (this.lanes.delete(request.lane)) {
+                    void Promise.resolve().then(() => this.send({type: 'exit', lane: request.lane, code: 1}));
+                }
+                return;
+            case 'shutdown':
+                if (this.exitOnShutdown) void Promise.resolve().then(() => this.exit(0));
+                return;
+        }
+    }
+    send(event: TOcrEngineHostEvent) {
+        if (!this.exited) this.emit('message', event);
+    }
+    exit(code: number) {
+        if (this.exited) return;
+        this.exited = true;
+        this.lanes.clear();
+        this.emit('exit', code);
+    }
+    kill() {
+        this.killed = true;
+        this.exit(15);
+        return true;
+    }
+}
+
+describe('OCR engine utility process', () => {
+    const children: FakeUtilityChild[] = [];
+    const workerData = {engineDir: '/app/wasm', tessdataDir: '/models'};
+
+    beforeEach(() => {
+        utility.fork = (path, _args, options) => {
+            const child = new FakeUtilityChild(path, options.serviceName);
+            children.push(child);
+            return child;
+        };
+    });
+
+    afterEach(() => {
+        vi.clearAllTimers();
+        vi.useRealTimers();
+        children.length = 0;
+        boundary.replyGate = undefined;
+        FakeUtilityChild.autoSpawn = true;
+    });
+
+    function createHost() {
+        return createOcrEngineHost({
+            hostPath: '/app/ocr-engine-host.js',
+            workerPath: '/app/ocr-engine-worker.js',
+            workerData,
+        });
+    }
+
+    async function createModels() {
+        const dir = await mkdtemp(join(tmpdir(), 'ocr-host-models-'));
+        onTestFinished(() => rm(dir, {recursive: true, force: true}));
+        await writeFile(join(dir, 'eng.traineddata'), '');
+        await truncate(join(dir, 'eng.traineddata'), 40 * MIB);
+        return dir;
+    }
+
+    function runPage(pool: ReturnType<typeof createOcrEnginePool>, signal = new AbortController().signal) {
+        return pool.run({image: new Uint8Array([0]), models: ['eng'], passes: ENGINE_PASSES}, signal);
+    }
+
+    it('runs every lane in one utility process and exits it once the last lane has ended', async () => {
+        const host = createHost();
+        const first = host.startLane();
+        const second = host.startLane();
+        expect(children).toHaveLength(1);
+        expect(children[0]).toMatchObject({path: '/app/ocr-engine-host.js', serviceName: OCR_ENGINE_SERVICE_NAME});
+        // Lanes asked for before the process started reach it once it has.
+        await vi.waitFor(() => expect(children[0]!.lanes.size).toBe(2));
+        expect(children[0]!.requests[0]).toEqual({type: 'start', lane: 0, workerPath: '/app/ocr-engine-worker.js', workerData});
+
+        await first.terminate();
+        expect(children[0]!.requests.some(request => request.type === 'shutdown')).toBe(false);
+        await second.terminate();
+        // No lanes left: the process is asked to exit and does, returning all its memory.
+        await vi.waitFor(() => expect(children[0]!.exited).toBe(true));
+        expect(children[0]!.requests.at(-1)).toEqual({type: 'shutdown'});
+        expect(children[0]!.killed).toBe(false);
+
+        // The next lane starts a fresh process.
+        const third = host.startLane();
+        expect(children).toHaveLength(2);
+        await third.terminate();
+        await vi.waitFor(() => expect(children[1]!.exited).toBe(true));
+    });
+
+    it('exits the utility process when its idle lanes reach their idle time, and restarts it for the next page', async () => {
+        vi.useFakeTimers();
+        const host = createHost();
+        const broker = new JobBroker(POOL_CAPACITY);
+        const pool = createOcrEnginePool({size: () => 2, tessdataDir: await createModels(), startLane: () => host.startLane(), broker});
+        try {
+            await expect(Promise.all([runPage(pool), runPage(pool)])).resolves.toHaveLength(2);
+            expect(children).toHaveLength(1);
+            expect(broker.getSnapshot().used.estimatedResidentBytes).toBeGreaterThan(0);
+
+            await vi.advanceTimersByTimeAsync(60_000);
+            expect(children[0]!.exited).toBe(true);
+            expect(children[0]!.killed).toBe(false);
+            expect(broker.getSnapshot()).toMatchObject({active: 0, used: {cpuTokens: 0, estimatedResidentBytes: 0}});
+
+            await expect(runPage(pool)).resolves.toEqual({passes: []});
+            expect(children).toHaveLength(2);
+            expect(children[1]!.exited).toBe(false);
+        } finally {
+            pool.terminate();
+            host.shutdown();
+        }
+    });
+
+    it('fails the pages in flight when the utility process dies, frees their memory, and restarts it for the next page', async () => {
+        const host = createHost();
+        const broker = new JobBroker(POOL_CAPACITY);
+        const pool = createOcrEnginePool({size: () => 2, tessdataDir: await createModels(), startLane: () => host.startLane(), broker});
+        try {
+            const reply = Promise.withResolvers<void>();
+            boundary.replyGate = reply.promise;
+            const pages = [runPage(pool), runPage(pool)];
+            await vi.waitFor(() => expect(children[0]?.requests.filter(request => request.type === 'run')).toHaveLength(2));
+
+            children[0]!.exit(134);
+
+            for (const page of pages) {
+                const error = await page.then(() => null, (caught: unknown) => caught);
+                expect(error).toBeInstanceOf(Error);
+                expect((error as Error).message).toMatch(/OCR engine process exited unexpectedly \(exit code 134/u);
+                expect((error as Error).cause).toBeInstanceOf(OcrEngineHostExitError);
+                expect((error as Error).cause).toMatchObject({exitCode: 134, pid: children[0]!.pid, code: 'OCR_ENGINE_HOST_EXITED'});
+            }
+            expect(broker.getSnapshot()).toMatchObject({active: 0, queued: 0, used: {cpuTokens: 0, estimatedResidentBytes: 0}});
+
+            reply.resolve();
+            boundary.replyGate = undefined;
+            await expect(runPage(pool)).resolves.toEqual({passes: []});
+            expect(children).toHaveLength(2);
+        } finally {
+            pool.terminate();
+            host.shutdown();
+        }
+    });
+
+    it('cancels a busy page by ending its lane inside the utility process, which keeps running other lanes', async () => {
+        const host = createHost();
+        const broker = new JobBroker(POOL_CAPACITY);
+        const pool = createOcrEnginePool({size: () => 2, tessdataDir: await createModels(), startLane: () => host.startLane(), broker});
+        try {
+            const reply = Promise.withResolvers<void>();
+            boundary.replyGate = reply.promise;
+            const canceled = new AbortController();
+            const page = runPage(pool, canceled.signal);
+            const other = runPage(pool);
+            await vi.waitFor(() => expect(children[0]?.requests.filter(request => request.type === 'run')).toHaveLength(2));
+
+            canceled.abort(new Error('user canceled'));
+            await expect(page).rejects.toThrow('user canceled');
+            await vi.waitFor(() => expect(children[0]!.requests).toContainEqual({type: 'end', lane: 0}));
+            expect(children[0]!.exited).toBe(false);
+
+            reply.resolve();
+            await expect(other).resolves.toEqual({passes: []});
+            expect(children).toHaveLength(1);
+        } finally {
+            pool.terminate();
+            host.shutdown();
+        }
+    });
+
+    it('asks the utility process to exit at shutdown and kills it if it has not after its grace time', async () => {
+        vi.useFakeTimers();
+        const host = createHost();
+        const lane = host.startLane();
+        const exits: number[] = [];
+        lane.on('exit', code => exits.push(code));
+        await vi.advanceTimersByTimeAsync(0);
+        children[0]!.exitOnShutdown = false;
+
+        host.shutdown();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(children[0]!.requests.at(-1)).toEqual({type: 'shutdown'});
+        expect(children[0]!.killed).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(children[0]!.killed).toBe(true);
+        // An exit main asked for fails nothing; the lane just ends.
+        expect(exits).toEqual([15]);
+    });
+
+    async function createPagePool(host: ReturnType<typeof createHost>, broker = new JobBroker(POOL_CAPACITY)) {
+        return {
+            broker,
+            pool: createOcrEnginePool({size: () => 2, tessdataDir: await createModels(), startLane: () => host.startLane(), broker}),
+        };
+    }
+
+    async function failureOf(page: Promise<unknown>) {
+        return page.then(() => null, (caught: unknown) => caught as Error);
+    }
+
+    it('reports a fatal error of the utility process without throwing into main, and fails its pages on the exit that follows', async () => {
+        const host = createHost();
+        const {pool, broker} = await createPagePool(host);
+        try {
+            const reply = Promise.withResolvers<void>();
+            boundary.replyGate = reply.promise;
+            const page = runPage(pool);
+            await vi.waitFor(() => expect(children[0]?.requests.some(request => request.type === 'run')).toBe(true));
+
+            // An EventEmitter 'error' with no listener would throw here.
+            expect(() => children[0]!.emit('error', 'FatalError', 'v8::ToLocalChecked Empty MaybeLocal', '')).not.toThrow();
+            children[0]!.exit(133);
+
+            const error = await failureOf(page);
+            expect(error?.cause).toBeInstanceOf(OcrEngineHostExitError);
+            expect(error?.cause).toMatchObject({exitCode: 133, failure: 'FatalError at v8::ToLocalChecked Empty MaybeLocal'});
+            expect(error?.message).toContain('FatalError at v8::ToLocalChecked Empty MaybeLocal');
+            expect(broker.getSnapshot().used).toMatchObject({cpuTokens: 0, estimatedResidentBytes: 0});
+            reply.resolve();
+        } finally {
+            pool.terminate();
+            host.shutdown();
+        }
+    });
+
+    it('fails and ends only the lane whose message main cannot read', async () => {
+        const host = createHost();
+        const {pool} = await createPagePool(host);
+        try {
+            const reply = Promise.withResolvers<void>();
+            boundary.replyGate = reply.promise;
+            const broken = runPage(pool);
+            const other = runPage(pool);
+            await vi.waitFor(() => expect(children[0]?.requests.filter(request => request.type === 'run')).toHaveLength(2));
+
+            children[0]!.emit('message', {type: 'reply', lane: 0, reply: {id: 0, ok: true, result: {passes: 'not passes'}}});
+
+            await expect(broken).rejects.toThrow('The OCR engine returned an invalid result');
+            expect(children[0]!.requests).toContainEqual({type: 'end', lane: 0});
+            expect(children[0]!.killed).toBe(false);
+            reply.resolve();
+            await expect(other).resolves.toEqual({passes: []});
+        } finally {
+            pool.terminate();
+            host.shutdown();
+        }
+    });
+
+    it.each([
+        ['no lane', {type: 'reply'}],
+        ['a lane that is not a number', {type: 'exit', lane: 'zero', code: 0}],
+        ['a lane it does not run', {type: 'reply', lane: 99, reply: null}],
+    ])('fails every page and kills the utility process for a message with %s', async (_case, message) => {
+        const host = createHost();
+        const {pool, broker} = await createPagePool(host);
+        try {
+            const reply = Promise.withResolvers<void>();
+            boundary.replyGate = reply.promise;
+            const pages = [runPage(pool), runPage(pool)];
+            await vi.waitFor(() => expect(children[0]?.requests.filter(request => request.type === 'run')).toHaveLength(2));
+
+            children[0]!.emit('message', message);
+
+            for (const page of pages) {
+                await expect(page).rejects.toThrow('The OCR engine process sent a message main cannot read');
+            }
+            expect(children[0]!.killed).toBe(true);
+            await vi.waitFor(() => expect(broker.getSnapshot().used).toMatchObject({cpuTokens: 0, estimatedResidentBytes: 0}));
+
+            reply.resolve();
+            boundary.replyGate = undefined;
+            await expect(runPage(pool)).resolves.toEqual({passes: []});
+            expect(children).toHaveLength(2);
+        } finally {
+            pool.terminate();
+            host.shutdown();
+        }
+    });
+
+    it('starts a fresh utility process for a lane asked for while the previous one is still exiting', async () => {
+        vi.useFakeTimers();
+        const host = createHost();
+        const first = host.startLane();
+        await vi.advanceTimersByTimeAsync(0);
+        const retiring = children[0]!;
+        retiring.exitOnShutdown = false;
+        await first.terminate();
+        expect(retiring.requests.at(-1)).toEqual({type: 'shutdown'});
+
+        const next = host.startLane();
+        const nextExits: number[] = [];
+        next.on('exit', code => nextExits.push(code));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(children).toHaveLength(2);
+        expect(children[1]!.lanes.has(1)).toBe(true);
+        expect(retiring.requests.filter(request => request.type === 'start')).toHaveLength(1);
+
+        retiring.exit(0);
+        // Its exit clears its own kill timer and touches nothing of the fresh process.
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(retiring.killed).toBe(false);
+        expect(children[1]!).toMatchObject({exited: false, killed: false});
+        expect(nextExits).toEqual([]);
+
+        await next.terminate();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(children[1]!.exited).toBe(true);
+    });
+
+    it('starts no process when forking throws, and forks again for the next lane', () => {
+        const host = createHost();
+        const fork = utility.fork;
+        utility.fork = () => {
+            throw new Error('utility fork boom');
+        };
+        expect(() => host.startLane()).toThrow('utility fork boom');
+        utility.fork = fork;
+
+        const lane = host.startLane();
+        expect(children).toHaveLength(1);
+        void lane.terminate();
+    });
+
+    it('fails a lane whose utility process exits before it started, and forks again for the next lane', async () => {
+        FakeUtilityChild.autoSpawn = false;
+        const host = createHost();
+        const lane = host.startLane();
+        const errors: Error[] = [];
+        lane.on('error', error => errors.push(error));
+        const exited = lane.terminate();
+
+        children[0]!.exit(1);
+
+        await expect(exited).resolves.toBe(1);
+        expect(errors).toHaveLength(1);
+        expect(errors[0]).toBeInstanceOf(OcrEngineHostExitError);
+        expect(errors[0]).toMatchObject({exitCode: 1});
+        expect(children[0]!.requests).toEqual([]);
+
+        host.startLane();
+        expect(children).toHaveLength(2);
+        children[1]!.spawn();
+        expect(children[1]!.requests).toHaveLength(1);
+        host.shutdown();
+    });
+
+    it('sends only the exit request to a process told to close before it started, and gives it its grace time once it has', async () => {
+        vi.useFakeTimers();
+        FakeUtilityChild.autoSpawn = false;
+        const host = createHost();
+        host.startLane();
+        const child = children[0]!;
+        child.exitOnShutdown = false;
+
+        host.shutdown();
+        // Its grace time runs out before it starts: there is nothing to kill yet.
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(child.killed).toBe(false);
+
+        child.spawn();
+        expect(child.requests).toEqual([{type: 'shutdown'}]);
+        await vi.advanceTimersByTimeAsync(4_999);
+        expect(child.killed).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(child.killed).toBe(true);
+    });
+});
+
+// An engine worker thread that answers every page with the image it was given.
+const ECHO_ENGINE_WORKER_SOURCE = `
+import {parentPort} from 'node:worker_threads';
+parentPort.on('message', ({id, request}) => {
+    parentPort.postMessage({id, ok: true, result: {passes: [{stderr: '', outputs: [request.image]}]}});
+});
+`;
+
+describe('OCR engine utility process entry', () => {
+    it('runs lanes as real worker threads, ends a lane on request, and exits on shutdown', async () => {
+        const dir = await mkdtemp(join(tmpdir(), 'ocr-host-entry-'));
+        onTestFinished(() => rm(dir, {recursive: true, force: true}));
+        const workerPath = join(dir, 'echo-engine.mjs');
+        const workerData = {engineDir: dir, tessdataDir: dir};
+        await writeFile(workerPath, ECHO_ENGINE_WORKER_SOURCE);
+
+        const port = new EventEmitter();
+        const events: unknown[] = [];
+        const parentPort = {
+            on: (event: string, listener: (message: {data: unknown}) => void) => port.on(event, listener),
+            postMessage: (event: unknown) => events.push(event),
+        };
+        const exited = Promise.withResolvers<number | undefined>();
+        const exit = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+            exited.resolve(code);
+        }) as typeof process.exit);
+        Object.defineProperty(process, 'parentPort', {value: parentPort, configurable: true});
+        onTestFinished(() => {
+            exit.mockRestore();
+            Reflect.deleteProperty(process, 'parentPort');
+        });
+        await import('@electron/features/ocr/main/ocrEngineHost');
+
+        const post = (data: TOcrEngineHostRequest) => port.emit('message', {data});
+        post({type: 'start', lane: 7, workerPath, workerData});
+        post({type: 'start', lane: 8, workerPath, workerData});
+        post({type: 'run', lane: 7, message: {id: 3, request: {image: new Uint8Array([1, 2, 3]), models: ['eng'], passes: ENGINE_PASSES}}});
+        await vi.waitFor(() => expect(events).toContainEqual({
+            type: 'reply',
+            lane: 7,
+            reply: {id: 3, ok: true, result: {passes: [{stderr: '', outputs: [new Uint8Array([1, 2, 3])]}]}},
+        }));
+        // Main reads what the utility process sent with the engine's result contract.
+        expect(events.map(decodeOcrEngineHostEvent)).not.toContain(null);
+
+        // A malformed request is ignored rather than ending the process.
+        port.emit('message', {data: {type: 'run', lane: 7}});
+        post({type: 'end', lane: 7});
+        await vi.waitFor(() => expect(events).toContainEqual({type: 'exit', lane: 7, code: 1}));
+        expect(events.filter(event => (event as {type: string}).type === 'exit')).toHaveLength(1);
+
+        // Ending a lane the process does not have answers at once, so main never waits on it.
+        post({type: 'end', lane: 99});
+        expect(events).toContainEqual({type: 'exit', lane: 99, code: 1});
+
+        // A page that cannot be sent to its worker fails that lane alone.
+        post({type: 'run', lane: 8, message: {id: 4, request: {
+            image: new Uint8Array([4]),
+            models: ['eng'],
+            passes: [{args: [], outputs: [], notCloneable: () => undefined}] as unknown as typeof ENGINE_PASSES,
+        }}});
+        expect(events.at(-1)).toMatchObject({type: 'error', lane: 8});
+        post({type: 'run', lane: 8, message: {id: 5, request: {image: new Uint8Array([5]), models: ['eng'], passes: ENGINE_PASSES}}});
+        await vi.waitFor(() => expect(events).toContainEqual(expect.objectContaining({type: 'reply', lane: 8, reply: expect.objectContaining({id: 5})})));
+
+        post({type: 'shutdown'});
+        // Once shutting down it takes no more work: an end for a lane it does
+        // not have, answered at once above, now gets no answer.
+        post({type: 'start', lane: 9, workerPath, workerData});
+        post({type: 'end', lane: 77});
+        expect(events.some(event => (event as {lane?: number}).lane === 77)).toBe(false);
+        post({type: 'shutdown'});
+        await expect(exited.promise).resolves.toBe(0);
+        expect(events).toContainEqual({type: 'exit', lane: 8, code: 1});
+        expect(events.some(event => (event as {lane?: number}).lane === 9)).toBe(false);
+        expect(exit).toHaveBeenCalledTimes(1);
     });
 });

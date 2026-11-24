@@ -9,6 +9,7 @@ import {
     createProcessDeathRecovery,
     DOCUMENT_FINGERPRINT_SERVICE_NAME,
     DOCUMENT_SAVE_SERVICE_NAME,
+    OCR_ENGINE_SERVICE_NAME,
     PROCESS_SAFE_MODE_ARGUMENT,
 } from '@electron/processDeathRecovery';
 import {
@@ -232,6 +233,48 @@ describe('processDeathRecovery', () => {
         expect(fixture.logger.debug).toHaveBeenCalledWith(
             '[process-death] Utility process gone (EVB document save, reason=killed, exitCode=15)',
         );
+    });
+
+    // Main kills the OCR engine process only when it would not exit or sent a
+    // message main cannot read, and reports that itself.
+    it.each(['name', 'serviceName'] as const)('keeps the OCR engine process the app killed out of the error channel (%s)', (field) => {
+        const fixture = createFixture();
+
+        expect(fixture.recovery.handleChildProcessGone({
+            type: 'Utility',
+            reason: 'killed',
+            exitCode: 15,
+            [field]: OCR_ENGINE_SERVICE_NAME,
+        }).action).toBe('logged');
+
+        expect(fixture.logger.error).not.toHaveBeenCalled();
+        expect(fixture.logger.warn).not.toHaveBeenCalled();
+        expect(fixture.logger.debug).toHaveBeenCalledWith(
+            '[process-death] Utility process gone (EVB OCR engine, reason=killed, exitCode=15)',
+        );
+    });
+
+    it.each([
+        'crashed',
+        'abnormal-exit',
+        'oom',
+        'launch-failed',
+        'memory-eviction',
+    ])('still reports an OCR engine process that ended on its own (%s)', (reason) => {
+        const fixture = createReportingFixture();
+
+        expect(fixture.recovery.handleChildProcessGone({
+            type: 'Utility',
+            reason,
+            exitCode: 134,
+            name: OCR_ENGINE_SERVICE_NAME,
+        }).action).toBe('logged');
+
+        expect(fixture.captureFailure).toHaveBeenCalledWith({
+            code: 'MAIN_CHILD_PROCESS_GONE',
+            message: `[process-death] Utility process gone (EVB OCR engine, reason=${reason}, exitCode=134)`,
+        });
+        expect(fixture.logger.debug).not.toHaveBeenCalled();
     });
 
     it('still reports a utility process that failed on its own', () => {
