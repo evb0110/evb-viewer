@@ -106,7 +106,9 @@ export const useDocumentViewportLayoutLifecycle = (
      */
     const commitReadingPoint = () => {
         if (readLaidOutContainer()) suspended = false;
+        // The placed point replaces a finished zoom's; a gesture still zooming keeps its own.
         if (activeLayoutTransaction) activeLayoutTransaction.pointerAnchor = null;
+        if (pendingRestore) pendingRestore.pointerAnchor = null;
         recaptureReadingPoint();
     };
 
@@ -208,6 +210,9 @@ export const useDocumentViewportLayoutLifecycle = (
         });
     };
 
+    /** Settles after the scheduled restore frame has placed the reading point, or at once when none is scheduled. */
+    const whenRestored = () => restoreFrame?.promise ?? Promise.resolve();
+
     const cancelPendingRestore = () => {
         releasePointerAnchor();
         activeLayoutTransaction = null;
@@ -303,27 +308,21 @@ export const useDocumentViewportLayoutLifecycle = (
         recaptureReadingPoint();
     };
 
-    const endLayoutTransaction = async (
+    /**
+     * The final layout is placed and committed by the queued restore, which reads
+     * the point when its frame fires: a navigation landing before it wins.
+     */
+    const endLayoutTransaction = (
         transition: object,
         restore = true,
     ) => {
         if (activeLayoutTransaction?.token !== transition) {
-            return;
+            return Promise.resolve();
         }
-        const finalAnchor = readRestoreAnchor();
+        // Queued while the transaction holds it, so a pointer anchor carries over.
+        if (restore) scheduleAnchorRestore(readingPoint, options.captureRestoreEpoch());
         activeLayoutTransaction = null;
-        if (!restore) {
-            return;
-        }
-        const epoch = options.captureRestoreEpoch();
-        const generation = restoreGeneration;
-        await nextTick();
-        applyAnchor(activePointerAnchor ?? pendingRestore?.pointerAnchor ?? finalAnchor, epoch, {generation});
-        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-        applyAnchor(activePointerAnchor ?? pendingRestore?.pointerAnchor ?? finalAnchor, epoch, {
-            generation,
-            commit: true,
-        });
+        return restore ? whenRestored() : Promise.resolve();
     };
 
     if (options.isResizing) {
@@ -402,8 +401,7 @@ export const useDocumentViewportLayoutLifecycle = (
         isResizeTransitionActive,
         preserveLayoutMutation,
         readReadingPoint: () => readingPoint,
-        /** Settles after the scheduled restore frame has placed the reading point, or at once when none is scheduled. */
-        whenRestored: () => restoreFrame?.promise ?? Promise.resolve(),
+        whenRestored,
         resetReadingPoint,
         resume,
         suspend,

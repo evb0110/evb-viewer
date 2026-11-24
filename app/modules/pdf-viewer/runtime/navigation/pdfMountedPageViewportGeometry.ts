@@ -8,6 +8,11 @@ import {
 } from '@app/modules/document-viewer/public';
 import {getRequestAnchor} from '@app/modules/pdf-viewer/runtime/navigation/pdfNavigationRequestAnchors';
 
+type TViewportSize = Readonly<{
+    width: number;
+    height: number;
+}>;
+
 function getMountedPageElement(container: HTMLElement, pageNumber: TPageNumber) {
     return container.querySelector<HTMLElement>(
         `.page_container[data-page="${String(Math.max(1, Math.trunc(pageNumber)))}"]`,
@@ -19,8 +24,10 @@ export function hasMeasurableMountedPage(container: HTMLElement, pageNumber: TPa
     return rect !== undefined && rect.width > 0 && rect.height > 0;
 }
 
+/** `viewport` is the client size the view is read and placed in. */
 export function resolvePagedAnchorFromViewport(
     container: HTMLElement,
+    viewport: TViewportSize,
     pageNumber: TPageNumber,
     viewportFraction = {
         x: 0.5,
@@ -34,8 +41,8 @@ export function resolvePagedAnchorFromViewport(
     }
     const viewportRect = container.getBoundingClientRect();
     const pageRect = element.getBoundingClientRect();
-    const x = viewportRect.left + container.clientWidth * viewportFraction.x;
-    const y = viewportRect.top + container.clientHeight * viewportFraction.y;
+    const x = viewportRect.left + viewport.width * viewportFraction.x;
+    const y = viewportRect.top + viewport.height * viewportFraction.y;
     return {
         page,
         pageXFraction: clamp((x - pageRect.left) / Math.max(1, pageRect.width), 0, 1),
@@ -48,6 +55,7 @@ export function resolvePagedAnchorFromViewport(
 
 export function resolvePagedScrollForAnchor(
     container: HTMLElement,
+    viewport: TViewportSize,
     anchor: IPdfSemanticAnchor,
     scaledMargin: number,
 ) {
@@ -65,10 +73,7 @@ export function resolvePagedScrollForAnchor(
         top: container.scrollTop + pageRect.top - viewportRect.top,
         width: pageRect.width,
         height: pageRect.height,
-    }, anchor, {
-        width: container.clientWidth,
-        height: container.clientHeight,
-    }, {
+    }, anchor, viewport, {
         width: container.scrollWidth,
         height: container.scrollHeight,
     }, scaledMargin);

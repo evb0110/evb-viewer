@@ -210,6 +210,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         set: range => (measuredVisibleRange.value = range),
     });
     const pageLayoutScaleResolver = shallowRef<((pageNumber: TPageNumber) => number) | null>(null);
+    const horizontalScrollLockOwner = shallowRef<ComputedRef<boolean> | null>(null);
     function seedPreparedOpeningFitScale() {
         // The host frame only seeds the shell. Once document metrics exist,
         // fitting belongs to the viewport and includes every known spread.
@@ -361,6 +362,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     );
     const singlePageScroll = usePdfSinglePageNavigationController({
         viewerContainer: options.viewerContainer,
+        isHorizontalScrollLocked: () => horizontalScrollLockOwner.value?.value ?? false,
         chassisAuthority,
         numPages,
         currentPage,
@@ -423,6 +425,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     });
     pageLayoutScaleResolver.value = viewModel.getPageLayoutScale;
     pageLayoutOwner.value = viewModel.pageLayout;
+    horizontalScrollLockOwner.value = viewModel.isHorizontalScrollLocked;
     const openVirtualSurfaceGeometry = usePdfOpenVirtualSurfaceGeometry({
         chassisAuthority,
         continuousScroll: options.continuousScroll,
