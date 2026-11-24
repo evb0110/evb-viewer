@@ -74,10 +74,7 @@ import {
     type IScanCleanupConversionCheckpoint,
     type IScanCleanupPageArtifactInput,
 } from '@evb/scan-cleanup/core/conversionCheckpoint';
-import {
-    resolveStreamingRasterHandoffBudget,
-    runBoundedRasterProducerConsumer,
-} from '@evb/scan-cleanup/core/streamingRasterHandoff';
+import {runBoundedRasterProducerConsumer} from '@evb/scan-cleanup/core/streamingRasterHandoff';
 import {
     ScanCleanupContractError,
     ScanCleanupInsufficientScratchError,
@@ -146,6 +143,7 @@ import {
     resolveScanCleanupCombineEnv,
     resolveRasterHandoff,
     resolveScanCleanupScratchAdmission,
+    resolveStreamingRasterHandoffBudget,
     type IScanCleanupRasterHandoffPlan,
 } from '@evb/scan-cleanup/core/resolveRasterHandoff';
 import {preserveScanCleanupJsonEvidence} from '@evb/scan-cleanup/core/preserveScanCleanupJsonEvidence';

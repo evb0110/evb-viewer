@@ -1,5 +1,9 @@
 import { statfs } from 'fs/promises';
-import type {TScanCleanupLog} from '@evb/scan-cleanup/core/types';
+import type {IResolvedStreamingRasterHandoffBudget} from '@evb/scan-cleanup/core/streamingRasterHandoff';
+import type {
+    IScanCleanupStreamingHandoffLimits,
+    TScanCleanupLog,
+} from '@evb/scan-cleanup/core/types';
 import {createFileBackedPdfCombineEnv} from '@contracts/pdfCombineOutputPolicy';
 
 // PPM removes the costly PNG encode/decode step on both sides of the native
@@ -371,4 +375,62 @@ export function logRasterHandoff(
         : `${mib(handoff.estimatedBytes)} estimated simultaneous scratch footprint`;
     const budget = handoff.budgetBytes === null ? '' : ` against a ${mib(handoff.budgetBytes)} scratch budget`;
     log('debug', `Scan cleanup ${scope} raster handoff uses ${handoff.format.toUpperCase()} (${footprint}${budget})`);
+}
+
+const DEFAULT_STREAMING_MAX_IN_FLIGHT_BYTES = 512 * 1024 * 1024;
+const MAX_DISK_DERIVED_IN_FLIGHT_BYTES = 1024 * 1024 * 1024;
+const DEFAULT_MIN_CHUNK_PAGES = 8;
+const DEFAULT_MAX_CHUNK_PAGES = 16;
+const DEFAULT_MAX_IN_FLIGHT_PAGES = 32;
+
+function normalizePositiveInteger(value: number | undefined, fallback: number) {
+    if (value === undefined || !Number.isFinite(value)) {
+        return fallback;
+    }
+    return Math.max(1, Math.floor(value));
+}
+
+/**
+ * Derive page-count and disk-byte bounds for the conversion producer-consumer
+ * handoff from runtime concurrency and scratch volume availability.
+ */
+export function resolveStreamingRasterHandoffBudget(input: {
+    availableScratchBytes: number | null;
+    rasterConcurrency: number;
+    totalPages: number;
+    overrides?: IScanCleanupStreamingHandoffLimits;
+}): IResolvedStreamingRasterHandoffBudget {
+    const totalPages = Math.max(1, Math.floor(input.totalPages));
+    const producerConcurrency = normalizePositiveInteger(input.rasterConcurrency, 1);
+    const defaultChunkPages = Math.max(
+        DEFAULT_MIN_CHUNK_PAGES,
+        Math.min(DEFAULT_MAX_CHUNK_PAGES, producerConcurrency * 4),
+    );
+    const requestedChunkPages = normalizePositiveInteger(
+        input.overrides?.maxChunkPages,
+        defaultChunkPages,
+    );
+    const defaultInFlightPages = Math.min(
+        DEFAULT_MAX_IN_FLIGHT_PAGES,
+        Math.max(requestedChunkPages, requestedChunkPages * 2),
+    );
+    const maxInFlightPages = Math.min(
+        totalPages,
+        normalizePositiveInteger(input.overrides?.maxInFlightPages, defaultInFlightPages),
+    );
+    const maxChunkPages = Math.min(maxInFlightPages, requestedChunkPages);
+    const scratchBudgetBytes = resolveRasterBudgetBytes(input.availableScratchBytes);
+    const derivedInFlightBytes = input.availableScratchBytes === null
+        ? DEFAULT_STREAMING_MAX_IN_FLIGHT_BYTES
+        : Math.max(1, Math.min(MAX_DISK_DERIVED_IN_FLIGHT_BYTES, scratchBudgetBytes));
+    const maxInFlightBytes = normalizePositiveInteger(
+        input.overrides?.maxInFlightBytes,
+        derivedInFlightBytes,
+    );
+    return {
+        producerConcurrency: Math.min(producerConcurrency, maxInFlightPages),
+        maxChunkPages,
+        maxInFlightPages,
+        maxInFlightBytes,
+    };
 }

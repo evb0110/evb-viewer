@@ -14,6 +14,8 @@ import {
     type IPendingBrowserWorkerRequest,
 } from '@app/platform/browser-api/settleBrowserWorkerResult';
 import {getErrorMessage} from '@app/utils/error';
+import {getPerformanceProfile} from '@app/utils/performanceProfile';
+import type {IResolvedStreamingRasterHandoffBudget} from '@evb/scan-cleanup/core/streamingRasterHandoff';
 
 // A cleanup operation runs its engine calls back to back; keep the engine and
 // its compiled module between them, and release both once the workspace idles.
@@ -55,9 +57,60 @@ function createClient() {
     });
 }
 
-// One slot: a cleanup operation's engine calls are serial, and an engine that
-// holds a page's planes leaves no address space for a second one.
-const owner = new BrowserWorkerRequestOwner(createClient, 1);
+const MAX_PAGE_LANES = 8;
+const ENGINE_BASE_WASM_BYTES = 32 * 1024 * 1024;
+
+/**
+ * The engine instances a document's pages run on at once, and the engine
+ * memory they may hold together. Each page runs on one thread of its own
+ * instance, so pages in flight are how a cleanup uses the device's cores.
+ * One core stays free for interaction and one for the preview's lane; at most
+ * half of reported memory goes to the engines, as for OCR. Browsers omit or
+ * round deviceMemory, so an unknown device gets a 4 GiB budget. A phone, a
+ * small device and the low performance mode run one page at a time: the
+ * performance profile calls those low memory.
+ */
+export function resolveBrowserScanCleanupPageLanes(): IResolvedStreamingRasterHandoffBudget {
+    const cores = typeof navigator === 'undefined' ? 2 : navigator.hardwareConcurrency || 2;
+    const memoryGb = typeof navigator === 'undefined'
+        ? undefined
+        : (navigator as Navigator & {deviceMemory?: number}).deviceMemory;
+    const lanes = getPerformanceProfile().lowMemory
+        ? 1
+        : Math.max(1, Math.min(MAX_PAGE_LANES, cores - 2));
+    return {
+        producerConcurrency: lanes,
+        // A finished page is committed as soon as every page before it is.
+        maxChunkPages: 1,
+        // Finished pages waiting on an earlier one leave the other lanes working.
+        maxInFlightPages: lanes * 2,
+        maxInFlightBytes: (memoryGb ?? 4) * 1024 ** 3 / 2,
+    };
+}
+
+/**
+ * The engine memory one page of `pixels` reaches, by the native planner's
+ * measured high-water model (`peak_page_bytes_for_pixels`): 80 bytes a pixel
+ * where the page is decoded in color, as every analysis is, and 40 otherwise.
+ */
+export function estimateBrowserScanCleanupEngineBytes(pixels: number, decodesColor: boolean) {
+    return ENGINE_BASE_WASM_BYTES + Math.ceil(pixels) * (decodesColor ? 80 : 40);
+}
+
+let owner: BrowserWorkerRequestOwner<IPendingBrowserWorkerRequest> | null = null;
+
+/**
+ * A worker and engine instance per page lane, and one more so a preview never
+ * waits behind a document's pages. Each worker starts when a request first
+ * needs it.
+ */
+function getOwner() {
+    if (owner === null) {
+        const pageLanes = resolveBrowserScanCleanupPageLanes().producerConcurrency;
+        owner = new BrowserWorkerRequestOwner(createClient, pageLanes === 1 ? 1 : pageLanes + 1);
+    }
+    return owner;
+}
 
 /** The buffers and bitmaps a request owns; the worker takes them over. */
 function transferablesOf(value: unknown, found = new Set<Transferable>()): Set<Transferable> {
@@ -92,10 +145,11 @@ export function runBrowserScanCleanupWorkerRequest<K extends TBrowserScanCleanup
     onEngineIdentity?: (sha256: string) => void,
 ): Promise<IBrowserScanCleanupWorkerResultMap[K]> {
     if (signal.aborted) return Promise.reject(abortError(signal));
-    const id = owner.createRequestId();
-    const abort = () => owner.cancel(id, abortError(signal));
+    const engines = getOwner();
+    const id = engines.createRequestId();
+    const abort = () => engines.cancel(id, abortError(signal));
     signal.addEventListener('abort', abort, {once: true});
-    return owner.run(id, client => new Promise<IBrowserScanCleanupWorkerResultMap[K]>((resolve, reject) => {
+    return engines.run(id, client => new Promise<IBrowserScanCleanupWorkerResultMap[K]>((resolve, reject) => {
         const worker = client.getWorker();
         client.registerPendingRequest(id, {
             requestType: type,

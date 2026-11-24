@@ -30,6 +30,7 @@ import {
 } from '@evb/scan-cleanup/core/pageBatches';
 import {resolveScanCleanupPageScopeLazy} from '@evb/scan-cleanup/core/pageScope';
 import {
+    pageRasterPixels,
     renderPageRaster,
     runBrowserScanCleanupAnalysis,
     sourceLayerFacts,
@@ -95,7 +96,7 @@ export async function runBrowserScanCleanupDetection({
             },
             page: facts,
         });
-        const rasterize = (view: IPdfPageSize, dpi: number) => renderPageRaster(source, view, dpi, SCAN_CLEANUP_RASTER_MAX_PIXELS, signal);
+        const rasterize = (view: IPdfPageSize, dpi: number, jobSignal: AbortSignal) => renderPageRaster(source, view, dpi, SCAN_CLEANUP_RASTER_MAX_PIXELS, jobSignal);
 
         const pageScope = resolveScanCleanupPageScopeLazy(undefined, totalPages);
         for (const batch of iterateScanCleanupPageBatches(pageScope.length, SCAN_CLEANUP_STREAMING_BATCH_PAGES)) {
@@ -149,21 +150,27 @@ export async function runBrowserScanCleanupDetection({
                 analysisPurpose: 'page-plan',
                 renderMode: 'preview',
                 signal,
-                rasterize: async job => {
+                estimatePixels: job => {
+                    const page = pages[job.index]!;
+                    return job.view === 'alternate'
+                        ? pageRasterPixels(page.alternate!.media, page.alternate!.input.page.dpi, SCAN_CLEANUP_RASTER_MAX_PIXELS)
+                        : pageRasterPixels(page.view, page.dpi, SCAN_CLEANUP_RASTER_MAX_PIXELS);
+                },
+                rasterize: async (job, jobSignal) => {
                     const page = pages[job.index]!;
                     if (job.rerun || job.view === 'alternate') batchRecorder.noteInputRequired();
                     if (job.view === 'alternate') {
                         const media = page.alternate!.media;
                         try {
-                            return (await rasterize(media, page.alternate!.input.page.dpi)).ppm;
+                            return (await rasterize(media, page.alternate!.input.page.dpi, jobSignal)).ppm;
                         } catch (error) {
-                            if (signal.aborted) throw error;
+                            if (jobSignal.aborted) throw error;
                             // An optional wider view that fails keeps the first pass.
                             console.warn(`Scan cleanup kept the first-pass classification for page ${String(page.pageNumber)} because its MediaBox view failed: ${getErrorMessage(error)}`);
                             return null;
                         }
                     }
-                    const raster = await rasterize(page.view, page.dpi);
+                    const raster = await rasterize(page.view, page.dpi, jobSignal);
                     if (!job.rerun) {
                         batchRecorder.markRasterized(page.pageNumber);
                         if (batchRecorder.awaitingFirstVerdict) recorder.markProgress();
