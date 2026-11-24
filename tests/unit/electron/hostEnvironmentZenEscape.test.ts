@@ -19,6 +19,7 @@ interface IHostZenEscapeTestWindow {
     id: number;
     webContents: {
         focus: ReturnType<typeof vi.fn>;
+        isDestroyed: ReturnType<typeof vi.fn>;
         on: ReturnType<typeof vi.fn>;
         removeListener: ReturnType<typeof vi.fn>;
         send: ReturnType<typeof vi.fn>;
@@ -61,9 +62,13 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('electron', () => {
-    const MockBrowserWindow = {getFocusedWindow: vi.fn(() => {
-        return mocks.focusedWindow;
-    })};
+    const windowsByWebContents = new WeakMap<object, IHostZenEscapeTestWindow>();
+    const MockBrowserWindow = {
+        getFocusedWindow: vi.fn(() => {
+            return mocks.focusedWindow;
+        }),
+        fromWebContents: vi.fn((webContents: object) => windowsByWebContents.get(webContents) ?? null),
+    };
 
     mocks.createWindow = (id: number): IHostZenEscapeTestWindow => {
         let fullScreen = false;
@@ -89,6 +94,7 @@ vi.mock('electron', () => {
             id,
             webContents: {
                 focus: vi.fn(),
+                isDestroyed: vi.fn(() => false),
                 on: vi.fn(),
                 removeListener: vi.fn(),
                 send: vi.fn(),
@@ -153,6 +159,7 @@ vi.mock('electron', () => {
             maximized: false,
             honorsUnmaximize: true,
         };
+        windowsByWebContents.set(window.webContents, window);
         return window;
     };
 
@@ -186,7 +193,6 @@ vi.mock('electron', () => {
     };
 });
 
-vi.mock('@electron/window/registry', () => ({getAllRegisteredAppWindows: vi.fn(() => [])}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({warn: vi.fn()})}));
 vi.mock('@electron/utils/error', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
@@ -460,6 +466,220 @@ describe('host environment startup argument', () => {
                 width: 800,
                 height: 600,
             });
+        });
+    });
+});
+
+describe('host per-window raster budget broadcasts', () => {
+    const MIB = 1024 ** 2;
+    const GIB = 1024 ** 3;
+
+    beforeEach(() => {
+        vi.resetModules();
+        vi.clearAllMocks();
+        mocks.focusedWindow = null;
+    });
+
+    it('pushes updated per-window shares as windows register and unregister, and pushes initial share on load', async () => {
+        const { initializeHostResourceProfile } = await import('@electron/resources/hostResourceProfile');
+        const {
+            registerAppWindow,
+            unregisterAppWindow,
+        } = await import('@electron/window/registry');
+        const {
+            attachHostEnvironmentToWindow,
+            hostMainBindings,
+            installHostEnvironmentDisplayWatcher,
+        } = await import('@electron/hostEnvironment');
+
+        initializeHostResourceProfile({
+            app: { getGPUFeatureStatus: () => ({} as never) },
+            performanceMode: 'auto',
+            availableParallelism: () => 8,
+            totalmem: () => 32 * GIB,
+        });
+        installHostEnvironmentDisplayWatcher();
+
+        const firstWindow = mocks.createWindow(101);
+        attachHostEnvironmentToWindow(firstWindow as never);
+        registerAppWindow(firstWindow as never, { setAsMain: true });
+
+        expect(firstWindow.webContents.send).toHaveBeenCalledWith('host:rasterBudgetChanged', {
+            maxRasterSurfaceBytes: 1536 * MIB,
+            hostPoolBytes: 1536 * MIB,
+            windowCount: 1,
+        });
+        expect(hostMainBindings.snapshotHostRasterBudgetForWindow({ sender: firstWindow.webContents } as never)).toEqual({
+            maxRasterSurfaceBytes: 1536 * MIB,
+            hostPoolBytes: 1536 * MIB,
+            windowCount: 1,
+        });
+
+        // Opening a second window halves both windows' shares immediately.
+        const secondWindow = mocks.createWindow(102);
+        attachHostEnvironmentToWindow(secondWindow as never);
+        registerAppWindow(secondWindow as never);
+
+        const twoWindowShare = {
+            maxRasterSurfaceBytes: 768 * MIB,
+            hostPoolBytes: 1536 * MIB,
+            windowCount: 2,
+        };
+        expect(firstWindow.webContents.send).toHaveBeenLastCalledWith('host:rasterBudgetChanged', twoWindowShare);
+        expect(secondWindow.webContents.send).toHaveBeenLastCalledWith('host:rasterBudgetChanged', twoWindowShare);
+        expect(hostMainBindings.snapshotHostRasterBudgetForWindow({ sender: secondWindow.webContents } as never)).toEqual(twoWindowShare);
+
+        // did-finish-load delivers the share even after an earlier broadcast (e.g. reload or late preload attach).
+        const secondLoadHandler = secondWindow.webContents.on.mock.calls
+            .find(call => call[0] === 'did-finish-load')?.[1] as (() => void) | undefined;
+        expect(secondLoadHandler).toBeTypeOf('function');
+        const sendCountBeforeLoad = secondWindow.webContents.send.mock.calls.length;
+        secondLoadHandler?.();
+        expect(secondWindow.webContents.send).toHaveBeenCalledTimes(sendCountBeforeLoad + 1);
+        expect(secondWindow.webContents.send).toHaveBeenLastCalledWith('host:rasterBudgetChanged', twoWindowShare);
+
+        // Closing/unregistering the second window restores the surviving window's full share.
+        secondWindow.isDestroyed.mockReturnValue(true);
+        secondWindow.webContents.isDestroyed.mockReturnValue(true);
+        unregisterAppWindow(secondWindow.id);
+
+        expect(firstWindow.webContents.send).toHaveBeenLastCalledWith('host:rasterBudgetChanged', {
+            maxRasterSurfaceBytes: 1536 * MIB,
+            hostPoolBytes: 1536 * MIB,
+            windowCount: 1,
+        });
+        expect(secondWindow.webContents.send).toHaveBeenCalledTimes(sendCountBeforeLoad + 1);
+    });
+
+    it('skips destroyed webContents without throwing during broadcast', async () => {
+        const { initializeHostResourceProfile } = await import('@electron/resources/hostResourceProfile');
+        const { registerAppWindow } = await import('@electron/window/registry');
+        const {
+            broadcastHostRasterBudgetToAllWindows,
+            installHostEnvironmentDisplayWatcher,
+        } = await import('@electron/hostEnvironment');
+
+        initializeHostResourceProfile({
+            app: { getGPUFeatureStatus: () => ({} as never) },
+            performanceMode: 'auto',
+            availableParallelism: () => 8,
+            totalmem: () => 16 * GIB,
+        });
+        installHostEnvironmentDisplayWatcher();
+
+        const liveWindow = mocks.createWindow(201);
+        const closingWindow = mocks.createWindow(202);
+        closingWindow.webContents.isDestroyed.mockReturnValue(true);
+
+        registerAppWindow(liveWindow as never, { setAsMain: true });
+        registerAppWindow(closingWindow as never);
+        expect(() => broadcastHostRasterBudgetToAllWindows()).not.toThrow();
+
+        expect(closingWindow.webContents.send).not.toHaveBeenCalled();
+        expect(liveWindow.webContents.send).toHaveBeenLastCalledWith('host:rasterBudgetChanged', {
+            maxRasterSurfaceBytes: Math.floor(Math.floor(16 * GIB * 0.06) / 2),
+            hostPoolBytes: Math.floor(16 * GIB * 0.06),
+            windowCount: 2,
+        });
+    });
+
+    it('notifies listeners and restores the surviving share when a destroyed window is pruned without unregisterAppWindow', async () => {
+        const { initializeHostResourceProfile } = await import('@electron/resources/hostResourceProfile');
+        const {
+            getAllRegisteredAppWindows,
+            getWindowByIdFromRegistry,
+            registerAppWindow,
+        } = await import('@electron/window/registry');
+        const {
+            attachHostEnvironmentToWindow,
+            installHostEnvironmentDisplayWatcher,
+        } = await import('@electron/hostEnvironment');
+
+        initializeHostResourceProfile({
+            app: { getGPUFeatureStatus: () => ({}) as never },
+            performanceMode: 'auto',
+            availableParallelism: () => 8,
+            totalmem: () => 32 * GIB,
+        });
+        installHostEnvironmentDisplayWatcher();
+
+        const firstWindow = mocks.createWindow(301);
+        const secondWindow = mocks.createWindow(302);
+        const thirdWindow = mocks.createWindow(303);
+        const auxiliaryWindow = mocks.createWindow(304);
+
+        attachHostEnvironmentToWindow(firstWindow as never);
+        attachHostEnvironmentToWindow(secondWindow as never);
+        attachHostEnvironmentToWindow(thirdWindow as never);
+        attachHostEnvironmentToWindow(auxiliaryWindow as never);
+        registerAppWindow(firstWindow as never, { setAsMain: true });
+        registerAppWindow(secondWindow as never);
+        registerAppWindow(thirdWindow as never);
+
+        // Unregistered auxiliary windows must not receive raster budget pushes on did-finish-load.
+        const auxiliaryLoadHandler = auxiliaryWindow.webContents.on.mock.calls
+            .find(call => call[0] === 'did-finish-load')?.[1] as (() => void) | undefined;
+        auxiliaryLoadHandler?.();
+        expect(auxiliaryWindow.webContents.send).not.toHaveBeenCalledWith(
+            'host:rasterBudgetChanged',
+            expect.anything(),
+        );
+
+        // Destroy thirdWindow and prune via getAllRegisteredAppWindows() without calling unregisterAppWindow.
+        thirdWindow.isDestroyed.mockReturnValue(true);
+        thirdWindow.webContents.isDestroyed.mockReturnValue(true);
+        expect(getAllRegisteredAppWindows()).toHaveLength(2);
+        expect(firstWindow.webContents.send).toHaveBeenLastCalledWith('host:rasterBudgetChanged', {
+            maxRasterSurfaceBytes: 768 * MIB,
+            hostPoolBytes: 1536 * MIB,
+            windowCount: 2,
+        });
+
+        // Destroy secondWindow and prune via getWindowByIdFromRegistry() without calling unregisterAppWindow.
+        secondWindow.isDestroyed.mockReturnValue(true);
+        secondWindow.webContents.isDestroyed.mockReturnValue(true);
+        expect(getWindowByIdFromRegistry(secondWindow.id)).toBeNull();
+        expect(firstWindow.webContents.send).toHaveBeenLastCalledWith('host:rasterBudgetChanged', {
+            maxRasterSurfaceBytes: 1536 * MIB,
+            hostPoolBytes: 1536 * MIB,
+            windowCount: 1,
+        });
+    });
+
+    it('unregisters and restores the surviving share when a registered window emits closed directly', async () => {
+        const { initializeHostResourceProfile } = await import('@electron/resources/hostResourceProfile');
+        const { registerAppWindow } = await import('@electron/window/registry');
+        const { installHostEnvironmentDisplayWatcher } = await import('@electron/hostEnvironment');
+
+        initializeHostResourceProfile({
+            app: { getGPUFeatureStatus: () => ({}) as never },
+            performanceMode: 'auto',
+            availableParallelism: () => 8,
+            totalmem: () => 32 * GIB,
+        });
+        installHostEnvironmentDisplayWatcher();
+
+        const firstWindow = mocks.createWindow(401);
+        const secondWindow = mocks.createWindow(402);
+        registerAppWindow(firstWindow as never, { setAsMain: true });
+        registerAppWindow(secondWindow as never);
+        expect(firstWindow.webContents.send).toHaveBeenLastCalledWith('host:rasterBudgetChanged', {
+            maxRasterSurfaceBytes: 768 * MIB,
+            hostPoolBytes: 1536 * MIB,
+            windowCount: 2,
+        });
+
+        const closedListener = secondWindow.once.mock.calls
+            .find(call => call[0] === 'closed')?.[1] as (() => void) | undefined;
+        expect(closedListener).toBeTypeOf('function');
+        secondWindow.isDestroyed.mockReturnValue(true);
+        secondWindow.webContents.isDestroyed.mockReturnValue(true);
+        closedListener?.();
+
+        expect(firstWindow.webContents.send).toHaveBeenLastCalledWith('host:rasterBudgetChanged', {
+            maxRasterSurfaceBytes: 1536 * MIB,
+            hostPoolBytes: 1536 * MIB,
+            windowCount: 1,
         });
     });
 });

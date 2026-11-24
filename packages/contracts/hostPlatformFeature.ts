@@ -4,7 +4,13 @@ import {
     definePlatformFeature,
     type TFeatureCapability,
 } from '@contracts/platformFeature';
-import type {IHostResourceProfileSnapshot} from '@contracts/hostResourceProfile';
+import {
+    HOST_RASTER_BUDGET_MAX_WINDOWS,
+    HOST_RASTER_POOL_MAX_BYTES,
+    HOST_RASTER_POOL_MIN_BYTES,
+    HOST_WINDOW_RASTER_SHARE_MIN_BYTES,
+    type IHostResourceProfileSnapshot,
+} from '@contracts/hostResourceProfile';
 import * as v from 'valibot';
 
 const HOST_OS_SCALE_FACTOR_MAX = 8;
@@ -89,6 +95,34 @@ const hostBugReportWriteResultSchema = v.object({
     written: v.boolean('invalid host bug report write result'),
 }, 'invalid host bug report write result');
 
+const hostRasterBudgetSchema = v.pipe(
+    v.strictObject({
+        maxRasterSurfaceBytes: v.pipe(
+            v.number('invalid host raster budget'),
+            v.integer('invalid host raster budget'),
+            v.minValue(HOST_WINDOW_RASTER_SHARE_MIN_BYTES, 'invalid host raster budget'),
+            v.maxValue(HOST_RASTER_POOL_MAX_BYTES, 'invalid host raster budget'),
+        ),
+        hostPoolBytes: v.pipe(
+            v.number('invalid host raster budget'),
+            v.integer('invalid host raster budget'),
+            v.minValue(HOST_RASTER_POOL_MIN_BYTES, 'invalid host raster budget'),
+            v.maxValue(HOST_RASTER_POOL_MAX_BYTES, 'invalid host raster budget'),
+        ),
+        windowCount: v.pipe(
+            v.number('invalid host raster budget'),
+            v.integer('invalid host raster budget'),
+            v.minValue(1, 'invalid host raster budget'),
+            v.maxValue(HOST_RASTER_BUDGET_MAX_WINDOWS, 'invalid host raster budget'),
+        ),
+    }, 'invalid host raster budget'),
+    v.check(
+        value => value.maxRasterSurfaceBytes <= value.hostPoolBytes,
+        'invalid host raster budget',
+    ),
+);
+export type IHostRasterBudgetSnapshot = v.InferOutput<typeof hostRasterBudgetSchema>;
+
 const resourceProfileSchema = v.custom<IHostResourceProfileSnapshot | null>(() => true);
 const noArgs = v.strictTuple([]);
 
@@ -106,6 +140,13 @@ export const HOST_PLATFORM_FEATURE = definePlatformFeature({
             browser: {method: 'getResourceProfile'},
             lazy: 'direct',
         },
+        getRasterBudget: defineForwardedPlatformMethod({
+            name: 'getRasterBudget',
+            channel: 'host:getRasterBudget',
+            args: noArgs,
+            result: v.nullable(hostRasterBudgetSchema),
+            main: 'snapshotHostRasterBudgetForWindow',
+        }),
         getEnvironment: defineForwardedPlatformMethod({
             name: 'getEnvironment',
             channel: 'host:getEnvironment',
@@ -153,6 +194,11 @@ export const HOST_PLATFORM_FEATURE = definePlatformFeature({
             name: 'onEnvironmentChange',
             channel: 'host:environmentChanged',
             payload: hostEnvironmentSchema,
+        }),
+        onRasterBudgetChange: defineForwardedPlatformEvent({
+            name: 'onRasterBudgetChange',
+            channel: 'host:rasterBudgetChanged',
+            payload: hostRasterBudgetSchema,
         }),
         onZenModeChange: defineForwardedPlatformEvent({
             name: 'onZenModeChange',

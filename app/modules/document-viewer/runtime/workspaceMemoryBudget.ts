@@ -4,7 +4,12 @@ import {
     type IPerformanceProfile,
     type IPerformanceProfileEnvironment,
 } from '@app/utils/performanceProfile';
-import type { THostResourceTier } from '@contracts/hostResourceProfile';
+import {
+    HOST_RASTER_POOL_MAX_BYTES,
+    HOST_WINDOW_RASTER_SHARE_MIN_BYTES,
+    resolveHostRasterPoolBytes,
+    type THostResourceTier,
+} from '@contracts/hostResourceProfile';
 import {
     normalizeMemoryPressureLevel,
     type IRuntimeMemoryPressureSignal,
@@ -19,8 +24,6 @@ interface IWorkspaceMemoryBudgetBase {
     reclaimTargetBytes: number;
 }
 
-const RASTER_BUDGET_MIN_BYTES = 128 * MIB;
-const RASTER_BUDGET_MAX_BYTES = 1536 * MIB;
 const SYSTEM_FREE_RESERVE_MIN_BYTES = 1024 * MIB;
 const SYSTEM_FREE_RESERVE_MAX_BYTES = 4096 * MIB;
 
@@ -28,6 +31,7 @@ export interface IResolveWorkspaceMemoryBudgetOptions {
     environment?: IPerformanceProfileEnvironment | undefined;
     performanceProfile?: IPerformanceProfile | undefined;
     pressure?: IRuntimeMemoryPressureSignal | undefined;
+    hostRasterSurfaceBytes?: number | undefined;
 }
 
 export interface IWorkspaceMemoryBudget {
@@ -98,9 +102,20 @@ export function resolveWorkspaceMemoryBudget(
     const base = BASE_BUDGETS[deviceTier];
     const totalMemoryBytes = resolveTotalMemoryBytes(options);
     const maxWarmViewers = resolvePressureAdjustedWarmViewers(base.maxWarmViewers, pressureLevel);
-    const maxRasterSurfaceBytes = totalMemoryBytes === null
-        ? Math.min(base.maxEstimatedWorkspaceBytes, RASTER_BUDGET_MAX_BYTES)
-        : clamp(totalMemoryBytes * 0.06, RASTER_BUDGET_MIN_BYTES, RASTER_BUDGET_MAX_BYTES);
+    const hostRasterSurfaceBytes = typeof options.hostRasterSurfaceBytes === 'number'
+        && Number.isFinite(options.hostRasterSurfaceBytes)
+        && options.hostRasterSurfaceBytes > 0
+        ? clamp(
+            Math.floor(options.hostRasterSurfaceBytes),
+            HOST_WINDOW_RASTER_SHARE_MIN_BYTES,
+            HOST_RASTER_POOL_MAX_BYTES,
+        )
+        : null;
+    const maxRasterSurfaceBytes = hostRasterSurfaceBytes ?? (
+        totalMemoryBytes === null
+            ? Math.min(base.maxEstimatedWorkspaceBytes, HOST_RASTER_POOL_MAX_BYTES)
+            : resolveHostRasterPoolBytes(totalMemoryBytes) ?? Math.min(base.maxEstimatedWorkspaceBytes, HOST_RASTER_POOL_MAX_BYTES)
+    );
 
     return {
         deviceTier,

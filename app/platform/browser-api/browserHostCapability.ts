@@ -79,6 +79,10 @@ function onBrowserZenModeChange(callback: (state: IHostZenModeState) => void) {
 
 export const browserHostCapability = {
     getResourceProfile: () => null,
+    getRasterBudget() {
+        return Promise.resolve(null);
+    },
+    onRasterBudgetChange: noopUnsubscribe,
     getEnvironment() {
         return Promise.resolve(snapshotBrowserHostEnvironment());
     },

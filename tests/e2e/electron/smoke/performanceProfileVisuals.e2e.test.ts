@@ -1,10 +1,31 @@
 import {
+    mkdtempSync,
+    rmSync,
+    writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
+    PDFDocument,
+    StandardFonts,
+} from 'pdf-lib';
+import type { Page } from 'puppeteer-core';
+import {
     afterEach,
     describe,
     expect,
     it,
 } from 'vitest';
-import type { THostResourceTier } from '@contracts/hostResourceProfile';
+import {
+    resolveHostWindowRasterShare,
+    type THostResourceTier,
+} from '@contracts/hostResourceProfile';
+import type { IHostRasterBudgetSnapshot } from '@contracts/hostPlatformFeature';
+import { moveTabToNewWindow } from '@tests/e2e/electron/helpers/moveTabToNewWindow';
+import {
+    openPdfInApp,
+    waitForPdfLoaded,
+} from '@tests/e2e/electron/helpers/viewerCore';
 import {startConfiguredElectronE2ESession} from '@tests/e2e/electron/helpers/startConfiguredElectronE2ESession';
 import type {IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 
@@ -87,12 +108,68 @@ function expectGraphicsTokens(snapshot: IGraphicsStyleSnapshot) {
     });
 }
 
+interface ISurfaceBudgetProbeWindow extends Window {
+    __getWorkspaceSurfaceBudgetForE2E?: () => {
+        maxBytes: number;
+        effectiveMaxBytes: number;
+        reservedBytes: number;
+        leaseCount: number;
+        pressureLevel: 'none' | 'moderate' | 'critical';
+    };
+}
+
+async function createMultiPagePdfFixture(filePath: string) {
+    const document = await PDFDocument.create();
+    const font = await document.embedFont(StandardFonts.Helvetica);
+    for (let pageNumber = 1; pageNumber <= 2; pageNumber += 1) {
+        const page = document.addPage([
+            612,
+            792,
+        ]);
+        page.drawText(`Raster share multi-window page ${pageNumber}`, {
+            x: 72,
+            y: 700,
+            size: 20,
+            font,
+        });
+    }
+    writeFileSync(filePath, await document.save());
+}
+
+async function waitForSurfaceBudgetMaxBytes(page: Page, expectedMaxBytes: number) {
+    await page.waitForFunction(
+        (targetMaxBytes: number) => (
+            (window as ISurfaceBudgetProbeWindow).__getWorkspaceSurfaceBudgetForE2E?.().maxBytes === targetMaxBytes
+        ),
+        {timeout: APP_READY_TIMEOUT_MS},
+        expectedMaxBytes,
+    );
+}
+
+async function readWindowRasterBudgetState(page: Page) {
+    return page.evaluate(async () => {
+        const hostBudget: IHostRasterBudgetSnapshot | null = await window.electronAPI!.host.getRasterBudget();
+        const surfaceBudget = (window as ISurfaceBudgetProbeWindow).__getWorkspaceSurfaceBudgetForE2E?.() ?? null;
+        return {
+            hostBudget,
+            surfaceBudget,
+        };
+    });
+}
+
 describe('Electron E2E - Performance Profile Visuals', () => {
     let session: IElectronE2ESession | null = null;
+    const tempDirectories: string[] = [];
 
     afterEach(async () => {
         await session?.stop();
         session = null;
+        for (const directory of tempDirectories.splice(0)) {
+            rmSync(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
     });
 
     it('installs the low tier synchronously and disables expensive visuals', async () => {
@@ -167,5 +244,65 @@ describe('Electron E2E - Performance Profile Visuals', () => {
             tierClasses: ['performance-tier-high'],
         });
         expectGraphicsTokens(await readGraphicsStyleSnapshot(session));
+    }, E2E_TIMEOUT_MS);
+
+    it('pushes reduced per-window raster shares across two real windows and restores on close', async () => {
+        const fixtureDir = mkdtempSync(join(tmpdir(), 'evb-raster-share-e2e-'));
+        tempDirectories.push(fixtureDir);
+        const pdfPath = join(fixtureDir, 'raster-share.pdf');
+        await createMultiPagePdfFixture(pdfPath);
+        session = await startConfiguredElectronE2ESession(
+            `e2e-raster-share-multi-window-${Date.now()}`,
+            'high',
+        );
+        await waitForAppReady(session);
+        await openPdfInApp(session.page, pdfPath);
+        await waitForPdfLoaded(session.page);
+
+        const profile = await session.page.evaluate(() => window.electronAPI!.host.getResourceProfile());
+        expect(profile).not.toBeNull();
+        const oneWindowShare = resolveHostWindowRasterShare({
+            totalRamBytes: profile!.totalRamBytes,
+            windowCount: 1,
+        });
+        const twoWindowShare = resolveHostWindowRasterShare({
+            totalRamBytes: profile!.totalRamBytes,
+            windowCount: 2,
+        });
+        expect(twoWindowShare.maxRasterSurfaceBytes).toBeLessThan(oneWindowShare.maxRasterSurfaceBytes);
+
+        await waitForSurfaceBudgetMaxBytes(session.page, oneWindowShare.maxRasterSurfaceBytes);
+        const singleWindowState = await readWindowRasterBudgetState(session.page);
+        expect(singleWindowState.hostBudget).toEqual(oneWindowShare);
+        expect(singleWindowState.surfaceBudget).toMatchObject({
+            maxBytes: oneWindowShare.maxRasterSurfaceBytes,
+        });
+        expect(singleWindowState.surfaceBudget!.reservedBytes).toBeGreaterThan(0);
+        expect(singleWindowState.surfaceBudget!.reservedBytes)
+            .toBeLessThanOrEqual(singleWindowState.surfaceBudget!.effectiveMaxBytes);
+
+        // Open a second real Electron window through the real Move Tab to New Window flow.
+        const secondWindow = await moveTabToNewWindow(session.page, {tabTitle: 'raster-share'});
+        await waitForSurfaceBudgetMaxBytes(session.page, twoWindowShare.maxRasterSurfaceBytes);
+        await waitForSurfaceBudgetMaxBytes(secondWindow, twoWindowShare.maxRasterSurfaceBytes);
+
+        const firstWindowWithTwo = await readWindowRasterBudgetState(session.page);
+        const secondWindowWithTwo = await readWindowRasterBudgetState(secondWindow);
+        expect(firstWindowWithTwo.hostBudget).toEqual(twoWindowShare);
+        expect(secondWindowWithTwo.hostBudget).toEqual(twoWindowShare);
+        expect(firstWindowWithTwo.surfaceBudget!.maxBytes).toBe(twoWindowShare.maxRasterSurfaceBytes);
+        expect(secondWindowWithTwo.surfaceBudget!.maxBytes).toBe(twoWindowShare.maxRasterSurfaceBytes);
+        expect(secondWindowWithTwo.surfaceBudget!.reservedBytes).toBeGreaterThan(0);
+        expect(firstWindowWithTwo.surfaceBudget!.reservedBytes)
+            .toBeLessThanOrEqual(firstWindowWithTwo.surfaceBudget!.effectiveMaxBytes);
+        expect(secondWindowWithTwo.surfaceBudget!.reservedBytes)
+            .toBeLessThanOrEqual(secondWindowWithTwo.surfaceBudget!.effectiveMaxBytes);
+
+        // Closing the second window broadcasts the restored 1-window share to the survivor.
+        await secondWindow.close();
+        await waitForSurfaceBudgetMaxBytes(session.page, oneWindowShare.maxRasterSurfaceBytes);
+        const restoredState = await readWindowRasterBudgetState(session.page);
+        expect(restoredState.hostBudget).toEqual(oneWindowShare);
+        expect(restoredState.surfaceBudget!.maxBytes).toBe(oneWindowShare.maxRasterSurfaceBytes);
     }, E2E_TIMEOUT_MS);
 });

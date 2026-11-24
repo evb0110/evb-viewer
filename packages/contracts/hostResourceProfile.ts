@@ -41,7 +41,77 @@ export const HOST_TIER_LOW_CPU_MAX = 2;
 export const HOST_TIER_MODEST_CPU_MAX = 4;
 export const HOST_TIER_HIGH_CPU_MIN = 8;
 
+const MIB = 1024 ** 2;
 const GIB = 1024 ** 3;
+
+export const HOST_RASTER_POOL_RAM_FRACTION = 0.06;
+export const HOST_RASTER_POOL_MIN_BYTES = 128 * MIB;
+export const HOST_RASTER_POOL_MAX_BYTES = 1536 * MIB;
+/**
+ * Floor for a single window's raster share: matches one low-tier settled RGBA
+ * canvas (2^24 * 4 = 64 MiB) and half of the minimum host raster pool (128 MiB),
+ * so even a 2-window session on a minimal host splits the pool cleanly without
+ * starving a visible page.
+ */
+export const HOST_WINDOW_RASTER_SHARE_MIN_BYTES = 64 * MIB;
+export const HOST_RASTER_BUDGET_MAX_WINDOWS = 1_024;
+
+export interface IHostWindowRasterShare {
+    readonly maxRasterSurfaceBytes: number;
+    readonly hostPoolBytes: number;
+    readonly windowCount: number;
+}
+
+function clampHostBytes(value: number, minimum: number, maximum: number) {
+    return Math.min(maximum, Math.max(minimum, value));
+}
+
+export function resolveHostRasterPoolBytes(totalRamBytes: number): number | null {
+    if (typeof totalRamBytes !== 'number' || !Number.isFinite(totalRamBytes) || totalRamBytes <= 0) {
+        return null;
+    }
+    return clampHostBytes(
+        totalRamBytes * HOST_RASTER_POOL_RAM_FRACTION,
+        HOST_RASTER_POOL_MIN_BYTES,
+        HOST_RASTER_POOL_MAX_BYTES,
+    );
+}
+
+/**
+ * Splits the host raster pool equally across live registered windows.
+ *
+ * Invariants:
+ * - `hostPoolBytes` is an integer in `[128 MiB, 1536 MiB]`.
+ * - `windowCount` is an integer in `[1, 1024]`.
+ * - `maxRasterSurfaceBytes` is an integer in `[64 MiB, 1536 MiB]`.
+ * - When `windowCount * 64 MiB <= hostPoolBytes`, `windowCount * maxRasterSurfaceBytes <= hostPoolBytes`.
+ * - Monotonically non-increasing as `windowCount` grows and non-decreasing as windows close.
+ */
+export function resolveHostWindowRasterShare(options: {
+    totalRamBytes: number;
+    windowCount: number;
+    fallbackPoolBytes?: number | undefined;
+}): IHostWindowRasterShare {
+    const windowCount = typeof options.windowCount === 'number' && Number.isFinite(options.windowCount)
+        ? Math.min(HOST_RASTER_BUDGET_MAX_WINDOWS, Math.max(1, Math.floor(options.windowCount)))
+        : 1;
+    const detectedPoolBytes = resolveHostRasterPoolBytes(options.totalRamBytes);
+    const fallbackPoolBytes = typeof options.fallbackPoolBytes === 'number'
+        && Number.isFinite(options.fallbackPoolBytes)
+        && options.fallbackPoolBytes > 0
+        ? clampHostBytes(options.fallbackPoolBytes, HOST_RASTER_POOL_MIN_BYTES, HOST_RASTER_POOL_MAX_BYTES)
+        : HOST_RASTER_POOL_MAX_BYTES;
+    const hostPoolBytes = Math.floor(detectedPoolBytes ?? fallbackPoolBytes);
+    const maxRasterSurfaceBytes = Math.max(
+        HOST_WINDOW_RASTER_SHARE_MIN_BYTES,
+        Math.floor(hostPoolBytes / windowCount),
+    );
+    return {
+        maxRasterSurfaceBytes,
+        hostPoolBytes,
+        windowCount,
+    };
+}
 
 function isHostResourceTier(value: unknown): value is THostResourceTier {
     return value === 'low' || value === 'medium' || value === 'high';

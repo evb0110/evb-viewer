@@ -1,5 +1,6 @@
 import {
     computed,
+    effectScope,
     isReadonly,
 } from 'vue';
 import {
@@ -10,6 +11,7 @@ import {
     vi,
 } from 'vitest';
 import { resolveTabLifecycleStates } from '@app/modules/workspace-shell/tabs/resolveTabLifecycleStates';
+import type { IHostRasterBudgetSnapshot } from '@contracts/hostPlatformFeature';
 import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
 import type { ISystemMemoryInfo } from '@contracts/systemPlatformFeature';
 import type { IEditorPaneState } from '@contracts/editorPanes';
@@ -24,6 +26,14 @@ const MIB = 1024 ** 2;
 const mocks = vi.hoisted(() => ({
     getMemoryInfo: vi.fn<() => ISystemMemoryInfo | null>(),
     getResourceProfile: vi.fn<() => Partial<IHostResourceProfileSnapshot>>(),
+    getRasterBudget: vi.fn<() => Promise<IHostRasterBudgetSnapshot | null>>(),
+    rasterBudgetListeners: new Set<(snapshot: IHostRasterBudgetSnapshot) => void>(),
+    onRasterBudgetChange: vi.fn((callback: (snapshot: IHostRasterBudgetSnapshot) => void) => {
+        mocks.rasterBudgetListeners.add(callback);
+        return () => {
+            mocks.rasterBudgetListeners.delete(callback);
+        };
+    }),
     intervalCallbacks: [] as Array<() => void>,
     useIntervalFn: vi.fn((callback: () => void) => {
         mocks.intervalCallbacks.push(callback);
@@ -33,7 +43,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@vueuse/core', () => ({useIntervalFn: mocks.useIntervalFn}));
 const platformApi = createElectronPlatformApiFixture({
     system: {getMemoryInfo: mocks.getMemoryInfo},
-    host: {getResourceProfile: mocks.getResourceProfile as never},
+    host: {
+        getResourceProfile: mocks.getResourceProfile as never,
+        getRasterBudget: mocks.getRasterBudget,
+        onRasterBudgetChange: mocks.onRasterBudgetChange,
+    },
 });
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 vi.mock('@app/utils/electronPlatformBridge', () => ({
@@ -76,6 +90,8 @@ describe('workspace memory pressure monitor', () => {
         vi.resetModules();
         vi.clearAllMocks();
         mocks.intervalCallbacks.length = 0;
+        mocks.rasterBudgetListeners.clear();
+        mocks.getRasterBudget.mockResolvedValue(null);
         useHost(32 * GIB, 16 * GIB, 8, 'high');
     });
 
@@ -284,5 +300,128 @@ describe('workspace memory pressure monitor', () => {
             temperature: 'hot',
             viewerResidency: 'active',
         });
+    });
+
+    it('applies main-pushed per-window raster shares immediately, evicts excess surfaces, and restores on close', async () => {
+        mocks.getRasterBudget.mockResolvedValue({
+            maxRasterSurfaceBytes: 1536 * MIB,
+            hostPoolBytes: 1536 * MIB,
+            windowCount: 1,
+        });
+        const {
+            controller,
+            useWorkspaceMemoryPressureMonitor,
+        } = await loadMonitor();
+        const budget = useWorkspaceMemoryPressureMonitor();
+        await Promise.resolve();
+
+        const evicted: string[] = [];
+        controller.reserve({
+            scopeId: 'cached-pages',
+            category: 'pdf-page-canvas',
+            bytes: 600 * MIB,
+            priority: 10,
+            evict: () => evicted.push('cached-pages'),
+        });
+        controller.reserve({
+            scopeId: 'visible-page',
+            category: 'pdf-page-canvas',
+            bytes: 400 * MIB,
+            priority: 100,
+            canEvict: () => false,
+        });
+        expect(controller.getSnapshot()).toMatchObject({
+            maxBytes: 1536 * MIB,
+            reservedBytes: 1000 * MIB,
+        });
+
+        // Second window opens: main pushes halved share (768 MiB), immediately reclaiming cached surfaces.
+        for (const listener of mocks.rasterBudgetListeners) {
+            listener({
+                maxRasterSurfaceBytes: 768 * MIB,
+                hostPoolBytes: 1536 * MIB,
+                windowCount: 2,
+            });
+        }
+
+        expect(evicted).toEqual(['cached-pages']);
+        expect(controller.getSnapshot()).toMatchObject({
+            maxBytes: 768 * MIB,
+            effectiveMaxBytes: 768 * MIB,
+            reservedBytes: 400 * MIB,
+        });
+        expect(budget.value.maxRasterSurfaceBytes).toBe(768 * MIB);
+
+        // Second window closes: main restores full 1-window share (1536 MiB).
+        for (const listener of mocks.rasterBudgetListeners) {
+            listener({
+                maxRasterSurfaceBytes: 1536 * MIB,
+                hostPoolBytes: 1536 * MIB,
+                windowCount: 1,
+            });
+        }
+
+        expect(controller.getSnapshot()).toMatchObject({
+            maxBytes: 1536 * MIB,
+            effectiveMaxBytes: 1536 * MIB,
+        });
+        expect(budget.value.maxRasterSurfaceBytes).toBe(1536 * MIB);
+    });
+
+    it('does not let a stale initial raster budget pull overwrite a newer live broadcast', async () => {
+        let resolveInitial!: (snapshot: IHostRasterBudgetSnapshot | null) => void;
+        mocks.getRasterBudget.mockReturnValue(new Promise((resolve) => {
+            resolveInitial = resolve;
+        }));
+        const {
+            controller,
+            useWorkspaceMemoryPressureMonitor,
+        } = await loadMonitor();
+        const budget = useWorkspaceMemoryPressureMonitor();
+
+        for (const listener of mocks.rasterBudgetListeners) {
+            listener({
+                maxRasterSurfaceBytes: 768 * MIB,
+                hostPoolBytes: 1536 * MIB,
+                windowCount: 2,
+            });
+        }
+        resolveInitial({
+            maxRasterSurfaceBytes: 1536 * MIB,
+            hostPoolBytes: 1536 * MIB,
+            windowCount: 1,
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(controller.getSnapshot().maxBytes).toBe(768 * MIB);
+        expect(budget.value.maxRasterSurfaceBytes).toBe(768 * MIB);
+    });
+
+    it('unsubscribes from host raster budget events when the effect scope disposes', async () => {
+        let resolveInitial!: (snapshot: IHostRasterBudgetSnapshot | null) => void;
+        mocks.getRasterBudget.mockReturnValue(new Promise((resolve) => {
+            resolveInitial = resolve;
+        }));
+        const {
+            controller,
+            useWorkspaceMemoryPressureMonitor,
+        } = await loadMonitor();
+        const scope = effectScope();
+        scope.run(() => useWorkspaceMemoryPressureMonitor());
+
+        expect(mocks.rasterBudgetListeners.size).toBe(1);
+        scope.stop();
+        expect(mocks.rasterBudgetListeners.size).toBe(0);
+
+        // A pending initial pull resolving after disposal must not touch the controller.
+        resolveInitial({
+            maxRasterSurfaceBytes: 768 * MIB,
+            hostPoolBytes: 1536 * MIB,
+            windowCount: 2,
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(controller.getSnapshot().maxBytes).toBe(1536 * MIB);
     });
 });
