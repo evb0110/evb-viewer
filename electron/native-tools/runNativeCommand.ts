@@ -35,7 +35,6 @@ import {
     type IManagedProcessRegistration,
 } from '@electron/native-tools/managedProcessRegistry';
 import {
-    getNativeChildProcessPid,
     getNativeChildProcessTerminationProof,
     spawnNativeChildProcess,
     terminateDetachedChildProcess,
@@ -47,9 +46,8 @@ import {
     type TNativeErrorCode,
 } from '@contracts/nativeErrors';
 import {
+    getNativeCommandMemoryLimitBytes,
     POPPLER_MEMORY_LIMIT_BYTES,
-    watchPopplerMemory,
-    withPopplerMemoryLimit,
 } from '@electron/native-tools/popplerMemoryLimit';
 import {
     PDF_IMAGE_COMBINE_BINARY,
@@ -299,16 +297,20 @@ function spawnNativeProcess(
     context: ICommandRunContext,
     windowsHide: boolean,
     pipeStdin: boolean,
+    onMemoryLimitExceeded: (bytes: number) => void,
 ): TNativeProcess {
-    const {
-        command: spawnCommand,
-        args: spawnArgs,
-    } = withPopplerMemoryLimit(command, args);
+    const memoryLimitBytes = getNativeCommandMemoryLimitBytes(command);
     const location = {
         ...(context.effectiveCwd === undefined ? {} : {cwd: context.effectiveCwd}),
         ...(context.effectiveEnv === undefined ? {} : {env: context.effectiveEnv}),
+        ...(memoryLimitBytes === undefined
+            ? {}
+            : {
+                memoryLimitBytes,
+                onMemoryLimitExceeded,
+            }),
     };
-    return spawnNativeChildProcess(spawnCommand, spawnArgs, {
+    return spawnNativeChildProcess(command, args, {
         shell: false,
         windowsHide,
         stdio: [
@@ -502,7 +504,6 @@ function runNativeCommandCore(
         let settlementExitCode: number | null = null;
         let settlementSignal: NodeJS.Signals | null = null;
         let processAdmitted = false;
-        let stopMemoryWatch: (() => void) | null = null;
         const startedAt = performance.now();
         let stdoutDataHandler: ((data: Buffer) => void) | null = null;
         let stderrDataHandler: ((data: Buffer) => void) | null = null;
@@ -637,7 +638,6 @@ function runNativeCommandCore(
                     signal: settlementSignal,
                 });
             }
-            stopMemoryWatch?.();
             if (timeoutHandle) {
                 clearTimeout(timeoutHandle);
                 timeoutHandle = null;
@@ -693,7 +693,18 @@ function runNativeCommandCore(
         }
 
         try {
-            proc = spawnNativeProcess(command, args, context, windowsHide, stdin !== undefined);
+            proc = spawnNativeProcess(
+                command,
+                args,
+                context,
+                windowsHide,
+                stdin !== undefined,
+                (bytes) => {
+                    const message = `${context.displayName} stopped after using more than ${POPPLER_MEMORY_LIMIT_BYTES / 1024 ** 3} GiB of memory`;
+                    log?.('error', `${message} (${bytes} bytes); cmd=${context.displayCommand}`);
+                    requestTermination(new Error(message));
+                },
+            );
             processAdmitted = true;
             activeNativeProcessCount += 1;
         } catch (error) {
@@ -779,14 +790,6 @@ function runNativeCommandCore(
         proc.stderr.on('data', stderrDataHandler);
 
         armTimeout();
-        void getNativeChildProcessPid(proc).then(pid => {
-            if (settled || pid === null) return;
-            stopMemoryWatch = watchPopplerMemory(command, pid, (bytes) => {
-                const message = `${context.displayName} stopped after using more than ${POPPLER_MEMORY_LIMIT_BYTES / 1024 ** 3} GiB of memory`;
-                log?.('error', `${message} (${bytes} bytes); cmd=${context.displayCommand}`);
-                requestTermination(new Error(message));
-            });
-        });
         if (signal?.aborted) {
             requestTermination(abortErrorFromSignal(signal));
         }
@@ -798,6 +801,10 @@ function runNativeCommandCore(
             if (pendingTerminationError) {
                 log?.('warn', `${context.displayName} reported an error during termination: ${error.message}`);
                 return;
+            }
+            const jobProof = proc ? getNativeChildProcessTerminationProof(proc) : undefined;
+            if (jobProof) {
+                void recordTerminationProof(jobProof);
             }
             const message = `${context.displayName} failed to start: ${error.message}`;
             log?.('error', `${message}; cmd=${context.displayCommand}`);
@@ -811,7 +818,8 @@ function runNativeCommandCore(
                 if (!pendingTerminationError && jobProof) {
                     void recordTerminationProof(jobProof);
                     if (!await jobProof) {
-                        requestTermination(new Error(`${context.displayName} Windows job exit was not proven`));
+                        const supervisorLabel = process.platform === 'win32' ? 'Windows job' : 'supervised process';
+                        requestTermination(new Error(`${context.displayName} ${supervisorLabel} exit was not proven`));
                         return;
                     }
                 }

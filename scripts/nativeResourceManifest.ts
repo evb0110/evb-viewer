@@ -239,7 +239,7 @@ export const NATIVE_TOOL_RESOURCE_FAMILIES: readonly INativeToolResourceFamily[]
     ...NATIVE_TOOLS.map(tool => ({
         id: tool.crateName,
         label: tool.label,
-        packagedEntries: [packagedBinary(`evb-${tool.crateName}`, tool.crateName === 'windows-job-launcher' ? ['win32'] : undefined)],
+        packagedEntries: [packagedBinary(`evb-${tool.crateName}`)],
         sourceRootSegments: [
             '.tmp',
             tool.crateName,

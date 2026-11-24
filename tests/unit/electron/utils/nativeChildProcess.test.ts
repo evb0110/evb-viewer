@@ -1,5 +1,6 @@
 import { once } from 'node:events';
 import { createInterface } from 'node:readline';
+import { spawn } from 'node:child_process';
 import {
     mkdtemp, rm,
 } from 'node:fs/promises';
@@ -14,11 +15,14 @@ import {
 } from 'vitest';
 import {
     createDetachedChildProcessSpawnOptions,
+    getNativeChildProcessMemoryLimitExceededBytes,
+    getNativeChildProcessPid,
     shouldUseDetachedProcessGroup,
     spawnNativeChildProcess,
     getNativeChildProcessTerminationProof,
     terminateDetachedChildProcess,
 } from '@electron/utils/nativeChildProcess';
+import { resolveNativeProcessSupervisorPath } from '@electron/native-tools/resolveNativeToolsBase';
 
 interface ITerminateProcessTreeOptions {
     graceMs: number;
@@ -246,5 +250,205 @@ describe.runIf(process.platform === 'win32')('Windows native Job Object ownershi
             recursive: true,
             force: true,
         }); }
+    });
+    it('enforces Job Object memory limits and reports memory_limit diagnostics', async () => {
+        const limitBytes = 64 * 1024 * 1024;
+        const reported: number[] = [];
+        const proc = spawnNativeChildProcess(process.execPath, [
+            '-e',
+            'const chunks = []; while (true) { const b = Buffer.alloc(4 * 1024 * 1024, 1); chunks.push(b); }',
+        ], {
+            stdio: [
+                'ignore',
+                'pipe',
+                'pipe',
+            ],
+            windowsHide: true,
+            memoryLimitBytes: limitBytes,
+            onMemoryLimitExceeded: bytes => reported.push(bytes),
+        });
+        try {
+            await once(proc, 'close');
+            await expect(getNativeChildProcessTerminationProof(proc)).resolves.toBe(true);
+            expect(reported.length).toBeGreaterThanOrEqual(1);
+            expect(getNativeChildProcessMemoryLimitExceededBytes(proc)).toBeGreaterThanOrEqual(limitBytes);
+        } finally { proc.kill(); }
+    });
+});
+
+const hasPosixSupervisor = process.platform !== 'win32'
+    && resolveNativeProcessSupervisorPath(import.meta.dirname) !== null;
+
+describe.runIf(hasPosixSupervisor)('POSIX kernel-bound process supervisor ownership', () => {
+    const rootSource = `
+        const {spawn} = require('node:child_process');
+        const child = spawn(process.execPath, ['-e', "require('node:net').createServer().listen(0, '127.0.0.1', () => process.send('ready'))"], {
+            stdio: ['pipe', 'ignore', 'ignore', 'ipc'],
+        });
+        child.once('message', () => process.stdout.write(JSON.stringify({root: process.pid, child: child.pid}) + '\\n'));
+        process.stdin.once('data', () => process.exit(7));
+    `;
+    function alive(pid: number) {
+        try { process.kill(pid, 0); return true; } catch { return false; }
+    }
+    async function startTree() {
+        const proc = spawnNativeChildProcess(process.execPath, [
+            '-e',
+            rootSource,
+        ], {
+            stdio: [
+                'pipe',
+                'pipe',
+                'pipe',
+            ],
+        });
+        const lines = createInterface({input: proc.stdout});
+        const [line] = await once(lines, 'line');
+        lines.close();
+        const tree = JSON.parse(String(line)) as {
+            root: number;
+            child: number
+        };
+        expect(alive(tree.root)).toBe(true);
+        expect(alive(tree.child)).toBe(true);
+        expect(await getNativeChildProcessPid(proc)).toBe(tree.root);
+        return {
+            proc,
+            tree,
+        };
+    }
+
+    it('terminates the entire process group before reporting proof', async () => {
+        const {
+            proc, tree,
+        } = await startTree();
+        try {
+            await expect(terminateDetachedChildProcess(proc, 100)).resolves.toBe(true);
+            expect(alive(tree.root)).toBe(false);
+            expect(alive(tree.child)).toBe(false);
+        } finally { proc.kill('SIGKILL'); }
+    });
+
+    it('contains descendants after the root exits abnormally', async () => {
+        const {
+            proc, tree,
+        } = await startTree();
+        try {
+            const closed = once(proc, 'close');
+            proc.stdin?.end('crash');
+            expect((await closed)[0]).toBe(7);
+            await expect(getNativeChildProcessTerminationProof(proc)).resolves.toBe(true);
+            expect(alive(tree.root)).toBe(false);
+            expect(alive(tree.child)).toBe(false);
+        } finally { proc.kill('SIGKILL'); }
+    });
+
+    it('kills the supervised child automatically when its parent process dies abruptly', async () => {
+        const supervisorPath = resolveNativeProcessSupervisorPath(import.meta.dirname)!;
+        const parentScript = `
+            const {spawn} = require('node:child_process');
+            const sup = spawn(${JSON.stringify(supervisorPath)}, [
+                '--posix-fd', '3', '--',
+                process.execPath, '-e', 'setInterval(() => {}, 60000);'
+            ], {stdio: ['ignore', 'ignore', 'ignore', 'pipe']});
+            sup.stdio[3].setEncoding('utf8');
+            let buf = '';
+            sup.stdio[3].on('data', chunk => {
+                buf += chunk;
+                const nl = buf.indexOf('\\n');
+                if (nl >= 0) {
+                    const line = buf.slice(0, nl);
+                    if (line.startsWith('pid=')) {
+                        process.stdout.write(JSON.stringify({supervisor: sup.pid, child: Number(line.slice(4))}) + '\\n');
+                    }
+                }
+            });
+            setInterval(() => {}, 60000);
+        `;
+        const intermediateParent = spawn(process.execPath, [
+            '-e',
+            parentScript,
+        ], {
+            stdio: [
+                'ignore',
+                'pipe',
+                'ignore',
+            ],
+        });
+        const lines = createInterface({input: intermediateParent.stdout});
+        const [line] = await once(lines, 'line');
+        lines.close();
+        const pids = JSON.parse(String(line)) as {
+            supervisor: number;
+            child: number;
+        };
+        expect(alive(pids.supervisor)).toBe(true);
+        expect(alive(pids.child)).toBe(true);
+        try {
+            // Simulate an abrupt parent crash (SIGKILL).
+            intermediateParent.kill('SIGKILL');
+            await once(intermediateParent, 'exit');
+            await vi.waitFor(() => {
+                expect(alive(pids.child)).toBe(false);
+                expect(alive(pids.supervisor)).toBe(false);
+            }, {timeout: 3_000});
+        } finally {
+            for (const pid of [
+                pids.child,
+                pids.supervisor,
+            ]) {
+                try { process.kill(pid, 'SIGKILL'); } catch { /* Already dead. */ }
+            }
+        }
+    });
+
+    it('enforces zero-spawn memory limits on POSIX and reports memory_limit diagnostics', async () => {
+        const limitBytes = 64 * 1024 * 1024;
+        const reported: number[] = [];
+        const proc = spawnNativeChildProcess(process.execPath, [
+            '-e',
+            'const chunks = []; for (let i = 0; i < 5; i += 1) { chunks.push(Buffer.alloc(16 * 1024 * 1024, 1)); } setInterval(() => { void chunks.length; }, 1000);',
+        ], {
+            stdio: [
+                'ignore',
+                'pipe',
+                'pipe',
+            ],
+            memoryLimitBytes: limitBytes,
+            onMemoryLimitExceeded: bytes => reported.push(bytes),
+        });
+        try {
+            await once(proc, 'close');
+            await expect(getNativeChildProcessTerminationProof(proc)).resolves.toBe(true);
+            expect(reported.length).toBeGreaterThanOrEqual(1);
+            expect(getNativeChildProcessMemoryLimitExceededBytes(proc)).toBeGreaterThan(limitBytes);
+        } finally { proc.kill('SIGKILL'); }
+    });
+
+    it('preserves termination proof when terminate races with a fast-exiting child', async () => {
+        for (let iteration = 0; iteration < 35; iteration += 1) {
+            const proc = spawnNativeChildProcess(process.execPath, [
+                '-e',
+                'process.stdout.write("hit\\n"); process.exit(0);',
+            ], {
+                stdio: [
+                    'ignore',
+                    'pipe',
+                    'pipe',
+                ],
+            });
+            try {
+                let terminateProof: Promise<boolean> | null = null;
+                proc.stdout.once('data', () => {
+                    terminateProof = terminateDetachedChildProcess(proc, 1_000);
+                });
+                await once(proc, 'close');
+                const proof = await (terminateProof ?? terminateDetachedChildProcess(proc, 1_000));
+                expect(proof, `iteration ${iteration} lost termination proof`).toBe(true);
+                await expect(getNativeChildProcessTerminationProof(proc)).resolves.toBe(true);
+            } finally {
+                proc.kill('SIGKILL');
+            }
+        }
     });
 });

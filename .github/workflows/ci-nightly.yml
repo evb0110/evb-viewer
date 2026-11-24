@@ -237,6 +237,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
+            .tmp/windows-job-launcher
             .tmp/scan-cleanup
             .tmp/pdf-image-combine
             .tmp/pdf-page-ops
@@ -261,7 +262,7 @@ jobs:
 
       # A tarball keeps the native tools executable.
       - name: Pack build
-        run: tar -cf electron-e2e-build.tar nuxt-output/public dist-electron public/wasm .tmp/wasm-build-ids.json .tmp/scan-cleanup .tmp/pdf-image-combine .tmp/pdf-page-ops .tmp/pdf-search
+        run: tar -cf electron-e2e-build.tar nuxt-output/public dist-electron public/wasm .tmp/wasm-build-ids.json .tmp/windows-job-launcher .tmp/scan-cleanup .tmp/pdf-image-combine .tmp/pdf-page-ops .tmp/pdf-search
 
       - name: Upload build
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

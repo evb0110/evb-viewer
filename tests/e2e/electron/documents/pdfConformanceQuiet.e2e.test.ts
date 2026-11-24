@@ -108,9 +108,15 @@ function createConformanceCancellationGate() {
 fs.watch(${JSON.stringify(directory)},()=>{});
 fs.writeFileSync(${JSON.stringify(ready)},String(process.pid));
 `);
-    writeFileSync(hook, `const fs=require('node:fs'),cp=require('node:child_process'),spawn=cp.spawn;
+    writeFileSync(hook, `const fs=require('node:fs'),{basename}=require('node:path'),cp=require('node:child_process'),spawn=cp.spawn;
 cp.spawn=function(command,args,options){
- if(args?.[0]==='pdf-conformance'&&fs.existsSync(${JSON.stringify(armed)})){
+ const isSupervisor=basename(String(command)).replace(/\\.exe$/i,'')==='evb-windows-job-launcher';
+ const sepIndex=isSupervisor&&Array.isArray(args)?args.indexOf('--'):-1;
+ const targetArgs=sepIndex>=0?args.slice(sepIndex+2):args;
+ if(targetArgs?.[0]==='pdf-conformance'&&fs.existsSync(${JSON.stringify(armed)})){
+  if(sepIndex>=0){
+   return spawn.call(this,command,[...args.slice(0,sepIndex+1),${JSON.stringify(process.execPath)},${JSON.stringify(child)}],options);
+  }
   return spawn.call(this,${JSON.stringify(process.execPath)},[${JSON.stringify(child)}],options);
  }
  return spawn.call(this,command,args,options);

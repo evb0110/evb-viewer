@@ -366,6 +366,7 @@ dependencies = [
 name = "evb-windows-job-launcher"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "windows-sys",
 ]
 

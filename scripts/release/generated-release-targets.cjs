@@ -210,9 +210,6 @@ const manifest = JSON.parse(String.raw`{
                         "bin",
                         "evb-windows-job-launcher{exeSuffix}"
                     ],
-                    "platforms": [
-                        "win32"
-                    ],
                     "type": "file"
                 }
             ],
