@@ -24,13 +24,20 @@ fn format_spawn_error(error: &io::Error) -> String {
     format!("{code}: {detail}").chars().take(384).collect()
 }
 
-fn report_spawn_error_and_empty(control_fd: i32, error: &io::Error) {
-    let line = format!("spawn_error={}\nempty\n", format_spawn_error(error));
-    let _ = write_all_fd(control_fd, line.as_bytes());
+fn close_control_fds(event_fd: i32, command_fd: i32) {
     unsafe {
-        libc::shutdown(control_fd, libc::SHUT_WR);
-        libc::close(control_fd);
+        libc::shutdown(event_fd, libc::SHUT_WR);
+        libc::close(event_fd);
+        if command_fd != event_fd {
+            libc::close(command_fd);
+        }
     }
+}
+
+fn report_spawn_error_and_empty(event_fd: i32, command_fd: i32, error: &io::Error) {
+    let line = format!("spawn_error={}\nempty\n", format_spawn_error(error));
+    let _ = write_all_fd(event_fd, line.as_bytes());
+    close_control_fds(event_fd, command_fd);
 }
 
 fn write_all_fd(fd: i32, mut bytes: &[u8]) -> io::Result<()> {
@@ -276,12 +283,14 @@ mod platform {
     }
 
     pub(super) fn run_job(
-        control_fd: i32,
+        event_fd: i32,
+        command_fd: i32,
         memory_limit_bytes: Option<u64>,
         command_args: &[OsString],
     ) -> io::Result<i32> {
         let parent_pid = unsafe { libc::getppid() };
         if parent_pid <= 1 {
+            close_control_fds(event_fd, command_fd);
             return Ok(1);
         }
         let mut cmd = Command::new(&command_args[0]);
@@ -298,15 +307,16 @@ mod platform {
         let child = match cmd.spawn() {
             Ok(child) => child,
             Err(error) => {
-                report_spawn_error_and_empty(control_fd, &error);
+                report_spawn_error_and_empty(event_fd, command_fd, &error);
                 return Ok(1);
             }
         };
         let child_pid = child.id() as libc::pid_t;
-        if let Err(error) = write_all_fd(control_fd, format!("pid={child_pid}\n").as_bytes()) {
+        if let Err(error) = write_all_fd(event_fd, format!("pid={child_pid}\n").as_bytes()) {
             let mut status = None;
             terminate_group(child_pid, 0, &mut status);
             let _ = ensure_group_empty(child_pid, &mut status);
+            close_control_fds(event_fd, command_fd);
             return Err(error);
         }
 
@@ -316,6 +326,7 @@ mod platform {
             let mut status = None;
             terminate_group(child_pid, 0, &mut status);
             let _ = ensure_group_empty(child_pid, &mut status);
+            close_control_fds(event_fd, command_fd);
             return Err(err);
         }
         let _ = set_cloexec(kq);
@@ -338,7 +349,7 @@ mod platform {
                 udata: null_mut(),
             },
             libc::kevent {
-                ident: control_fd as usize,
+                ident: command_fd as usize,
                 filter: libc::EVFILT_READ,
                 flags: libc::EV_ADD,
                 fflags: 0,
@@ -377,6 +388,7 @@ mod platform {
                 }
                 terminate_group(child_pid, 0, &mut reaped_status);
                 let _ = ensure_group_empty(child_pid, &mut reaped_status);
+                close_control_fds(event_fd, command_fd);
                 return Err(error);
             }
         }
@@ -425,9 +437,9 @@ mod platform {
                         should_break = true;
                         break;
                     }
-                    if event.filter == libc::EVFILT_READ && event.ident == control_fd as usize {
+                    if event.filter == libc::EVFILT_READ && event.ident == command_fd as usize {
                         terminated_by_control = true;
-                        let grace_ms = read_control_command(control_fd).unwrap_or(0);
+                        let grace_ms = read_control_command(command_fd).unwrap_or(0);
                         terminate_group(child_pid, grace_ms, &mut reaped_status);
                         should_break = true;
                         break;
@@ -471,14 +483,11 @@ mod platform {
         let proven_empty = ensure_group_empty(child_pid, &mut reaped_status);
         if proven_empty {
             if let Some(bytes) = memory_limit_exceeded {
-                let _ = write_all_fd(control_fd, format!("memory_limit={bytes}\n").as_bytes());
+                let _ = write_all_fd(event_fd, format!("memory_limit={bytes}\n").as_bytes());
             }
-            let _ = write_all_fd(control_fd, b"empty\n");
+            let _ = write_all_fd(event_fd, b"empty\n");
         }
-        unsafe {
-            libc::shutdown(control_fd, libc::SHUT_WR);
-            libc::close(control_fd);
-        }
+        close_control_fds(event_fd, command_fd);
 
         if memory_limit_exceeded.is_some() || terminated_by_control || parent_gone {
             return Ok(1);
@@ -703,7 +712,8 @@ mod platform {
     }
 
     pub(super) fn run_job(
-        control_fd: i32,
+        event_fd: i32,
+        command_fd: i32,
         memory_limit_bytes: Option<u64>,
         command_args: &[OsString],
     ) -> io::Result<i32> {
@@ -716,19 +726,22 @@ mod platform {
         }
 
         // Block SIGCHLD and SIGTERM and handle them via signalfd so poll() can
-        // wait on control_fd and kernel signals simultaneously with 0% CPU.
+        // wait on command_fd and kernel signals simultaneously with 0% CPU.
         let mut mask: libc::sigset_t = unsafe { zeroed() };
         unsafe {
             libc::sigemptyset(&mut mask);
             libc::sigaddset(&mut mask, libc::SIGCHLD);
             libc::sigaddset(&mut mask, libc::SIGTERM);
             if libc::sigprocmask(libc::SIG_BLOCK, &mask, null_mut()) != 0 {
+                close_control_fds(event_fd, command_fd);
                 return Err(io::Error::last_os_error());
             }
         }
         let sfd = unsafe { libc::signalfd(-1, &mask, libc::SFD_NONBLOCK | libc::SFD_CLOEXEC) };
         if sfd < 0 {
-            return Err(io::Error::last_os_error());
+            let err = io::Error::last_os_error();
+            close_control_fds(event_fd, command_fd);
+            return Err(err);
         }
 
         unsafe {
@@ -738,6 +751,7 @@ mod platform {
             unsafe {
                 libc::close(sfd);
             }
+            close_control_fds(event_fd, command_fd);
             return Ok(1);
         }
 
@@ -763,11 +777,11 @@ mod platform {
                     let mut rl: libc::rlimit = zeroed();
                     if libc::getrlimit(libc::RLIMIT_DATA, &mut rl) == 0 {
                         // Keep a kernel RLIMIT_DATA backstop comfortably above
-                        // the soft /proc group cap (at least 2x or +512 MiB for
+                        // the soft /proc group cap (at least 2x or +2 GiB for
                         // runtimes with large virtual reservations) so normal
                         // growth crosses `limit` and emits `memory_limit=<bytes>`
                         // deterministically while runaway spikes stay bounded.
-                        const MIN_RLIMIT_DATA_HEADROOM_BYTES: u64 = 512 * 1024 * 1024;
+                        const MIN_RLIMIT_DATA_HEADROOM_BYTES: u64 = 2 * 1024 * 1024 * 1024;
                         let backstop = limit
                             .saturating_mul(2)
                             .max(limit.saturating_add(MIN_RLIMIT_DATA_HEADROOM_BYTES))
@@ -785,18 +799,19 @@ mod platform {
                 unsafe {
                     libc::close(sfd);
                 }
-                report_spawn_error_and_empty(control_fd, &error);
+                report_spawn_error_and_empty(event_fd, command_fd, &error);
                 return Ok(1);
             }
         };
         let child_pid = child.id() as libc::pid_t;
-        if let Err(error) = write_all_fd(control_fd, format!("pid={child_pid}\n").as_bytes()) {
+        if let Err(error) = write_all_fd(event_fd, format!("pid={child_pid}\n").as_bytes()) {
             unsafe {
                 libc::close(sfd);
             }
             let mut status = None;
             terminate_group(child_pid, 0, &mut status);
             let _ = ensure_group_empty(child_pid, &mut status);
+            close_control_fds(event_fd, command_fd);
             return Err(error);
         }
 
@@ -812,7 +827,7 @@ mod platform {
         };
         let mut fds = [
             libc::pollfd {
-                fd: control_fd,
+                fd: command_fd,
                 events: libc::POLLIN,
                 revents: 0,
             },
@@ -874,7 +889,7 @@ mod platform {
             }
             if (fds[0].revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR)) != 0 {
                 terminated_by_control = true;
-                let grace_ms = read_control_command(control_fd).unwrap_or(0);
+                let grace_ms = read_control_command(command_fd).unwrap_or(0);
                 terminate_group(child_pid, grace_ms, &mut reaped_status);
                 break;
             }
@@ -909,14 +924,11 @@ mod platform {
         let proven_empty = ensure_group_empty(child_pid, &mut reaped_status);
         if proven_empty {
             if let Some(bytes) = memory_limit_exceeded {
-                let _ = write_all_fd(control_fd, format!("memory_limit={bytes}\n").as_bytes());
+                let _ = write_all_fd(event_fd, format!("memory_limit={bytes}\n").as_bytes());
             }
-            let _ = write_all_fd(control_fd, b"empty\n");
+            let _ = write_all_fd(event_fd, b"empty\n");
         }
-        unsafe {
-            libc::shutdown(control_fd, libc::SHUT_WR);
-            libc::close(control_fd);
-        }
+        close_control_fds(event_fd, command_fd);
 
         if memory_limit_exceeded.is_some() || terminated_by_control || parent_gone {
             return Ok(1);
@@ -978,12 +990,16 @@ mod platform {
 }
 
 pub fn run_job_mode(
-    control_fd: i32,
+    event_fd: i32,
+    command_fd: i32,
     memory_limit_bytes: Option<u64>,
     command_args: &[OsString],
 ) -> io::Result<i32> {
-    set_cloexec(control_fd)?;
-    platform::run_job(control_fd, memory_limit_bytes, command_args)
+    set_cloexec(event_fd)?;
+    if command_fd != event_fd {
+        set_cloexec(command_fd)?;
+    }
+    platform::run_job(event_fd, command_fd, memory_limit_bytes, command_args)
 }
 
 pub fn read_process_identity(pid: u32) -> Option<ProcessIdentity> {

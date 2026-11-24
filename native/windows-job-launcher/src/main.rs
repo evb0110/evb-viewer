@@ -23,7 +23,8 @@ pub(crate) enum Mode {
     },
     #[cfg_attr(not(unix), allow(dead_code))]
     PosixJob {
-        control_fd: i32,
+        event_fd: i32,
+        command_fd: i32,
         memory_limit_bytes: Option<u64>,
         command_args: Vec<OsString>,
     },
@@ -87,15 +88,36 @@ fn parse_pid(value: &OsString) -> io::Result<u32> {
     Ok(parsed)
 }
 
+fn parse_posix_fd(value: &OsString, flag: &str) -> io::Result<i32> {
+    let fd_text = value.to_str().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, format!("{flag} must be UTF-8"))
+    })?;
+    let fd = fd_text.parse::<i32>().map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{flag} must be a valid integer"),
+        )
+    })?;
+    if fd < 3 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{flag} must be >= 3"),
+        ));
+    }
+    Ok(fd)
+}
+
 fn parse_optional_flags(
     arguments: &[OsString],
     start_index: usize,
-) -> io::Result<(Option<u64>, usize)> {
+    allow_posix_command_fd: bool,
+) -> io::Result<(Option<u64>, Option<i32>, usize)> {
     let mut index = start_index;
     let mut memory_limit_bytes = None;
+    let mut command_fd = None;
     while index < arguments.len() {
         if arguments[index] == "--" {
-            return Ok((memory_limit_bytes, index));
+            return Ok((memory_limit_bytes, command_fd, index));
         }
         if arguments[index] == "--memory-limit-bytes" {
             let value = arguments.get(index + 1).ok_or_else(|| {
@@ -105,6 +127,17 @@ fn parse_optional_flags(
                 )
             })?;
             memory_limit_bytes = Some(parse_positive_u64(value, "--memory-limit-bytes")?);
+            index += 2;
+            continue;
+        }
+        if allow_posix_command_fd && arguments[index] == "--posix-command-fd" {
+            let value = arguments.get(index + 1).ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "--posix-command-fd requires a file descriptor",
+                )
+            })?;
+            command_fd = Some(parse_posix_fd(value, "--posix-command-fd")?);
             index += 2;
             continue;
         }
@@ -156,22 +189,9 @@ pub(crate) fn parse_mode(arguments: &[OsString]) -> io::Result<Mode> {
                 "--posix-fd requires a file descriptor",
             )
         })?;
-        let fd_text = fd_arg.to_str().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidInput, "--posix-fd must be UTF-8")
-        })?;
-        let control_fd = fd_text.parse::<i32>().map_err(|_| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "--posix-fd must be a valid integer",
-            )
-        })?;
-        if control_fd < 3 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "--posix-fd must be >= 3",
-            ));
-        }
-        let (memory_limit_bytes, separator_index) = parse_optional_flags(arguments, 2)?;
+        let event_fd = parse_posix_fd(fd_arg, "--posix-fd")?;
+        let (memory_limit_bytes, command_fd, separator_index) =
+            parse_optional_flags(arguments, 2, true)?;
         let command_args = arguments[separator_index + 1..].to_vec();
         if command_args.is_empty() {
             return Err(io::Error::new(
@@ -180,7 +200,8 @@ pub(crate) fn parse_mode(arguments: &[OsString]) -> io::Result<Mode> {
             ));
         }
         return Ok(Mode::PosixJob {
-            control_fd,
+            event_fd,
+            command_fd: command_fd.unwrap_or(event_fd),
             memory_limit_bytes,
             command_args,
         });
@@ -192,7 +213,7 @@ pub(crate) fn parse_mode(arguments: &[OsString]) -> io::Result<Mode> {
             "expected CONTROL HIDE [--memory-limit-bytes BYTES] -- COMMAND [ARGS]",
         ));
     }
-    let (memory_limit_bytes, separator_index) = parse_optional_flags(arguments, 2)?;
+    let (memory_limit_bytes, _, separator_index) = parse_optional_flags(arguments, 2, false)?;
     let command_args = arguments[separator_index + 1..].to_vec();
     if command_args.is_empty() {
         return Err(io::Error::new(
@@ -459,17 +480,18 @@ fn run_main() -> io::Result<i32> {
             }
         }
         Mode::PosixJob {
-            control_fd,
+            event_fd,
+            command_fd,
             memory_limit_bytes,
             command_args,
         } => {
             #[cfg(unix)]
             {
-                posix::run_job_mode(control_fd, memory_limit_bytes, &command_args)
+                posix::run_job_mode(event_fd, command_fd, memory_limit_bytes, &command_args)
             }
             #[cfg(not(unix))]
             {
-                let _ = (control_fd, memory_limit_bytes, command_args);
+                let _ = (event_fd, command_fd, memory_limit_bytes, command_args);
                 Err(io::Error::new(
                     io::ErrorKind::Unsupported,
                     "POSIX supervisor mode requires Unix",
@@ -596,12 +618,42 @@ mod tests {
             ]))
             .unwrap(),
             Mode::PosixJob {
-                control_fd: 3,
+                event_fd: 3,
+                command_fd: 3,
+                memory_limit_bytes: Some(67_108_864),
+                command_args: os(&["/usr/bin/pdftoppm", "in.pdf"]),
+            }
+        );
+        assert_eq!(
+            parse_mode(&os(&[
+                "--posix-fd",
+                "3",
+                "--posix-command-fd",
+                "4",
+                "--memory-limit-bytes",
+                "67108864",
+                "--",
+                "/usr/bin/pdftoppm",
+                "in.pdf",
+            ]))
+            .unwrap(),
+            Mode::PosixJob {
+                event_fd: 3,
+                command_fd: 4,
                 memory_limit_bytes: Some(67_108_864),
                 command_args: os(&["/usr/bin/pdftoppm", "in.pdf"]),
             }
         );
         assert!(parse_mode(&os(&["--posix-fd", "2", "--", "/bin/true"])).is_err());
+        assert!(parse_mode(&os(&[
+            "--posix-fd",
+            "3",
+            "--posix-command-fd",
+            "2",
+            "--",
+            "/bin/true",
+        ]))
+        .is_err());
         assert!(parse_mode(&os(&[
             "--posix-fd",
             "3",

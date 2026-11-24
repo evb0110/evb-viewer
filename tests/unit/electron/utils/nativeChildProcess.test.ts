@@ -424,4 +424,31 @@ describe.runIf(hasPosixSupervisor)('POSIX kernel-bound process supervisor owners
             expect(getNativeChildProcessMemoryLimitExceededBytes(proc)).toBeGreaterThan(limitBytes);
         } finally { proc.kill('SIGKILL'); }
     });
+
+    it('preserves termination proof when terminate races with a fast-exiting child', async () => {
+        for (let iteration = 0; iteration < 35; iteration += 1) {
+            const proc = spawnNativeChildProcess(process.execPath, [
+                '-e',
+                'process.stdout.write("hit\\n"); process.exit(0);',
+            ], {
+                stdio: [
+                    'ignore',
+                    'pipe',
+                    'pipe',
+                ],
+            });
+            try {
+                let terminateProof: Promise<boolean> | null = null;
+                proc.stdout.once('data', () => {
+                    terminateProof = terminateDetachedChildProcess(proc, 1_000);
+                });
+                await once(proc, 'close');
+                const proof = await (terminateProof ?? terminateDetachedChildProcess(proc, 1_000));
+                expect(proof, `iteration ${iteration} lost termination proof`).toBe(true);
+                await expect(getNativeChildProcessTerminationProof(proc)).resolves.toBe(true);
+            } finally {
+                proc.kill('SIGKILL');
+            }
+        }
+    });
 });

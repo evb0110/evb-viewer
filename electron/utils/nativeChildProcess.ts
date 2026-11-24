@@ -93,10 +93,13 @@ function attachSupervisorControlSocket(
         resolveProof: (proven: boolean) => void;
         onMemoryLimitExceeded: (bytes: number) => void;
         onSpawnError: (error: Error) => void;
+        onEmpty?: () => void;
+        endSocketOnEmpty?: boolean;
     },
 ) {
     let message = '';
     let pendingSpawnError: Error | null = null;
+    const endSocketOnEmpty = handlers.endSocketOnEmpty ?? true;
     socket.setEncoding('utf8');
     socket.on('data', chunk => {
         message += chunk;
@@ -114,7 +117,10 @@ function attachSupervisorControlSocket(
                 pendingSpawnError = createSupervisedSpawnError(command, line.slice('spawn_error='.length));
             } else if (line === 'empty') {
                 handlers.resolveProof(true);
-                socket.end();
+                handlers.onEmpty?.();
+                if (endSocketOnEmpty) {
+                    socket.end();
+                }
                 if (pendingSpawnError) {
                     const error = pendingSpawnError;
                     pendingSpawnError = null;
@@ -172,15 +178,28 @@ export function spawnNativeChildProcess(
         const {
             promise: proof, resolve: resolveProof,
         } = Promise.withResolvers<boolean>();
+        let proofSettled = false;
+        const settleProof = (proven: boolean) => {
+            if (proofSettled) return;
+            proofSettled = true;
+            resolveProof(proven);
+        };
         const {
             promise: pid, resolve: resolvePid,
         } = Promise.withResolvers<number | null>();
         let memoryLimitExceededBytes: number | null = null;
         void proof.then(() => resolvePid(null));
 
+        // Split POSIX supervisor I/O into two unidirectional descriptors:
+        // fd 3 (eventSocket) is child -> parent only, and fd 4 (commandSocket)
+        // is parent -> child only. That prevents a late `terminate` write from
+        // triggering EPIPE/ECONNRESET on the event channel and discarding an
+        // unread `empty\n` proof in the kernel buffer.
         const proc = spawn(launcher, [
             '--posix-fd',
             '3',
+            '--posix-command-fd',
+            '4',
             ...memoryLimitArgs,
             '--',
             command,
@@ -193,16 +212,29 @@ export function spawnNativeChildProcess(
                 spawnOptions.stdio[1],
                 spawnOptions.stdio[2],
                 'pipe',
+                'pipe',
             ],
         });
-        const controlSocket = proc.stdio[3] as Socket | null;
-        if (!controlSocket) {
+        const eventSocket = proc.stdio[3] as Socket | null;
+        const commandSocket = proc.stdio[4] as Socket | null;
+        if (!eventSocket || !commandSocket) {
             proc.kill('SIGKILL');
-            throw new Error('Native process supervisor control channel was not created');
+            throw new Error('Native process supervisor control channels were not created');
         }
-        attachSupervisorControlSocket(controlSocket, command, {
+        // Parent->child command write errors (e.g. EPIPE/ECONNRESET after the
+        // supervisor already exited) must never poison eventSocket or proof.
+        commandSocket.on('error', () => undefined);
+        commandSocket.resume();
+        const closeCommandSocket = () => {
+            if (!commandSocket.destroyed) {
+                commandSocket.destroy();
+            }
+        };
+        attachSupervisorControlSocket(eventSocket, command, {
             resolvePid,
-            resolveProof,
+            resolveProof: settleProof,
+            endSocketOnEmpty: false,
+            onEmpty: closeCommandSocket,
             onMemoryLimitExceeded: (bytes) => {
                 memoryLimitExceededBytes = bytes;
                 onMemoryLimitExceeded?.(bytes);
@@ -211,16 +243,27 @@ export function spawnNativeChildProcess(
                 proc.emit('error', error);
             },
         });
-        proc.once('error', () => resolveProof(false));
-        proc.once('close', () => resolveProof(false));
+        eventSocket.once('close', closeCommandSocket);
+        proc.once('exit', closeCommandSocket);
+        proc.once('error', () => {
+            closeCommandSocket();
+            settleProof(false);
+        });
+        proc.once('close', () => {
+            closeCommandSocket();
+            settleProof(false);
+        });
         supervisedJobs.set(proc, {
             proof,
             pid,
             getMemoryLimitExceededBytes: () => memoryLimitExceededBytes,
             terminate: (graceMs) => {
+                if (proofSettled) {
+                    return proof;
+                }
                 const clampedGraceMs = Number.isFinite(graceMs) && graceMs > 0 ? Math.round(graceMs) : 0;
-                if (!controlSocket.destroyed && controlSocket.writable) {
-                    controlSocket.end(`terminate ${clampedGraceMs}\n`);
+                if (!commandSocket.destroyed && commandSocket.writable) {
+                    commandSocket.end(`terminate ${clampedGraceMs}\n`);
                 }
                 return proof;
             },
@@ -233,6 +276,12 @@ export function spawnNativeChildProcess(
     const {
         promise: proof, resolve: resolveProof,
     } = Promise.withResolvers<boolean>();
+    let proofSettled = false;
+    const settleProof = (proven: boolean) => {
+        if (proofSettled) return;
+        proofSettled = true;
+        resolveProof(proven);
+    };
     const {
         promise: connection, resolve: resolveConnection,
     } = Promise.withResolvers<Socket | null>();
@@ -246,7 +295,7 @@ export function spawnNativeChildProcess(
         resolveConnection(socket);
         attachSupervisorControlSocket(socket, command, {
             resolvePid,
-            resolveProof,
+            resolveProof: settleProof,
             onMemoryLimitExceeded: (bytes) => {
                 memoryLimitExceededBytes = bytes;
                 onMemoryLimitExceeded?.(bytes);
@@ -258,7 +307,7 @@ export function spawnNativeChildProcess(
     });
     server.once('close', () => {
         resolveConnection(null);
-        resolveProof(false);
+        settleProof(false);
     });
     // Named-pipe binding happens during listen, before the child can connect.
     server.listen(pipe);
@@ -279,7 +328,7 @@ export function spawnNativeChildProcess(
     }
     server.once('error', () => {
         resolveConnection(null);
-        resolveProof(false);
+        settleProof(false);
         proc.kill();
     });
     const closeServer = () => server.close();
@@ -290,7 +339,14 @@ export function spawnNativeChildProcess(
         pid,
         getMemoryLimitExceededBytes: () => memoryLimitExceededBytes,
         terminate: () => {
-            void connection.then(socket => socket?.end('terminate\n'));
+            if (proofSettled) {
+                return proof;
+            }
+            void connection.then(socket => {
+                if (!proofSettled && socket && !socket.destroyed && socket.writable) {
+                    socket.end('terminate\n');
+                }
+            });
             return proof;
         },
     });

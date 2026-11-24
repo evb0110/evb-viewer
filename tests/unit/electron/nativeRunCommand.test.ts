@@ -1598,4 +1598,85 @@ describe('runNativeCommand broker admission', () => {
             return qpdf;
         });
     });
+
+    it('never retains JobBroker leases when onStdout aborts a fast-exiting supervised POSIX child', async () => {
+        if (process.platform === 'win32') {
+            return;
+        }
+        const {resolveNativeProcessSupervisorPath} = await import('@electron/native-tools/resolveNativeToolsBase');
+        if (!resolveNativeProcessSupervisorPath(import.meta.dirname)) {
+            return;
+        }
+
+        vi.doUnmock('child_process');
+        vi.doUnmock('@electron/utils/nativeChildProcess');
+        onTestFinished(() => {
+            vi.doMock('child_process', () => ({spawn: mocks.spawn}));
+            vi.doMock('@electron/utils/nativeChildProcess', () => ({
+                spawnNativeChildProcess: mocks.spawn,
+                getNativeChildProcessTerminationProof: mocks.jobProof,
+                getNativeChildProcessPid: (proc: {pid?: number}) => Promise.resolve(proc.pid ?? null),
+                terminateDetachedChildProcess: mocks.terminateDetachedChildProcess,
+            }));
+        });
+        vi.resetModules();
+
+        const {
+            JobBroker,
+            runNativeCommand,
+        } = await loadConfigured();
+        const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
+        const broker = new JobBroker({
+            cpuTokens: 2,
+            estimatedResidentBytes: 4 * GIB,
+            nativeProcesses: 2,
+            ioWeight: 2,
+        });
+
+        for (let iteration = 0; iteration < 25; iteration += 1) {
+            const controller = new AbortController();
+            const outcome = await broker.run({
+                ownerId: `fast-abort-${iteration}`,
+                kind: 'search',
+                priority: 'user',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 128 * 1024 * 1024,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            }, async ({onTerminationProof}) => {
+                try {
+                    await runNativeCommand(process.execPath, [
+                        '-e',
+                        'process.stdout.write("hit\\n"); process.exit(0);',
+                    ], {
+                        signal: controller.signal,
+                        onTerminationProof,
+                        onStdout: () => {
+                            controller.abort();
+                        },
+                    });
+                    return null;
+                } catch (error) {
+                    return error;
+                }
+            });
+
+            if (outcome !== null) {
+                expect(
+                    getUnprovenNativeTerminationDetail(outcome),
+                    `iteration ${iteration} reported unprovenNativeTermination`,
+                ).toBeUndefined();
+            }
+            expect(
+                broker.getSnapshot().active,
+                `iteration ${iteration} retained a JobBroker lease`,
+            ).toBe(0);
+        }
+        expect(mocks.telemetryWarn).not.toHaveBeenCalledWith(
+            expect.stringContaining('unprovenNativeTermination'),
+            expect.anything(),
+        );
+    });
 });
