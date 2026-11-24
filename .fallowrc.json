@@ -23,7 +23,6 @@
         "electron/features/*/public.ts",
         "electron/features/image-export/main/tiffCombineWorker.ts",
         "electron/features/ocr/main/ocrEngineHost.ts",
-        "electron/features/page-ops/main/cropWorker.ts",
         "electron/ocr/worker/main.ts",
         "electron/ocr/worker/runProductionOcrQualityCase.ts",
         "electron/features/scan-cleanup/worker/main.ts",

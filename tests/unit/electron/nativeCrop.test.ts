@@ -17,6 +17,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { PdfPageOpsCapabilityError } from '@electron/features/page-ops/main/pageOpsErrors';
 
 const runNativeToolCommandMock = vi.hoisted(() => vi.fn());
 const copyFileMock = vi.hoisted(() => vi.fn());
@@ -25,7 +26,10 @@ vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolComm
 vi.mock('fs/promises', async importOriginal => {
     const actual = await importOriginal<typeof import('fs/promises')>();
     copyFileMock.mockImplementation(actual.copyFile);
-    return {...actual, copyFile: (...args: Parameters<typeof actual.copyFile>) => copyFileMock(...args)};
+    return {
+        ...actual,
+        copyFile: (...args: Parameters<typeof actual.copyFile>) => copyFileMock(...args),
+    };
 });
 vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
@@ -79,9 +83,10 @@ describe('native page crop helper', () => {
             };
         });
 
-        const { tryCropPagesWithNativePageOps } = await import('@electron/features/page-ops/main/nativeCrop');
+        const { runNativeCropPages } = await import('@electron/features/page-ops/main/nativeCrop');
+        const onTerminationProof = vi.fn();
 
-        await expect(tryCropPagesWithNativePageOps(pdfPath, [
+        await expect(runNativeCropPages(pdfPath, [
             1,
             2048,
             3000,
@@ -90,7 +95,7 @@ describe('native page crop helper', () => {
             bottom: 2,
             left: 3,
             right: 4,
-        })).resolves.toBe(true);
+        }, { onTerminationProof })).resolves.toBeUndefined();
 
         const args = runNativeToolCommandMock.mock.calls[0]?.[1] as string[];
         const inputPath = args[args.indexOf('--input') + 1];
@@ -120,6 +125,7 @@ describe('native page crop helper', () => {
         expect(runNativeToolCommandMock).toHaveBeenCalledWith(nativeBinaryPath, args, {
             timeoutMs: 120000,
             commandLabel: 'evb-pdf-page-ops(crop)',
+            onTerminationProof,
         });
         await expect(readFile(pdfPath, 'utf8')).resolves.toBe('%PDF-1.7\nnative crop');
     });
@@ -135,9 +141,9 @@ describe('native page crop helper', () => {
             };
         });
 
-        const { tryRemoveCropWithNativePageOps } = await import('@electron/features/page-ops/main/nativeCrop');
+        const { runNativeRemoveCrop } = await import('@electron/features/page-ops/main/nativeCrop');
 
-        await expect(tryRemoveCropWithNativePageOps(pdfPath, [2])).resolves.toBe(true);
+        await expect(runNativeRemoveCrop(pdfPath, [2])).resolves.toBeUndefined();
 
         const args = runNativeToolCommandMock.mock.calls[0]?.[1] as string[];
         const inputPath = args[args.indexOf('--input') + 1];
@@ -178,14 +184,14 @@ describe('native page crop helper', () => {
             };
         });
 
-        const { tryCropPagesWithNativePageOps } = await import('@electron/features/page-ops/main/nativeCrop');
+        const { runNativeCropPages } = await import('@electron/features/page-ops/main/nativeCrop');
 
-        await expect(tryCropPagesWithNativePageOps(pdfPath, [1], {
+        await expect(runNativeCropPages(pdfPath, [1], {
             top: 1,
             bottom: 2,
             left: 3,
             right: 4,
-        })).resolves.toBe(true);
+        })).resolves.toBeUndefined();
 
         const args = runNativeToolCommandMock.mock.calls[0]?.[1] as string[];
         const inputPath = args[args.indexOf('--input') + 1];
@@ -196,12 +202,47 @@ describe('native page crop helper', () => {
         expect(copyFileMock).toHaveBeenCalledWith(pdfPath, inputPath, expect.anything());
     });
 
-    it('leaves a small working copy untouched for the local fallback when the native helper fails', async () => {
+    it('throws PdfPageOpsCapabilityError and leaves the working copy untouched when the native helper fails', async () => {
         runNativeToolCommandMock.mockRejectedValueOnce(new Error('native failed'));
 
-        const { tryRemoveCropWithNativePageOps } = await import('@electron/features/page-ops/main/nativeCrop');
+        const { runNativeRemoveCrop } = await import('@electron/features/page-ops/main/nativeCrop');
 
-        await expect(tryRemoveCropWithNativePageOps(pdfPath, [1])).resolves.toBe(false);
+        await expect(runNativeRemoveCrop(pdfPath, [1])).rejects.toMatchObject({
+            name: 'PdfPageOpsCapabilityError',
+            code: 'native-failure',
+            operation: 'remove-crop',
+        });
         await expect(readFile(pdfPath, 'utf8')).resolves.toBe('%PDF-1.7\noriginal');
+    });
+
+    it('maps native too-large errors to PdfPageOpsCapabilityError with code too-large', async () => {
+        const tooLargeError = Object.assign(new Error('input exceeds limit'), { code: 'too-large' });
+        runNativeToolCommandMock.mockRejectedValueOnce(tooLargeError);
+
+        const { runNativeCropPages } = await import('@electron/features/page-ops/main/nativeCrop');
+
+        await expect(runNativeCropPages(pdfPath, [1], {
+            top: 1,
+            bottom: 2,
+            left: 3,
+            right: 4,
+        })).rejects.toMatchObject({
+            name: 'PdfPageOpsCapabilityError',
+            code: 'too-large',
+            operation: 'crop',
+        });
+    });
+
+    it('throws native-unavailable when the native binary path cannot be resolved', async () => {
+        process.env.EVB_PDF_PAGE_OPS_PATH = join(tempDir, 'missing-evb-pdf-page-ops');
+
+        const { runNativeRemoveCrop } = await import('@electron/features/page-ops/main/nativeCrop');
+
+        await expect(runNativeRemoveCrop(pdfPath, [1])).rejects.toBeInstanceOf(PdfPageOpsCapabilityError);
+        await expect(runNativeRemoveCrop(pdfPath, [1])).rejects.toMatchObject({
+            code: 'native-unavailable',
+            operation: 'remove-crop',
+        });
+        expect(runNativeToolCommandMock).not.toHaveBeenCalled();
     });
 });

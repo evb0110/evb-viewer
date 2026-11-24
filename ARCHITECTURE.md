@@ -16,7 +16,8 @@ document work. This page is the map. The decisions behind it are in
 │ Electron main (electron/)                                │
 │   Feature services, job queues, resource governors,      │
 │   document store, settings, updates.                     │
-│   ├─ spawns native sidecars (CLI, JSON envelopes)        │
+│   ├─ spawns native sidecars (kernel-bound supervisor)    │
+│   ├─ hosts OCR engines in one Electron utility process   │
 │   └─ hosts the MCP server (two listeners)                │
 └───────────────┬──────────────────────────────────────────┘
                 │ argv + stdin/stdout protocol
@@ -100,11 +101,15 @@ The PDF viewer has three owners:
   A scale change updates that resource; a changed text source rebuilds it.
 
 The raster scheduler admits and cancels demands under the shared surface budget.
-A failed demand stays failed until the user requests Retry; it has no automatic
-retry loop. Fit follows the viewport client size; a scrollbar-only resize
-recomputes fit without placing the zoom anchor again. Workspace restore waits
-for pixels only in shown tabs; hidden recovered tabs open when their pages load
-and paint when selected.
+On desktop, Electron main owns the host raster pool, divides it across live
+windows (with a 64 MiB floor per window), and pushes updated per-window shares
+over IPC so excess cached surfaces evict when windows open and restore when they
+close. A failed demand stays failed until the user requests Retry; it has no
+automatic retry loop. Fit follows the viewport client size; a scrollbar-only
+resize recomputes fit without placing the zoom anchor again. Workspace restore
+waits for pixels only in shown tabs; hidden recovered tabs open when their pages
+load and paint when selected. Cold tabs release their mounted view layers and
+detached DOM instead of retaining off-screen views in memory.
 
 The pinned [PDF.js artifact](vendor/pdfjs-dist/README.md) includes the upstream
 range-load abort fix, so document replacement can await teardown.
@@ -113,7 +118,11 @@ range-load abort fix, so document replacement can await teardown.
 
 Electron spawns the runnable crates as CLI sidecars and exchanges JSON
 envelopes; library crates supply their shared codecs, types and support code.
-The binaries ship with the app they were built with, so there is no version negotiation: every binary carries a build ID
+A cross-platform native supervisor (`evb-windows-job-launcher`) binds child
+lifetime and memory limits to the kernel—using Job Objects on Windows and POSIX
+process groups with parent-death watching (`kqueue` on macOS,
+`PR_SET_PDEATHSIG` / subreaper on Linux)—so native sidecars cannot outlive the
+app or bypass memory caps. The binaries ship with the app they were built with, so there is no version negotiation: every binary carries a build ID
 (a hash of the sources it links, from `scripts/native-build-id.mjs`), and a
 development build refuses a binary whose ID differs from its own. The
 scan-cleanup, pdf-page-ops and pdf-image-combine crates also build to
@@ -178,10 +187,14 @@ protocol types generate `packages/contracts/scan-cleanup/nativeWire.generated.ts
 
 Desktop and browser use the same pinned Tesseract and Leptonica WebAssembly
 engine and the shared job in `packages/ocr-core`. Hosts supply raster, engine
-pool and text-layer writer ports. Desktop renders with Poppler and preprocesses
-with native scan cleanup; the browser uses PDF.js and scan-cleanup WASM.
-`pdf-page-ops` writes the recognized text into the PDF. Search, text export and
-the assistant read that layer; the search index is a revision-bound cache.
+pool and text-layer writer ports. Desktop renders with Poppler, preprocesses
+with native scan cleanup, and runs its OCR engine workers inside a single
+Electron utility process (`ocr-engine-host`) rather than in main or renderer
+threads—starting with the first lane and exiting when the last lane ends to
+return WebAssembly heaps to the OS. The browser uses PDF.js, scan-cleanup WASM,
+and Web Workers. `pdf-page-ops` writes the recognized text into the PDF. Search,
+text export and the assistant read that layer; the search index is a
+revision-bound cache.
 
 `packages/contracts/ocrLanguages.ts` owns model digests and the
 `OCR_MODEL_SUBLANGUAGES` table. Download, packaging and engine mounts use the

@@ -98,7 +98,7 @@ export function warmupDesktopViewerChunkForPaths(options: IPrioritizedViewerChun
  *   statically imported so it exists on the first frame. Use granular
  *   `public/component-exports/*` entry points to pull a single component without dragging
  *   its whole feature module into the eager bundle.
- * - Heavy document engines and user-initiated tools (viewers, OCR, print, pdf-lib) stay
+ * - Heavy document engines and user-initiated tools (viewers, OCR, print) stay
  *   behind `defineAsyncComponent`/dynamic `import()` so neither web visitors nor desktop
  *   cold start pay their parse cost up front. The same renderer build ships to the web
  *   (Vercel) and to Electron, so async boundaries must stay valid for both targets.

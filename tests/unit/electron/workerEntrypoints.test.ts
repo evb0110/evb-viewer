@@ -41,10 +41,6 @@ const entrypoints = [
         () => import('@electron/features/image-export/main/tiffCombineWorker'),
         'Invalid TIFF combine worker payload',
     ],
-    [
-        () => import('@electron/features/page-ops/main/cropWorker'),
-        'Invalid crop worker payload',
-    ],
 ] as const;
 
 const startupMessages: unknown[][] = [];
@@ -52,7 +48,7 @@ const cancellationListeners: boolean[] = [];
 
 beforeAll(async () => {
     // Cold module loading is setup. Keep each entrypoint's result separately
-    // so an error from one worker cannot stand in for the other three.
+    // so an error from one worker cannot stand in for the other two.
     for (const [load] of entrypoints) {
         mocks.postMessage.mockClear();
         mocks.on.mockClear();
@@ -77,7 +73,6 @@ describe('Node worker entrypoints', () => {
             error,
         })]));
         expect(cancellationListeners).toEqual([
-            true,
             true,
             true,
             true,
