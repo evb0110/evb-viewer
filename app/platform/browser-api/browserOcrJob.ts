@@ -5,6 +5,7 @@ import {
     preprocessBrowserOcrRaster,
     runBrowserOcrEngine,
 } from '@app/platform/browser-api/browserOcrEngineClient';
+import {createBrowserOcrCheckpointStore} from '@app/platform/browser-api/browserOcrCheckpoints';
 import {
     ensureBrowserOcrModel,
     readCachedOcrModel,
@@ -19,7 +20,6 @@ import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserP
 import {loadBrowserPdfjsDocument} from '@app/platform/browser-api/loadBrowserPdfjsDocument';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 import {appendPdfMutationsToStoreFile} from '@app/platform/browser/browserStorePort';
-import type {IPdfAppendResult} from '@app/platform/browser/pdfPageEngine';
 import {getErrorMessage} from '@app/utils/error';
 import {
     isBrowserPageOpsWasmFailure,
@@ -52,7 +52,6 @@ import {
     OcrJobMessages,
     recognizeOcrPages,
     type IOcrPageRaster,
-    type IOcrRecognizedPage,
 } from '@ocr-core/recognizeOcrPages';
 import {
     OCR_TEXT_PROBE_UNAVAILABLE,
@@ -74,7 +73,12 @@ export type TBrowserOcrJobOutcome =
         /** The text layer appended to the document's file, uncommitted, under `lease`. */
         kind: 'written';
         lease: string;
-        /** The document's length with the layer, and the SHA-256 of the layer's bytes. */
+        /**
+         * The document's length with the layer, and the SHA-256 digest of the
+         * appended layer (raw revision bytes for a single chunk, or the composite
+         * SHA-256 over colon-joined per-chunk SHA-256 digests when streamed across
+         * multiple chunks).
+         */
         length: number;
         sha256: string;
         sourceRevisionToken: TDocumentRevisionToken;
@@ -98,6 +102,11 @@ export class BrowserOcrJobError extends Error {
 
 function throwIfAborted(signal: AbortSignal) {
     if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : new DOMException('OCR was canceled', 'AbortError');
+}
+
+async function sha256Hex(bytes: Uint8Array<ArrayBuffer>) {
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+    return Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
 /** A page's text as `pdftotext` would read it for classification; failure is never an empty page. */
@@ -302,79 +311,99 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
                 page.cleanup();
             }
         };
-        const recognized: IOcrRecognizedPage[] = [];
-        const progress = (currentPage: number, active: readonly number[]) => stage('processing', {
-            currentPage,
-            activePages: [...active],
-        });
-        const targeted = queue.length > 0;
-        const result = await recognizeOcrPages({
-            pages: queue,
-            extractionDpi,
-            sourceDpiByPage,
-            options: input.options,
-            lanes: getBrowserOcrLaneCount(maxPageArea * (extractionDpi / 72) ** 2,
-                modelCodes.reduce((bytes, code) => bytes + OCR_LANGUAGE_MODEL_BYTES[code], 0), cleanupMode),
-            signal,
-            renderPage,
-            runEngine: runBrowserOcrEngine,
-            prepareEarlyPrintModels: async () => {
-                for (const code of EARLY_PRINT_MODEL_CODES) {
-                    await ensureBrowserOcrModel(code, {signal});
-                }
-            },
-            readModel: readCachedOcrModel,
-            acceptPage: async (page) => {
-                recognized.push(page);
-            },
-            onPageStart: progress,
-            onPageDone: (pageNumber, active, processed) => {
-                processedCount = processed;
-                progress(pageNumber, active);
-            },
-        });
-        errors.push(...result.errors.items);
-        diagnostics.push(...result.diagnostics.items);
+        const durablePort = typeof browserDocumentStore.stores === 'function'
+            ? (await browserDocumentStore.stores().catch(() => null))?.durable?.port ?? null
+            : null;
+        const checkpoints = await createBrowserOcrCheckpointStore(durablePort);
+        try {
+            const progress = (currentPage: number, active: readonly number[]) => stage('processing', {
+                currentPage,
+                activePages: [...active],
+            });
+            const targeted = queue.length > 0;
+            const result = await recognizeOcrPages({
+                pages: queue,
+                extractionDpi,
+                sourceDpiByPage,
+                options: input.options,
+                lanes: getBrowserOcrLaneCount(maxPageArea * (extractionDpi / 72) ** 2,
+                    modelCodes.reduce((bytes, code) => bytes + OCR_LANGUAGE_MODEL_BYTES[code], 0), cleanupMode),
+                signal,
+                renderPage,
+                runEngine: runBrowserOcrEngine,
+                prepareEarlyPrintModels: async () => {
+                    for (const code of EARLY_PRINT_MODEL_CODES) {
+                        await ensureBrowserOcrModel(code, {signal});
+                    }
+                },
+                readModel: readCachedOcrModel,
+                acceptPage: page => checkpoints.stagePage(page),
+                onPageStart: progress,
+                onPageDone: (pageNumber, active, processed) => {
+                    processedCount = processed;
+                    progress(pageNumber, active);
+                },
+            });
+            errors.push(...result.errors.items);
+            diagnostics.push(...result.diagnostics.items);
 
-        if (recognized.length === 0) {
+            if (checkpoints.getPageCount() === 0) {
+                return {
+                    kind: 'nothing-written',
+                    targeted,
+                    errors: errors.items,
+                    diagnostics: diagnostics.items,
+                };
+            }
+
+            stage('merging');
+            throwIfAborted(signal);
+            let writtenLength: number | undefined;
+            let writtenSha256: string | undefined;
+            let failure: string | undefined;
+            const lease = await browserDocumentStore.stageAppend(input.sourceRef, revision.token, async (file, base) => {
+                let currentLength = base;
+                const chunkHashes: string[] = [];
+                for await (const chunk of checkpoints.iterateChunks({signal})) {
+                    throwIfAborted(signal);
+                    const instructions: IOcrTextLayerInstructions = {
+                        pages: buildOcrTextLayerInstructions(chunk.records),
+                    };
+                    const appendResult = await appendPdfMutationsToStoreFile(file, currentLength, {
+                        instructions,
+                        pagePdfs: chunk.pagePdfs,
+                    });
+                    if (isBrowserPageOpsWasmFailure(appendResult)) {
+                        failure = appendResult.error.message;
+                        return null;
+                    }
+                    currentLength = appendResult.length;
+                    chunkHashes.push(appendResult.sha256);
+                }
+                if (chunkHashes.length === 0 || currentLength <= base) {
+                    return null;
+                }
+                writtenLength = currentLength;
+                writtenSha256 = chunkHashes.length === 1
+                    ? chunkHashes[0]!
+                    : await sha256Hex(new TextEncoder().encode(chunkHashes.join(':')));
+                return currentLength;
+            });
+            if (lease === null || writtenLength === undefined || writtenSha256 === undefined) {
+                throw new Error(`Writing the searchable layer failed: ${failure ?? 'nothing was written'}`);
+            }
             return {
-                kind: 'nothing-written',
-                targeted,
+                kind: 'written',
+                lease,
+                length: writtenLength,
+                sha256: writtenSha256,
+                sourceRevisionToken: revision.token,
                 errors: errors.items,
                 diagnostics: diagnostics.items,
             };
+        } finally {
+            await checkpoints.cleanup();
         }
-
-        stage('merging');
-        recognized.sort((left, right) => left.pageNumber - right.pageNumber);
-        const instructions: IOcrTextLayerInstructions = {pages: buildOcrTextLayerInstructions(recognized)};
-        throwIfAborted(signal);
-        let written: IPdfAppendResult | undefined;
-        let failure: string | undefined;
-        const lease = await browserDocumentStore.stageAppend(input.sourceRef, revision.token, async (file, base) => {
-            const result = await appendPdfMutationsToStoreFile(file, base, {
-                instructions,
-                pagePdfs: recognized.map(page => page.pdf),
-            });
-            if (isBrowserPageOpsWasmFailure(result)) {
-                failure = result.error.message;
-                return null;
-            }
-            written = result;
-            return result.length;
-        });
-        if (lease === null || !written) {
-            throw new Error(`Writing the searchable layer failed: ${failure ?? 'nothing was written'}`);
-        }
-        return {
-            kind: 'written',
-            lease,
-            length: written.length,
-            sha256: written.sha256,
-            sourceRevisionToken: revision.token,
-            errors: errors.items,
-            diagnostics: diagnostics.items,
-        };
     } finally {
         await pdf.loadingTask.destroy().catch(() => {});
     }

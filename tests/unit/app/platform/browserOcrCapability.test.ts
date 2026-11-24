@@ -866,11 +866,12 @@ describe('browser OCR lanes', () => {
             hardwareConcurrency: 12,
             deviceMemory: 8,
         })).toBe(11);
-        // A 300 DPI letter page with clean-up and two 15 MB models costs about 695 MiB a lane.
+        // Preprocessing runs in its own single worker (~353 MiB once), so each Tesseract
+        // lane for a 300 DPI letter page with two 15 MB models costs ~374 MiB instead of ~695 MiB.
         expect(await laneCount({
             hardwareConcurrency: 32,
             deviceMemory: 8,
-        }, 2_550 * 3_300, 30_000_000, 'clean')).toBe(5);
+        }, 2_550 * 3_300, 30_000_000, 'clean')).toBe(10);
     });
 
     it('keeps a 4 GiB device to one lane', async () => {
@@ -878,5 +879,400 @@ describe('browser OCR lanes', () => {
             hardwareConcurrency: 32,
             deviceMemory: 4,
         })).toBe(1);
+    });
+});
+
+describe('browser OCR worker WASM split', () => {
+    afterEach(() => {
+        vi.resetModules();
+        vi.unstubAllGlobals();
+    });
+
+    it('routes recognition and preprocessing to separate worker scripts so Tesseract workers never load scan-cleanup WASM', async () => {
+        vi.resetModules();
+        const spawned: Array<{
+            url: string;
+            terminated: boolean;
+            listeners: Map<string, Set<(event: unknown) => void>>;
+            messages: unknown[];
+        }> = [];
+
+        class FakeWorker {
+            public readonly record: (typeof spawned)[number];
+            public constructor(url: string | URL) {
+                this.record = {
+                    url: String(url),
+                    terminated: false,
+                    listeners: new Map(),
+                    messages: [],
+                };
+                spawned.push(this.record);
+            }
+            public addEventListener(type: string, listener: (event: unknown) => void) {
+                const set = this.record.listeners.get(type) ?? new Set();
+                set.add(listener);
+                this.record.listeners.set(type, set);
+            }
+            public removeEventListener(type: string, listener: (event: unknown) => void) {
+                this.record.listeners.get(type)?.delete(listener);
+            }
+            public postMessage(message: {id: number; type: string}) {
+                this.record.messages.push(message);
+                queueMicrotask(() => {
+                    const data = message.type === 'preprocess'
+                        ? {
+                            image: new Uint8Array([80, 53, 10, 49, 32, 49, 10, 50, 53, 53, 10, 0]),
+                            width: 1,
+                            height: 1,
+                        }
+                        : {
+                            passes: [{
+                                stderr: '',
+                                outputs: [new Uint8Array([37, 80, 68, 70, 45])],
+                            }],
+                        };
+                    for (const listener of this.record.listeners.get('message') ?? []) {
+                        listener({
+                            data: {
+                                id: message.id,
+                                ok: true,
+                                type: message.type,
+                                data,
+                            },
+                        });
+                    }
+                });
+            }
+            public terminate() {
+                this.record.terminated = true;
+            }
+        }
+
+        vi.stubGlobal('Worker', FakeWorker);
+        const {
+            preprocessBrowserOcrRaster,
+            runBrowserOcrEngine,
+        } = await import('@app/platform/browser-api/browserOcrEngineClient');
+
+        const cleaned = await preprocessBrowserOcrRaster({
+            image: new Uint8Array([80, 54, 10, 49, 32, 49, 10, 50, 53, 53, 10, 0, 0, 0]),
+            mode: 'polarity-only',
+            dpi: 150,
+        }, new AbortController().signal);
+        expect(cleaned.width).toBe(1);
+
+        const recognized = await runBrowserOcrEngine({
+            image: new Uint8Array([80, 53, 10, 49, 32, 49, 10, 50, 53, 53, 10, 0]),
+            models: ['eng'],
+            passes: [{
+                args: ['tesseract', '/work/page.ppm', '/work/out'],
+                outputs: ['/work/out.pdf'],
+            }],
+        }, new AbortController().signal);
+        expect(recognized.passes).toHaveLength(1);
+
+        expect(spawned).toHaveLength(2);
+        expect(spawned[0]!.url).toContain('browserOcrPreprocess.worker.ts');
+        expect(spawned[1]!.url).toContain('browserOcrEngine.worker.ts');
+        expect(spawned[0]!.url).not.toBe(spawned[1]!.url);
+    });
+});
+
+describe('browser OCR OPFS checkpoints and streaming finalization', () => {
+    function createFakeOpfsPort() {
+        const files = new Map<string, Uint8Array>();
+        return {
+            files,
+            async list(dir: string) {
+                const prefix = `${dir}/`;
+                return [...new Set(
+                    [...files.keys()]
+                        .filter(path => path.startsWith(prefix))
+                        .map(path => path.slice(prefix.length).split('/')[0]!),
+                )];
+            },
+            async read(path: string) {
+                const bytes = files.get(path);
+                if (!bytes) throw new DOMException(`Missing ${path}`, 'NotFoundError');
+                return bytes.slice();
+            },
+            async writeAtomic(path: string, bytes: Uint8Array) {
+                files.set(path, bytes.slice());
+            },
+            async remove(path: string) {
+                files.delete(path);
+                const prefix = `${path}/`;
+                for (const key of [...files.keys()]) {
+                    if (key.startsWith(prefix)) files.delete(key);
+                }
+            },
+        };
+    }
+
+    it('stages per-page checkpoints in OPFS, reads bounded sorted chunks, sweeps stale dirs, and cleans up', async () => {
+        const {
+            createBrowserOcrCheckpointStore,
+            sweepStaleBrowserOcrCheckpoints,
+        } = await import('@app/platform/browser-api/browserOcrCheckpoints');
+        const port = createFakeOpfsPort();
+        const staleCreatedAt = Date.now() - 25 * 60 * 60 * 1000;
+        await port.writeAtomic(
+            'ocr-checkpoints/stale-job/meta.json',
+            new TextEncoder().encode(JSON.stringify({createdAt: staleCreatedAt})),
+        );
+        await port.writeAtomic('ocr-checkpoints/stale-job/page-1.pdf', new Uint8Array([1, 2, 3]));
+
+        const store = await createBrowserOcrCheckpointStore(port, 'job-active');
+        expect(store.storageKind).toBe('opfs');
+
+        await sweepStaleBrowserOcrCheckpoints(port);
+        expect(port.files.has('ocr-checkpoints/stale-job/page-1.pdf')).toBe(false);
+        expect(port.files.has('ocr-checkpoints/job-active/meta.json')).toBe(true);
+
+        // Stage pages out of order and verify sorted bounded chunk iteration.
+        for (const pageNumber of [3, 1, 5, 2, 4]) {
+            await store.stagePage({
+                pageNumber,
+                languages: ['eng'],
+                pdf: new Uint8Array([37, 80, 68, 70, 45, pageNumber]),
+                text: `page ${pageNumber}`,
+                wordEdits: [],
+                wordGeometry: {
+                    rasterWidthPx: 100,
+                    rasterHeightPx: 100,
+                    words: [{
+                        text: `word${pageNumber}`,
+                        x: 10,
+                        y: 10,
+                        width: 20,
+                        height: 12,
+                    }],
+                },
+                diagnostics: [],
+            });
+        }
+        expect(store.getPageCount()).toBe(5);
+        expect(port.files.has('ocr-checkpoints/job-active/page-3.pdf')).toBe(true);
+        expect(port.files.has('ocr-checkpoints/job-active/page-3.json')).toBe(true);
+
+        const chunks: number[][] = [];
+        for await (const chunk of store.iterateChunks({maxPages: 2})) {
+            chunks.push(chunk.records.map(record => record.pageNumber));
+            expect(chunk.pagePdfs).toHaveLength(chunk.records.length);
+            chunk.records.forEach((record, index) => {
+                expect(chunk.pagePdfs[index]![5]).toBe(record.pageNumber);
+            });
+        }
+        expect(chunks).toEqual([[1, 2], [3, 4], [5]]);
+
+        await store.cleanup();
+        expect([...port.files.keys()]).toEqual([]);
+    });
+
+    it('latches to memory after OPFS hits QuotaExceededError, reads mixed OPFS + memory checkpoints, and aborts chunk iteration on signal', async () => {
+        const {createBrowserOcrCheckpointStore} = await import('@app/platform/browser-api/browserOcrCheckpoints');
+        const port = createFakeOpfsPort();
+        let writes = 0;
+        port.writeAtomic = async (path, bytes) => {
+            writes += 1;
+            // Write 1 = meta.json, write 2 = page-1.pdf, write 3 = page-1.json; page 2 hits quota.
+            if (writes > 3) throw new DOMException('Quota exceeded', 'QuotaExceededError');
+            port.files.set(path, bytes.slice());
+        };
+        const store = await createBrowserOcrCheckpointStore(port, 'job-quota');
+        await store.stagePage({
+            pageNumber: 1,
+            languages: ['eng'],
+            pdf: new Uint8Array([1, 2, 3]),
+            text: 'one',
+            wordEdits: [],
+            wordGeometry: {rasterWidthPx: 10, rasterHeightPx: 10, words: []},
+            diagnostics: [],
+        });
+        await store.stagePage({
+            pageNumber: 2,
+            languages: ['eng'],
+            pdf: new Uint8Array([4, 5, 6]),
+            text: 'two',
+            wordEdits: [],
+            wordGeometry: {rasterWidthPx: 10, rasterHeightPx: 10, words: []},
+            diagnostics: [],
+        });
+        const writesAfterQuota = writes;
+        await store.stagePage({
+            pageNumber: 3,
+            languages: ['eng'],
+            pdf: new Uint8Array([7, 8, 9]),
+            text: 'three',
+            wordEdits: [],
+            wordGeometry: {rasterWidthPx: 10, rasterHeightPx: 10, words: []},
+            diagnostics: [],
+        });
+        // Page 1 stays in OPFS, page 2 tripped quota into memory, and page 3 skipped OPFS writes completely.
+        expect(store.getPageCount()).toBe(3);
+        expect(port.files.has('ocr-checkpoints/job-quota/page-1.pdf')).toBe(true);
+        expect(port.files.has('ocr-checkpoints/job-quota/page-2.pdf')).toBe(false);
+        expect(port.files.has('ocr-checkpoints/job-quota/page-3.pdf')).toBe(false);
+        expect(writes).toBe(writesAfterQuota);
+
+        // Mixed OPFS (page 1) + memory fallback (pages 2, 3) readback yields all 3 pages in order.
+        const readBack: Array<{page: number; pdf: number[]}> = [];
+        for await (const chunk of store.iterateChunks({maxPages: 2})) {
+            chunk.records.forEach((record, index) => {
+                readBack.push({page: record.pageNumber, pdf: [...chunk.pagePdfs[index]!]});
+            });
+        }
+        expect(readBack).toEqual([
+            {page: 1, pdf: [1, 2, 3]},
+            {page: 2, pdf: [4, 5, 6]},
+            {page: 3, pdf: [7, 8, 9]},
+        ]);
+
+        const controller = new AbortController();
+        const yielded: number[] = [];
+        await expect(async () => {
+            for await (const chunk of store.iterateChunks({maxPages: 1, signal: controller.signal})) {
+                yielded.push(...chunk.records.map(record => record.pageNumber));
+                controller.abort(new DOMException('Canceled', 'AbortError'));
+            }
+        }).rejects.toThrow('Canceled');
+        expect(yielded).toEqual([1]);
+
+        await store.cleanup();
+        expect(store.getPageCount()).toBe(0);
+        expect([...port.files.keys()]).toEqual([]);
+    });
+
+    it('streams browser OCR finalization across bounded chunks and cleans up OPFS checkpoints on completion and abort', async () => {
+        vi.resetModules();
+        const opfs = createFakeOpfsPort();
+        const appendChunks: Array<{base: number; pageNumbers: number[]; pdfCount: number}> = [];
+        let abortAfterFirstChunk = false;
+        const jobAbort = new AbortController();
+
+        vi.doMock('@app/platform/browser-api/browserOcrEngineClient', () => ({
+            getBrowserOcrLaneCount: () => 2,
+            preprocessBrowserOcrRaster: vi.fn(),
+            runBrowserOcrEngine: vi.fn(async () => ({
+                passes: [{
+                    stderr: '',
+                    outputs: [
+                        new TextEncoder().encode('%PDF-1.5\n%%EOF\n'),
+                        new TextEncoder().encode('level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n5\t1\t1\t1\t1\t1\t10\t10\t20\t12\t95\thello\n'),
+                    ],
+                }],
+            })),
+        }));
+        vi.doMock('@app/platform/browser-api/browserOcrModels', () => ({
+            ensureBrowserOcrModel: vi.fn(async () => undefined),
+            readCachedOcrModel: vi.fn(async () => new Uint8Array([1])),
+        }));
+        vi.doMock('@app/platform/browser-api/browserOcrRaster', () => ({
+            BROWSER_OCR_ANNOTATION_MODE: 1,
+            getBrowserOcrRasterSize: () => ({width: 100, height: 100}),
+            readPageSourceDpi: () => 150,
+            renderBrowserOcrRaster: vi.fn(async () => ({image: new Uint8Array([80, 54, 10, 49, 32, 49, 10, 50, 53, 53, 10, 0, 0, 0])})),
+        }));
+        vi.doMock('@app/platform/browser-api/browserPageOpsWorkerClient', () => ({
+            runBrowserPageOpsWorkerRequest: vi.fn(async () => ({
+                format: 'evb-pdf-ocr-text-visibility',
+                schemaVersion: 3,
+                pages: [],
+            })),
+        }));
+        vi.doMock('@app/platform/browser-api/loadBrowserPdfjsDocument', () => ({
+            loadBrowserPdfjsDocument: vi.fn(async () => ({
+                getPage: vi.fn(async () => ({
+                    getTextContent: async () => ({items: []}),
+                    getViewport: () => ({width: 612, height: 792, userUnit: 1}),
+                    getOperatorList: async () => ({fnArray: [], argsArray: []}),
+                    cleanup: () => undefined,
+                })),
+                loadingTask: {destroy: vi.fn(async () => undefined)},
+            })),
+        }));
+        vi.doMock('@app/platform/browserDocumentStore', () => ({
+            browserDocumentStore: {
+                stores: async () => ({durable: {port: opfs}, memory: {port: opfs}}),
+                getDocumentRevision: async () => ({token: 'drt1:browser:doc:1'}),
+                readableBlob: async () => new Blob([new Uint8Array(100)]),
+                stageAppend: async (_ref: string, _token: string, fn: (file: unknown, base: number) => Promise<number | null>) => {
+                    const length = await fn({}, 100);
+                    return length === null ? null : 'lease-1';
+                },
+            },
+        }));
+        vi.doMock('@app/platform/browser/browserStorePort', () => ({
+            appendPdfMutationsToStoreFile: vi.fn(async (_file: unknown, base: number, request: {
+                instructions: {pages: Array<{pageNumber: number}>};
+                pagePdfs: Uint8Array[];
+            }) => {
+                appendChunks.push({
+                    base,
+                    pageNumbers: request.instructions.pages.map(page => page.pageNumber),
+                    pdfCount: request.pagePdfs.length,
+                });
+                if (abortAfterFirstChunk && appendChunks.length === 1) {
+                    jobAbort.abort(new DOMException('Canceled mid-merge', 'AbortError'));
+                }
+                return {
+                    pageCount: 20,
+                    length: base + 50,
+                    identityBindings: [],
+                    sha256: String(appendChunks.length).padStart(64, 'a'),
+                };
+            }),
+        }));
+
+        try {
+            const {runBrowserOcrJob} = await import('@app/platform/browser-api/browserOcrJob');
+            const pages = Array.from({length: 20}, (_, index) => ({
+                pageNumber: requirePageNumber(index + 1),
+                languages: ['eng'],
+            }));
+
+            const outcome = await runBrowserOcrJob({
+                sourceRef: requireDocumentRef('browser://documents/a/book.pdf'),
+                pages,
+                options: {renderDpi: 150, supersessionPolicy: 'replace-all', replaceAllAcknowledged: true},
+                signal: new AbortController().signal,
+                emit: () => undefined,
+            });
+            expect(outcome.kind).toBe('written');
+            if (outcome.kind === 'written') {
+                expect(outcome.length).toBe(200);
+                expect(outcome.sha256).toMatch(/^[a-f0-9]{64}$/u);
+            }
+            // 20 pages must finalize across two bounded chunks (16 + 4), chained by base offset.
+            expect(appendChunks).toEqual([
+                {base: 100, pageNumbers: Array.from({length: 16}, (_, i) => i + 1), pdfCount: 16},
+                {base: 150, pageNumbers: [17, 18, 19, 20], pdfCount: 4},
+            ]);
+            // OPFS checkpoint directory must be cleanly removed after completion.
+            expect([...opfs.files.keys()]).toEqual([]);
+
+            // Abort between chunk 1 and chunk 2 must stop finalization and clean up OPFS checkpoints.
+            appendChunks.length = 0;
+            abortAfterFirstChunk = true;
+            await expect(runBrowserOcrJob({
+                sourceRef: requireDocumentRef('browser://documents/a/book.pdf'),
+                pages,
+                options: {renderDpi: 150, supersessionPolicy: 'replace-all', replaceAllAcknowledged: true},
+                signal: jobAbort.signal,
+                emit: () => undefined,
+            })).rejects.toThrow('Canceled mid-merge');
+            expect(appendChunks).toHaveLength(1);
+            expect([...opfs.files.keys()]).toEqual([]);
+        } finally {
+            for (const path of [
+                '@app/platform/browser-api/browserOcrEngineClient',
+                '@app/platform/browser-api/browserOcrModels',
+                '@app/platform/browser-api/browserOcrRaster',
+                '@app/platform/browser-api/browserPageOpsWorkerClient',
+                '@app/platform/browser-api/loadBrowserPdfjsDocument',
+                '@app/platform/browserDocumentStore',
+                '@app/platform/browser/browserStorePort',
+            ]) vi.doUnmock(path);
+        }
     });
 });

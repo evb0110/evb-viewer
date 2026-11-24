@@ -18,21 +18,23 @@ import {
 } from '@app/platform/browser-api/settleBrowserWorkerResult';
 import * as v from 'valibot';
 
-// A lane keeps its engine and models loaded between pages for a while.
+// A lane keeps its Tesseract engine and models loaded between pages for a while.
 const ENGINE_IDLE_TTL_MS = 60_000;
+// Reclaim the dedicated preprocessing worker's scan-cleanup WASM heap promptly once idle.
+const PREPROCESS_IDLE_TTL_MS = 15_000;
 // Desktop stops a Tesseract pass after three minutes. Cleanup gets the same
 // bound: desktop's 30 seconds assume its multithreaded engine, while this
 // single-threaded one took up to 14 s on a 300 DPI letter page and would pass
 // 30 s on large pages desktop cleans.
 const PASS_TIMEOUT_MS = 3 * 60 * 1000;
+const PREPROCESS_BASE_WASM_BYTES = 32 * 1024 * 1024;
 
 type TPendingEngineRequest = ITypedPendingBrowserWorkerRequest<TBrowserOcrEngineRequest['type'], unknown>;
 
 /**
- * The cleanup engine's WebAssembly memory per page pixel. WASM memory never
- * shrinks, so a lane that cleaned a page keeps this beside Tesseract's. On
- * 300 DPI letter pages it peaked at 15.2 B/pixel for polarity and 20.5–38.2
- * for clean, matching desktop's estimates for its native engine.
+ * The cleanup engine's WebAssembly memory per page pixel. It runs in a single
+ * dedicated preprocessing worker separate from Tesseract workers, so its heap
+ * is paid once for the job rather than multiplied across every recognition lane.
  */
 const CLEANUP_BYTES_PER_PIXEL: Record<TOcrScanCleanupMode, number> = {
     'clean': 40,
@@ -40,9 +42,10 @@ const CLEANUP_BYTES_PER_PIXEL: Record<TOcrScanCleanupMode, number> = {
 };
 
 /**
- * Reserve a core for interaction and at most half of reported memory for
- * OCR. Account for model copies/weights, raster scratch and the cleanup
- * engine, not just CPU count.
+ * Reserve a core for interaction (plus one for the dedicated preprocessing
+ * worker when cleanup is active) and at most half of reported memory for OCR.
+ * Because preprocessing runs in its own single worker, Tesseract lanes hold
+ * only their own engine, models and raster scratch.
  * Browsers omit or round deviceMemory; an unknown device gets a 4 GiB budget.
  */
 export function getBrowserOcrLaneCount(pagePixels = 0, modelBytes = 0, cleanup?: TOcrScanCleanupMode) {
@@ -51,9 +54,14 @@ export function getBrowserOcrLaneCount(pagePixels = 0, modelBytes = 0, cleanup?:
         ? undefined
         : (navigator as Navigator & {deviceMemory?: number}).deviceMemory;
     if (memoryGb !== undefined && memoryGb <= 4) return 1;
-    const perLane = 192 * 1024 * 1024 + pagePixels * (12 + (cleanup ? CLEANUP_BYTES_PER_PIXEL[cleanup] : 0)) + modelBytes * 3;
-    const memoryLanes = Math.floor((memoryGb ?? 4) * 1024 ** 3 / 2 / perLane);
-    return Math.max(1, Math.min(cores - 1, memoryLanes));
+    const totalBudget = (memoryGb ?? 4) * 1024 ** 3 / 2;
+    const preprocessReserve = cleanup
+        ? PREPROCESS_BASE_WASM_BYTES + pagePixels * CLEANUP_BYTES_PER_PIXEL[cleanup]
+        : 0;
+    const perLane = 192 * 1024 * 1024 + pagePixels * 12 + modelBytes * 3;
+    const memoryLanes = Math.floor(Math.max(0, totalBudget - preprocessReserve) / perLane);
+    const coreCeiling = cleanup && cores > 2 ? cores - 2 : cores - 1;
+    return Math.max(1, Math.min(coreCeiling, memoryLanes));
 }
 
 export class BrowserOcrEngineUnavailableError extends Error {
@@ -63,32 +71,50 @@ export class BrowserOcrEngineUnavailableError extends Error {
     }
 }
 
-function createEngineClient() {
+function createWorkerClient(createWorker: () => Worker, idleTtlMs: number, fallbackMessage: string) {
     return new BrowserWorkerClient<TPendingEngineRequest>({
-        idleTtlMs: ENGINE_IDLE_TTL_MS,
-        createWorker: () => new Worker(
-            new URL('./browserOcrEngine.worker.ts', import.meta.url),
-            {type: 'module'},
-        ),
+        idleTtlMs,
+        createWorker,
         createError: event => new BrowserOcrEngineUnavailableError(
-            event.error instanceof Error ? event.error.message : event.message || 'The OCR engine stopped',
+            event.error instanceof Error ? event.error.message : event.message || fallbackMessage,
         ),
         handleMessage: settleBrowserWorkerResult,
     });
 }
 
-let owner: BrowserWorkerRequestOwner<TPendingEngineRequest> | null = null;
+let recognizeOwner: BrowserWorkerRequestOwner<TPendingEngineRequest> | null = null;
+let preprocessOwner: BrowserWorkerRequestOwner<TPendingEngineRequest> | null = null;
 
-function getOwner() {
-    owner ??= new BrowserWorkerRequestOwner(createEngineClient, getBrowserOcrLaneCount());
-    return owner;
+function getRecognizeOwner() {
+    recognizeOwner ??= new BrowserWorkerRequestOwner(
+        () => createWorkerClient(
+            () => new Worker(new URL('./browserOcrEngine.worker.ts', import.meta.url), {type: 'module'}),
+            ENGINE_IDLE_TTL_MS,
+            'The OCR engine stopped',
+        ),
+        getBrowserOcrLaneCount(),
+    );
+    return recognizeOwner;
+}
+
+function getPreprocessOwner() {
+    preprocessOwner ??= new BrowserWorkerRequestOwner(
+        () => createWorkerClient(
+            () => new Worker(new URL('./browserOcrPreprocess.worker.ts', import.meta.url), {type: 'module'}),
+            PREPROCESS_IDLE_TTL_MS,
+            'The OCR preprocessing engine stopped',
+        ),
+        1,
+    );
+    return preprocessOwner;
 }
 
 /**
- * Runs one engine request in a free lane. Canceling stops the engine: a lane
+ * Runs one request in a free lane of `pool`. Canceling stops the worker: a lane
  * busy in Tesseract or the cleanup engine cannot read messages, so its worker ends.
  */
-function runEngineRequest<TResult>(
+function runWorkerRequest<TResult>(
+    pool: BrowserWorkerRequestOwner<TPendingEngineRequest>,
     request: Omit<TBrowserOcrEngineRequest, 'id'>,
     signal: AbortSignal,
     readResult: (data: unknown) => TResult | null,
@@ -99,14 +125,13 @@ function runEngineRequest<TResult>(
 ): Promise<TResult> {
     signal.throwIfAborted();
     const {payload} = request;
-    const engines = getOwner();
-    const requestId = engines.createRequestId();
-    const onAbort = () => engines.cancel(
+    const requestId = pool.createRequestId();
+    const onAbort = () => pool.cancel(
         requestId,
         signal.reason instanceof Error ? signal.reason : new DOMException('OCR was canceled', 'AbortError'),
     );
     signal.addEventListener('abort', onAbort, {once: true});
-    return engines.run(requestId, (client, isAdmitted) => new Promise<TResult>((resolve, reject) => {
+    return pool.run(requestId, (client, isAdmitted) => new Promise<TResult>((resolve, reject) => {
         if (!isAdmitted()) {
             reject(new DOMException('OCR was canceled', 'AbortError'));
             return;
@@ -132,12 +157,12 @@ function runEngineRequest<TResult>(
     });
 }
 
-/** Runs one page's Tesseract passes. */
+/** Runs one page's Tesseract passes on the dedicated Tesseract worker pool. */
 export function runBrowserOcrEngine(
     payload: TBrowserOcrRecognizeRequest['payload'],
     signal: AbortSignal,
 ): Promise<IBrowserOcrEngineResult> {
-    return runEngineRequest({
+    return runWorkerRequest(getRecognizeOwner(), {
         type: 'recognize',
         payload,
     }, signal, (data) => {
@@ -150,15 +175,15 @@ export function runBrowserOcrEngine(
 }
 
 /**
- * Cleans one rendered page for recognition, as desktop OCR preprocessing
- * does. Rejects when the engine stopped or ran past its time limit; the
- * caller then recognizes the rendered page, as desktop does.
+ * Cleans one rendered page for recognition in a dedicated preprocessing worker
+ * separate from Tesseract workers. Rejects when the engine stopped or ran past
+ * its time limit; the caller then recognizes the rendered page, as desktop does.
  */
 export function preprocessBrowserOcrRaster(
     payload: TBrowserOcrPreprocessRequest['payload'],
     signal: AbortSignal,
 ): Promise<IBrowserOcrPreprocessResult> {
-    return runEngineRequest({
+    return runWorkerRequest(getPreprocessOwner(), {
         type: 'preprocess',
         payload,
     }, signal, (data) => {
