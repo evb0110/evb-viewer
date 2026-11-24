@@ -336,11 +336,25 @@ if (process.versions.electron && process.type === 'browser') {
     const originalSpawn = cp.spawn;
     const requiredArgs = ${JSON.stringify(requiredArgs)};
     cp.spawn = function(command, args, options) {
-        // Linux's existing memory-limit shell execs the same Poppler binary.
-        const tool = command === '/bin/sh' && args?.[1]?.startsWith('ulimit -S -d') ? args[3] : command;
-        if (basename(String(tool)).replace(/\\.exe$/i, '') !== ${JSON.stringify(toolName)}
-            || !args?.some((_, index) => requiredArgs.every((arg, offset) => args[index + offset] === arg))) {
+        const isSupervisor = basename(String(command)).replace(/\\.exe$/i, '') === 'evb-windows-job-launcher';
+        const sepIndex = isSupervisor && Array.isArray(args) ? args.indexOf('--') : -1;
+        const tool = sepIndex >= 0 ? args[sepIndex + 1] : command;
+        const toolArgs = sepIndex >= 0 ? args.slice(sepIndex + 2) : args;
+        if (basename(String(tool ?? '')).replace(/\\.exe$/i, '') !== ${JSON.stringify(toolName)}
+            || !toolArgs?.some((_, index) => requiredArgs.every((arg, offset) => toolArgs[index + offset] === arg))) {
             return originalSpawn.call(this, command, args, options);
+        }
+        if (sepIndex >= 0) {
+            return originalSpawn.call(this, command, [
+                ...args.slice(0, sepIndex + 1),
+                process.execPath,
+                ${JSON.stringify(commandPath)},
+                tool,
+                ...toolArgs,
+            ], {
+                ...options,
+                env: {...options?.env, ELECTRON_RUN_AS_NODE: '1'},
+            });
         }
         return originalSpawn.call(this, process.execPath, [${JSON.stringify(commandPath)}, command, ...args], {
             ...options,
