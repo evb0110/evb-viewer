@@ -162,8 +162,13 @@ function runWorkerRequest<TResult>(
         message: string
     },
 ): Promise<TResult> {
-    signal.throwIfAborted();
     const {payload} = request;
+    const closeTiles = () => {
+        if (!(payload.image instanceof Uint8Array)) payload.image.tiles.forEach(tile => tile.close());
+    };
+    // A page that waited for a worker may arrive after its job was canceled.
+    if (signal.aborted) closeTiles();
+    signal.throwIfAborted();
     const requestId = pool.createRequestId();
     const onAbort = () => pool.cancel(
         requestId,
@@ -192,7 +197,7 @@ function runWorkerRequest<TResult>(
         }, payload.image instanceof Uint8Array ? [payload.image.buffer] : payload.image.tiles);
     })).finally(() => {
         signal.removeEventListener('abort', onAbort);
-        if (!(payload.image instanceof Uint8Array)) payload.image.tiles.forEach(tile => tile.close());
+        closeTiles();
     });
 }
 

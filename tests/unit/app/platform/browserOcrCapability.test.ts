@@ -1020,6 +1020,31 @@ describe('browser OCR worker WASM split', () => {
     });
 });
 
+describe('browser OCR request cancellation', () => {
+    afterEach(() => {
+        vi.resetModules();
+    });
+
+    it('releases the rendered tiles of a page that reaches a worker after its job was canceled', async () => {
+        vi.resetModules();
+        const {preprocessBrowserOcrRaster} = await import('@app/platform/browser-api/browserOcrEngineClient');
+        const close = vi.fn();
+        const controller = new AbortController();
+        controller.abort(new DOMException('OCR was canceled', 'AbortError'));
+
+        expect(() => preprocessBrowserOcrRaster({
+            image: {
+                width: 1,
+                height: 1,
+                tiles: [{close}],
+            } as never,
+            mode: 'clean',
+            dpi: 300,
+        }, controller.signal)).toThrow('OCR was canceled');
+        expect(close).toHaveBeenCalledOnce();
+    });
+});
+
 describe('browser OCR OPFS checkpoints and streaming finalization', () => {
     function createFakeOpfsPort() {
         const files = new Map<string, Uint8Array>();
