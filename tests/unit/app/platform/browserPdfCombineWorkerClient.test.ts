@@ -468,6 +468,22 @@ describe('browserPdfCombineWorkerClient', () => {
         expect(terminateSpy).toHaveBeenCalled();
         expect(failureReporter.capture).not.toHaveBeenCalled();
     });
+    it('returns the reason of a caller that aborted with its own failure, unreported', async () => {
+        FakeWorker.responder = () => undefined;
+        const {runBrowserPdfCombineWorkerRequest} = await import('@app/platform/browser-api/browserPdfCombineWorkerClient');
+        const controller = new AbortController();
+        const pending = runBrowserPdfCombineWorkerRequest('combinePdfs', {inputs: [{
+            fileName: 'first.pdf',
+            data: new Uint8Array([1]),
+        }]}, controller.signal);
+        const siblingFailure = new Error('Another page failed');
+
+        controller.abort(siblingFailure);
+
+        await expect(pending).rejects.toBe(siblingFailure);
+        expect(failureReporter.capture).not.toHaveBeenCalled();
+        expect(siblingFailure).not.toHaveProperty('failure');
+    });
     it('ends a signaled combine at its explicit deadline and ignores a late result', async () => {
         vi.useFakeTimers();
         const workers: FakeWorker[] = [];
