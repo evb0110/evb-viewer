@@ -326,6 +326,51 @@ describe('browser worker request parsers', () => {
             type: 'conformance',
             payload: {source: catalogSource},
         });
+        expect(parseBrowserPageOpsWorkerRequest({
+            id: 14,
+            type: 'readPageSizes',
+            payload: {source: catalogSource},
+        })).toEqual({
+            id: 14,
+            type: 'readPageSizes',
+            payload: {source: catalogSource},
+        });
+        expect(parseBrowserPageOpsWorkerRequest({
+            id: 15,
+            type: 'readPageSizes',
+            payload: {source: data},
+        })).toBeNull();
+        expect(parseBrowserPageOpsWorkerRequest({
+            id: 16,
+            type: 'getPageGeometry',
+            payload: {
+                source: catalogSource,
+                pageNumber: 2,
+            },
+        })).toEqual({
+            id: 16,
+            type: 'getPageGeometry',
+            payload: {
+                source: catalogSource,
+                pageNumber: 2,
+            },
+        });
+        expect(parseBrowserPageOpsWorkerRequest({
+            id: 17,
+            type: 'getPageGeometry',
+            payload: {
+                data,
+                pageNumber: 2,
+            },
+        })).toBeNull();
+        expect(parseBrowserPageOpsWorkerRequest({
+            id: 18,
+            type: 'getPageGeometry',
+            payload: {
+                source: catalogSource,
+                pageNumber: 0,
+            },
+        })).toBeNull();
         const source = new Blob([data]);
         const merge = {
             id: 11,

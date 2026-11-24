@@ -836,7 +836,18 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
 
         expect(read).not.toHaveBeenCalled();
         expect(readRange).not.toHaveBeenCalled();
-        expect(slice).toHaveBeenCalledExactlyOnceWith(0, 4 * 1024 * 1024);
+        const chunkSize = 1024 * 1024;
+        const size = BROWSER_QPDF_MAX_INPUT_BYTES + 1;
+        expect(slice.mock.calls).toEqual([
+            [
+                0,
+                chunkSize,
+            ],
+            [
+                size - chunkSize,
+                size,
+            ],
+        ]);
     });
 
     it('requests later PDF ranges through the public validator without reading the whole source', async () => {
@@ -845,7 +856,8 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             browserDocumentStore,
         } = await loadBrowserDocumentsFileCapability();
         const path = requireDocumentRef('browser://documents/source/multi-range-validation.pdf');
-        const chunkSize = 4 * 1024 * 1024;
+        const chunkSize = 1024 * 1024;
+        const size = BROWSER_QPDF_MAX_INPUT_BYTES + 1;
         const {slice, read, readRange} = oversizedRevision(browserDocumentStore);
         pdfjsModule.getDocument.mockImplementation((rawInit: unknown) => {
             const init = rawInit as {range: {
@@ -872,7 +884,20 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
 
         expect(read).not.toHaveBeenCalled();
         expect(readRange).not.toHaveBeenCalled();
-        expect(slice.mock.calls).toEqual([[0, chunkSize], [chunkSize, chunkSize * 2]]);
+        expect(slice.mock.calls).toEqual([
+            [
+                0,
+                chunkSize,
+            ],
+            [
+                size - chunkSize,
+                size,
+            ],
+            [
+                chunkSize,
+                chunkSize * 2,
+            ],
+        ]);
     });
 
     it('propagates a failed later PDF range through the public validator without a whole read', async () => {
@@ -881,11 +906,12 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             browserDocumentStore,
         } = await loadBrowserDocumentsFileCapability();
         const path = requireDocumentRef('browser://documents/source/failed-range-validation.pdf');
-        const chunkSize = 4 * 1024 * 1024;
+        const chunkSize = 1024 * 1024;
+        const size = BROWSER_QPDF_MAX_INPUT_BYTES + 1;
         const rangeFailure = new Error('second PDF range failed');
         const {slice, read, readRange} = oversizedRevision(browserDocumentStore, (start, end) => {
             const piece = new Blob([new Uint8Array(end - start)]);
-            if (start !== 0) vi.spyOn(piece, 'arrayBuffer').mockRejectedValue(rangeFailure);
+            if (start === chunkSize) vi.spyOn(piece, 'arrayBuffer').mockRejectedValue(rangeFailure);
             return piece;
         });
         pdfjsModule.getDocument.mockImplementation((rawInit: unknown) => {
@@ -913,7 +939,20 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
 
         expect(read).not.toHaveBeenCalled();
         expect(readRange).not.toHaveBeenCalled();
-        expect(slice.mock.calls).toEqual([[0, chunkSize], [chunkSize, chunkSize * 2]]);
+        expect(slice.mock.calls).toEqual([
+            [
+                0,
+                chunkSize,
+            ],
+            [
+                size - chunkSize,
+                size,
+            ],
+            [
+                chunkSize,
+                chunkSize * 2,
+            ],
+        ]);
     });
 
     it('emits browser batch-open progress while combining multiple inputs', async () => {
@@ -3012,6 +3051,137 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         expect(downloads[0]!.type).toBe('application/pdf');
         expect(digest(new Uint8Array(await downloads[0]!.arrayBuffer()))).toBe(digest(edited));
         await expect(readStored(savedRef!)).resolves.toBe(digest(edited));
+    });
+
+    it('reads exact native page sizes through the page-ops worker and enforces strict revision invariants', async () => {
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability();
+        const workingRef = await browserDocumentStore.createStoredDocument(
+            'geometry-table.pdf',
+            await createPdfBytes([
+                612,
+                792,
+            ]),
+            {
+                ...PDF_SOURCE_OPTIONS,
+                kind: 'working',
+            },
+        );
+        const revision = await browserDocumentStore.getDocumentRevision(workingRef);
+        browserAnnotationParseMock.run.mockResolvedValueOnce({
+            pageCount: 2,
+            pages: [
+                {
+                    pageNumber: 1,
+                    xPoints: 0,
+                    yPoints: 0,
+                    widthPoints: 612,
+                    heightPoints: 792,
+                    rotation: 0,
+                    userUnit: 1,
+                },
+                {
+                    pageNumber: 2,
+                    xPoints: 10,
+                    yPoints: 20,
+                    widthPoints: 400,
+                    heightPoints: 500,
+                    rotation: 90,
+                    userUnit: 2,
+                },
+            ],
+        });
+
+        await expect(capability.getPdfNativePageSizes!(workingRef, {
+            mode: 'exact',
+            expectedDocumentRevisionToken: revision.token,
+        })).resolves.toEqual({
+            kind: 'exact',
+            documentRef: workingRef,
+            documentRevisionToken: revision.token,
+            pageCount: 2,
+            pages: [
+                {
+                    pageNumber: 1,
+                    xPoints: 0,
+                    yPoints: 0,
+                    widthPoints: 612,
+                    heightPoints: 792,
+                    rotation: 0,
+                    userUnit: 1,
+                },
+                {
+                    pageNumber: 2,
+                    xPoints: 10,
+                    yPoints: 20,
+                    widthPoints: 400,
+                    heightPoints: 500,
+                    rotation: 90,
+                    userUnit: 2,
+                },
+            ],
+        });
+        expect(browserAnnotationParseMock.run).toHaveBeenCalledWith(
+            'readPageSizes',
+            {source: expect.any(Blob)},
+            {
+                dedicated: true,
+                requireWorker: true,
+            },
+        );
+
+        // Stale revision token before read is rejected.
+        await expect(capability.getPdfNativePageSizes!(workingRef, {
+            mode: 'exact',
+            expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-stale-token'),
+        })).rejects.toThrow();
+
+        // An edit + undo that restores the same revision token while readPageSizes is in flight
+        // advances byteRevision and must be rejected as stale.
+        browserAnnotationParseMock.run.mockImplementationOnce(async () => {
+            await browserDocumentStore.write(
+                workingRef,
+                await createPdfBytes([
+                    300,
+                    400,
+                ]),
+                {expectedDocumentRevisionToken: revision.token},
+            );
+            const editedRev = await browserDocumentStore.getDocumentRevision(workingRef);
+            await browserDocumentStore.restoreRevision(workingRef, revision.token, editedRev.token);
+            return {
+                pageCount: 1,
+                pages: [{
+                    pageNumber: 1,
+                    xPoints: 0,
+                    yPoints: 0,
+                    widthPoints: 612,
+                    heightPoints: 792,
+                    rotation: 0,
+                    userUnit: 1,
+                }],
+            };
+        });
+        await expect(capability.getPdfNativePageSizes!(workingRef, {
+            mode: 'exact',
+            expectedDocumentRevisionToken: revision.token,
+        })).rejects.toThrow();
+
+        // Structured WASM failures propagate cleanly so the viewer can fall back.
+        const currentRev = await browserDocumentStore.getDocumentRevision(workingRef);
+        browserAnnotationParseMock.run.mockResolvedValueOnce({
+            status: 'failed',
+            error: {
+                code: 'needs-password',
+                message: 'PDF is encrypted',
+            },
+        });
+        await expect(capability.getPdfNativePageSizes!(workingRef, {
+            mode: 'exact',
+            expectedDocumentRevisionToken: currentRev.token,
+        })).rejects.toThrow('PDF is encrypted');
     });
 });
 

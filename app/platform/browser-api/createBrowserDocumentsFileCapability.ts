@@ -81,10 +81,13 @@ import {createBrowserStoreStagedArtifact} from '@app/platform/browser/browserSta
 import {nativePdfSemanticScope} from '@contracts/nativePdfSemanticScope';
 import {
     parseDocumentRef,
+    requireDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
+import {PDF_NATIVE_PAGE_SIZES_EXACT_OPTIONS_SCHEMA} from '@contracts/documentsPlatformFeatureNativePageSchemas';
 import { createEpochMs } from '@contracts/timestamps';
 import { isOneOf } from '@contracts/runtimeGuards';
+import * as v from 'valibot';
 
 const BROWSER_NATIVE_PRINT_UNSUPPORTED = 'Printing via the native desktop dialog is unavailable in the browser capability';
 
@@ -491,6 +494,40 @@ export function createBrowserDocumentsFileCapability(
         },
         readFileRange(path, offset, length) {
             return browserDocumentStore.readRange(path, offset, length);
+        },
+        async getPdfNativePageSizes(path, options) {
+            const parsedOptions = v.parse(PDF_NATIVE_PAGE_SIZES_EXACT_OPTIONS_SCHEMA, options, {abortEarly: true});
+            const {
+                blob: source,
+                token,
+                byteRevision,
+                instance,
+            } = await browserDocumentStore.readableRevision(path, {
+                token: parsedOptions.expectedDocumentRevisionToken,
+            });
+            const result = await runBrowserPageOpsWorkerRequest(
+                'readPageSizes',
+                {source},
+                {
+                    dedicated: true,
+                    requireWorker: true,
+                },
+            );
+            if (isBrowserPageOpsWasmFailure(result)) {
+                throw new Error(result.error.message);
+            }
+            await browserDocumentStore.assertDocumentRevisionCurrent(path, token, {
+                strict: true,
+                expectedInstance: instance,
+                ...(byteRevision === undefined ? {} : {expectedByteRevision: byteRevision}),
+            });
+            return {
+                kind: 'exact',
+                documentRef: requireDocumentRef(path),
+                documentRevisionToken: token,
+                pageCount: result.pageCount,
+                pages: result.pages,
+            };
         },
         getDocumentRevision(path) {
             return browserDocumentStore.getDocumentRevision(path);

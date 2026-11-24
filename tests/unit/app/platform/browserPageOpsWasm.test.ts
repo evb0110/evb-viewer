@@ -1262,7 +1262,7 @@ describe('browser page-ops WASM fast path', () => {
             pages: [2],
         });
         const wasmGeometry = await wasm.run('getPageGeometry', {
-            data: basePdf,
+            source: new Blob([basePdf]),
             pageNumber: 2,
         });
 
@@ -1380,7 +1380,7 @@ describe('browser page-ops WASM fast path', () => {
             expect(page.getCropBox().x * userUnit / 72).toBe(1);
         }
         expect(await wasm.run('getPageGeometry', {
-            data: result.data,
+            source: new Blob([result.data.slice()]),
             pageNumber: 2,
         }))
             .toMatchObject({
@@ -2514,5 +2514,160 @@ describe('browser page-ops WASM fast path', () => {
             expect(encodedJs).toEqual(new Uint8Array(passwordBytes.byteLength));
         },
     );
+
+    it('reads exact page geometry table and single-page geometry by bounded range without touching stream payloads', async () => {
+        const pdfDocument = await PDFDocument.create();
+        const marker = new TextEncoder().encode('EVB_STREAM_PAYLOAD_MARKER_START');
+        const filler = new Uint8Array(512 * 1024);
+        filler.set(marker, 0);
+        filler.fill(0x5A, marker.byteLength);
+        const contentRef = pdfDocument.context.register(pdfDocument.context.stream(filler));
+        const page1 = pdfDocument.addPage([
+            612,
+            792,
+        ]);
+        page1.node.set(PDFName.of('Contents'), contentRef);
+        const page2 = pdfDocument.addPage([
+            500,
+            700,
+        ]);
+        page2.setCropBox(20, 30, 400, 600);
+        page2.setRotation(degrees(90));
+        page2.node.set(PDFName.of('UserUnit'), PDFNumber.of(2));
+        page2.node.set(PDFName.of('Contents'), contentRef);
+        const pdfBytes = new Uint8Array(await pdfDocument.save());
+
+        let markerOffset = -1;
+        for (let i = 0; i <= pdfBytes.byteLength - marker.byteLength; i += 1) {
+            let match = true;
+            for (let j = 0; j < marker.byteLength; j += 1) {
+                if (pdfBytes[i + j] !== marker[j]) {
+                    match = false;
+                    break;
+                }
+            }
+            if (match) {
+                markerOffset = i;
+                break;
+            }
+        }
+        expect(markerOffset).toBeGreaterThan(0);
+        // Leave headroom for the 64 KiB terminal-xref tail window and 64 KiB block alignment.
+        const forbiddenStart = markerOffset + 64 * 1024;
+        const forbiddenEnd = markerOffset + 384 * 1024;
+
+        class GuardedSyncBlob extends Blob {
+            public constructor(
+                public readonly content: Uint8Array,
+                public readonly startOffset = 0,
+            ) {
+                super([content as BlobPart]);
+            }
+
+            public override slice(start = 0, end = this.size) {
+                const clampedStart = Math.max(0, Math.min(this.size, start));
+                const clampedEnd = Math.max(clampedStart, Math.min(this.size, end));
+                return new GuardedSyncBlob(
+                    this.content.subarray(clampedStart, clampedEnd),
+                    this.startOffset + clampedStart,
+                );
+            }
+
+            public override arrayBuffer(): Promise<ArrayBuffer> {
+                throw new Error('Range-read page geometry must never call Blob.arrayBuffer()');
+            }
+        }
+
+        const wasm = await loadWasmRunner();
+        const slices: Array<{start: number; length: number}> = [];
+        vi.stubGlobal('FileReaderSync', class {
+            public readAsArrayBuffer(blob: Blob) {
+                if (!(blob instanceof GuardedSyncBlob)) {
+                    throw new TypeError('Expected GuardedSyncBlob slice');
+                }
+                const start = blob.startOffset;
+                const end = start + blob.size;
+                expect(end <= forbiddenStart || start >= forbiddenEnd).toBe(true);
+                slices.push({
+                    start,
+                    length: blob.size,
+                });
+                return blob.content.slice().buffer;
+            }
+        });
+
+        const table = await wasm.run('readPageSizes', {source: new GuardedSyncBlob(pdfBytes)});
+        expect(table).toEqual({
+            pageCount: 2,
+            pages: [
+                {
+                    pageNumber: 1,
+                    xPoints: 0,
+                    yPoints: 0,
+                    widthPoints: 612,
+                    heightPoints: 792,
+                    rotation: 0,
+                    userUnit: 1,
+                },
+                {
+                    pageNumber: 2,
+                    xPoints: 20,
+                    yPoints: 30,
+                    widthPoints: 400,
+                    heightPoints: 600,
+                    rotation: 90,
+                    userUnit: 2,
+                },
+            ],
+        });
+        expect(slices.length).toBeGreaterThan(0);
+        expect(Math.max(...slices.map(slice => slice.length))).toBeLessThanOrEqual(64 * 1024);
+        expect(slices.reduce((sum, slice) => sum + slice.length, 0)).toBeLessThan(pdfBytes.byteLength / 2);
+
+        slices.length = 0;
+        const geometry = await wasm.run('getPageGeometry', {
+            source: new GuardedSyncBlob(pdfBytes),
+            pageNumber: 2,
+        });
+        expect(geometry).toEqual({
+            userUnit: 2,
+            mediaBox: {
+                x: 0,
+                y: 0,
+                width: 500,
+                height: 700,
+            },
+            cropBox: {
+                x: 20,
+                y: 30,
+                width: 400,
+                height: 600,
+            },
+            rotation: 90,
+        });
+        expect(slices.length).toBeGreaterThan(0);
+        expect(slices.reduce((sum, slice) => sum + slice.length, 0)).toBeLessThan(pdfBytes.byteLength / 2);
+    });
+
+    it('refuses encrypted PDFs in readPageSizes without attempting decryption', async () => {
+        const encrypted = await readPasswordProtectedPdf();
+        const wasm = await loadWasmRunner();
+        const result = await wasm.run('readPageSizes', {source: new Blob([encrypted])});
+        expect(result).toMatchObject({
+            status: 'failed',
+            error: {code: 'encrypted'},
+        });
+    });
+
+    it('rejects non-integer and NaN offsets in createSyncBlobSource.read', async () => {
+        const {createSyncBlobSource} = await import('@app/platform/browser/pdfPageEngine');
+        const readAsArrayBuffer = vi.fn(() => new ArrayBuffer(4));
+        const source = createSyncBlobSource(new Blob([Uint8Array.of(1, 2, 3, 4)]), {readAsArrayBuffer});
+        const into = new Uint8Array(2);
+        expect(() => source.read(into, Number.NaN)).toThrow('cross-reference');
+        expect(() => source.read(into, 1.5)).toThrow('cross-reference');
+        expect(() => source.read(into, -1)).toThrow('cross-reference');
+        expect(readAsArrayBuffer).not.toHaveBeenCalled();
+    });
 
 });

@@ -83,7 +83,7 @@ type IBrowserPageOpsWasmResultMap = {
 type TBrowserPageOpsWasmRequestType = keyof IBrowserPageOpsWasmRequestMap;
 
 /** Reads that take their document as a Blob, through file framing. */
-type TFileReadType = 'parseAnnotations' | 'readCatalog' | 'conformance' | 'ocrTextVisibility';
+type TFileReadType = 'getPageGeometry' | 'readPageSizes' | 'parseAnnotations' | 'readCatalog' | 'conformance' | 'ocrTextVisibility';
 /** Requests that carry their document in the request buffer. */
 type TByteRequestType = Exclude<TBrowserPageOpsWasmRequestType, TFileReadType>;
 
@@ -118,7 +118,6 @@ function getRequestPages(request: TBrowserPageOpsWasmRequest): number[] {
         case 'overlayText':
         case 'recompressImages':
         case 'replacePageImages':
-        case 'getPageGeometry':
         case 'decrypt':
         case 'textBoxAppearance':
             return [];
@@ -130,7 +129,6 @@ function getRequestData(request: TBrowserPageOpsWasmRequest): Uint8Array {
         case 'rotate':
         case 'crop':
         case 'removeCrop':
-        case 'getPageGeometry':
         case 'decrypt':
         case 'printLayout':
         case 'inspectScanCleanupPdf':
@@ -159,12 +157,6 @@ function getPassword(request: TBrowserPageOpsWasmRequest) {
     return request.type === 'decrypt'
         ? new TextEncoder().encode(request.payload.password)
         : new Uint8Array();
-}
-
-function getPageNumber(request: TBrowserPageOpsWasmRequest): number {
-    return request.type === 'getPageGeometry'
-        ? request.payload.pageNumber
-        : 0;
 }
 
 function getAngle(request: TBrowserPageOpsWasmRequest): number {
@@ -224,7 +216,6 @@ function getInstructedRequest(request: TBrowserPageOpsWasmRequest): IInstructedW
         case 'rotate':
         case 'crop':
         case 'removeCrop':
-        case 'getPageGeometry':
         case 'decrypt':
         case 'printLayout':
         case 'inspectScanCleanupPdf':
@@ -277,7 +268,6 @@ function buildWasmRequest(request: TBrowserPageOpsWasmRequest) {
     const password = getPassword(request);
     const headerBytes = REQUEST_HEADER.bytes;
     const pages = getRequestPages(request).map(toWasmU32);
-    const pageNumber = toWasmU32(getPageNumber(request));
     const angle = toWasmU32(getAngle(request));
     const dataLength = toWasmU32(data.byteLength);
     const insertionDataLength = toWasmU32(insertionData.byteLength);
@@ -295,7 +285,7 @@ function buildWasmRequest(request: TBrowserPageOpsWasmRequest) {
     writeU32(view, REQUEST_HEADER.version, REQUEST_VERSION);
     writeU32(view, REQUEST_HEADER.operation, OPERATION_CODES[request.type]);
     writeU32(view, REQUEST_HEADER.pageCount, pages.length);
-    writeU32(view, REQUEST_HEADER.pageNumber, pageNumber);
+    writeU32(view, REQUEST_HEADER.pageNumber, 0);
     writeU32(view, REQUEST_HEADER.angle, angle);
     view.setFloat64(REQUEST_HEADER.top, toWasmF64(margins.top), true);
     view.setFloat64(REQUEST_HEADER.bottom, toWasmF64(margins.bottom), true);
@@ -444,11 +434,13 @@ function parseWasmOutput<K extends TBrowserPageOpsWasmRequestType>(
         return parsed.success ? parsed.output as IBrowserPageOpsWasmResultMap[K] : null;
     }
 
-    if (type === 'getPageGeometry' || type === 'ocrTextVisibility' || type === 'inspectScanCleanupPdf') {
+    if (type === 'getPageGeometry' || type === 'readPageSizes' || type === 'ocrTextVisibility' || type === 'inspectScanCleanupPdf') {
         const parsed = kind === RESPONSE_JSON
             ? v.safeParse(BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS[type], readJsonResult(output), {abortEarly: true})
             : null;
-        return parsed?.success ? parsed.output as IBrowserPageOpsWasmResultMap[K] : null;
+        return parsed?.success && !isBrowserPageOpsWasmFailure(parsed.output)
+            ? parsed.output as IBrowserPageOpsWasmResultMap[K]
+            : null;
     }
 
     if (isReportedWriterType(type)) {
@@ -588,6 +580,7 @@ async function runFileRead<K extends TFileReadType>(
         operation: OPERATION_CODES[type],
         sourceCount: 1,
         ...('pages' in payload ? {pages: payload.pages} : {}),
+        ...('pageNumber' in payload ? {pages: [payload.pageNumber]} : {}),
         ...('withEvbOcrText' in payload && payload.withEvbOcrText ? {payload: new TextEncoder().encode('with-evb-ocr-text')} : {}),
     }));
     if (isBrowserPageOpsWasmFailure(output)) return output;
@@ -612,7 +605,14 @@ export async function tryRunBrowserPageOpsWithWasm<K extends TBrowserPageOpsWasm
     }
     await beforeRun?.();
 
-    if (type === 'parseAnnotations' || type === 'readCatalog' || type === 'conformance' || type === 'ocrTextVisibility') {
+    if (
+        type === 'getPageGeometry'
+        || type === 'readPageSizes'
+        || type === 'parseAnnotations'
+        || type === 'readCatalog'
+        || type === 'conformance'
+        || type === 'ocrTextVisibility'
+    ) {
         return runFileRead(exports, type as TFileReadType, payload as IBrowserPageOpsWasmRequestMap[TFileReadType]) as Promise<IBrowserPageOpsWasmResultMap[K] | IBrowserPageOpsWasmFailure>;
     }
     return runWasmRequest(exports, type as TByteRequestType, payload as IBrowserPageOpsWasmRequestMap[TByteRequestType]) as IBrowserPageOpsWasmResultMap[K] | IBrowserPageOpsWasmFailure;

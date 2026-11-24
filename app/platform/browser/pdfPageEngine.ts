@@ -416,22 +416,80 @@ export interface IPdfAppendResult {
     sha256: string;
 }
 
+const BLOB_SOURCE_BLOCK_BYTES = 64 * 1024;
+const BLOB_SOURCE_CACHED_BLOCKS = 16;
+const BLOB_SOURCE_UNCACHED_READ_BYTES = 256 * 1024;
+
+interface ISyncBlobReader {
+    readAsArrayBuffer(blob: Blob): ArrayBuffer;
+}
+
+/**
+ * Synchronous range reader over a Blob in a worker, backed by a bounded 1 MiB
+ * LRU block cache so repeated small xref and page-tree reads do not issue one
+ * slice syscall per parse while never loading large PDFs into JS heap.
+ */
+export function createSyncBlobSource(blob: Blob, reader: ISyncBlobReader) {
+    const blocks = new Map<number, Uint8Array>();
+    const readBlock = (index: number) => {
+        let bytes = blocks.get(index);
+        if (bytes) {
+            blocks.delete(index);
+        } else {
+            const start = index * BLOB_SOURCE_BLOCK_BYTES;
+            const end = Math.min(blob.size, start + BLOB_SOURCE_BLOCK_BYTES);
+            const raw = reader.readAsArrayBuffer(blob.slice(start, end));
+            if (raw.byteLength !== end - start) {
+                throw new Error('The document ended before its cross-reference said');
+            }
+            bytes = new Uint8Array(raw);
+            if (blocks.size >= BLOB_SOURCE_CACHED_BLOCKS) {
+                blocks.delete(blocks.keys().next().value!);
+            }
+        }
+        blocks.set(index, bytes);
+        return bytes;
+    };
+    return {
+        size: blob.size,
+        read(into: Uint8Array, at: number) {
+            const length = into.byteLength;
+            if (length === 0) return;
+            if (!Number.isSafeInteger(at) || at < 0 || at + length > blob.size) {
+                throw new Error('The document ended before its cross-reference said');
+            }
+            if (length > BLOB_SOURCE_UNCACHED_READ_BYTES) {
+                const raw = reader.readAsArrayBuffer(blob.slice(at, at + length));
+                if (raw.byteLength !== length) {
+                    throw new Error('The document ended before its cross-reference said');
+                }
+                into.set(new Uint8Array(raw));
+                return;
+            }
+            let done = 0;
+            while (done < length) {
+                const offset = at + done;
+                const block = readBlock(Math.floor(offset / BLOB_SOURCE_BLOCK_BYTES));
+                const from = offset % BLOB_SOURCE_BLOCK_BYTES;
+                const count = Math.min(length - done, block.byteLength - from);
+                if (count <= 0) {
+                    throw new Error('The document ended before its cross-reference said');
+                }
+                into.set(block.subarray(from, from + count), done);
+                done += count;
+            }
+        },
+    };
+}
+
 /** A Blob read by range: synchronous slices in a worker, its bytes in a window, which has no synchronous reader. */
 export async function blobSource(blob: Blob) {
-    const {FileReaderSync} = globalThis as {FileReaderSync?: new () => {readAsArrayBuffer(blob: Blob): ArrayBuffer}};
+    const {FileReaderSync} = globalThis as {FileReaderSync?: new () => ISyncBlobReader};
     if (!FileReaderSync) {
         const bytes = new Uint8Array(await blob.arrayBuffer());
         return {size: bytes.byteLength, read: (into: Uint8Array, at: number) => into.set(bytes.subarray(at, at + into.byteLength))};
     }
-    const reader = new FileReaderSync();
-    return {
-        size: blob.size,
-        read(into: Uint8Array, at: number) {
-            const bytes = reader.readAsArrayBuffer(blob.slice(at, at + into.byteLength));
-            if (bytes.byteLength !== into.byteLength) throw new Error('The document ended before its cross-reference said');
-            into.set(new Uint8Array(bytes));
-        },
-    };
+    return createSyncBlobSource(blob, new FileReaderSync());
 }
 
 /** Bytes in hand read as a source. */

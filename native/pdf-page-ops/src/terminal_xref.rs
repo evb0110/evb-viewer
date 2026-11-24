@@ -245,6 +245,72 @@ pub(crate) fn append_admission_of_bytes(bytes: &[u8]) -> Result<AppendAdmission>
     indexed_base_admission(admission, bytes, u64::try_from(bytes.len())?)
 }
 
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+struct ByteSourceReadSeek<'a, S> {
+    source: &'a S,
+    len: u64,
+    pos: u64,
+}
+
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+impl<S: ByteSource> Read for ByteSourceReadSeek<'_, S> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let remaining = self.len.saturating_sub(self.pos);
+        let to_read = remaining.min(buf.len() as u64) as usize;
+        if to_read == 0 {
+            return Ok(0);
+        }
+        self.source.read_at(self.pos, &mut buf[..to_read])?;
+        self.pos += to_read as u64;
+        Ok(to_read)
+    }
+}
+
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+impl<S: ByteSource> Seek for ByteSourceReadSeek<'_, S> {
+    fn seek(&mut self, style: SeekFrom) -> std::io::Result<u64> {
+        let target: i128 = match style {
+            SeekFrom::Start(offset) => i128::from(offset),
+            SeekFrom::End(delta) => i128::from(self.len) + i128::from(delta),
+            SeekFrom::Current(delta) => i128::from(self.pos) + i128::from(delta),
+        };
+        if target < 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "invalid seek to a negative position",
+            ));
+        }
+        self.pos = u64::try_from(target).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "seek position overflows u64",
+            )
+        })?;
+        Ok(self.pos)
+    }
+}
+
+/// The same append admission as `append_admission_of_bytes`, reading only the
+/// header, tail, cross-reference sections, and reachable objects by range from
+/// `source`, without copying the full PDF into memory.
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+pub(crate) fn append_admission_of_source<S: ByteSource>(
+    source: S,
+    len: u64,
+) -> Result<AppendAdmission> {
+    let mut reader = ByteSourceReadSeek {
+        source: &source,
+        len,
+        pos: 0,
+    };
+    let admission = append_admission_from(&mut reader, len, BROWSER_PDF_LOAD_POLICY, || {
+        Ok(AppendAdmission::Limited(
+            "PDF exceeds the browser engine's request buffer".to_string(),
+        ))
+    })?;
+    indexed_base_admission(admission, source, len)
+}
+
 fn large_base_needs_qpdf() -> Box<dyn Error> {
     domain_error(
         NativeErrorCode::InvalidRequest,

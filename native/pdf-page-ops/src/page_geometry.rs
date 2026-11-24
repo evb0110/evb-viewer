@@ -85,6 +85,19 @@ pub(crate) fn write_page_geometry(
     Ok(())
 }
 
+/// Reads one page's geometry by range from `bytes`, touching only the
+/// cross-reference index and page-tree objects.
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+pub(crate) fn get_page_geometry_from_source<S: ByteSource>(
+    bytes: S,
+    len: u64,
+    page_number: u32,
+) -> Result<PageGeometry> {
+    let document = load_page_geometry_source(bytes, len)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    get_page_geometry(&document, page_number)
+}
+
 pub(crate) fn write_crop_pages_path(
     input_path: &Path,
     output_path: &Path,

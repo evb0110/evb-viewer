@@ -46,6 +46,8 @@ export const OPERATION_CODES = {
     inspectScanCleanupPdf: 23,
     renderScanCleanupRaster: 24,
     verifyWritten: 25,
+    readPageSizes: 26,
+    appendAdmission: 27,
 } as const;
 
 export const REQUEST_HEADER = {

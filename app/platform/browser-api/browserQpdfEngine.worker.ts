@@ -11,7 +11,23 @@ import {
     type IBrowserQpdfRunResult,
     type TBrowserQpdfCommand,
 } from '@contracts/browserQpdfEngine';
-import {getBrowserPageOpsWorkerRequestId} from '@contracts/browserPageOpsWorker';
+import {
+    getBrowserPageOpsWorkerRequestId,
+    isBrowserPageOpsWasmFailure,
+} from '@contracts/browserPageOpsWorker';
+import {
+    BYTES_HEADER,
+    OPERATION_CODES,
+    RESPONSE_JSON,
+} from '@contracts/browserPageOpsWasm.generated';
+import {WASM_REQUEST_ALLOCATION_ABI_VERSION} from '@contracts/getCheckedWasmMemoryView';
+import {
+    blobSource,
+    createPageOpsHostImports,
+    runFileRequest,
+    withOpenFiles,
+    type IPdfPageOpsWasmExports,
+} from '@app/platform/browser/pdfPageEngine';
 import {
     getQpdfCheckArgs,
     getQpdfLosslessRewriteArgs,
@@ -76,6 +92,19 @@ function hasAppendAdmissionExports(exports: WebAssembly.Exports): exports is Web
         && typeof exports.evb_pdf_page_ops_alloc === 'function'
         && typeof exports.evb_pdf_page_ops_free === 'function'
         && typeof exports.evb_pdf_page_ops_append_admission === 'function';
+}
+
+function hasPageOpsRunExports(exports: WebAssembly.Exports): exports is WebAssembly.Exports & IPdfPageOpsWasmExports {
+    return exports.memory instanceof WebAssembly.Memory
+        && typeof exports.evb_wasm_request_allocation_abi_version === 'function'
+        && exports.evb_wasm_request_allocation_abi_version() === WASM_REQUEST_ALLOCATION_ABI_VERSION
+        && typeof exports.evb_pdf_page_ops_alloc === 'function'
+        && typeof exports.evb_pdf_page_ops_free === 'function'
+        && typeof exports.evb_pdf_page_ops_run === 'function'
+        && typeof exports.evb_pdf_page_ops_output_ptr === 'function'
+        && typeof exports.evb_pdf_page_ops_output_len === 'function'
+        && typeof exports.evb_pdf_page_ops_error_ptr === 'function'
+        && typeof exports.evb_pdf_page_ops_error_len === 'function';
 }
 
 const INPUT_PATH = '/work/input.pdf';
@@ -314,14 +343,79 @@ async function readAppendAdmission(bytes: Uint8Array) {
     }
 }
 
+const NO_ADMISSION_SINK = {
+    write: () => {
+        throw new Error('Append admission writes nothing');
+    },
+    read: () => {
+        throw new Error('Append admission reads no sink');
+    },
+};
+
 /**
- * Desktop's `normalizePdfAppendBase` for bytes: a base whose cross-reference
- * chain an append cannot extend is rewritten through qpdf, and the rewrite
- * must take an append. The admission reads its input whole, so a Blob is read
- * here, in this worker; qpdf then reads the Blob by range again.
+ * Desktop's append-admission verdict over a Blob read by bounded ranges, so a
+ * large PDF never copies its bytes into JS heap or Wasm memory on open.
+ */
+async function readAppendAdmissionFromBlob(blob: Blob) {
+    const module = await loadAppendAdmission();
+    let memory: WebAssembly.Memory | null = null;
+    const {exports} = await WebAssembly.instantiate(
+        module,
+        createPageOpsHostImports(() => memory!),
+    ).catch((error: unknown) => {
+        throw new EngineUnavailableError(getErrorMessage(error));
+    });
+    if (!hasPageOpsRunExports(exports)) {
+        throw new EngineUnavailableError('The page tool has no range append admission');
+    }
+    memory = exports.memory;
+    const source = await blobSource(blob);
+    const output = await withOpenFiles({
+        sources: [source],
+        sink: NO_ADMISSION_SINK,
+        copy: () => Promise.reject(new Error('Append admission copies nothing')),
+    }, async () => runFileRequest(exports, {
+        operation: OPERATION_CODES.appendAdmission,
+        sourceCount: 1,
+    }));
+    if (isBrowserPageOpsWasmFailure(output)) {
+        throw new Error(output.error.message);
+    }
+    if (output.byteLength < BYTES_HEADER.bytes) {
+        throw new Error('The append admission returned malformed output');
+    }
+    const view = new DataView(output.buffer, output.byteOffset, output.byteLength);
+    if (
+        view.getUint32(BYTES_HEADER.kind, true) !== RESPONSE_JSON
+        || view.getUint32(BYTES_HEADER.dataLength, true) !== output.byteLength - BYTES_HEADER.bytes
+    ) {
+        throw new Error('The append admission returned malformed output');
+    }
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(new TextDecoder().decode(output.subarray(BYTES_HEADER.bytes)));
+    } catch {
+        throw new Error('The append admission returned invalid JSON');
+    }
+    const verdict = typeof parsed === 'object' && parsed !== null && 'verdict' in parsed
+        ? (parsed as {verdict: unknown}).verdict
+        : undefined;
+    if (typeof verdict !== 'string' || !(BROWSER_APPEND_ADMISSION_VERDICTS as readonly string[]).includes(verdict)) {
+        throw new Error('The append admission could not judge the PDF');
+    }
+    return verdict as (typeof BROWSER_APPEND_ADMISSION_VERDICTS)[number];
+}
+
+/**
+ * Desktop's `normalizePdfAppendBase` for bytes or a Blob: a base whose
+ * cross-reference chain an append cannot extend is rewritten through qpdf, and
+ * the rewrite must take an append. Both the admission and qpdf read a Blob by
+ * bounded ranges so large PDFs never copy whole into JS heap.
  */
 async function normalizeAppendBase(input: Uint8Array | Blob): Promise<IBrowserQpdfNormalizeResult> {
-    const verdict = await readAppendAdmission(input instanceof Blob ? new Uint8Array(await input.arrayBuffer()) : input);
+    const verdict = input instanceof Blob
+        ? await readAppendAdmissionFromBlob(input)
+        : await readAppendAdmission(input);
     if (verdict !== 'repairable') {
         return {
             verdict,

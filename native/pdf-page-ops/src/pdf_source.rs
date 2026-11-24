@@ -638,12 +638,77 @@ pub(crate) fn validate_page_tree_source<S: ByteSource>(bytes: S, len: u64) -> Re
                 .filter_map(|key| node.get(key).ok())
                 .for_each(|value| collect_object_references(value, &mut pending)),
             // An indirect /Kids array.
-            Object::Array(_) => collect_object_references(&object, &mut pending),
+            Object::Array(_) | Object::Reference(_) => {
+                collect_object_references(&object, &mut pending)
+            }
             _ => {}
         }
         document.objects.insert(id, object);
     }
     PageTreeResolver::validated(&document).map(|_| ())
+}
+
+/// Loads only the catalog, page-tree nodes, leaf page dictionaries, and the
+/// indirect values their geometry attributes reference, never touching content
+/// streams, fonts, XObjects, annotations, or outlines. Refuses encrypted PDFs
+/// from the cross-reference index and checks both ends of the page tree.
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+pub(crate) fn load_page_geometry_source<S: ByteSource>(bytes: S, len: u64) -> Result<Document> {
+    let reader = Reader::new(&bytes, len)?;
+    let index = reader.index()?;
+    if index.trailer.has(b"Encrypt") {
+        return Err(domain_error(
+            NativeErrorCode::Encrypted,
+            "Encrypted PDFs are not supported by native page ops",
+        ));
+    }
+    let mut document = Document::with_version(reader.version.clone());
+    document.max_id = index.max_number;
+    document.reference_table = Xref::new(document.max_id.saturating_add(1), index.xref_type);
+    document.trailer = index.trailer.clone();
+    let mut loader = Loader::new(&reader, &index);
+    let mut pending = Vec::new();
+    collect_object_references(document.trailer.get(b"Root")?, &mut pending);
+    while let Some(id) = pending.pop() {
+        if document.objects.contains_key(&id) {
+            continue;
+        }
+        if document.objects.len() >= MAX_PDF_OBJECTS {
+            return Err(domain_error(
+                NativeErrorCode::TooLarge,
+                format!("PDF page tree exceeds the {MAX_PDF_OBJECTS}-object admission ceiling"),
+            ));
+        }
+        let object = loader.load(id)?;
+        match &object {
+            Object::Dictionary(node) => [
+                b"Pages".as_slice(),
+                b"Kids",
+                b"Count",
+                b"Parent",
+                b"MediaBox",
+                b"CropBox",
+                b"Rotate",
+                b"UserUnit",
+            ]
+            .into_iter()
+            .filter_map(|key| node.get(key).ok())
+            .for_each(|value| collect_object_references(value, &mut pending)),
+            Object::Array(_) | Object::Reference(_) => {
+                collect_object_references(&object, &mut pending)
+            }
+            _ => {}
+        }
+        document.objects.insert(id, object);
+    }
+    let resolver = PageTreeResolver::with_both_ends(&document).map_err(page_tree_damaged)?;
+    if resolver.page_count() as usize > MAX_PATH_INPUT_PDF_PAGES {
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            format!("PDF page count exceeds the {MAX_PATH_INPUT_PDF_PAGES}-page ceiling"),
+        ));
+    }
+    Ok(document)
 }
 
 fn collect_object_references(object: &Object, pending: &mut Vec<ObjectId>) {

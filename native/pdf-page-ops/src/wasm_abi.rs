@@ -142,6 +142,12 @@ abi! {
         // FILE_REQUEST_HEADER framing with no sources or pages: verifies the
         // output of the edit before it, once the host has copied its streams.
         OP_VERIFY_WRITTEN = 25 => "verifyWritten";
+        // FILE_REQUEST_HEADER framing over source 0. Answers RESPONSE_JSON
+        // with the exact page geometry table (crop box, rotation, UserUnit).
+        OP_READ_PAGE_SIZES = 26 => "readPageSizes";
+        // FILE_REQUEST_HEADER framing over source 0. Answers RESPONSE_JSON
+        // with `{"verdict": "appendable" | "repairable" | "limited" | "unverified"}`.
+        OP_APPEND_ADMISSION = 27 => "appendAdmission";
     }
     layouts {
         REQUEST_HEADER: RequestHeader {

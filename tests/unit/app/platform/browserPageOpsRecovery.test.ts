@@ -3,11 +3,20 @@ import {resolve} from 'node:path';
 import {PDFDocument} from 'pdf-lib';
 import {afterEach, expect, it, onTestFinished, vi} from 'vitest';
 import type * as TBrowserDocumentStore from '@app/platform/browserDocumentStore';
-import {BrowserDocumentStore} from '@app/platform/browserDocumentStore';
+import {
+    BROWSER_MAX_FULL_READ_BYTES,
+    BrowserDocumentStore,
+} from '@app/platform/browserDocumentStore';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {createBrowserPageOpsCapability} from '@app/platform/browser-api/createBrowserPageOpsCapability';
 import {MemoryStorage} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 
-const state = vi.hoisted(() => ({store: null as BrowserDocumentStore | null, worker: vi.fn()}));
+const state = vi.hoisted(() => ({
+    store: null as BrowserDocumentStore | null,
+    worker: vi.fn(),
+    canUseWorker: vi.fn(() => true),
+}));
 vi.mock('@app/platform/browserDocumentStore', async original => ({
     ...await original<typeof TBrowserDocumentStore>(),
     get browserDocumentStore() {
@@ -15,7 +24,11 @@ vi.mock('@app/platform/browserDocumentStore', async original => ({
         return state.store;
     },
 }));
-vi.mock('@app/platform/browser-api/browserPageOpsWorkerClient', () => ({runBrowserPageOpsWorkerRequest: (...args: unknown[]) => state.worker(...args)}));
+vi.mock('@app/platform/browser-api/browserPageOpsWorkerClient', async original => ({
+    ...await original<typeof import('@app/platform/browser-api/browserPageOpsWorkerClient')>(),
+    canUseBrowserPageOpsWorker: () => state.canUseWorker(),
+    runBrowserPageOpsWorkerRequest: (...args: unknown[]) => state.worker(...args),
+}));
 
 afterEach(() => {vi.unstubAllGlobals(); vi.clearAllMocks();});
 
@@ -64,4 +77,29 @@ it.each([false, true])('browser recovery keeps the source and rolls back a refus
     expect(state.worker).toHaveBeenCalledTimes(2);
     expect(repairWorkingCopy).toHaveBeenCalledTimes(1);
     expect(original).toEqual(new Uint8Array(await readFile(resolve(fixtures, 'object-identity.pdf'))));
+});
+
+it('refuses main-thread getPageGeometry fallback on oversized Blobs without calling Blob.arrayBuffer()', async () => {
+    vi.stubGlobal('window', {localStorage: new MemoryStorage()});
+    vi.stubGlobal('document', {cookie: ''});
+    state.canUseWorker.mockReturnValue(false);
+    const store = state.store = new BrowserDocumentStore();
+    const oversizedBlob = new Blob([]);
+    Object.defineProperty(oversizedBlob, 'size', {value: BROWSER_MAX_FULL_READ_BYTES + 1});
+    const arrayBufferSpy = vi.spyOn(oversizedBlob, 'arrayBuffer').mockRejectedValue(
+        new Error('main-thread fallback must never call arrayBuffer on an oversized Blob'),
+    );
+    vi.spyOn(store, 'readableBlob').mockResolvedValue(oversizedBlob);
+    const unused = async () => {throw new Error('Unexpected picker');};
+    const api = createBrowserPageOpsCapability({
+        clearSearchCaches: () => {}, openInputAccept: '.pdf', pickFiles: unused,
+        buildOpenPdfPickerTypes: () => [], createCombinedPdfFromPaths: unused,
+        pickSaveTarget: unused, saveBytesToPickerOrDownload: unused,
+        writeBytesToHandle: unused, repairWorkingCopy: async () => false,
+    });
+
+    await expect(api.getPageGeometry(requireDocumentRef('browser://documents/oversized.pdf'), requirePageNumber(1)))
+        .rejects.toMatchObject({code: 'too-large'});
+    expect(arrayBufferSpy).not.toHaveBeenCalled();
+    expect(state.worker).not.toHaveBeenCalled();
 });

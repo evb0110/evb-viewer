@@ -35,6 +35,7 @@ import { isNativeLegacyDocumentRef } from '@contracts/documentRef';
 import { normalizeCropMargins } from '@contracts/shared';
 import type * as BrowserPageOpsCoreModule from '@app/platform/browser-api/browserPageOpsCore';
 import {
+    BROWSER_MAX_FULL_READ_BYTES,
     browserDocumentStore,
     getBrowserDocumentFileName,
 } from '@app/platform/browserDocumentStore';
@@ -760,17 +761,34 @@ export function createBrowserPageOpsCapability(
             return result;
         },
         async getPageGeometry(workingCopyPath, pageNumber): Promise<IPageGeometry> {
-            return runWorkerBackedPdfOperation({
-                path: workingCopyPath,
-                type: 'getPageGeometry',
-                createPayload: (data) => ({
-                    data,
-                    pageNumber,
-                }),
-                runDirect: async (data) => {
-                    const { getPageGeometryFromPdfBytes } = await loadBrowserPageOpsCore();
-                    return getPageGeometryFromPdfBytes(data, pageNumber);
-                },
+            assertBrowserPageOpsSource(workingCopyPath, 'Reading page geometry');
+            const source = await browserDocumentStore.readableBlob(workingCopyPath);
+            const requiresWorker = source.size > BROWSER_MAX_FULL_READ_BYTES;
+            if (canUseBrowserPageOpsWorker()) {
+                try {
+                    return await runBrowserPageOpsWorkerRequest('getPageGeometry', {
+                        source,
+                        pageNumber,
+                    }, {
+                        dedicated: true,
+                        requireWorker: requiresWorker,
+                    });
+                } catch (error) {
+                    if (!(error instanceof BrowserPageOpsWorkerUnavailableError) || requiresWorker) {
+                        throw error;
+                    }
+                }
+            }
+            if (requiresWorker) {
+                throw new PdfPageOpsCapabilityError(
+                    'too-large',
+                    `Reading page geometry on a ${Math.round(source.size / (1024 * 1024))} MiB PDF requires a browser worker`,
+                    {operation: 'page geometry'},
+                );
+            }
+            return runDirectPdfOperation(async () => {
+                const { getPageGeometryFromPdfBytes } = await loadBrowserPageOpsCore();
+                return getPageGeometryFromPdfBytes(source, pageNumber);
             });
         },
         async readOutline(workingCopyPath): Promise<IPdfBookmarkEntry[]> {

@@ -453,10 +453,14 @@ impl PageTreeResolver {
 
     /// Visit every leaf page and return the number of reachable leaves.
     ///
-    /// The walk keeps only the current structural path in `seen`; callers can
-    /// use the returned count to distinguish the root `/Count` declaration
-    /// from the pages that were actually reachable without building a dense
-    /// page map. A mismatch fails before the caller can publish its output.
+    /// Visits every reachable page leaf in tree order and verifies the total
+    /// matches the root `/Count` declaration.
+    ///
+    /// Tracks both the active structural path (`in_path`, for reference cycles)
+    /// and every node visited across the whole traversal (`visited`, rejecting
+    /// shared `/Kids` DAG nodes on the first duplicate edge per ISO 32000-1
+    /// section 7.7.3). A mismatch fails before the caller can publish its
+    /// output.
     pub(crate) fn for_each_page_id_with_count<F>(
         &self,
         document: &impl PdfObjectSource,
@@ -465,16 +469,24 @@ impl PageTreeResolver {
     where
         F: FnMut(ObjectId) -> Result<()>,
     {
-        let mut seen = HashSet::new();
-        let visited = walk_page_tree(document, self.root_pages_id, &mut seen, 0, &mut visit)?;
-        if visited != u64::from(self.page_count) {
+        let mut in_path = HashSet::new();
+        let mut visited = HashSet::new();
+        let count = walk_page_tree(
+            document,
+            self.root_pages_id,
+            &mut in_path,
+            &mut visited,
+            0,
+            &mut visit,
+        )?;
+        if count != u64::from(self.page_count) {
             return Err(format!(
-                "PDF page tree declared {} pages but contains {visited}",
+                "PDF page tree declared {} pages but contains {count}",
                 self.page_count
             )
             .into());
         }
-        Ok(visited)
+        Ok(count)
     }
 }
 
@@ -625,7 +637,8 @@ fn resolve_page_tree_id(
 fn walk_page_tree<F>(
     document: &impl PdfObjectSource,
     node_id: ObjectId,
-    seen: &mut HashSet<ObjectId>,
+    in_path: &mut HashSet<ObjectId>,
+    visited: &mut HashSet<ObjectId>,
     depth: usize,
     visit: &mut F,
 ) -> Result<u64>
@@ -635,8 +648,12 @@ where
     if depth >= PAGE_TREE_DEPTH_LIMIT {
         return Err("PDF page tree exceeded the structural depth limit".into());
     }
-    if !seen.insert(node_id) {
+    if !in_path.insert(node_id) {
         return Err("PDF page tree contains a reference cycle".into());
+    }
+    if !visited.insert(node_id) {
+        in_path.remove(&node_id);
+        return Err("PDF page tree shares a node across multiple branches".into());
     }
 
     let dictionary = page_tree_dictionary(document, node_id)?;
@@ -650,13 +667,20 @@ where
             for kid in page_tree_kids(document, dictionary)? {
                 let kid_id = page_tree_child_id(kid)?;
                 count = count
-                    .checked_add(walk_page_tree(document, kid_id, seen, depth + 1, visit)?)
+                    .checked_add(walk_page_tree(
+                        document,
+                        kid_id,
+                        in_path,
+                        visited,
+                        depth + 1,
+                        visit,
+                    )?)
                     .ok_or("PDF page tree page count overflow")?;
             }
             Ok(count)
         }
     };
-    seen.remove(&node_id);
+    in_path.remove(&node_id);
     result
 }
 

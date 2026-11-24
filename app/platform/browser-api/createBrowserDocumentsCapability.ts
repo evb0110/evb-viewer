@@ -167,6 +167,9 @@ export function createBrowserDocumentsCapability(
         cleanupFile: fileCapability.cleanupFile,
     } satisfies IDocumentsWorkingCopyCapability;
     const optionalDocumentFileMethods = {
+        ...(fileCapability.getPdfNativePageSizes
+            ? {getPdfNativePageSizes: fileCapability.getPdfNativePageSizes}
+            : {}),
         ...(fileCapability.createManagedTempFileHandle
             ? {createManagedTempFileHandle: fileCapability.createManagedTempFileHandle}
             : {}),

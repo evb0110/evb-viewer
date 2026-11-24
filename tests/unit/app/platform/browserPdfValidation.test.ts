@@ -519,8 +519,17 @@ describe('browser qpdf engine worker', () => {
             },
             postMessage: (message: unknown) => posted.push(message),
         });
-        const wasm = await readFile(join(process.cwd(), 'public/wasm/evb-qpdf.wasm'));
-        vi.stubGlobal('fetch', async () => new Response(Uint8Array.from(wasm), {headers: {'content-type': 'application/wasm'}}));
+        const qpdfWasm = await readFile(join(process.cwd(), 'public/wasm/evb-qpdf.wasm'));
+        const pageOpsWasm = await readFile(join(process.cwd(), 'public/wasm/evb-pdf-page-ops.wasm'));
+        vi.stubGlobal('fetch', async (input: string | URL | Request) => {
+            const url = typeof input === 'string'
+                ? input
+                : input instanceof URL
+                    ? input.href
+                    : input.url;
+            const bytes = url.includes('evb-pdf-page-ops.wasm') ? pageOpsWasm : qpdfWasm;
+            return new Response(Uint8Array.from(bytes), {headers: {'content-type': 'application/wasm'}});
+        });
         const reads: number[] = [];
         vi.stubGlobal('FileReaderSync', class {
             public readAsArrayBuffer(blob: Blob) {
@@ -535,7 +544,15 @@ describe('browser qpdf engine worker', () => {
             await listener!({data: {id: nextId++, type: 'run', payload: {command, input}}} as MessageEvent<unknown>);
             return posted.at(-1) as {ok: boolean; data: {exitCode: number; stdout: string; stderr: string; output: Uint8Array | null}};
         };
-        return {run, reads};
+        const normalize = async (input: Uint8Array | Blob) => {
+            await listener!({data: {id: nextId++, type: 'normalize-append-base', payload: {input}}} as MessageEvent<unknown>);
+            return posted.at(-1) as {ok: boolean; data: {verdict: string; stderr: string; output: Uint8Array | null}};
+        };
+        return {
+            run,
+            normalize,
+            reads,
+        };
     }
 
     it('checks and rewrites a mounted Blob read by bounded ranges, with the result its bytes give', async () => {
@@ -568,5 +585,44 @@ describe('browser qpdf engine worker', () => {
         expect(damaged.data.exitCode).toBe(2);
         expect(damaged.data.stderr).toContain('/work/input.pdf');
         expect((await run('page-count', new SyncReadableBlob(pdf))).data).toMatchObject({exitCode: 0, stdout: expect.stringMatching(/^\d+\n?$/u)});
+    });
+
+    it('judges append admission on a Blob by bounded ranges without calling Blob.arrayBuffer()', async () => {
+        const pdf = new Uint8Array(await readFile(join(process.cwd(), 'tests/fixtures/optimize-typeset-photo.pdf')));
+        const {
+            normalize,
+            reads,
+        } = await startEngine();
+
+        const blob = new SyncReadableBlob(pdf);
+        const arrayBufferSpy = vi.spyOn(blob, 'arrayBuffer').mockImplementation(() => {
+            throw new Error('normalize-append-base must not copy a Blob whole via arrayBuffer()');
+        });
+        const admittedBytes = await normalize(pdf.slice());
+        const admittedBlob = await normalize(blob);
+        expect(arrayBufferSpy).not.toHaveBeenCalled();
+        expect(admittedBytes.ok && admittedBlob.ok).toBe(true);
+        expect(admittedBlob.data).toEqual(admittedBytes.data);
+        expect(admittedBlob.data.verdict).toBe('appendable');
+        expect(admittedBlob.data.output).toBeNull();
+        expect(reads.length).toBeGreaterThan(0);
+        expect(Math.max(...reads)).toBeLessThanOrEqual(64 * 1024);
+        expect(reads.reduce((total, size) => total + size, 0)).toBeLessThanOrEqual(pdf.byteLength);
+
+        const latin1 = Buffer.from(pdf).toString('latin1');
+        const damaged = new Uint8Array(Buffer.from(
+            `${latin1.slice(0, latin1.lastIndexOf('startxref'))}startxref\n9\n%%EOF\n`,
+            'latin1',
+        ));
+        reads.length = 0;
+        const damagedBlob = new SyncReadableBlob(damaged);
+        vi.spyOn(damagedBlob, 'arrayBuffer').mockImplementation(() => {
+            throw new Error('normalize-append-base must not copy a damaged Blob whole via arrayBuffer()');
+        });
+        const repairedBytes = await normalize(damaged.slice());
+        const repairedBlob = await normalize(damagedBlob);
+        expect(repairedBytes.ok && repairedBlob.ok).toBe(true);
+        expect(repairedBlob.data.verdict).toBe('repairable');
+        expect(repairedBlob.data.output).toEqual(repairedBytes.data.output);
     });
 });
