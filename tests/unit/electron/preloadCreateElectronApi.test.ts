@@ -774,6 +774,13 @@ describe('createElectronApi', () => {
                         osScaleFactor: 0,
                     };
                 }
+                if (channel === HOST_PLATFORM_FEATURE.invokeChannels.getRasterBudget) {
+                    return {
+                        maxRasterSurfaceBytes: 768 * 1024 ** 2,
+                        hostPoolBytes: 1536 * 1024 ** 2,
+                        windowCount: 2,
+                    };
+                }
                 if (channel === HOST_PLATFORM_FEATURE.invokeChannels.restoreNormalWindow) {
                     return {
                         fullScreen: false,
@@ -793,10 +800,12 @@ describe('createElectronApi', () => {
         const api = createElectronApi(ipcRenderer as never, { getPathForFile: () => '' });
         const updateCallback = vi.fn();
         const environmentCallback = vi.fn();
+        const rasterBudgetCallback = vi.fn();
         const actionCallback = vi.fn();
         const unsubscribers = [
             api.updates.onStatus(updateCallback),
             api.host.onEnvironmentChange(environmentCallback),
+            api.host.onRasterBudgetChange(rasterBudgetCallback),
             api.windowTabs.onWindowAction(actionCallback),
         ];
 
@@ -821,6 +830,11 @@ describe('createElectronApi', () => {
         listeners.get(HOST_PLATFORM_FEATURE.eventChannels.onEnvironmentChange)?.({}, {
             platform: 'darwin',
             osScaleFactor: 2,
+        });
+        listeners.get(HOST_PLATFORM_FEATURE.eventChannels.onRasterBudgetChange)?.({}, {
+            maxRasterSurfaceBytes: 768 * 1024 ** 2,
+            hostPoolBytes: 1536 * 1024 ** 2,
+            windowCount: 2,
         });
         listeners.get(WINDOW_TABS_PLATFORM_FEATURE.eventChannels.onWindowAction)?.({}, {
             kind: 'move-tab-to-window',
@@ -855,6 +869,11 @@ describe('createElectronApi', () => {
             platform: 'darwin',
             osScaleFactor: 2,
         });
+        expect(rasterBudgetCallback).toHaveBeenCalledWith({
+            maxRasterSurfaceBytes: 768 * 1024 ** 2,
+            hostPoolBytes: 1536 * 1024 ** 2,
+            windowCount: 2,
+        });
         expect(actionCallback).toHaveBeenNthCalledWith(1, {
             kind: 'move-tab-to-window',
             targetWindowId: -1,
@@ -864,7 +883,7 @@ describe('createElectronApi', () => {
             targetWindowId: 3,
             tabId: ' tab-1 ',
         });
-        expect(ipcRenderer.removeListener).toHaveBeenCalledTimes(3);
+        expect(ipcRenderer.removeListener).toHaveBeenCalledTimes(4);
         await expect(api.updates.getState()).resolves.toEqual({
             phase: 'future-phase',
             origin: 'manual',
@@ -875,6 +894,11 @@ describe('createElectronApi', () => {
         await expect(api.host.getEnvironment()).resolves.toEqual({
             platform: 'linux',
             osScaleFactor: 0,
+        });
+        await expect(api.host.getRasterBudget()).resolves.toEqual({
+            maxRasterSurfaceBytes: 768 * 1024 ** 2,
+            hostPoolBytes: 1536 * 1024 ** 2,
+            windowCount: 2,
         });
         await expect(api.host.restoreNormalWindow()).resolves.toEqual({
             fullScreen: false,

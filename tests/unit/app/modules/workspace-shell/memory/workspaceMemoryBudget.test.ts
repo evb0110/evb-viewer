@@ -117,6 +117,42 @@ describe('workspace memory budget', () => {
         expect(2 * 4 * performanceProfile.maxBufferCanvasPixels).toBeLessThanOrEqual(budget.maxRasterSurfaceBytes);
     });
 
+    it('applies a bounded main-pushed per-window raster share when supplied', () => {
+        expect(resolveWorkspaceMemoryBudget({
+            environment: {
+                totalMemoryBytes: 32 * GIB,
+                hardwareConcurrency: 8,
+            },
+            hostRasterSurfaceBytes: 768 * MIB,
+        })).toMatchObject({
+            maxRasterSurfaceBytes: 768 * MIB,
+            systemFreeReserveBytes: 4 * GIB,
+        });
+
+        expect(resolveWorkspaceMemoryBudget({
+            environment: { totalMemoryBytes: 32 * GIB },
+            hostRasterSurfaceBytes: 16 * MIB,
+        }).maxRasterSurfaceBytes).toBe(64 * MIB);
+
+        expect(resolveWorkspaceMemoryBudget({
+            environment: { totalMemoryBytes: 32 * GIB },
+            hostRasterSurfaceBytes: 4096 * MIB,
+        }).maxRasterSurfaceBytes).toBe(1536 * MIB);
+
+        expect(resolveWorkspaceMemoryBudget({
+            environment: {
+                mobile: true,
+                hardwareConcurrency: 8,
+            },
+            hostRasterSurfaceBytes: 768 * MIB,
+        }).maxRasterSurfaceBytes).toBe(384 * MIB);
+
+        expect(resolveWorkspaceMemoryBudget({
+            environment: { totalMemoryBytes: 4 * GIB },
+            hostRasterSurfaceBytes: Number.NaN,
+        }).maxRasterSurfaceBytes).toBe(0.24 * GIB);
+    });
+
     it('uses the canonical performance profile tier without reclassifying it', () => {
         expect(resolveWorkspaceMemoryDeviceTier({
             performanceMode: 'auto',

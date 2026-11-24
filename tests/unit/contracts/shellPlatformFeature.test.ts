@@ -53,9 +53,10 @@ describe('platform wire compatibility', () => {
             events: 'onProgress=djvu:progress onConvertComplete=djvu:convert:complete onOpenComplete=djvu:open:complete ' +
                 'onTextSearchProgress=djvu:text:progress onMenuConvertToPdf=menu:convertToPdf'},
         {feature: HOST_PLATFORM_FEATURE,
-            invoke: 'getEnvironment=host:getEnvironment getZenModeState=host:getZenModeState setZenMode=host:setZenMode ' +
+            invoke: 'getRasterBudget=host:getRasterBudget getEnvironment=host:getEnvironment getZenModeState=host:getZenModeState setZenMode=host:setZenMode ' +
                 'restoreNormalWindow=host:restoreNormalWindow writeBugReportBundle=host:writeBugReportBundle',
-            events: 'onEnvironmentChange=host:environmentChanged onZenModeChange=host:zenModeChanged onWheelScrollSequenceChange=host:wheelScrollSequenceChanged'},
+            events: 'onEnvironmentChange=host:environmentChanged onRasterBudgetChange=host:rasterBudgetChanged ' +
+                'onZenModeChange=host:zenModeChanged onWheelScrollSequenceChange=host:wheelScrollSequenceChanged'},
         {feature: UPDATES_PLATFORM_FEATURE,
             invoke: 'getState=updates:getState check=updates:check download=updates:download install=updates:install defer=updates:defer skipVersion=updates:skipVersion',
             events: 'onStatus=updates:status'},

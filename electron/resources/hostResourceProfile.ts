@@ -128,6 +128,10 @@ export function initializeHostResourceProfile(
     return hostResourceProfileSnapshot;
 }
 
+export function tryGetHostResourceProfileSnapshot() {
+    return hostResourceProfileSnapshot;
+}
+
 export function getHostResourceProfileSnapshot() {
     if (!hostResourceProfileSnapshot) {
         throw new Error('Host resource profile was not initialized');

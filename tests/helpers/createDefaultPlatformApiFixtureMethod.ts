@@ -177,6 +177,7 @@ const FEATURE_RESULTS: Readonly<Record<string, unknown>> = {
         performanceMode: 'auto',
         tier: 'high',
     },
+    'host.getRasterBudget': null,
     'host.getEnvironment': {
         platform: 'linux',
         osScaleFactor: 1,

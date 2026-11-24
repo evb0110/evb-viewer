@@ -11,14 +11,24 @@ import {
     HOST_ENVIRONMENT_ARGUMENT_PREFIX,
     HOST_PLATFORM_FEATURE,
     type IHostEnvironmentSnapshot,
+    type IHostRasterBudgetSnapshot,
     type IHostWindowSize,
     type IHostWindowState,
     type IHostZenModeState,
     type THostPlatform,
 } from '@contracts/hostPlatformFeature';
+import {
+    HOST_RASTER_POOL_MAX_BYTES,
+    resolveHostWindowRasterShare,
+    type THostResourceTier,
+} from '@contracts/hostResourceProfile';
 import { writeHostBugReportBundle } from '@electron/writeHostBugReportBundle';
 import type { TFeatureMainBindings } from '@contracts/platformFeature';
-import { getAllRegisteredAppWindows } from '@electron/window/registry';
+import { tryGetHostResourceProfileSnapshot } from '@electron/resources/hostResourceProfile';
+import {
+    getAllRegisteredAppWindows,
+    onAppWindowRegistryChange,
+} from '@electron/window/registry';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 
@@ -32,6 +42,12 @@ interface IZenWindowPlacement {
     wasMaximized: boolean;
 }
 
+const FALLBACK_RASTER_POOL_BYTES_BY_TIER: Record<THostResourceTier, number> = {
+    low: 768 * 1024 ** 2,
+    medium: HOST_RASTER_POOL_MAX_BYTES,
+    high: HOST_RASTER_POOL_MAX_BYTES,
+};
+
 const zenWindowPlacementByWindow = new WeakMap<BrowserWindow, IZenWindowPlacement>();
 const zenExitInProgressByWindow = new WeakSet<BrowserWindow>();
 interface IHostEnvironmentBroadcastState {
@@ -39,6 +55,71 @@ interface IHostEnvironmentBroadcastState {
     lastSentSnapshot: IHostEnvironmentSnapshot | null;
 }
 const hostEnvironmentBroadcastStateByWindow = new WeakMap<BrowserWindow, IHostEnvironmentBroadcastState>();
+const lastSentRasterBudgetByWindow = new WeakMap<BrowserWindow, IHostRasterBudgetSnapshot>();
+
+function areHostRasterBudgetSnapshotsEqual(
+    left: IHostRasterBudgetSnapshot,
+    right: IHostRasterBudgetSnapshot,
+) {
+    return left.maxRasterSurfaceBytes === right.maxRasterSurfaceBytes
+        && left.hostPoolBytes === right.hostPoolBytes
+        && left.windowCount === right.windowCount;
+}
+
+function resolveCurrentHostRasterBudgetSnapshot(): IHostRasterBudgetSnapshot | null {
+    const resourceProfile = tryGetHostResourceProfileSnapshot();
+    if (!resourceProfile) {
+        return null;
+    }
+    const windowCount = Math.max(1, getAllRegisteredAppWindows().length);
+    return resolveHostWindowRasterShare({
+        totalRamBytes: resourceProfile.totalRamBytes,
+        windowCount,
+        fallbackPoolBytes: FALLBACK_RASTER_POOL_BYTES_BY_TIER[resourceProfile.tier],
+    });
+}
+
+function sendHostRasterBudgetToWindow(
+    window: BrowserWindow,
+    snapshot: IHostRasterBudgetSnapshot,
+    options: {force?: boolean} = {},
+) {
+    if (window.isDestroyed()) {
+        return;
+    }
+    const webContents = window.webContents;
+    if (typeof webContents.isDestroyed === 'function' && webContents.isDestroyed()) {
+        return;
+    }
+    const lastSent = lastSentRasterBudgetByWindow.get(window);
+    if (!options.force && lastSent && areHostRasterBudgetSnapshotsEqual(lastSent, snapshot)) {
+        return;
+    }
+    try {
+        webContents.send(HOST_PLATFORM_FEATURE.eventChannels.onRasterBudgetChange, snapshot);
+        lastSentRasterBudgetByWindow.set(window, snapshot);
+    } catch (error) {
+        logger.warn(`Failed to send host raster budget update: ${getErrorMessage(error)}`);
+    }
+}
+
+export function broadcastHostRasterBudgetToAllWindows() {
+    const snapshot = resolveCurrentHostRasterBudgetSnapshot();
+    if (!snapshot) {
+        return;
+    }
+    for (const window of getAllRegisteredAppWindows()) {
+        sendHostRasterBudgetToWindow(window, snapshot);
+    }
+}
+
+function snapshotHostRasterBudgetForWindow(window: BrowserWindow | null): IHostRasterBudgetSnapshot | null {
+    const snapshot = resolveCurrentHostRasterBudgetSnapshot();
+    if (snapshot && window && !window.isDestroyed()) {
+        lastSentRasterBudgetByWindow.set(window, snapshot);
+    }
+    return snapshot;
+}
 
 function resolvePlatform(): THostPlatform {
     if (process.platform === 'darwin') {
@@ -347,6 +428,9 @@ export async function restoreHostNormalWindowForWindow(
 }
 
 export const hostMainBindings = {
+    snapshotHostRasterBudgetForWindow: context => snapshotHostRasterBudgetForWindow(
+        BrowserWindow.fromWebContents(context.sender),
+    ),
     snapshotHostEnvironmentForWindow: context => snapshotHostEnvironmentForWindow(
         BrowserWindow.fromWebContents(context.sender),
     ),
@@ -433,8 +517,20 @@ function broadcastHostEnvironmentToAllWindows() {
 }
 
 let displayWatcherInstalled = false;
+let rasterBudgetRegistryWatcherInstalled = false;
+
+function ensureHostRasterBudgetRegistryWatcher() {
+    if (rasterBudgetRegistryWatcherInstalled || typeof onAppWindowRegistryChange !== 'function') {
+        return;
+    }
+    rasterBudgetRegistryWatcherInstalled = true;
+    onAppWindowRegistryChange(() => {
+        broadcastHostRasterBudgetToAllWindows();
+    });
+}
 
 export function installHostEnvironmentDisplayWatcher() {
+    ensureHostRasterBudgetRegistryWatcher();
     if (displayWatcherInstalled) {
         return;
     }
@@ -450,9 +546,19 @@ export function installHostEnvironmentDisplayWatcher() {
 }
 
 export function attachHostEnvironmentToWindow(window: BrowserWindow) {
+    ensureHostRasterBudgetRegistryWatcher();
     const webContents = window.webContents;
     const handleMove = () => {
         scheduleHostEnvironmentBroadcastForWindow(window);
+    };
+    const handleDidFinishLoad = () => {
+        if (!getAllRegisteredAppWindows().includes(window)) {
+            return;
+        }
+        const snapshot = resolveCurrentHostRasterBudgetSnapshot();
+        if (snapshot) {
+            sendHostRasterBudgetToWindow(window, snapshot, {force: true});
+        }
     };
     const handleZenModeChange = () => {
         const isManagedExit = zenExitInProgressByWindow.has(window);
@@ -496,6 +602,7 @@ export function attachHostEnvironmentToWindow(window: BrowserWindow) {
         }
     };
 
+    webContents.on('did-finish-load', handleDidFinishLoad);
     webContents.on('before-input-event', handleBeforeInputEvent);
     webContents.on('input-event', handleInputEvent);
     window.once('closed', () => {
@@ -504,11 +611,13 @@ export function attachHostEnvironmentToWindow(window: BrowserWindow) {
             clearTimeout(hostEnvironmentBroadcastState.timeout);
         }
         hostEnvironmentBroadcastStateByWindow.delete(window);
+        lastSentRasterBudgetByWindow.delete(window);
         window.removeListener('move', handleMove);
         window.removeListener('moved', handleMove);
         window.removeListener('enter-full-screen', handleZenModeChange);
         window.removeListener('leave-full-screen', handleZenModeChange);
-        if (!webContents.isDestroyed()) {
+        if (typeof webContents.isDestroyed !== 'function' || !webContents.isDestroyed()) {
+            webContents.removeListener('did-finish-load', handleDidFinishLoad);
             webContents.removeListener('before-input-event', handleBeforeInputEvent);
             webContents.removeListener('input-event', handleInputEvent);
         }
