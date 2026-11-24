@@ -164,7 +164,8 @@ export async function runBrowserScanCleanupDetection({
                         try {
                             return (await rasterize(media, page.alternate!.input.page.dpi, jobSignal)).ppm;
                         } catch (error) {
-                            if (jobSignal.aborted) throw error;
+                            // A stopped run ends with its own reason, whatever this view failed with.
+                            jobSignal.throwIfAborted();
                             // An optional wider view that fails keeps the first pass.
                             console.warn(`Scan cleanup kept the first-pass classification for page ${String(page.pageNumber)} because its MediaBox view failed: ${getErrorMessage(error)}`);
                             return null;

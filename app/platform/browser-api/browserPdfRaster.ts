@@ -149,6 +149,10 @@ export async function renderBrowserPdfRaster(
                 signal.addEventListener('abort', cancel, {once: true});
                 try {
                     await task.promise;
+                } catch (error) {
+                    // A render the signal canceled ends with the signal's reason, not PDF.js's.
+                    signal.throwIfAborted();
+                    throw error;
                 } finally {
                     signal.removeEventListener('abort', cancel);
                 }
