@@ -67,6 +67,8 @@ export interface IValidatedIpcMainRegistrarOptions {
     argumentValidation?: IIpcInvokeArgumentValidationPolicy;
     /** Argument decoders by channel; main never re-decodes its own results. */
     codecs?: Readonly<Record<string, Pick<IIpcCodec<IIpcInvokeSpec>, 'decodeArgs'>>>;
+    /** Deferred argument decoders resolved after trusted-sender validation on first invoke. */
+    lazyCodecs?: () => Promise<Readonly<Record<string, Pick<IIpcCodec<IIpcInvokeSpec>, 'decodeArgs'>>>>;
 }
 
 export interface IValidatedIpcMainRegistrar<
@@ -227,11 +229,12 @@ export function createValidatedIpcMainRegistrar(
             ) => TResult | Promise<TResult>,
         ) => {
             assertAllowedChannelRegistration('invoke', channel, options.allowedChannels);
-            const decode = options.codecs?.[channel]?.decodeArgs as ((args: readonly unknown[]) => TArgs) | undefined;
-            const hasDecoder = typeof decode === 'function';
-            const isExactNoArgumentChannel = !hasDecoder
+            const staticDecode = options.codecs?.[channel]?.decodeArgs as ((args: readonly unknown[]) => TArgs) | undefined;
+            const hasStaticDecoder = typeof staticDecode === 'function';
+            const hasLazyCodecs = typeof options.lazyCodecs === 'function';
+            const isExactNoArgumentChannel = !hasStaticDecoder
             && options.argumentValidation?.noArgumentChannels?.has(channel) === true;
-            if (!hasDecoder && !isExactNoArgumentChannel) {
+            if (!hasStaticDecoder && !hasLazyCodecs && !isExactNoArgumentChannel) {
                 throw new Error(`IPC invoke channel registered without an argument decoder or explicit no-arg allowlist: ${channel}`);
             }
             const release = channelClaimer.claim(channel);
@@ -245,6 +248,11 @@ export function createValidatedIpcMainRegistrar(
                         ? null
                         : beginIpcInvokeCancellation(event.sender, requestId);
                     try {
+                        let decode = staticDecode;
+                        if (!isExactNoArgumentChannel && !decode && options.lazyCodecs) {
+                            const resolvedCodecs = await options.lazyCodecs();
+                            decode = resolvedCodecs[channel]?.decodeArgs as ((args: readonly unknown[]) => TArgs) | undefined;
+                        }
                         let decodedArgs: TArgs;
                         try {
                             if (isExactNoArgumentChannel) {

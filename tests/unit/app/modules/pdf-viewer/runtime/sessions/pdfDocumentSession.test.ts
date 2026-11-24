@@ -3017,4 +3017,68 @@ describe('PdfDocumentSession range loading', () => {
         expect(stablePage.cleanup).toHaveBeenCalledTimes(2);
         expect(getPage).toHaveBeenCalledTimes(3);
     });
+
+    it('reads multi-page PDF.js geometry without thrashing the render page cache or emitting per-page eviction traces', async () => {
+        const pageCount = 80;
+        const source = new Blob(['pdf'], {type: 'application/pdf'});
+        const pageCleanups = new Map<number, ReturnType<typeof vi.fn>>();
+        const getPage = vi.fn(async (pageNumber: number) => {
+            const cleanup = vi.fn();
+            pageCleanups.set(pageNumber, cleanup);
+            return {
+                cleanup,
+                getViewport: () => ({
+                    width: 612,
+                    height: 792,
+                }),
+                pageNumber,
+            };
+        });
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve({
+                numPages: pageCount,
+                getPage,
+                loadingTask: {destroy: vi.fn()},
+            }),
+            destroy: vi.fn(),
+        });
+        const traceWindow: {
+            __pdfRenderTrace?: boolean;
+            __pdfRenderTraceBuffer?: Array<{event: string}>;
+            __getPdfRenderTrace?: () => Array<{event: string}>;
+            __clearPdfRenderTrace?: () => void;
+        } = {
+            __pdfRenderTrace: true,
+            __pdfRenderTraceBuffer: [],
+        };
+        vi.stubGlobal('window', traceWindow);
+
+        const documentState = createPdfDocumentSession();
+        try {
+            await expect(documentState.loadPdf(source)).resolves.not.toBeNull();
+            expect(documentState.pageMetrics.value).toHaveLength(pageCount);
+            for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+                expect(pageCleanups.get(pageNumber)).not.toHaveBeenCalled();
+            }
+
+            // Page 1 must remain hot in the render page cache after geometry scan.
+            const firstPageCallsBeforeLease = getPage.mock.calls.filter(([num]) => num === 1).length;
+            const lease = await documentState.leasePage(requirePageNumber(1));
+            lease.release();
+            const firstPageCallsAfterLease = getPage.mock.calls.filter(([num]) => num === 1).length;
+            expect(firstPageCallsBeforeLease).toBe(1);
+            expect(firstPageCallsAfterLease).toBe(1);
+
+            const traceEvents = (traceWindow.__pdfRenderTraceBuffer ?? []).map(entry => entry.event);
+            const evictTraceEvents = traceEvents.filter(event => (
+                event === 'pdf-document-page-cache-evict' || event === 'pdf-document-page-cache-cleanup-page'
+            ));
+            const cacheMissTraceEvents = traceEvents.filter(event => event === 'pdf-document-page-cache-miss');
+            expect(evictTraceEvents).toEqual([]);
+            expect(cacheMissTraceEvents.length).toBeLessThanOrEqual(12);
+        } finally {
+            documentState.cleanup();
+            vi.unstubAllGlobals();
+        }
+    });
 });

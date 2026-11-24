@@ -32,6 +32,7 @@ import { createStartupTrace } from '@electron/bootstrap/createStartupTrace';
 import { config } from '@electron/config';
 import {runtimeConfig} from '@electron/runtimeConfig';
 import { registerIpcHandlers } from '@electron/platform-ipc/registerIpcHandlers';
+import type { TLazyMainSubsystem } from '@electron/platform-ipc/featureRegistrationDescriptors';
 import { isTrustedWebContentsSender } from '@electron/platform-ipc/trustedIpcSender';
 import { CORE_IPC_SEND_CHANNELS } from '@electron/platform-ipc/coreContract';
 import { createRawIpcRegistrationAudit } from '@electron/platform-ipc/rawIpcRegistration';
@@ -51,22 +52,6 @@ import {
     updateRecentFilesMenu,
 } from '@electron/menu';
 import { initRecentFilesCache } from '@electron/recentFiles';
-import {
-    performDjvuViewingShutdownCleanup,
-    shutdownDjvuConversions,
-    pruneStaleDjvuArtifactJobs,
-} from '@electron/features/djvu/public';
-import {
-    preserveAssistantStateForShutdownIfLoaded,
-    shutdownAgentAssistantIfLoaded,
-    shutdownLocalMcpServer,
-    syncAgentMcpServerWithSettings,
-} from '@electron/features/agent/public';
-import {
-    recoverOcrJobManager,
-    shutdownOcrJobManager,
-} from '@electron/features/ocr/public';
-import {searchService} from '@electron/features/search/public';
 import {
     captureMainFailure,
     consumeStartupCrashMarker,
@@ -96,27 +81,12 @@ import {
     markWindowTabTransferReady,
     markWindowTabTransferWindowClosed,
 } from '@electron/windowTabTransfer';
-import { promptSetDefaultViewer } from '@electron/promptSetDefaultViewer';
-import { unregisterOtherMacAppCopies } from '@electron/unregisterOtherMacAppCopies';
 import {
     configureLogDirectory,
     createLogger,
     flushPendingLogWrites,
     type ILogger,
 } from '@electron/utils/createLogger';
-import {
-    shutdownRetainedDocumentSaveUtilityProcesses,
-    sweepStalePdfAnnotationParseArtifacts,
-    sweepStaleDefaultAppTempPdfs,
-    sweepStaleOcrTempArtifacts,
-    shutdownSerializedPdfPersistence,
-} from '@electron/features/documents/public';
-import {
-    configureUpdateInstallShutdown,
-    initializeUpdates,
-    projectUpdateStatusForWindow,
-    shutdownUpdates,
-} from '@electron/updates';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     registerAppProtocolScheme,
@@ -137,14 +107,10 @@ import {
     getAppTempDir,
     initializeAppTempNamespace,
 } from '@electron/utils/appTempDir';
-import {cleanupStaleAppTempNamespaces} from '@electron/utils/cleanupStaleAppTempNamespaces';
-import {sweepStaleScanCleanupScratchDirs} from '@evb/scan-cleanup/core/scratchCleanup';
-import {reapOrphanedManagedProcesses} from '@electron/native-tools/managedProcessRegistry';
 import {
     configureProcessSafeMode,
     createProcessDeathRecovery,
 } from '@electron/processDeathRecovery';
-import { markPendingUpdateHealthy } from '@electron/updateHealthMarker';
 import { runDetached } from '@electron/utils/runDetached';
 import { resolveApplicationVersion } from '@electron/appVersion';
 import {
@@ -287,6 +253,42 @@ app.on('open-file', (event, filePath) => {
     macOpenFileRouter.handleOpenFile(filePath);
 });
 
+type TUpdatesModule = typeof import('@electron/updates');
+let updatesModulePromise: Promise<TUpdatesModule> | null = null;
+let loadedUpdatesModule: TUpdatesModule | null = null;
+const loadedSubsystems = new Set<TLazyMainSubsystem>();
+
+function isShutdownActive() {
+    return Boolean(
+        shutdownCoordinator?.isGracefulQuitInProgress()
+        || shutdownCoordinator?.isFatalShutdownInProgress()
+        || shutdownCoordinator?.isQuittingAfterCleanup(),
+    );
+}
+
+function markSubsystemLoaded(subsystem: TLazyMainSubsystem) {
+    loadedSubsystems.add(subsystem);
+}
+
+function loadAgentModule() {
+    markSubsystemLoaded('agent');
+    return import('@electron/features/agent/public');
+}
+
+function loadUpdatesModule(): Promise<TUpdatesModule> {
+    updatesModulePromise ??= import('@electron/updates').then((module) => {
+        module.configureUpdateInstallShutdown((install) => {
+            shutdownCoordinator?.requestGracefulQuit({ afterCleanup: install });
+        });
+        loadedUpdatesModule = module;
+        return module;
+    }).catch((error) => {
+        updatesModulePromise = null;
+        throw error;
+    });
+    return updatesModulePromise;
+}
+
 const unhandledRecoveryReceipts = new Map<string, FailureReceipt>();
 const recoverUnhandledRejectionSubsystem = createUnhandledRejectionRecovery({async recover(subsystem) {
     const message = `Restarting ${subsystem} subsystem after repeated unhandled promise rejections`;
@@ -297,13 +299,20 @@ const recoverUnhandledRejectionSubsystem = createUnhandledRejectionRecovery({asy
     if (receipt) {
         unhandledRecoveryReceipts.set(subsystem, receipt);
     }
-    if (subsystem === 'ocr') {
+    if (subsystem === 'ocr' && loadedSubsystems.has('ocr')) {
+        const {recoverOcrJobManager} = await import('@electron/features/ocr/public');
         await recoverOcrJobManager();
-    } else if (subsystem === 'search') {
+    } else if (subsystem === 'search' && loadedSubsystems.has('search')) {
+        const {searchService} = await import('@electron/features/search/public');
         searchService.cancelAll('unhandled rejection threshold');
-    } else if (subsystem === 'agent') {
+    } else if (subsystem === 'agent' && loadedSubsystems.has('agent')) {
+        const {shutdownAgentAssistantIfLoaded} = await loadAgentModule();
         await shutdownAgentAssistantIfLoaded();
-    } else if (subsystem === 'djvu') {
+    } else if (subsystem === 'djvu' && loadedSubsystems.has('djvu')) {
+        const {
+            performDjvuViewingShutdownCleanup,
+            shutdownDjvuConversions,
+        } = await import('@electron/features/djvu/public');
         await shutdownDjvuConversions();
         performDjvuViewingShutdownCleanup();
     }
@@ -399,7 +408,7 @@ const RENDERER_SAVE_FLUSH_TIMEOUT_MS = 2_500;
 const rawIpcRegistrationAudit = createRawIpcRegistrationAudit();
 
 function maybePromptForDefaultViewer() {
-    if (config.automation.noFocus) {
+    if (config.automation.noFocus || isShutdownActive()) {
         return;
     }
 
@@ -413,13 +422,29 @@ function maybePromptForDefaultViewer() {
     defaultViewerPromptShown = true;
     defaultViewerPromptTimer = setTimeout(() => {
         defaultViewerPromptTimer = null;
+        if (isShutdownActive() || window.isDestroyed()) {
+            return;
+        }
         // Stale copies first, so "Open With" and the default handler name
         // the installed app only.
-        void unregisterOtherMacAppCopies().then(() => {
-            if (!window.isDestroyed()) {
-                void promptSetDefaultViewer(window);
-            }
-        });
+        runDetached(
+            async () => {
+                const {unregisterOtherMacAppCopies} = await import('@electron/unregisterOtherMacAppCopies');
+                await unregisterOtherMacAppCopies();
+                if (isShutdownActive() || window.isDestroyed()) {
+                    return;
+                }
+                const {promptSetDefaultViewer} = await import('@electron/promptSetDefaultViewer');
+                if (isShutdownActive() || window.isDestroyed()) {
+                    return;
+                }
+                await promptSetDefaultViewer(window);
+            },
+            {
+                label: 'default viewer prompt',
+                logger,
+            },
+        );
     }, 1_500);
 }
 
@@ -493,7 +518,13 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
                 onFailure: () => {
                     context.retryablePreservationFailure = true;
                 },
-                run: () => preserveAssistantStateForShutdownIfLoaded(),
+                run: async () => {
+                    if (!loadedSubsystems.has('agent')) {
+                        return;
+                    }
+                    const {preserveAssistantStateForShutdownIfLoaded} = await import('@electron/features/agent/public');
+                    await preserveAssistantStateForShutdownIfLoaded();
+                },
             },
             {
                 label: 'main-operation-shutdown',
@@ -514,7 +545,13 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
             {
                 label: 'serialized-pdf-persistence',
                 timeoutMs: 8_000,
-                run: () => shutdownSerializedPdfPersistence(),
+                run: async () => {
+                    if (!loadedSubsystems.has('documents')) {
+                        return;
+                    }
+                    const {shutdownSerializedPdfPersistence} = await import('@electron/features/documents/public');
+                    await shutdownSerializedPdfPersistence();
+                },
             },
             {
                 label: 'main-critical-writes',
@@ -545,19 +582,37 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
         },
         {
             label: 'agent-assistant',
-            run: () => shutdownAgentAssistantIfLoaded(),
+            run: async () => {
+                if (!loadedSubsystems.has('agent')) {
+                    return;
+                }
+                const {shutdownAgentAssistantIfLoaded} = await import('@electron/features/agent/public');
+                await shutdownAgentAssistantIfLoaded();
+            },
         },
         {
             label: 'search',
-            run: () => searchService.shutdown(),
+            run: async () => {
+                if (!loadedSubsystems.has('search')) {
+                    return;
+                }
+                const {searchService} = await import('@electron/features/search/public');
+                await searchService.shutdown();
+            },
         },
         {
             label: 'mcp-server',
-            run: () => shutdownLocalMcpServer(),
+            run: async () => {
+                if (!loadedSubsystems.has('agent')) {
+                    return;
+                }
+                const {shutdownLocalMcpServer} = await import('@electron/features/agent/public');
+                await shutdownLocalMcpServer();
+            },
         },
         {
             label: 'updates',
-            run: () => shutdownUpdates(),
+            run: () => updatesModulePromise ? updatesModulePromise.then(updates => updates.shutdownUpdates()) : undefined,
         },
         {
             label: 'document-store-operations',
@@ -565,19 +620,43 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
         },
         {
             label: 'document-save-utilities',
-            run: () => shutdownRetainedDocumentSaveUtilityProcesses(),
+            run: async () => {
+                if (!loadedSubsystems.has('documents')) {
+                    return;
+                }
+                const {shutdownRetainedDocumentSaveUtilityProcesses} = await import('@electron/features/documents/public');
+                await shutdownRetainedDocumentSaveUtilityProcesses();
+            },
         },
         {
             label: 'djvu-conversions',
-            run: () => shutdownDjvuConversions(),
+            run: async () => {
+                if (!loadedSubsystems.has('djvu')) {
+                    return;
+                }
+                const {shutdownDjvuConversions} = await import('@electron/features/djvu/public');
+                await shutdownDjvuConversions();
+            },
         },
         {
             label: 'djvu-viewing',
-            run: () => performDjvuViewingShutdownCleanup(),
+            run: async () => {
+                if (!loadedSubsystems.has('djvu')) {
+                    return;
+                }
+                const {performDjvuViewingShutdownCleanup} = await import('@electron/features/djvu/public');
+                performDjvuViewingShutdownCleanup();
+            },
         },
         {
             label: 'ocr-job-manager',
-            run: () => shutdownOcrJobManager(),
+            run: async () => {
+                if (!loadedSubsystems.has('ocr')) {
+                    return;
+                }
+                const {shutdownOcrJobManager} = await import('@electron/features/ocr/public');
+                await shutdownOcrJobManager();
+            },
         },
         {
             label: 'workspace-checkpoint',
@@ -618,11 +697,7 @@ shutdownCoordinator = createShutdownCoordinator({
     },
     runBestEffortCleanupSteps: shutdownPhaseRunners.runBestEffortCleanupSteps,
 });
-const shouldBypassWindowClose = () => Boolean(
-    shutdownCoordinator.isGracefulQuitInProgress()
-    || shutdownCoordinator.isFatalShutdownInProgress()
-    || shutdownCoordinator.isQuittingAfterCleanup(),
-);
+const shouldBypassWindowClose = isShutdownActive;
 configureNativeWindowCloseHandshake({
     shouldBypass: shouldBypassWindowClose,
     rawIpcRegistrationAudit,
@@ -720,9 +795,6 @@ if (pendingSafeModeRelaunchArgs) {
     pendingSafeModeRelaunchArgs = null;
     requestSafeModeRelaunch(args);
 }
-configureUpdateInstallShutdown((install) => {
-    shutdownCoordinator.requestGracefulQuit({ afterCleanup: install });
-});
 
 const allowMultipleAutomationSessions = runtimeConfig.allowMultipleAutomationSessions;
 
@@ -755,10 +827,16 @@ void runInitSequence({
     attachHostEnvironmentToWindow,
     broadcastUpdateStatus: status => {
         for (const window of getAllRegisteredAppWindows()) {
-            sendToWindow(window, UPDATES_PLATFORM_FEATURE.eventChannels.onStatus, projectUpdateStatusForWindow(status, window.webContents.id));
+            const projectedStatus = loadedUpdatesModule
+                ? loadedUpdatesModule.projectUpdateStatusForWindow(status, window.webContents.id)
+                : status;
+            sendToWindow(window, UPDATES_PLATFORM_FEATURE.eventChannels.onStatus, projectedStatus);
         }
     },
-    cleanupStaleAppTempNamespaces,
+    cleanupStaleAppTempNamespaces: async () => {
+        const {cleanupStaleAppTempNamespaces} = await import('@electron/utils/cleanupStaleAppTempNamespaces');
+        return cleanupStaleAppTempNamespaces();
+    },
     cleanupStaleWorkingCopyDirectories: async () => {
         await flushPendingWorkspaceCheckpointSave();
         return {removedDirectories: await collectStaleDocuments()};
@@ -788,7 +866,17 @@ void runInitSequence({
             + `totalRamBytes=${resourceProfile.totalRamBytes}, safeMode=${String(resourceProfile.safeMode)}`,
         );
     },
-    initializeUpdates,
+    initializeUpdates: async (onStatus) => {
+        if (isShutdownActive()) {
+            return;
+        }
+        const updates = await loadUpdatesModule();
+        if (isShutdownActive()) {
+            await updates.shutdownUpdates();
+            return;
+        }
+        updates.initializeUpdates(onStatus);
+    },
     installHostEnvironmentDisplayWatcher,
     logger,
     loadSettings,
@@ -800,7 +888,10 @@ void runInitSequence({
             return;
         }
         runDetached(
-            () => markPendingUpdateHealthy(resolveApplicationVersion(app)),
+            async () => {
+                const {markPendingUpdateHealthy} = await import('@electron/updateHealthMarker');
+                await markPendingUpdateHealthy(resolveApplicationVersion(app));
+            },
             {
                 label: 'mark current update healthy',
                 logger,
@@ -814,6 +905,9 @@ void runInitSequence({
     registerIpcHandlers: options => {
         featureRegistrationRuntime = registerIpcHandlers({
             ...options,
+            loadUpdatesModule,
+            onSubsystemLoaded: markSubsystemLoaded,
+            isSubsystemLoaded: subsystem => loadedSubsystems.has(subsystem),
             rawIpcRegistrationAudit,
             requestGracefulQuit: () => shutdownCoordinator.requestGracefulQuit(),
         });
@@ -823,14 +917,63 @@ void runInitSequence({
     updateRecentFilesMenu,
     shouldResetRendererReadyOnNavigation,
     shutdownCoordinator,
-    reapOrphanedManagedNativeProcesses: () => reapOrphanedManagedProcesses(getAppTempDir(), {log: (level, message) => logger[level](message)}),
-    sweepStaleDefaultAppTempPdfs,
-    sweepStalePdfAnnotationParseArtifacts,
-    sweepStaleScanCleanupScratchDirs: () => sweepStaleScanCleanupScratchDirs(getAppTempDir(), {log: (level, message) => logger[level](message)}),
-    sweepStaleOcrTempArtifacts,
-    pruneStaleDjvuArtifactJobs,
+    reapOrphanedManagedNativeProcesses: async () => {
+        const {reapOrphanedManagedProcesses} = await import('@electron/native-tools/managedProcessRegistry');
+        return reapOrphanedManagedProcesses(getAppTempDir(), {log: (level, message) => logger[level](message)});
+    },
+    sweepStaleDefaultAppTempPdfs: async () => {
+        const {sweepStaleDefaultAppTempPdfs} = await import('@electron/features/documents/public');
+        return sweepStaleDefaultAppTempPdfs();
+    },
+    sweepStalePdfAnnotationParseArtifacts: async () => {
+        const {sweepStalePdfAnnotationParseArtifacts} = await import('@electron/features/documents/public');
+        return sweepStalePdfAnnotationParseArtifacts();
+    },
+    sweepStaleScanCleanupScratchDirs: async () => {
+        const {sweepStaleScanCleanupScratchDirs} = await import('@evb/scan-cleanup/core/scratchCleanup');
+        return sweepStaleScanCleanupScratchDirs(getAppTempDir(), {log: (level, message) => logger[level](message)});
+    },
+    sweepStaleOcrTempArtifacts: async () => {
+        const {sweepStaleOcrTempArtifacts} = await import('@electron/features/documents/public');
+        return sweepStaleOcrTempArtifacts();
+    },
+    pruneStaleDjvuArtifactJobs: async () => {
+        const {pruneStaleDjvuArtifactJobs} = await import('@electron/features/djvu/public');
+        return pruneStaleDjvuArtifactJobs();
+    },
 })
-    .then(() => syncAgentMcpServerWithSettings())
+    .then(() => {
+        if (isShutdownActive()) {
+            return;
+        }
+        runDetached(
+            async () => {
+                try {
+                    const settings = await loadSettings();
+                    if (!settings.agentMcpEnabled || isShutdownActive()) {
+                        return;
+                    }
+                    const {
+                        shutdownLocalMcpServer,
+                        syncAgentMcpServerWithSettings,
+                    } = await loadAgentModule();
+                    if (isShutdownActive()) {
+                        return;
+                    }
+                    await syncAgentMcpServerWithSettings();
+                    if (isShutdownActive()) {
+                        await shutdownLocalMcpServer();
+                    }
+                } catch (error: unknown) {
+                    logger.warn(`External MCP startup sync unavailable; continuing without it: ${getErrorMessage(error)}`);
+                }
+            },
+            {
+                label: 'sync external MCP server with settings',
+                logger,
+            },
+        );
+    })
     .catch((error) => {
         requestFatalShutdown(`Application bootstrap failed: ${getErrorMessage(error)}`);
     });

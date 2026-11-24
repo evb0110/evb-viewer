@@ -621,16 +621,31 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         // Sources without matching native provenance read their geometry
         // through PDF.js and publish once, so navigation never uses a mixture
         // of exact heights and page-count-sized estimates.
+        // Keep the initial opening pages warm in the render cache for immediate
+        // first paint, and measure remaining pages via transient background
+        // leases so scanning a large document never thrashes the render LRU,
+        // evicts page 1, or emits thousands of per-page cache-eviction traces.
+        const PDF_GEOMETRY_WARM_CACHE_PAGE_LIMIT = 12;
+        const warmCacheEnd = Math.min(document.numPages, PDF_GEOMETRY_WARM_CACHE_PAGE_LIMIT);
         const metrics = new Array<IPdfPageMetric>(document.numPages);
-        let nextPage = 1;
         let failedPageCount = 0;
         let firstFailure: unknown;
         const isCurrent = () => version === getRenderVersion() && document === pdfDocument.value;
-        await Promise.all(Array.from({length: Math.min(4, document.numPages)}, async () => {
+
+        let nextPage = 1;
+        const workerCount = Math.min(32, document.numPages);
+        await Promise.all(Array.from({length: workerCount}, async () => {
             while (nextPage <= document.numPages && isCurrent()) {
                 const pageNumber = nextPage++;
+                let lease: Awaited<ReturnType<typeof pageCache.leaseTransientBackgroundPage>> | null = null;
                 try {
-                    const page = await pageCache.getPage(requirePageNumber(pageNumber, document.numPages));
+                    let page;
+                    if (pageNumber <= warmCacheEnd) {
+                        page = await pageCache.getPage(requirePageNumber(pageNumber, document.numPages));
+                    } else {
+                        lease = await pageCache.leaseTransientBackgroundPage(requirePageNumber(pageNumber, document.numPages));
+                        page = lease.page;
+                    }
                     if (!isCurrent()) return;
                     const metric = readPdfjsPageMetric(page);
                     if (!isValidPageMetric(metric)) throw new Error('PDF page has invalid geometry');
@@ -643,6 +658,8 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                     // so the normal page request still reports its failure.
                     failedPageCount += 1;
                     firstFailure ??= error;
+                } finally {
+                    lease?.release();
                 }
             }
         }));

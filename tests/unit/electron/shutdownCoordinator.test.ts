@@ -881,4 +881,32 @@ describe('main process termination signals', () => {
             });
         }
     });
+
+    it.runIf(process.platform === 'linux' || process.platform === 'darwin')('skips cold-importing unloaded deferred subsystems during early SIGTERM shutdown', async () => {
+        const preserveAssistant = vi.fn(async () => undefined);
+        const exit = vi.fn();
+        const quit = vi.fn();
+        const restore = await importMainProcessWithStubs({
+            createCoordinator: createShutdownCoordinator,
+            fixtureApp: {
+                exit,
+                quit,
+            },
+            flushRendererSave: async () => ({
+                dirtyWorkingCopyPaths: [],
+                flushedWorkingCopyPaths: [],
+            }),
+            preserveAssistant,
+        });
+        try {
+            const processEvents: EventEmitter = process;
+            processEvents.emit('SIGTERM', 'SIGTERM', 15);
+            await vi.waitFor(() => {
+                expect(quit).toHaveBeenCalledOnce();
+            });
+            expect(preserveAssistant).not.toHaveBeenCalled();
+        } finally {
+            restore();
+        }
+    });
 });

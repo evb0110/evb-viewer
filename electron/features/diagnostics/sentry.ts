@@ -6,7 +6,6 @@ import {
 import { join } from 'node:path';
 import { app } from 'electron';
 import { resolveApplicationVersion } from '@electron/appVersion';
-import { getClient } from '@sentry/core';
 import {
     parseClientDiagnosticsPreference,
     type TClientDiagnosticsPreference,
@@ -14,6 +13,7 @@ import {
 import { beforeSendSentryEvent } from '@contracts/diagnostics/scrubSentryEvent';
 import {
     captureMainFailure,
+    registerMainFailureCaptureSender,
     setMainFailureCaptureState,
 } from '@electron/utils/captureMainFailure';
 
@@ -35,8 +35,11 @@ const MAIN_INTEGRATIONS = new Set([
     'SentryMinidump',
 ]);
 
+type TSentryClientGetter = () => {getOptions: () => {enabled?: boolean}} | undefined;
+
 let preference: TClientDiagnosticsPreference = 'unknown';
 let sdkLoad: Promise<void> | null = null;
+let loadedGetClient: TSentryClientGetter | null = null;
 
 function isReportingEnabled() {
     return preference === 'granted' && SENTRY_DSN !== '';
@@ -47,7 +50,13 @@ function markerPath() {
 }
 
 async function loadSdk() {
-    const Sentry = await import('@sentry/electron/main');
+    const [
+        Sentry,
+        sentryCore,
+    ] = await Promise.all([
+        import('@sentry/electron/main'),
+        import('@sentry/core'),
+    ]);
     Sentry.init({
         dsn: SENTRY_DSN,
         release: `evb-viewer-desktop@${resolveApplicationVersion(app)}`,
@@ -69,15 +78,17 @@ async function loadSdk() {
             };
         },
     });
+    loadedGetClient = sentryCore.getClient;
+    registerMainFailureCaptureSender(sentryCore.captureException);
 }
 
 /** Starts the SDK on the first grant; later changes only toggle sending. Consent off never loads it. */
 export function setMainDiagnosticsPreference(value: unknown) {
     preference = parseClientDiagnosticsPreference(value);
-    const client = getClient();
+    const client = loadedGetClient?.();
     if (client) {
         client.getOptions().enabled = isReportingEnabled();
-        setMainFailureCaptureState(preference, null);
+        setMainFailureCaptureState(preference, null, {managedBySdk: true});
         return;
     }
     if (isReportingEnabled() && sdkLoad === null) {
@@ -86,11 +97,11 @@ export function setMainDiagnosticsPreference(value: unknown) {
         void loading.catch(() => {
             if (sdkLoad === loading) {
                 sdkLoad = null;
-                setMainFailureCaptureState(preference, null);
+                setMainFailureCaptureState(preference, null, {managedBySdk: true});
             }
         });
     }
-    setMainFailureCaptureState(preference, isReportingEnabled() ? sdkLoad : null);
+    setMainFailureCaptureState(preference, isReportingEnabled() ? sdkLoad : null, {managedBySdk: true});
 }
 
 export function getMainDiagnosticsPreference() {

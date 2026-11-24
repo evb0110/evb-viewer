@@ -98,7 +98,7 @@ export interface IRunInitSequenceOptions {
     initRecentFilesCache(): Promise<void>;
     initializeElectronTranslations(): Promise<void>;
     initializeResourceRuntime(): Promise<void>;
-    initializeUpdates(onStatus: (status: IAppUpdateStatus) => void): void;
+    initializeUpdates(onStatus: (status: IAppUpdateStatus) => void): void | Promise<void>;
     installHostEnvironmentDisplayWatcher(): void;
     logger: ILogger;
     loadSettings(): Promise<ISettingsData>;
@@ -639,9 +639,9 @@ async function bootMainWindow(options: IRunInitSequenceOptions) {
     }
 }
 
-function bootUpdates(options: IRunInitSequenceOptions) {
+async function bootUpdates(options: IRunInitSequenceOptions) {
     try {
-        options.initializeUpdates(options.broadcastUpdateStatus);
+        await options.initializeUpdates(options.broadcastUpdateStatus);
         options.logStartupPhase('Update service initialized');
     } catch (error) {
         options.logger.error(`Failed to initialize updates: ${getErrorMessage(error)}`, {
@@ -685,7 +685,7 @@ export async function runInitSequence(options: IRunInitSequenceOptions) {
     await bootMainWindow(options);
 
     void (async () => {
-        bootUpdates(options);
+        void bootUpdates(options);
         await options.loadSettings();
         await electronTranslationsReady;
         bootMenu(options);

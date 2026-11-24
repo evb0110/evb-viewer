@@ -283,23 +283,18 @@ export function createPlatformFeaturePreloadClient<
     ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener' | 'send'>,
     feature: TFeature,
     directBindings?: TFeatureDirectBindings<TFeature>,
+    sharedEventSubscriber?: ReturnType<typeof createTypedIpcEventSubscriber<Record<string, unknown>>>,
 ): TFeatureCapability<TFeature> {
-    const invokeTimeoutMsByChannel = Object.fromEntries(
-        Object.values(feature.methods)
-            .flatMap(spec => spec.kind === 'sync' || 'local' in spec || spec.ipc.timeoutMs === undefined
-                ? []
-                : [[
-                    spec.channel,
-                    spec.ipc.timeoutMs,
-                ]]),
-    );
-    const invoke = createIpcInvoker<Record<string, IIpcInvokeSpec>>(
-        ipcRenderer,
-        {invokeTimeoutMsByChannel},
-    );
-    const eventSubscriber = createTypedIpcEventSubscriber<Record<string, unknown>>(ipcRenderer);
-    const requestedSubscriptions = new Set<string>();
-    const pendingSubscriptions = new Set<string>();
+    let invokeTimeoutMsByChannel: Record<string, number> | undefined;
+    for (const spec of Object.values(feature.methods)) {
+        if (spec.kind === 'sync' || 'local' in spec || spec.ipc.timeoutMs === undefined) {
+            continue;
+        }
+        invokeTimeoutMsByChannel ??= {};
+        invokeTimeoutMsByChannel[spec.channel] = spec.ipc.timeoutMs;
+    }
+    const baseInvokeOptions = invokeTimeoutMsByChannel ? {invokeTimeoutMsByChannel} : undefined;
+    const isScanCleanupFeature = feature.path[0] === 'scanCleanup';
     const client: Record<string, unknown> = {};
     const untypedDirectBindings = directBindings as Record<string, ((...args: unknown[]) => unknown)> | undefined;
 
@@ -318,21 +313,29 @@ export function createPlatformFeaturePreloadClient<
             client[name] = binding;
             continue;
         }
+        const mapArgs = spec.client?.mapArgs;
         client[name] = (...publicArgs: unknown[]) => {
             let subscribeToAbort: TPlatformIpcAbortSubscription | undefined;
-            const localArgs = publicArgs.map(value => {
-                if (!isRecord(value) || typeof value.signal !== 'function') return value;
+            let localArgs = publicArgs;
+            for (let index = 0; index < publicArgs.length; index += 1) {
+                const value = publicArgs[index];
+                if (!isRecord(value) || typeof value.signal !== 'function') {
+                    continue;
+                }
+                if (localArgs === publicArgs) {
+                    localArgs = publicArgs.slice();
+                }
                 const {
                     signal, ...options
                 } = value;
                 subscribeToAbort = signal as TPlatformIpcAbortSubscription;
-                return options;
-            });
-            let wireArgs = spec.client?.mapArgs
-                ? spec.client.mapArgs(...localArgs as never[])
+                localArgs[index] = options;
+            }
+            let wireArgs = mapArgs
+                ? mapArgs(...localArgs as never[])
                 : localArgs;
             // Scan-cleanup arguments can be reactive, so encode them as plain IPC values.
-            if (feature.path[0] === 'scanCleanup') {
+            if (isScanCleanupFeature) {
                 try {
                     wireArgs = feature.ipcCodecs[spec.channel]?.encodeArgs?.(wireArgs) ?? wireArgs;
                 } catch (error) {
@@ -343,41 +346,58 @@ export function createPlatformFeaturePreloadClient<
                     );
                 }
             }
-            return invokeWithChannelContext(ipcRenderer, spec.channel, wireArgs, {
-                invokeTimeoutMsByChannel,
-                ...(subscribeToAbort ? {subscribeToAbort} : {}),
-            });
+            const invokeOptions = subscribeToAbort
+                ? (invokeTimeoutMsByChannel
+                    ? {
+                        invokeTimeoutMsByChannel,
+                        subscribeToAbort,
+                    }
+                    : {subscribeToAbort})
+                : baseInvokeOptions;
+            return invokeWithChannelContext(ipcRenderer, spec.channel, wireArgs, invokeOptions);
         };
     }
-    for (const [
-        name,
-        spec,
-    ] of Object.entries(feature.events)) {
-        client[name] = (callback: (payload: unknown) => void) => {
-            const unsubscribe = eventSubscriber.onPayloadUnchecked(
-                spec.channel,
-                callback,
-            );
+
+    const eventEntries = Object.entries(feature.events);
+    if (eventEntries.length > 0) {
+        const eventSubscriber = sharedEventSubscriber ?? createTypedIpcEventSubscriber<Record<string, unknown>>(ipcRenderer);
+        let requestedSubscriptions: Set<string> | undefined;
+        let pendingSubscriptions: Set<string> | undefined;
+        for (const [
+            name,
+            spec,
+        ] of eventEntries) {
             const subscription = spec.subscription;
-            if (
-                subscription
-                && !requestedSubscriptions.has(spec.channel)
-                && !pendingSubscriptions.has(spec.channel)
-            ) {
-                pendingSubscriptions.add(spec.channel);
-                void invoke(subscription.channel)
-                    .then(() => {
-                        requestedSubscriptions.add(spec.channel);
-                    })
-                    .catch(error => {
-                        console.warn(`IPC event subscription failed for ${spec.channel}: ${getErrorMessage(error)}`);
-                    })
-                    .finally(() => {
-                        pendingSubscriptions.delete(spec.channel);
-                    });
-            }
-            return unsubscribe;
-        };
+            client[name] = (callback: (payload: unknown) => void) => {
+                const unsubscribe = eventSubscriber.onPayloadUnchecked(
+                    spec.channel,
+                    callback,
+                );
+                if (subscription) {
+                    requestedSubscriptions ??= new Set<string>();
+                    pendingSubscriptions ??= new Set<string>();
+                    if (
+                        !requestedSubscriptions.has(spec.channel)
+                        && !pendingSubscriptions.has(spec.channel)
+                    ) {
+                        const requested = requestedSubscriptions;
+                        const pending = pendingSubscriptions;
+                        pending.add(spec.channel);
+                        void invokeWithChannelContext(ipcRenderer, subscription.channel, [], baseInvokeOptions)
+                            .then(() => {
+                                requested.add(spec.channel);
+                            })
+                            .catch(error => {
+                                console.warn(`IPC event subscription failed for ${spec.channel}: ${getErrorMessage(error)}`);
+                            })
+                            .finally(() => {
+                                pending.delete(spec.channel);
+                            });
+                    }
+                }
+                return unsubscribe;
+            };
+        }
     }
     return client as TFeatureCapability<TFeature>;
 }

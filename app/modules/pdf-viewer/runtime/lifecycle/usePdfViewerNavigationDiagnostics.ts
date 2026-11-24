@@ -128,7 +128,16 @@ export const usePdfViewerNavigationDiagnostics = (options: IUsePdfViewerNavigati
             options.visibleRange.value.end,
             options.isLoading.value,
         ] as const,
-        (snapshot: TViewerDiagnosticSnapshot) => {
+        (snapshot: TViewerDiagnosticSnapshot, previous?: TViewerDiagnosticSnapshot) => {
+            if (
+                previous
+                && snapshot[0] === previous[0]
+                && snapshot[1] === previous[1]
+                && snapshot[2] === previous[2]
+                && snapshot[3] === previous[3]
+            ) {
+                return;
+            }
             logPdfRenderTrace('raster-scheduler-snapshot', () => ({
                 currentPage: snapshot[0],
                 visibleRange: {

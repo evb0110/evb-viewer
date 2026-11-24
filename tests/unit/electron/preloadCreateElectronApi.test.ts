@@ -1149,6 +1149,33 @@ describe('createElectronApi', () => {
         await expect(api.documentOpen.openDocumentDirectBatch(paths, requireRequestId('batch-open-denied'))).resolves.toBeNull();
         expect(documentsClientMock.openDocumentDirectBatch).not.toHaveBeenCalled();
     });
+
+    it('shares a single IPC event listener fan-out across platform features and core events', async () => {
+        const {
+            api,
+            ipcRenderer,
+            listeners,
+        } = await createApiHarness();
+
+        const firstAgentListener = vi.fn();
+        const secondAgentListener = vi.fn();
+        const unsubscribeFirst = api.agent.onMcpIntegrationChanged?.(firstAgentListener);
+        const unsubscribeSecond = api.agent.onMcpIntegrationChanged?.(secondAgentListener);
+
+        const agentChannel = agentEventChannels.onMcpIntegrationChanged;
+        const onCallsForAgent = ipcRenderer.on.mock.calls.filter(([channel]) => channel === agentChannel);
+        expect(onCallsForAgent).toHaveLength(1);
+
+        listeners.get(agentChannel)?.({}, {enabled: true});
+        expect(firstAgentListener).toHaveBeenCalledWith({enabled: true});
+        expect(secondAgentListener).toHaveBeenCalledWith({enabled: true});
+
+        unsubscribeFirst?.();
+        expect(ipcRenderer.removeListener).not.toHaveBeenCalledWith(agentChannel, expect.any(Function));
+
+        unsubscribeSecond?.();
+        expect(ipcRenderer.removeListener).toHaveBeenCalledWith(agentChannel, expect.any(Function));
+    });
 });
 async function flushMicrotasks() {
     await Promise.resolve();

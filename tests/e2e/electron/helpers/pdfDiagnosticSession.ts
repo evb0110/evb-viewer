@@ -3,6 +3,7 @@ import type {
     IPdfNavLogEntry,
     IPdfRenderTraceEntry,
 } from '@contracts/pdfDiagnostics';
+import { PDF_RENDER_TRACE_BUFFER_LIMIT } from '@app/utils/pdfRenderTrace';
 
 interface IPdfDiagnosticWindow extends Window {
     __clearPdfNavLog?: () => void;
@@ -27,7 +28,7 @@ export async function enablePdfDiagnosticSession(
     page: Pick<Page, 'evaluate'>,
     options: IPdfDiagnosticSessionOptions = {},
 ) {
-    await page.evaluate((sessionOptions: IPdfDiagnosticSessionOptions) => {
+    await page.evaluate((sessionOptions: IPdfDiagnosticSessionOptions & {renderTraceBufferLimit: number}) => {
         const diagnosticWindow = window as IPdfDiagnosticWindow;
         const consoleEnabled = sessionOptions.console === true;
         if (sessionOptions.navigation === true) {
@@ -40,15 +41,24 @@ export async function enablePdfDiagnosticSession(
             };
         }
         if (sessionOptions.render === true) {
+            const bufferLimit = sessionOptions.renderTraceBufferLimit;
             diagnosticWindow.__pdfRenderTrace = true;
             diagnosticWindow.__pdfRenderTraceConsole = consoleEnabled;
             diagnosticWindow.__pdfRenderTraceBuffer = [];
-            diagnosticWindow.__getPdfRenderTrace = () => [...(diagnosticWindow.__pdfRenderTraceBuffer ?? [])];
+            diagnosticWindow.__getPdfRenderTrace = () => {
+                const buffer = diagnosticWindow.__pdfRenderTraceBuffer ?? [];
+                return buffer.length > bufferLimit
+                    ? buffer.slice(buffer.length - bufferLimit)
+                    : [...buffer];
+            };
             diagnosticWindow.__clearPdfRenderTrace = () => {
                 diagnosticWindow.__pdfRenderTraceBuffer = [];
             };
         }
-    }, options);
+    }, {
+        ...options,
+        renderTraceBufferLimit: PDF_RENDER_TRACE_BUFFER_LIMIT,
+    });
 }
 
 export async function disablePdfDiagnosticSession(page: Pick<Page, 'evaluate'>) {

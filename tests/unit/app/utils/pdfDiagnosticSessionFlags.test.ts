@@ -107,4 +107,57 @@ describe('PDF diagnostic session flags', () => {
         expect(windowStub).not.toHaveProperty('__pdfRenderTrace');
         expect(windowStub).not.toHaveProperty('__pdfRenderTraceBuffer');
     });
+
+    it('skips lazy payload evaluation when render tracing is disabled and bounds buffered entries when enabled', () => {
+        const windowStub = createWindowStub() as IDiagnosticWindowStub & {
+            __getPdfRenderTrace?: () => Array<{
+                event: string;
+                payload: Record<string, unknown>;
+            }>;
+        };
+        vi.stubGlobal('window', windowStub);
+
+        const disabledPayload = vi.fn(() => ({pageNumber: 1}));
+        logPdfRenderTrace('disabled-event', disabledPayload);
+        expect(disabledPayload).not.toHaveBeenCalled();
+
+        windowStub.__pdfRenderTrace = true;
+        for (let index = 0; index < 21_500; index += 1) {
+            logPdfRenderTrace('burst', () => ({index}));
+        }
+
+        const snapshot = windowStub.__getPdfRenderTrace?.() ?? [];
+        expect(snapshot).toHaveLength(20_000);
+        expect(snapshot[0]?.payload.index).toBe(1_500);
+        expect(snapshot.at(-1)?.payload.index).toBe(21_499);
+    });
+
+    it('clamps __getPdfRenderTrace to the 20,000-entry limit when enabled through enablePdfDiagnosticSession', async () => {
+        const windowStub = createWindowStub() as IDiagnosticWindowStub & {
+            __getPdfRenderTrace?: () => Array<{
+                event: string;
+                payload: Record<string, unknown>;
+            }>;
+        };
+        vi.stubGlobal('window', windowStub);
+        const evaluateInStub = async (
+            callback: (...args: never[]) => unknown,
+            argument?: unknown,
+        ) => (
+            argument === undefined
+                ? callback()
+                : callback(argument as never)
+        );
+        const page = {evaluate: evaluateInStub} as Pick<Page, 'evaluate'>;
+
+        await enablePdfDiagnosticSession(page, {render: true});
+        for (let index = 0; index < 20_500; index += 1) {
+            logPdfRenderTrace('e2e-burst', () => ({index}));
+        }
+
+        const snapshot = windowStub.__getPdfRenderTrace?.() ?? [];
+        expect(snapshot).toHaveLength(20_000);
+        expect(snapshot[0]?.payload.index).toBe(500);
+        expect(snapshot.at(-1)?.payload.index).toBe(20_499);
+    });
 });

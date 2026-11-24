@@ -590,10 +590,90 @@ describe('IPC registry sender trust', () => {
         filePortHandler?.(trustedFileEvent, 'session-3');
         rendererReadyHandler?.(trustedReadyEvent, shellInteractive);
         rendererReadyHandler?.(trustedReadyEvent, rendererFailure);
+        await vi.dynamicImportSettled();
 
         expect(mocks.attachSerializedPdfPersistencePort).toHaveBeenCalledWith(trustedFileEvent, 'session-3');
         expect(onRendererReady).toHaveBeenCalledWith(trustedReadyEvent, shellInteractive);
         expect(onRendererReady).toHaveBeenCalledWith(trustedReadyEvent, rendererFailure);
+    }, ipcRegistrySecurityImportTimeoutMs);
+
+    it('defers agent service creation until a trusted agent IPC call arrives', async () => {
+        const { registerIpcHandlers } = await import('@electron/platform-ipc/registerIpcHandlers');
+        registerIpcHandlers();
+
+        expect(mocks.createAgentService).not.toHaveBeenCalled();
+
+        const handler = mocks.handlers.get('agent:getMcpIntegrationStatus');
+        expect(handler).toBeTypeOf('function');
+
+        await expect(handler?.(createEvent('http://127.0.0.1:41001/admin')))
+            .rejects.toThrow('IPC sender is not trusted');
+        expect(mocks.createAgentService).not.toHaveBeenCalled();
+
+        await expect(handler?.(createEvent('http://127.0.0.1:41001/electron/viewer')))
+            .resolves.toMatchObject({enabled: false});
+        expect(mocks.createAgentService).toHaveBeenCalledOnce();
+    }, ipcRegistrySecurityImportTimeoutMs);
+
+    it('validates lazy documents-direct invoke channels and rejects untrusted senders before loading', async () => {
+        const { registerIpcHandlers } = await import('@electron/platform-ipc/registerIpcHandlers');
+        registerIpcHandlers();
+
+        const handler = mocks.handlers.get('dialog:registerRendererFileOpenToken');
+        expect(handler).toBeTypeOf('function');
+
+        await expect(handler?.(createEvent('http://127.0.0.1:41001/admin'), 'not-trusted'))
+            .rejects.toThrow('IPC sender is not trusted');
+        expect(mocks.registerDocumentRevisionEventBridge).not.toHaveBeenCalled();
+
+        const trustedEvent = createEvent('http://127.0.0.1:41001/electron/viewer');
+        await expect(handler?.(trustedEvent, 123))
+            .rejects.toThrow('Invalid IPC arguments for dialog:registerRendererFileOpenToken');
+        expect(mocks.registerDocumentRevisionEventBridge).toHaveBeenCalledOnce();
+        await expect(handler?.(trustedEvent, '00000000-0000-4000-8000-000000000001'))
+            .resolves.toBe(true);
+    }, ipcRegistrySecurityImportTimeoutMs);
+
+    it('routes updates IPC through a shared lazy loader and preserves noArgumentChannels with lazyCodecs', async () => {
+        const sharedUpdatesModule = {
+            deferDownloadedUpdate: vi.fn(),
+            downloadAvailableUpdate: vi.fn(),
+            getUpdateStatus: vi.fn(() => ({phase: 'idle'})),
+            installDownloadedUpdate: vi.fn(),
+            skipUpdateVersion: vi.fn(),
+            triggerManualUpdateCheck: vi.fn(),
+        };
+        const loadUpdatesModule = vi.fn(async () => sharedUpdatesModule as never);
+        const { registerIpcHandlers } = await import('@electron/platform-ipc/registerIpcHandlers');
+        registerIpcHandlers({loadUpdatesModule});
+
+        const updatesHandler = mocks.handlers.get('updates:getState');
+        expect(updatesHandler).toBeTypeOf('function');
+        expect(loadUpdatesModule).not.toHaveBeenCalled();
+
+        await expect(updatesHandler?.(createEvent('http://127.0.0.1:41001/electron/viewer')))
+            .resolves.toMatchObject({phase: 'idle'});
+        expect(loadUpdatesModule).toHaveBeenCalledOnce();
+
+        const { createValidatedIpcMainRegistrar } = await import('@electron/platform-ipc/validatedIpcRegistrar');
+        const lazyCodecs = vi.fn(async () => ({}));
+        const customHandlers = new Map<string, TRegisteredHandler>();
+        const registrar = createValidatedIpcMainRegistrar(
+            {handle: (channel, handler) => customHandlers.set(channel, handler as TRegisteredHandler)},
+            {
+                allowedChannels: new Set(['test:no-arg']),
+                argumentValidation: {noArgumentChannels: new Set(['test:no-arg'])},
+                lazyCodecs,
+            },
+        );
+        const noArgImpl = vi.fn(() => 'ok');
+        registrar.handle('test:no-arg', noArgImpl);
+
+        await expect(customHandlers.get('test:no-arg')?.(createEvent('http://127.0.0.1:41001/electron/viewer')))
+            .resolves.toBe('ok');
+        expect(lazyCodecs).not.toHaveBeenCalled();
+        await expect(customHandlers.get('test:no-arg')?.(createEvent('http://127.0.0.1:41001/electron/viewer'), 'extra'))
+            .rejects.toThrow('Invalid IPC arguments for test:no-arg');
     }, ipcRegistrySecurityImportTimeoutMs);
 
     it('does not consume shell open rate-limit quota for invalid external URLs', async () => {

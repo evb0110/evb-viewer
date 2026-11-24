@@ -2,7 +2,8 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import type { IPdfRenderTraceEntry } from '@contracts/pdfDiagnostics';
 
 const PDF_RENDER_TRACE_SECTION = 'pdf-render-trace';
-const PDF_RENDER_TRACE_BUFFER_LIMIT = 20_000;
+export const PDF_RENDER_TRACE_BUFFER_LIMIT = 20_000;
+const PDF_RENDER_TRACE_TRIM_WATERMARK = PDF_RENDER_TRACE_BUFFER_LIMIT + 1_000;
 
 type TPdfRenderTracePayload = Record<string, unknown> | (() => Record<string, unknown>);
 
@@ -45,7 +46,12 @@ function getTraceWindow() {
 
     const traceWindow = window as TPdfRenderTraceWindow;
     traceWindow.__pdfRenderTraceBuffer ??= [];
-    traceWindow.__getPdfRenderTrace ??= () => [...(traceWindow.__pdfRenderTraceBuffer ?? [])];
+    traceWindow.__getPdfRenderTrace ??= () => {
+        const buffer = traceWindow.__pdfRenderTraceBuffer ?? [];
+        return buffer.length > PDF_RENDER_TRACE_BUFFER_LIMIT
+            ? buffer.slice(buffer.length - PDF_RENDER_TRACE_BUFFER_LIMIT)
+            : [...buffer];
+    };
     traceWindow.__clearPdfRenderTrace ??= () => {
         traceWindow.__pdfRenderTraceBuffer = [];
     };
@@ -60,8 +66,9 @@ function pushTraceEntry(entry: IPdfRenderTraceEntry) {
 
     const buffer = traceWindow.__pdfRenderTraceBuffer ?? [];
     buffer.push(entry);
-    if (buffer.length > PDF_RENDER_TRACE_BUFFER_LIMIT) {
-        buffer.splice(0, buffer.length - PDF_RENDER_TRACE_BUFFER_LIMIT);
+    if (buffer.length > PDF_RENDER_TRACE_TRIM_WATERMARK) {
+        traceWindow.__pdfRenderTraceBuffer = buffer.slice(buffer.length - PDF_RENDER_TRACE_BUFFER_LIMIT);
+        return;
     }
     traceWindow.__pdfRenderTraceBuffer = buffer;
 }
