@@ -1,3 +1,4 @@
+import {EventEmitter} from 'node:events';
 import {
     existsSync,
     renameSync,
@@ -121,7 +122,7 @@ const store = await import('@electron/file-access/documentStore');
 const checkpoints = await import('@electron/workspaceCheckpointStore');
 const {findKeptOriginal} = await import('@electron/file-access/keptOriginalNotices');
 const {cancelMainOperationsForOwner, registerMainOperation, runWithMainOperationCancellationSignal} = await import('@electron/operation-lifecycle/mainOperationLifecycle');
-const {allowOpenPath, removeAllowedOpenPath} = await import('@electron/file-access/openPathCapabilities');
+const {allowOpenPath, removeAllowedOpenPath, requireOpenPath} = await import('@electron/file-access/openPathCapabilities');
 const {handleFileReadRange, withContentReadLease} = await import('@electron/features/documents/main/documentFileReadHandlers');
 const {handleNativePdfMutationsApplyToWorkingCopy} = await import('@electron/features/documents/main/nativePdfMutationSaveHandlers');
 const {getAppTempDirPath} = await import('@electron/utils/appTempDir');
@@ -1449,5 +1450,234 @@ describe('pinned document revisions', () => {
         } finally {
             resetPathValidatorCachesForTests();
         }
+    });
+});
+
+describe('#1761 workspace checkpoint reload race and ghost-tab prevention', () => {
+    function createFakeWebContents(id: number) {
+        const emitter = new EventEmitter();
+        return Object.assign(emitter, {
+            id,
+            isDestroyed: () => false,
+        });
+    }
+
+    it('preserves an admitted sourceRef when main-frame navigation clears capabilities while saveWorkspaceCheckpoint is queued', async () => {
+        const readerPdf = await writeTemp('reader.pdf', ORIGINAL);
+        const outputPdf = await writeTemp('recovered — cleaned.pdf', EDITED);
+        const sender = createFakeWebContents(176101);
+        expect(allowOpenPath(readerPdf, sender as never)).toBeTruthy();
+        expect(allowOpenPath(outputPdf, sender as never)).toBeTruthy();
+
+        const paneId = requirePaneId('pane-1');
+        const readerTabId = requireTabId('tab-reader');
+        const outputTabId = requireTabId('tab-output');
+        const baseCheckpoint: IWorkspaceCheckpoint = {
+            version: 1,
+            capturedAt: requireEpochMs(Date.now()),
+            activePaneId: paneId,
+            activeTabId: readerTabId,
+            layout: {type: 'leaf', paneId},
+            panes: [{paneId, tabIds: [readerTabId], activeTabId: readerTabId}],
+            tabs: [{
+                tabId: readerTabId,
+                paneId,
+                fileName: 'reader.pdf',
+                sourceRef: readerPdf as never,
+                workingCopyRef: null,
+                isDirty: false,
+                isDjvu: false,
+                currentPage: 4,
+                zoom: 1.25,
+                zoomMode: 'custom',
+            }],
+        };
+        const checkpointWithRecoveredOutput: IWorkspaceCheckpoint = {
+            ...baseCheckpoint,
+            capturedAt: requireEpochMs(Date.now() + 1),
+            panes: [{paneId, tabIds: [readerTabId, outputTabId], activeTabId: readerTabId}],
+            tabs: [
+                ...baseCheckpoint.tabs,
+                {
+                    tabId: outputTabId,
+                    paneId,
+                    fileName: 'recovered — cleaned.pdf',
+                    sourceRef: outputPdf as never,
+                    workingCopyRef: null,
+                    isDirty: false,
+                    isDjvu: false,
+                    currentPage: null,
+                    zoom: null,
+                    zoomMode: null,
+                },
+            ],
+        };
+
+        const docStore = store.getDocumentStore();
+        const {port} = docStore;
+        const firstWriteStarted = gate();
+        const releaseFirstWrite = gate();
+        let blockedOnce = false;
+        docStore.port = {
+            ...port,
+            writeAtomic: async (path, bytes) => {
+                if (!blockedOnce && path.startsWith('workspaces/')) {
+                    blockedOnce = true;
+                    firstWriteStarted.resolve();
+                    await releaseFirstWrite.promise;
+                }
+                return port.writeAtomic(path, bytes);
+            },
+        };
+
+        let firstSave: Promise<boolean> | undefined;
+        let queuedSave: Promise<boolean> | undefined;
+        try {
+            firstSave = checkpoints.saveWorkspaceCheckpoint(baseCheckpoint, sender.id, sender as never);
+            await firstWriteStarted.promise;
+
+            // Reload 1 queues the checkpoint carrying the admitted background output tab.
+            queuedSave = checkpoints.saveWorkspaceCheckpoint(checkpointWithRecoveredOutput, sender.id, sender as never);
+
+            // Reload 2 begins before serialize() runs the queued save, clearing open-path grants.
+            sender.emit('did-start-navigation', {}, 'http://localhost/', false, true);
+            expect(() => requireOpenPath(outputPdf, sender as never)).toThrow('Path not allowed');
+
+            releaseFirstWrite.resolve();
+            expect(await firstSave).toBe(true);
+            expect(await queuedSave).toBe(true);
+        } finally {
+            releaseFirstWrite.resolve();
+            await Promise.allSettled([firstSave, queuedSave]);
+            docStore.port = port;
+        }
+
+        const claimed = await checkpoints.claimWorkspaceCheckpoint(sender.id, sender as never);
+        expect(claimed?.tabs).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                tabId: readerTabId,
+                fileName: 'reader.pdf',
+                sourceRef: readerPdf,
+                workingCopyRef: null,
+            }),
+            expect.objectContaining({
+                tabId: outputTabId,
+                fileName: 'recovered — cleaned.pdf',
+                sourceRef: outputPdf,
+                workingCopyRef: null,
+            }),
+        ]));
+    });
+
+    it('sanitizes an unadmitted sourceless tab to an empty tab instead of persisting a ghost tab, while keeping admitted and working-copy tabs', async () => {
+        const {pdf: ownedPdf, entry} = await openPdf(176102);
+        const admittedPdf = await writeTemp('admitted.pdf', ORIGINAL);
+        const unadmittedPdf = await writeTemp('unadmitted.pdf', EDITED);
+        expect(allowOpenPath(admittedPdf, 176102)).toBeTruthy();
+
+        const paneId = requirePaneId('pane-1');
+        const admittedTabId = requireTabId('tab-admitted');
+        const ghostCandidateTabId = requireTabId('tab-ghost');
+        const workingCopyTabId = requireTabId('tab-working');
+        const workingCopyUnadmittedSourceTabId = requireTabId('tab-working-unadmitted');
+        const secondOwned = await store.openDocumentFromFile(await writeTemp('owned-2.pdf', ORIGINAL), {ownerWebContentsId: 176102});
+
+        const checkpoint: IWorkspaceCheckpoint = {
+            version: 1,
+            capturedAt: requireEpochMs(Date.now()),
+            activePaneId: paneId,
+            activeTabId: admittedTabId,
+            layout: {type: 'leaf', paneId},
+            panes: [{
+                paneId,
+                tabIds: [admittedTabId, ghostCandidateTabId, workingCopyTabId, workingCopyUnadmittedSourceTabId],
+                activeTabId: admittedTabId,
+            }],
+            tabs: [
+                {
+                    tabId: admittedTabId,
+                    paneId,
+                    fileName: 'admitted.pdf',
+                    sourceRef: admittedPdf as never,
+                    workingCopyRef: null,
+                    isDirty: false,
+                    isDjvu: false,
+                    currentPage: 2,
+                    zoom: 1.5,
+                    zoomMode: 'custom',
+                },
+                {
+                    tabId: ghostCandidateTabId,
+                    paneId,
+                    fileName: 'unadmitted.pdf',
+                    sourceRef: unadmittedPdf as never,
+                    workingCopyRef: null,
+                    isDirty: false,
+                    isDjvu: true,
+                    currentPage: 5,
+                    zoom: 2,
+                    zoomMode: 'custom',
+                },
+                {
+                    tabId: workingCopyTabId,
+                    paneId,
+                    fileName: 'report.pdf',
+                    sourceRef: ownedPdf as never,
+                    workingCopyRef: entry.ref as never,
+                    isDirty: false,
+                    isDjvu: false,
+                    currentPage: 1,
+                    zoom: 1,
+                    zoomMode: 'fit-width',
+                },
+                {
+                    tabId: workingCopyUnadmittedSourceTabId,
+                    paneId,
+                    fileName: 'owned-2.pdf',
+                    sourceRef: unadmittedPdf as never,
+                    workingCopyRef: secondOwned.ref as never,
+                    isDirty: false,
+                    isDjvu: false,
+                    currentPage: 3,
+                    zoom: 1.25,
+                    zoomMode: 'custom',
+                },
+            ],
+        };
+
+        expect(await checkpoints.saveWorkspaceCheckpoint(checkpoint, 176102)).toBe(true);
+        const claimed = await checkpoints.claimWorkspaceCheckpoint(176103);
+
+        expect(claimed?.tabs.find(tab => tab.tabId === admittedTabId)).toMatchObject({
+            fileName: 'admitted.pdf',
+            sourceRef: admittedPdf,
+            workingCopyRef: null,
+            currentPage: 2,
+            zoom: 1.5,
+            zoomMode: 'custom',
+        });
+        expect(claimed?.tabs.find(tab => tab.tabId === ghostCandidateTabId)).toEqual({
+            tabId: ghostCandidateTabId,
+            paneId,
+            fileName: null,
+            sourceRef: null,
+            workingCopyRef: null,
+            isDirty: false,
+            isDjvu: false,
+            currentPage: null,
+            zoom: null,
+            zoomMode: null,
+        });
+        expect(claimed?.tabs.find(tab => tab.tabId === workingCopyTabId)).toMatchObject({
+            fileName: 'report.pdf',
+            sourceRef: ownedPdf,
+            workingCopyRef: entry.ref,
+        });
+        expect(claimed?.tabs.find(tab => tab.tabId === workingCopyUnadmittedSourceTabId)).toMatchObject({
+            fileName: 'owned-2.pdf',
+            sourceRef: null,
+            workingCopyRef: secondOwned.ref,
+            currentPage: 3,
+        });
     });
 });
