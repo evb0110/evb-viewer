@@ -17,11 +17,17 @@ reading and the dictionary decoder. A host supplies the ports:
 | Port | Desktop | Browser |
 |---|---|---|
 | Page raster | Poppler `pdftoppm` PPM, cleaned by native `evb-scan-cleanup` | PDF.js tiles, cleaned by the scan-cleanup WASM |
-| Engine pool | Node worker threads (`ocrEnginePool.ts`) | Web Workers (`browserOcrEngineClient.ts`) |
+| Engine pool | worker threads in one Electron utility process (`ocrEnginePool.ts`, `ocrEngineHostClient.ts`) | Web Workers (`browserOcrEngineClient.ts`) |
 | Text-layer writer | page checkpoints, then native `pdf-page-ops ocr-text-layer` | page layers in memory, then a page-ops append in the storage worker |
 
 A desktop job runs in the main process on the shared job registry; the
-engine never runs on the main thread. Its pool has desktop's OCR page slots,
+engine never runs in the main process. Each engine lane is a worker thread in
+one dedicated utility process (`ocrEngineHost.ts`), so Tesseract's WebAssembly
+heaps and any crash stay out of main. The process starts with the first lane
+and exits once its last lane has ended, which returns all of its memory to the
+system; the next lane starts a fresh one. If it dies on its own, every page it
+was recognizing fails with its exit code and the next page starts a new one.
+Main keeps the pool and its broker charges. Its pool has desktop's OCR page slots,
 which scale with cores and memory (one on hosts with at most 4 GiB); a job
 recognizes as many pages at once as the slots allow within the job broker's
 CPU tokens. The pool charges the main broker for each worker: a pass needs
@@ -35,8 +41,9 @@ warm workers that are themselves waiting for more, whose pass then starts
 again on a fresh worker. A lane that does not fit waits for memory other work
 holds.
 Canceling, or a pass past three minutes, ends the busy
-worker, since a worker inside Tesseract cannot read messages; idle workers
-end after a minute. Every recognized page is checkpointed with its PDF's
+worker from the utility process, since a worker inside Tesseract cannot read
+messages; idle workers end after a minute, and the utility process with the
+last of them. Every recognized page is checkpointed with its PDF's
 digest, so an interrupted job resumes after the pages it finished. One
 `pdf-page-ops ocr-text-layer` call writes the searchable layer for the whole
 document. Saved PDFs, search, selection and DOCX export consume the resulting
@@ -242,7 +249,7 @@ The engine is Tesseract 5.5.3 and Leptonica 1.82.0 from checksum-pinned
 source, compiled to WebAssembly with SIMD128 (Tesseract's SSE4.1 path) and
 single-threaded; builds fetch it by digest (`scripts/wasm-artifacts.mjs`). The
 packaged desktop app carries it unpacked beside the application archive, so
-its worker threads import and compile it by path. When Tesseract rejects a
+the OCR utility process's worker threads import and compile it by path. When Tesseract rejects a
 parameter it still exits successfully, so the job reports each rejected
 parameter as a per-page warning instead of silently recognizing without it.
 

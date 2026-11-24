@@ -6,6 +6,7 @@ export type TWorkerBundleId =
     | 'page-ops-crop'
     | 'image-export-tiff'
     | 'djvu-pdf'
+    | 'ocr-engine-host'
     | 'ocr-engine';
 
 export interface IWorkerBundleEntry {

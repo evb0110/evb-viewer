@@ -12,6 +12,7 @@ import {
     ref,
 } from 'vue';
 import { useDocumentViewportLayoutLifecycle } from '@app/modules/document-viewer/lifecycle/useDocumentViewportLayoutLifecycle';
+import { DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS } from '@app/modules/document-viewer/input/documentWheelInteraction';
 
 function createViewport(scrollTop: number) {
     return {
@@ -1098,6 +1099,80 @@ describe('useDocumentViewportLayoutLifecycle reading point', () => {
         expect(reader.readLogicalTop()).toBe(220);
         expect(reader.writes.at(-1)).toBe(220);
         expect(reader.lifecycle.readReadingPoint()?.pageIndex).toBe(1);
+        reader.stop();
+    });
+
+    it('places a navigation that lands after metric hydration ends and before its frame', async () => {
+        const reader = createReader();
+        reader.navigate(0);
+        const transition = {};
+        reader.lifecycle.beginLayoutTransaction(transition);
+        // Hydration ends at page one's point; its post-paint restore is still queued.
+        const ending = reader.lifecycle.endLayoutTransaction(transition, true);
+        await nextTick();
+        // The opening's scrollToPage(2) lands before that frame.
+        reader.navigate(120);
+        await reader.flush();
+        await ending;
+
+        expect(reader.readLogicalTop()).toBe(120);
+        expect(reader.lifecycle.readReadingPoint()?.pageIndex).toBe(1);
+        reader.stop();
+    });
+
+    it('places a navigation that lands after a pointer zoom ended with metric hydration', async () => {
+        vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']});
+        try {
+            const reader = createReader();
+            reader.viewport.getBoundingClientRect = () => ({
+                bottom: 100,
+                height: 100,
+                left: 0,
+                right: 100,
+                top: 0,
+                width: 100,
+                x: 0,
+                y: 0,
+                toJSON: () => ({}),
+            });
+            reader.navigate(0);
+            const transition = {};
+            reader.lifecycle.beginLayoutTransaction(transition);
+            reader.lifecycle.capturePointerAnchor({
+                clientX: 50,
+                clientY: 10,
+            });
+            // Hydration ends during the zoom: its queued restore carries the pointer's point.
+            const ending = reader.lifecycle.endLayoutTransaction(transition, true);
+            // The gesture ends, then a navigation lands before that restore's frame.
+            vi.advanceTimersByTime(DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS);
+            await nextTick();
+            reader.navigate(240);
+            await reader.flush();
+            await ending;
+
+            expect(reader.readLogicalTop()).toBe(240);
+            expect(reader.lifecycle.readReadingPoint()?.pageIndex).toBe(2);
+            reader.stop();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('settles a transaction end without a restore at once, even with a restore queued', async () => {
+        const reader = createReader();
+        reader.userScroll(250);
+        const transition = {};
+        reader.lifecycle.beginLayoutTransaction(transition);
+        reader.pageLayouts.value = pageLayoutsAt(1.5);
+        await nextTick();
+        const settled: string[] = [];
+        void reader.lifecycle.endLayoutTransaction(transition, false).then(() => settled.push('ended'));
+        await nextTick();
+        await nextTick();
+
+        expect(settled).toEqual(['ended']);
+        await reader.flush();
         reader.stop();
     });
 

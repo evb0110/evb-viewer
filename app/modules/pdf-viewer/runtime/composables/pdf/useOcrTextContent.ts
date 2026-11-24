@@ -13,8 +13,10 @@ import {
 } from '@contracts/ocrText';
 import {
     clearSharedDocumentTextCatalog,
+    hasSharedDocumentOcrPage,
     loadSharedDocumentOcrAvailability,
     loadSharedDocumentOcrPage,
+    peekSharedDocumentOcrPageAvailability,
 } from '@app/modules/pdf-viewer/engine/document-text-catalog/sharedDocumentTextCatalogCache';
 
 type TOcrTextDirection = 'ltr' | 'rtl';
@@ -205,6 +207,9 @@ export const useOcrTextContent = () => {
         pageNumber: TPageNumber,
         viewport: IPdfViewport,
     ) {
+        if (peekSharedDocumentOcrPageAvailability(workingCopyPath, documentRevisionToken, pageNumber) === false) {
+            return null;
+        }
         const pageData = await loadSharedDocumentOcrPage(
             workingCopyPath,
             documentRevisionToken,
@@ -261,7 +266,20 @@ export const useOcrTextContent = () => {
         if (availability.mappedPageCount !== undefined) {
             return availability.mappedPageCount > 0;
         }
-        return (availability.pageNumbers?.length ?? availability.pageRanges?.length ?? 0) > 0;
+        return (availability.pageNumbers?.length ?? 0) > 0
+            || (availability.pageRanges?.length ?? 0) > 0;
+    }
+
+    /**
+     * Synchronous check against cached OCR availability for a specific page.
+     * Returns `null` when availability has not been resolved yet or requires probing.
+     */
+    function peekPageOcrData(
+        workingCopyPath: TDocumentRef,
+        documentRevisionToken: TDocumentRevisionToken,
+        pageNumber: TPageNumber,
+    ) {
+        return peekSharedDocumentOcrPageAvailability(workingCopyPath, documentRevisionToken, pageNumber);
     }
 
     /**
@@ -276,26 +294,7 @@ export const useOcrTextContent = () => {
         documentRevisionToken: TDocumentRevisionToken,
         pageNumber: TPageNumber,
     ) {
-        const availability = await loadSharedDocumentOcrAvailability(workingCopyPath, documentRevisionToken);
-        if (!availability) {
-            return false;
-        }
-        if (availability.pageNumbers?.includes(pageNumber) === true) {
-            return true;
-        }
-        if (availability.pageRanges?.some(range =>
-            pageNumber >= range.firstPage && pageNumber <= range.lastPage,
-        ) === true) {
-            return true;
-        }
-        if (availability.rangesComplete !== false || availability.mappedPageCount === 0) {
-            return false;
-        }
-        return (await loadSharedDocumentOcrPage(
-            workingCopyPath,
-            documentRevisionToken,
-            pageNumber,
-        )) !== null;
+        return hasSharedDocumentOcrPage(workingCopyPath, documentRevisionToken, pageNumber);
     }
 
     /**
@@ -311,6 +310,7 @@ export const useOcrTextContent = () => {
         getOcrTextContent,
         hasOcrData,
         hasPageOcrData,
+        peekPageOcrData,
         clearCache,
     };
 };

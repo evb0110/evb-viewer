@@ -100,7 +100,10 @@ export {
 } from '@app/modules/document-viewer/sidebar/documentSidebarTabs';
 export { resolveBoundedRasterDimensions } from '@app/modules/document-viewer/resolveBoundedRasterDimensions';
 export { resolveDjvuPageSizeInPoints } from '@app/modules/document-viewer/source/resolveDjvuPageSizeInPoints';
-export { resolveDocumentPageSourceOpeningFrame } from '@app/modules/document-viewer/layout/resolveDocumentPageSourceOpeningFrame';
+export {
+    readArrivedViewportClientSize,
+    resolveDocumentPageSourceOpeningFrame,
+} from '@app/modules/document-viewer/layout/resolveDocumentPageSourceOpeningFrame';
 export { resolveVirtualRowRevealScrollTop } from '@app/modules/document-viewer/virtualization/resolveVirtualRowRevealScrollTop';
 export {
     reportDocumentViewportPlacement,

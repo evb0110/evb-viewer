@@ -1,4 +1,8 @@
-import type { Ref } from 'vue';
+import {
+    watch,
+    type Ref,
+} from 'vue';
+import { tryOnScopeDispose } from '@vueuse/core';
 import { clamp } from 'es-toolkit/math';
 import type { IZoomStateAccess } from '@contracts/shared';
 import {
@@ -7,6 +11,7 @@ import {
     type IDocumentWheelSourceEvent,
     type IPdfSemanticAnchor,
 } from '@app/modules/document-viewer/public';
+import { pdfViewportScrollActivity } from '@app/modules/pdf-viewer/runtime/composables/pdf/pdfViewportScrollActivity';
 
 // Trackpad momentum keeps sending plain packets after a pinch ends.
 const WHEEL_ZOOM_MOMENTUM_WINDOW_MS = 1400;
@@ -33,6 +38,32 @@ interface IUsePdfViewerWheelZoomOptions {
  */
 export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) => {
     let lastZoomPacketAt = Number.NEGATIVE_INFINITY;
+    let stopObservingViewport: (() => void) | null = null;
+    const stopContainerWatch = watch(
+        options.viewerContainer,
+        (container) => {
+            stopObservingViewport?.();
+            stopObservingViewport = container
+                ? pdfViewportScrollActivity.observeViewport(container)
+                : null;
+        },
+        { immediate: true },
+    );
+    const stopScaleWatch = watch(
+        options.effectiveScale,
+        (nextScale, previousScale) => {
+            if (previousScale !== undefined && nextScale !== previousScale) {
+                pdfViewportScrollActivity.markMotion(options.viewerContainer.value);
+            }
+        },
+    );
+    tryOnScopeDispose(() => {
+        stopContainerWatch();
+        stopScaleWatch();
+        stopObservingViewport?.();
+        stopObservingViewport = null;
+    });
+
     const handleWheelZoom = createDocumentWheelZoomHandler(options.effectiveScale, options.readZoom, {beforeZoom: ({event}) => {
         const container = options.viewerContainer.value;
         if (!container) {
@@ -54,6 +85,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         options.cancelPendingSearchScroll();
         if (interaction.intent === 'zoom') {
             lastZoomPacketAt = performance.now();
+            pdfViewportScrollActivity.markMotion(options.viewerContainer.value);
             if (options.isReady()) {
                 // A pinch is the reader taking the view even at a zoom limit,
                 // where it changes no scale.
@@ -70,6 +102,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
                 event.preventDefault();
                 return;
             }
+            pdfViewportScrollActivity.markMotion(options.viewerContainer.value);
             if (options.handlePagedWheel(event)) {
                 return;
             }

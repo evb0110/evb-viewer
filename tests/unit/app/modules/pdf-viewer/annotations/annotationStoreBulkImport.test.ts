@@ -123,8 +123,9 @@ describe('AnnotationStore bulk imports', () => {
                 });
             });
 
+            // One fingerprint per stored version: the rebound entity and the import. The fallback compares no more.
             const importCalls = semanticFingerprintCalls(stringify.mock.calls.slice(callsBeforeImport));
-            expect(importCalls).toHaveLength(3);
+            expect(importCalls).toHaveLength(2);
             expect(store.hasChangesSinceSavedBaseline()).toBe(false);
             expect(store.get(entity.identity.id)?.identity.pdfRef).toBe('bound-ref-2');
         } finally {

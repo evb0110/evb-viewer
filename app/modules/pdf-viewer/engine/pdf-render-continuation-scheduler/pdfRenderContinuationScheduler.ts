@@ -1,3 +1,5 @@
+import { BrowserLogger } from '@app/utils/browserLogger';
+
 export type TPdfRenderContinuationPriority =
     | 'navigation-target'
     | 'visible'
@@ -17,6 +19,7 @@ export interface IContinuationSchedulerEnvironment {
     isInputPending: () => boolean;
     now: () => number;
     queueTask: (callback: () => void) => void;
+    cancelQueuedTasks?: (() => void) | undefined;
     queueFrameFallbackTask: (callback: () => void) => void;
     requestAnimationFrame: (callback: (timestamp: number) => void) => number;
     cancelAnimationFrame: (handle: number) => void;
@@ -37,7 +40,6 @@ const PRIORITY_WEIGHT: Record<TPdfRenderContinuationPriority, number> = {
     'prefetch': 100,
 };
 const FRAME_HEADROOM_BUDGET_MS = 8;
-const FOREGROUND_CONTINUATION_DELAY_MS = 16;
 // Hidden Electron renderers suspend animation frames entirely, so a
 // frame-gated pump must not be the only path to progress: without a timer
 // fallback a background-only queue starves forever and the pdf.js render
@@ -59,14 +61,85 @@ function isBackgroundPriority(priority: TPdfRenderContinuationPriority) {
     return PRIORITY_WEIGHT[priority] <= PRIORITY_WEIGHT.nearby;
 }
 
+function createImmediateMacrotaskQueuer(): {
+    queueTask: (callback: () => void) => void;
+    cancelQueuedTasks: () => void;
+} {
+    const scheduling = typeof globalThis === 'undefined'
+        ? null
+        : (globalThis as typeof globalThis & {
+            scheduler?: { yield?: () => Promise<void> };
+        }).scheduler;
+    if (typeof scheduling?.yield === 'function') {
+        const yieldToMain = scheduling.yield.bind(scheduling);
+        return {
+            queueTask: (callback) => {
+                void yieldToMain().then(callback, callback);
+            },
+            cancelQueuedTasks: () => {},
+        };
+    }
+    if (typeof MessageChannel === 'function') {
+        let channel: MessageChannel | null = null;
+        const pending: Array<() => void> = [];
+        const closeChannel = () => {
+            if (!channel) {
+                return;
+            }
+            const activeChannel = channel;
+            channel = null;
+            activeChannel.port1.onmessage = null;
+            activeChannel.port1.close();
+            activeChannel.port2.close();
+        };
+        const ensureChannel = () => {
+            if (channel) {
+                return channel;
+            }
+            const nextChannel = new MessageChannel();
+            nextChannel.port1.onmessage = () => {
+                const callback = pending.shift();
+                try {
+                    callback?.();
+                } finally {
+                    if (pending.length === 0) {
+                        closeChannel();
+                    }
+                }
+            };
+            // Avoid keeping Node/Vitest worker processes alive on idle ports.
+            (nextChannel.port1 as { unref?: () => void }).unref?.();
+            (nextChannel.port2 as { unref?: () => void }).unref?.();
+            channel = nextChannel;
+            return nextChannel;
+        };
+        return {
+            queueTask: (callback) => {
+                pending.push(callback);
+                ensureChannel().port2.postMessage(undefined);
+            },
+            cancelQueuedTasks: () => {
+                pending.length = 0;
+                closeChannel();
+            },
+        };
+    }
+    return {
+        queueTask: callback => setTimeout(callback, 0),
+        cancelQueuedTasks: () => {},
+    };
+}
+
 function createDefaultEnvironment(): IContinuationSchedulerEnvironment {
     const scheduling = typeof navigator === 'undefined'
         ? null
         : (navigator as Navigator & {scheduling?: { isInputPending?: () => boolean };}).scheduling;
+    const macrotaskQueuer = createImmediateMacrotaskQueuer();
     return {
         isInputPending: () => scheduling?.isInputPending?.() === true,
         now: () => performance.now(),
-        queueTask: callback => setTimeout(callback, FOREGROUND_CONTINUATION_DELAY_MS),
+        queueTask: macrotaskQueuer.queueTask,
+        cancelQueuedTasks: macrotaskQueuer.cancelQueuedTasks,
         queueFrameFallbackTask: callback => setTimeout(callback, BACKGROUND_FRAME_FALLBACK_DELAY_MS),
         requestAnimationFrame: callback => (
             typeof window === 'undefined'
@@ -135,6 +208,7 @@ export function createPdfRenderContinuationScheduler(
             // keeps pending rAF callbacks from accumulating in renderers whose
             // frames are suspended and would otherwise flush all at once.
             cancelArmedFrame();
+            environment.cancelQueuedTasks?.();
             scheduledPump = null;
             pumpGeneration += 1;
             frameFallbackEpoch += 1;
@@ -191,10 +265,15 @@ export function createPdfRenderContinuationScheduler(
         }
         consecutiveFrameDeferrals = 0;
         const next = takeNext();
-        if (next && next.signal?.aborted !== true) {
-            next.continueRender();
+        try {
+            if (next && next.signal?.aborted !== true) {
+                next.continueRender();
+            }
+        } catch (error) {
+            BrowserLogger.warn('pdf-render-continuation', 'PDF render continuation callback failed', error);
+        } finally {
+            scheduleNextPump();
         }
-        scheduleNextPump();
     }
 
     // Runs when the frame pump made no progress for a whole fallback period,
