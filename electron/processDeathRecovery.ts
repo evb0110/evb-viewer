@@ -25,19 +25,21 @@ interface IProcessDeathRecoveryOptions {
 }
 
 /**
- * `serviceName` of the only Electron utility processes this app forks. Both
- * come from `runDocumentSaveUtilityProcess`, which is the single
- * `utilityProcess.fork` call site in the app, and both are read back here to
- * recognise the app's own teardown. Every other child process the app starts is
- * a Node `child_process`, which Chromium never reports through
+ * `serviceName` of every Electron utility process this app forks, read back
+ * here to recognise the app's own teardown. The document fingerprint and save
+ * utilities come from `runDocumentSaveUtilityProcess`; the OCR engine process
+ * comes from `createOcrEngineHost`. Every other child process the app starts
+ * is a Node `child_process`, which Chromium never reports through
  * `child-process-gone`.
  */
 export const DOCUMENT_FINGERPRINT_SERVICE_NAME = 'EVB document fingerprint';
 export const DOCUMENT_SAVE_SERVICE_NAME = 'EVB document save';
+export const OCR_ENGINE_SERVICE_NAME = 'EVB OCR engine';
 
 const APP_TERMINATED_UTILITY_IDENTITIES: ReadonlySet<string> = new Set([
     DOCUMENT_FINGERPRINT_SERVICE_NAME,
     DOCUMENT_SAVE_SERVICE_NAME,
+    OCR_ENGINE_SERVICE_NAME,
 ]);
 
 /**
@@ -45,7 +47,11 @@ const APP_TERMINATED_UTILITY_IDENTITIES: ReadonlySet<string> = new Set([
  *
  * `runDocumentSaveUtilityProcess` kills its child as ordinary teardown the
  * moment the worker has answered, so `killed` carries no fault signal for those
- * two identities. The test is deliberately an allowlist rather than "any killed
+ * two identities. The OCR engine process exits on its own when asked; main
+ * kills it only when it has not exited within its grace time, or when it sent
+ * a message main cannot read, and `createOcrEngineHost` reports both itself,
+ * with the pages they failed. Its crashes, abnormal exits and out-of-memory
+ * ends are not `killed` and stay reported here. The test is deliberately an allowlist rather than "any killed
  * non-GPU process": a Utility process the app did not fork, a Zygote, a sandbox
  * helper or a plugin host is only ever killed by something outside the app, and
  * that is worth reporting.
@@ -98,7 +104,8 @@ export function createProcessDeathRecovery(options: IProcessDeathRecoveryOptions
         const identity = details.name ?? details.serviceName ?? details.type;
         const message = `[process-death] ${details.type} process gone (${identity}, reason=${details.reason}, exitCode=${details.exitCode})`;
         // The app terminates its own fingerprint and save utilities after every
-        // run, so their teardown is lifecycle detail, not a warning. The owner
+        // run, and its OCR engine process when it would not exit, so their
+        // teardown is lifecycle detail, not a warning. The owner
         // of each utility still reports an exit before its result and a
         // termination it cannot prove. Every other non-renderer death, killed
         // or not, keeps error level, including the GPU, whose deaths drive the

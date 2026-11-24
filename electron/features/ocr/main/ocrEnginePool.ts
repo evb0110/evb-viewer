@@ -3,14 +3,16 @@ import {
     join,
 } from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {Worker} from 'node:worker_threads';
 import * as electron from 'electron';
 import {WORKER_BUNDLES_BY_ID} from '@electron-worker-bundles/electronWorkerBundles.js';
 import type {
     IOcrEngineRequest,
     IOcrEngineResult,
 } from '@ocr-core/tesseractEngine';
-import type {IOcrEngineWorkerData} from '@electron/features/ocr/main/ocrEngineWorker';
+import {
+    createOcrEngineHost,
+    type IOcrEngineLane,
+} from '@electron/features/ocr/main/ocrEngineHostClient';
 import {getRuntimeTessdataDir} from '@electron/features/ocr/languageModels';
 import {
     createOcrModelBytesReader,
@@ -19,6 +21,7 @@ import {
     sumOcrModelBytes,
 } from '@electron/features/ocr/main/ocrRuntimePolicy';
 import type {TOcrModelCode} from '@contracts/ocrLanguages';
+import type {IOcrEngineLaneReply} from '@electron/features/ocr/main/ocrEngineHostProtocol';
 import {
     mainJobBroker,
     type IJobBrokerLease,
@@ -34,7 +37,7 @@ const ENGINE_IDLE_TTL_MS = 60_000;
 const PASS_TIMEOUT_MS = 3 * 60 * 1000;
 
 interface IEngineWorker {
-    worker: Worker | null;
+    worker: IOcrEngineLane | null;
     busy: boolean;
     /** Termination was requested or the worker exited; it takes no more passes. */
     ending: boolean;
@@ -69,16 +72,19 @@ const WORKER_ENDED = new Error('OCR worker was ended while its pass waited');
 
 export interface IOcrEnginePoolOptions {
     size: () => number;
-    workerPath: string;
-    workerData: IOcrEngineWorkerData;
+    /** Where the installed models are, to charge each pass for the ones it loads. */
+    tessdataDir: string;
+    /** Starts a worker: an engine lane in the OCR utility process. */
+    startLane: () => IOcrEngineLane;
     /** The broker charged for each worker: a core while it runs a pass, its memory until it exits. */
     broker: JobBroker;
 }
 
 /**
- * Node worker threads running the shared engine, one warm engine each, never
- * on the main thread. Canceling or a pass past its time limit ends the busy
- * worker, since a worker inside Tesseract cannot read messages. The pool owns
+ * Engine lanes running the shared engine, one warm engine each, never in the
+ * main process; on desktop they are worker threads in the OCR utility process.
+ * Canceling or a pass past its time limit ends the busy worker, since a
+ * worker inside Tesseract cannot read messages. The pool owns
  * each worker's broker charge: a pass holds a core and any memory it adds,
  * the worker keeps its memory charged while idle, and the charge ends when
  * the worker has exited. A pass needs what its own models and page need plus
@@ -90,7 +96,7 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
     const {broker} = options;
     const workers = new Set<IEngineWorker>();
     const waiters: Array<() => void> = [];
-    const readModelBytes = createOcrModelBytesReader(options.workerData.tessdataDir);
+    const readModelBytes = createOcrModelBytesReader(options.tessdataDir);
     let nextId = 0;
     // A shut-down pool starts no workers, so a pass retrying after its worker
     // ended fails instead of leaving an orphan.
@@ -274,8 +280,7 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
             }
             if (!entry.worker) {
                 try {
-                    const worker = new Worker(options.workerPath, {workerData: options.workerData});
-                    worker.unref();
+                    const worker = options.startLane();
                     // An idle worker that fails must not throw into the main process.
                     worker.on('error', () => end(entry));
                     worker.on('exit', () => exited(entry));
@@ -344,19 +349,14 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
                     if (error) reject(error);
                     else resolve(result!);
                 };
-                const onMessage = (message: {
-                    id: number;
-                    ok: boolean;
-                    result?: IOcrEngineResult;
-                    error?: string
-                }) => {
+                const onMessage = (message: IOcrEngineLaneReply) => {
                     if (message.id !== id) return;
                     keepWorker();
                     settle(message.ok ? null : new Error(message.error), message.result);
                 };
                 const onError = (error: Error) => {
                     discardWorker();
-                    settle(new Error(`The OCR engine stopped: ${error.message}`));
+                    settle(new Error(`The OCR engine stopped: ${error.message}`, {cause: error}));
                 };
                 const onExit = (code: number) => {
                     discardWorker();
@@ -394,6 +394,7 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
 }
 
 let appPool: ReturnType<typeof createOcrEnginePool> | null = null;
+let appHost: ReturnType<typeof createOcrEngineHost> | null = null;
 
 /** The engine bundled with the renderer: unpacked beside the app archive, or the repository's public files. */
 function resolveOcrEngineDir() {
@@ -402,21 +403,36 @@ function resolveOcrEngineDir() {
         : join(__dirname, '..', 'public', 'wasm');
 }
 
-/** Runs one page's passes on the app's engine pool, sized like desktop's OCR page slots. */
+/**
+ * Runs one page's passes on the app's engine pool, sized like desktop's OCR
+ * page slots, whose lanes are worker threads in the OCR utility process.
+ */
 export function runOcrEngine(request: IOcrEngineRequest, signal: AbortSignal, ownerId?: string) {
-    appPool ??= createOcrEnginePool({
-        broker: mainJobBroker,
-        size: () => getOcrRuntimePolicy().globalPageSlots,
-        workerPath: resolveUnpackedWorkerPath(__dirname, WORKER_BUNDLES_BY_ID['ocr-engine'].fileName),
-        workerData: {
-            engineDir: resolveOcrEngineDir(),
-            tessdataDir: getRuntimeTessdataDir(),
-        },
-    });
+    if (!appPool) {
+        const tessdataDir = getRuntimeTessdataDir();
+        const host = createOcrEngineHost({
+            hostPath: resolveUnpackedWorkerPath(__dirname, WORKER_BUNDLES_BY_ID['ocr-engine-host'].fileName),
+            workerPath: resolveUnpackedWorkerPath(__dirname, WORKER_BUNDLES_BY_ID['ocr-engine'].fileName),
+            workerData: {
+                engineDir: resolveOcrEngineDir(),
+                tessdataDir,
+            },
+        });
+        appHost = host;
+        appPool = createOcrEnginePool({
+            broker: mainJobBroker,
+            size: () => getOcrRuntimePolicy().globalPageSlots,
+            tessdataDir,
+            startLane: () => host.startLane(),
+        });
+    }
     return appPool.run(request, signal, ownerId);
 }
 
+/** Ends every engine lane and asks the OCR utility process to exit now. */
 export function shutdownOcrEnginePool() {
     appPool?.terminate();
     appPool = null;
+    appHost?.shutdown();
+    appHost = null;
 }
