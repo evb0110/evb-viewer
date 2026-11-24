@@ -3012,10 +3012,23 @@ describe('Electron E2E - Viewer Smoke', () => {
                             return rect.bottom > viewerRect.top && rect.top < viewerRect.bottom;
                         })
                     : [];
+                // Canvas visibility and skeleton removal follow the committed
+                // raster ([data-page-raster]); .page_container--rendered also
+                // waits for text-layer hydration, which active-scroll deferral
+                // intentionally holds until scroll/zoom motion settles.
                 const hasVisual = visiblePages.some((page) => {
                     const renderLayer = page.querySelector<HTMLElement>('.page_canvas__render-layer');
                     const renderedCanvas = renderLayer?.querySelector<HTMLCanvasElement>('canvas');
-                    return page.classList.contains('page_container--rendered')
+                    const skeleton = page.querySelector<HTMLElement>('.document-page-skeleton');
+                    const skeletonStyle = skeleton ? getComputedStyle(skeleton) : null;
+                    const skeletonVisible = Boolean(
+                        skeletonStyle
+                        && skeletonStyle.display !== 'none'
+                        && skeletonStyle.visibility !== 'hidden'
+                        && Number.parseFloat(skeletonStyle.opacity) > 0.01,
+                    );
+                    return Boolean(page.dataset.pageRaster)
+                        && !skeletonVisible
                         && renderLayer !== null
                         && getComputedStyle(renderLayer).visibility !== 'hidden'
                         && renderedCanvas != null
@@ -3057,13 +3070,25 @@ describe('Electron E2E - Viewer Smoke', () => {
                 window.clearInterval(testWindow.__macWheelHeartbeatTimer);
             }
             testWindow.__macWheelVisualProbe?.stop();
+            const viewer = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host #pdf-viewer',
+            );
+            const viewerRect = viewer?.getBoundingClientRect() ?? null;
+            const settledVisibleRenderedCount = viewerRect
+                ? Array.from(viewer?.querySelectorAll<HTMLElement>('.page_container[data-page]') ?? [])
+                    .filter((page) => {
+                        const rect = page.getBoundingClientRect();
+                        return rect.bottom > viewerRect.top
+                            && rect.top < viewerRect.bottom
+                            && page.classList.contains('page_container--rendered');
+                    }).length
+                : 0;
             return {
                 heartbeat: testWindow.__macWheelHeartbeat ?? null,
                 samples: testWindow.__macWheelModifierSamples ?? [],
                 visualSamples: testWindow.__macWheelVisualProbe?.samples ?? [],
-                scrollTop: document.querySelector<HTMLElement>(
-                    '.editor-pane.is-active .workspace-host #pdf-viewer',
-                )?.scrollTop ?? 0,
+                scrollTop: viewer?.scrollTop ?? 0,
+                settledVisibleRenderedCount,
             };
         });
 
@@ -3083,6 +3108,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             result.visualSamples.filter(sample => !sample.hasVisual),
             JSON.stringify(result.visualSamples),
         ).toEqual([]);
+        expect(result.settledVisibleRenderedCount).toBeGreaterThan(0);
     }, 120_000);
 
     it('keeps the PDF viewport scrollable, navigable, and scalable', async () => {
