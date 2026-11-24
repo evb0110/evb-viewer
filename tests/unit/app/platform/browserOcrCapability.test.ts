@@ -842,43 +842,85 @@ describe('browser OCR lanes', () => {
         vi.unstubAllGlobals();
     });
 
-    async function laneCount(
+    async function resolveLanes(
         navigatorFields: {
             hardwareConcurrency?: number;
             deviceMemory?: number;
         },
-        ...args: Parameters<typeof import('@app/platform/browser-api/browserOcrEngineClient').getBrowserOcrLaneCount>
+        ...args: Parameters<typeof import('@app/platform/browser-api/browserOcrEngineClient').resolveBrowserOcrLanes>
     ) {
         vi.stubGlobal('navigator', navigatorFields);
-        const {getBrowserOcrLaneCount} = await import('@app/platform/browser-api/browserOcrEngineClient');
-        return getBrowserOcrLaneCount(...args);
+        const {resolveBrowserOcrLanes} = await import('@app/platform/browser-api/browserOcrEngineClient');
+        return resolveBrowserOcrLanes(...args);
     }
 
     it('runs more than eight lanes on a many-core device with memory for them', async () => {
-        expect(await laneCount({
+        expect(await resolveLanes({
             hardwareConcurrency: 32,
             deviceMemory: 8,
-        })).toBe(21);
+        })).toEqual({
+            lanes: 21,
+            preprocessLanes: 0,
+        });
     });
 
     it('keeps one core free and stays within half the reported memory', async () => {
-        expect(await laneCount({
+        expect((await resolveLanes({
             hardwareConcurrency: 12,
             deviceMemory: 8,
-        })).toBe(11);
-        // Preprocessing runs in its own single worker (~353 MiB once), so each Tesseract
-        // lane for a 300 DPI letter page with two 15 MB models costs ~374 MiB instead of ~695 MiB.
-        expect(await laneCount({
+        })).lanes).toBe(11);
+    });
+
+    // A 300 DPI letter page with two 15 MB models: ~374 MiB a Tesseract lane, ~353 MiB a cleaning worker.
+    const letter = [
+        2_550 * 3_300,
+        30_000_000,
+    ] as const;
+
+    it('gives cleaning as many workers as its lanes need, within the same memory', async () => {
+        // Ten lanes would leave memory for one cleaning worker, which feeds two of them.
+        expect(await resolveLanes({
             hardwareConcurrency: 32,
             deviceMemory: 8,
-        }, 2_550 * 3_300, 30_000_000, 'clean')).toBe(10);
+        }, ...letter, 'clean')).toEqual({
+            lanes: 7,
+            preprocessLanes: 4,
+        });
+        expect(await resolveLanes({
+            hardwareConcurrency: 12,
+            deviceMemory: 32,
+        }, ...letter, 'clean')).toEqual({
+            lanes: 10,
+            preprocessLanes: 5,
+        });
+    });
+
+    it('gives a polarity check a quarter of its lanes', async () => {
+        expect(await resolveLanes({
+            hardwareConcurrency: 10,
+            deviceMemory: 8,
+        }, ...letter, 'polarity-only')).toEqual({
+            lanes: 8,
+            preprocessLanes: 2,
+        });
+    });
+
+    it('trades a lane for a second cleaning worker when memory is tight', async () => {
+        // An unreported device: four lanes fit with one cleaning worker, which feeds two.
+        expect(await resolveLanes({hardwareConcurrency: 8}, ...letter, 'clean')).toEqual({
+            lanes: 3,
+            preprocessLanes: 2,
+        });
     });
 
     it('keeps a 4 GiB device to one lane', async () => {
-        expect(await laneCount({
+        expect(await resolveLanes({
             hardwareConcurrency: 32,
             deviceMemory: 4,
-        })).toBe(1);
+        }, ...letter, 'clean')).toEqual({
+            lanes: 1,
+            preprocessLanes: 1,
+        });
     });
 });
 
@@ -975,6 +1017,31 @@ describe('browser OCR worker WASM split', () => {
         expect(spawned[0]!.url).toContain('browserOcrPreprocess.worker.ts');
         expect(spawned[1]!.url).toContain('browserOcrEngine.worker.ts');
         expect(spawned[0]!.url).not.toBe(spawned[1]!.url);
+    });
+});
+
+describe('browser OCR request cancellation', () => {
+    afterEach(() => {
+        vi.resetModules();
+    });
+
+    it('releases the rendered tiles of a page that reaches a worker after its job was canceled', async () => {
+        vi.resetModules();
+        const {preprocessBrowserOcrRaster} = await import('@app/platform/browser-api/browserOcrEngineClient');
+        const close = vi.fn();
+        const controller = new AbortController();
+        controller.abort(new DOMException('OCR was canceled', 'AbortError'));
+
+        expect(() => preprocessBrowserOcrRaster({
+            image: {
+                width: 1,
+                height: 1,
+                tiles: [{close}],
+            } as never,
+            mode: 'clean',
+            dpi: 300,
+        }, controller.signal)).toThrow('OCR was canceled');
+        expect(close).toHaveBeenCalledOnce();
     });
 });
 
@@ -1151,7 +1218,10 @@ describe('browser OCR OPFS checkpoints and streaming finalization', () => {
         const jobAbort = new AbortController();
 
         vi.doMock('@app/platform/browser-api/browserOcrEngineClient', () => ({
-            getBrowserOcrLaneCount: () => 2,
+            resolveBrowserOcrLanes: () => ({
+                lanes: 2,
+                preprocessLanes: 1,
+            }),
             preprocessBrowserOcrRaster: vi.fn(),
             runBrowserOcrEngine: vi.fn(async () => ({
                 passes: [{

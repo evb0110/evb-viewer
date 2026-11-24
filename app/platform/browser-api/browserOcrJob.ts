@@ -1,8 +1,9 @@
 import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {TBrowserOcrRecognizeRequest} from '@contracts/browserOcrEngine';
+import {limitAsync} from 'es-toolkit/promise';
 import {
-    getBrowserOcrLaneCount,
     preprocessBrowserOcrRaster,
+    resolveBrowserOcrLanes,
     runBrowserOcrEngine,
 } from '@app/platform/browser-api/browserOcrEngineClient';
 import {createBrowserOcrCheckpointStore} from '@app/platform/browser-api/browserOcrCheckpoints';
@@ -242,6 +243,12 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
         const cleanupMode = input.options.preprocessingMode === undefined
             ? undefined
             : getOcrScanCleanupMode(input.options.preprocessingMode);
+        const {
+            lanes, preprocessLanes,
+        } = resolveBrowserOcrLanes(maxPageArea * (extractionDpi / 72) ** 2,
+            modelCodes.reduce((bytes, code) => bytes + OCR_LANGUAGE_MODEL_BYTES[code], 0), cleanupMode);
+        // Lanes share the preprocessing workers this job's memory affords.
+        const preprocess = limitAsync(preprocessBrowserOcrRaster, Math.max(1, preprocessLanes));
         /**
          * Renders the page and, when the run sets a preprocessing mode, cleans
          * it as desktop does: 'off' still normalizes polarity. A cleaned page
@@ -266,7 +273,7 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
                 });
                 let cleaned;
                 try {
-                    cleaned = await preprocessBrowserOcrRaster({
+                    cleaned = await preprocess({
                         image: rendered.image,
                         mode: cleanupMode,
                         dpi,
@@ -326,8 +333,7 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
                 extractionDpi,
                 sourceDpiByPage,
                 options: input.options,
-                lanes: getBrowserOcrLaneCount(maxPageArea * (extractionDpi / 72) ** 2,
-                    modelCodes.reduce((bytes, code) => bytes + OCR_LANGUAGE_MODEL_BYTES[code], 0), cleanupMode),
+                lanes,
                 signal,
                 renderPage,
                 runEngine: runBrowserOcrEngine,
