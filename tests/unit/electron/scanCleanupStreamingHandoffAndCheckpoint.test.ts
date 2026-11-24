@@ -52,11 +52,11 @@ import {
     type IRunScanCleanupPipelineDependencies,
     type IScanCleanupWorkerPaths,
 } from '@evb/scan-cleanup/core/runScanCleanupConversion';
-import {estimateRawRasterBytes} from '@evb/scan-cleanup/core/resolveRasterHandoff';
 import {
+    estimateRawRasterBytes,
     resolveStreamingRasterHandoffBudget,
-    runBoundedRasterProducerConsumer,
-} from '@evb/scan-cleanup/core/streamingRasterHandoff';
+} from '@evb/scan-cleanup/core/resolveRasterHandoff';
+import {runBoundedRasterProducerConsumer} from '@evb/scan-cleanup/core/streamingRasterHandoff';
 import type {
     IPdfPageSize,
     IScanCleanupStreamingHandoffLimits,

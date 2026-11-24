@@ -211,7 +211,8 @@ export async function runBrowserPdfCombineWorkerRequest<K extends TBrowserPdfCom
                         resolve(result.output);
                         return true;
                     },
-                    reject: error => reject(reportWorkerFailure(error)),
+                    // A caller that aborted names its own reason; that is not a combine failure.
+                    reject: error => reject(signal?.aborted ? error : reportWorkerFailure(error)),
                 }, () => reportWorkerFailure(new BrowserPdfCombineWorkerUnavailableError(
                     `Browser PDF combine worker request timed out after ${String(deadlineMs)}ms`,
                 )), deadlineMs);

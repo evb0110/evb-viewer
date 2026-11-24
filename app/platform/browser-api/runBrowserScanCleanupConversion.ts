@@ -100,7 +100,12 @@ import {
     ScanCleanupStreamingEvidenceError,
 } from '@evb/scan-cleanup/core/errors';
 import {createPagePlanResolver} from '@evb/scan-cleanup/core/createPagePlanResolver';
-import {runBrowserScanCleanupWorkerRequest} from '@app/platform/browser-api/browserScanCleanupWorkerClient';
+import {runBoundedRasterProducerConsumer} from '@evb/scan-cleanup/core/streamingRasterHandoff';
+import {
+    estimateBrowserScanCleanupEngineBytes,
+    resolveBrowserScanCleanupPageLanes,
+    runBrowserScanCleanupWorkerRequest,
+} from '@app/platform/browser-api/browserScanCleanupWorkerClient';
 import {runBrowserPdfCombineWorkerRequest} from '@app/platform/browser-api/browserPdfCombineWorkerClient';
 import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
 import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
@@ -110,6 +115,7 @@ import {
 } from '@app/platform/browser-api/browserPageOpsCore';
 import {runBrowserQpdfCommand} from '@app/platform/browser-api/browserQpdfEngineClient';
 import {
+    pageRasterPixels,
     renderPageRaster,
     runBrowserScanCleanupAnalysis,
     unwrapBrowserScanCleanupOutcome,
@@ -221,7 +227,8 @@ function declarePageOutputs(pageNumber: number) {
  * one quality decision for the document, then each page rendered by the same
  * cleanup engine at its planned resolution, composed by the same manifest
  * grammar, merged, overlaid with the source's text and navigation, stamped,
- * budgeted and checked. One source page is staged at a time.
+ * budgeted and checked. Pages are rendered on the engine's page lanes and
+ * joined in document order.
  */
 export async function runBrowserScanCleanupConversion({
     request: inputRequest,
@@ -385,8 +392,8 @@ interface IConversionContext {
     engines: ReturnType<typeof createEngineIdentities>;
 }
 
-function rasterizePage(context: IConversionContext, pageSize: IPdfPageSize, dpi: number, maxPixels: number) {
-    return renderPageRaster(context.source, pageSize, dpi, maxPixels, context.signal, undefined, context.engines.observe('pdfPageOps'));
+function rasterizePage(context: IConversionContext, pageSize: IPdfPageSize, dpi: number, maxPixels: number, signal = context.signal) {
+    return renderPageRaster(context.source, pageSize, dpi, maxPixels, signal, undefined, context.engines.observe('pdfPageOps'));
 }
 
 /** The output pages' PDFs, joined once in the page-ops worker, as on desktop. */
@@ -435,6 +442,8 @@ async function runRasterConversion(
     const completedPageNumbers = new Set<number>();
     let sourceMrcFallbackReported = false;
     const detectedRasterByPage = new Map<number, NonNullable<Awaited<ReturnType<typeof rasterSource.getPageRaster>>>>();
+    // Pages finish several at a time, so the stage is named before the first does.
+    emitProgress('rendering', 0, pageCount, completedPageNumbers);
     for (const batch of iterateScanCleanupPageBatches(pageCount)) {
         signal.throwIfAborted();
         const batchPageNumbers = collectScanCleanupPageScopeBatch(pageNumbers, batch);
@@ -502,95 +511,134 @@ async function runRasterConversion(
                 outputs: declarePageOutputs(plan.pageNumber),
             })),
         });
-        for (const [
-            index,
-            manifestPage,
-        ] of manifest.pages.entries()) {
-            signal.throwIfAborted();
-            const plan = planned.rasterPlans[index]!;
-            const pageNumber = plan.pageNumber;
-            const pageGeometry = planned.pageGeometryByNumber.get(pageNumber)!;
-            pageGeometryByNumber.set(pageNumber, pageGeometry);
-            nativeOptionsBySource.set(pageNumber, manifestPage.options);
-            const maxPixels = resolveScanCleanupPipelineMaxPixels(plan.resolvedOutputMode, undefined);
-            const raster = await rasterizePage(context, pageGeometry, plan.dpi, maxPixels);
-            const analysisDpi = planned.analysisDpiByPage.get(pageNumber)!;
-            const analysisMaxPixels = Math.min(maxPixels, SCAN_CLEANUP_RASTER_MAX_PIXELS);
-            // At the same resolution the canonical analysis raster is this
-            // render; desktop links the file instead of rendering it again.
-            const analysisPlane: IScanCleanupWasmRenderPageRequest['analysisPlane'] = analysisDpi === plan.dpi
-                && raster.width <= SCAN_CLEANUP_MAX_DIMENSION_PX
-                && raster.height <= SCAN_CLEANUP_MAX_DIMENSION_PX
-                && raster.width * raster.height <= analysisMaxPixels
-                ? {
-                    source: 'input',
-                    dpi: analysisDpi,
-                }
-                : {
-                    source: 'raster',
-                    raster: (await rasterizePage(context, pageGeometry, analysisDpi, analysisMaxPixels)).ppm,
-                    dpi: analysisDpi,
-                };
-            const rendered = unwrapBrowserScanCleanupOutcome(await runBrowserScanCleanupWorkerRequest('render-page', {
-                input: raster.ppm,
-                page: {
-                    options: manifestPage.options,
-                    sourcePageIndex: manifestPage.sourcePageIndex,
-                    canvasScope: 'document',
-                    renderMode: 'final',
-                    ...(manifestPage.documentPrior == null ? {} : {documentPrior: manifestPage.documentPrior}),
-                    ...(manifest.documentCanvas === undefined ? {} : {documentCanvas: manifest.documentCanvas}),
-                    ...(manifestPage.pdfPage == null ? {} : {pdfPage: manifestPage.pdfPage}),
-                    outputs: manifestPage.outputs.map(declaredOutputPlanes),
-                },
-                analysisPlane,
-                planes: 'encoded',
-            }, signal, context.engines.observe('scanCleanup')));
-            const pageMetadata = rendered.pageMetadata;
-            pageMetadataBySource.set(pageNumber, pageMetadata);
-            const collected = collectRenderedPage(context, {
-                pageNumber,
-                plan,
-                pageMetadata,
-                rendered,
-                declaredOutputCount: manifestPage.outputs.length,
-                detectedRaster: planned.detectedRasterByPage.get(pageNumber),
-                pageGeometry,
-                resolvePageOutputMode: planned.resolvePageOutputMode,
-                fittedMarginBoxPages,
-                emptyOutputMappings,
-            });
-            if (collected.pageOutputs.length > 0) {
-                const textPlan = buildScanCleanupTextLayerPlanFromPageSizeMap(
-                    collected.pageOutputs,
-                    new Map([[
-                        pageNumber,
-                        pageGeometry,
-                    ]]),
+        // A page's raster and engine call run on a lane of their own; the
+        // pages then join the output in document order.
+        await runBoundedRasterProducerConsumer<typeof manifest.pages[number], {
+            index: number;
+            rendered: IScanCleanupWasmRenderPageResult;
+        }>({
+            items: manifest.pages,
+            budget: resolveBrowserScanCleanupPageLanes(),
+            signal,
+            estimateItemBytes: (_manifestPage, index) => {
+                const plan = planned.rasterPlans[index]!;
+                return estimateBrowserScanCleanupEngineBytes(
+                    pageRasterPixels(
+                        planned.pageGeometryByNumber.get(plan.pageNumber)!,
+                        plan.dpi,
+                        resolveScanCleanupPipelineMaxPixels(plan.resolvedOutputMode, undefined),
+                    ),
+                    plan.resolvedOutputMode !== 'bw' && plan.resolvedOutputMode !== 'grayscale',
                 );
-                textPages.push(...textPlan.pages.map(page => ({
-                    ...page,
-                    outputPageIndex: page.outputPageIndex + outputPages.length,
-                })));
-                skippedNonAffine.push(...textPlan.skippedNonAffine);
-                const combined = await runBrowserPdfCombineWorkerRequest('combinePdfs', {
-                    inputs: [...collected.planes].map(([
-                        fileName,
-                        data,
-                    ]) => ({
-                        fileName,
-                        data,
-                    })),
-                    wasmImagePreprocessing: {compactManifestLines: collected.pageOutputs.map(pageOutput => serializeScanCleanupCombinePage(
-                        planScanCleanupCombinePage(pageOutput, undefined),
-                    ))},
-                }, signal, {onEngineIdentity: context.engines.observe('pdfImageCombine')});
-                output.append(combined.data);
-                outputPages.push(...collected.pageOutputs);
-            }
-            completedPageNumbers.add(pageNumber);
-            emitProgress('rendering', completedPageNumbers.size, pageCount, completedPageNumbers);
-        }
+            },
+            produce: async (manifestPage, index, pageSignal) => {
+                const plan = planned.rasterPlans[index]!;
+                const pageNumber = plan.pageNumber;
+                const pageGeometry = planned.pageGeometryByNumber.get(pageNumber)!;
+                const maxPixels = resolveScanCleanupPipelineMaxPixels(plan.resolvedOutputMode, undefined);
+                const raster = await rasterizePage(context, pageGeometry, plan.dpi, maxPixels, pageSignal);
+                const analysisDpi = planned.analysisDpiByPage.get(pageNumber)!;
+                const analysisMaxPixels = Math.min(maxPixels, SCAN_CLEANUP_RASTER_MAX_PIXELS);
+                // At the same resolution the canonical analysis raster is this
+                // render; desktop links the file instead of rendering it again.
+                const analysisPlane: IScanCleanupWasmRenderPageRequest['analysisPlane'] = analysisDpi === plan.dpi
+                    && raster.width <= SCAN_CLEANUP_MAX_DIMENSION_PX
+                    && raster.height <= SCAN_CLEANUP_MAX_DIMENSION_PX
+                    && raster.width * raster.height <= analysisMaxPixels
+                    ? {
+                        source: 'input',
+                        dpi: analysisDpi,
+                    }
+                    : {
+                        source: 'raster',
+                        raster: (await rasterizePage(context, pageGeometry, analysisDpi, analysisMaxPixels, pageSignal)).ppm,
+                        dpi: analysisDpi,
+                    };
+                const rendered = unwrapBrowserScanCleanupOutcome(await runBrowserScanCleanupWorkerRequest('render-page', {
+                    input: raster.ppm,
+                    page: {
+                        options: manifestPage.options,
+                        sourcePageIndex: manifestPage.sourcePageIndex,
+                        canvasScope: 'document',
+                        renderMode: 'final',
+                        ...(manifestPage.documentPrior == null ? {} : {documentPrior: manifestPage.documentPrior}),
+                        ...(manifest.documentCanvas === undefined ? {} : {documentCanvas: manifest.documentCanvas}),
+                        ...(manifestPage.pdfPage == null ? {} : {pdfPage: manifestPage.pdfPage}),
+                        outputs: manifestPage.outputs.map(declaredOutputPlanes),
+                    },
+                    analysisPlane,
+                    planes: 'encoded',
+                }, pageSignal, context.engines.observe('scanCleanup')));
+                return {
+                    staged: {
+                        index,
+                        rendered,
+                    },
+                    actualBytes: rendered.outputs.reduce(
+                        (bytes, output) => output.planes.reduce((sum, plane) => sum + plane.data.byteLength, bytes),
+                        0,
+                    ),
+                };
+            },
+            consumeChunk: async (chunk, _chunkIndex, pageSignal) => {
+                for (const {
+                    index, rendered,
+                } of chunk) {
+                    const manifestPage = manifest.pages[index]!;
+                    const plan = planned.rasterPlans[index]!;
+                    const pageNumber = plan.pageNumber;
+                    const pageGeometry = planned.pageGeometryByNumber.get(pageNumber)!;
+                    pageGeometryByNumber.set(pageNumber, pageGeometry);
+                    nativeOptionsBySource.set(pageNumber, manifestPage.options);
+                    const pageMetadata = rendered.pageMetadata;
+                    pageMetadataBySource.set(pageNumber, pageMetadata);
+                    const collected = collectRenderedPage(context, {
+                        pageNumber,
+                        plan,
+                        pageMetadata,
+                        rendered,
+                        declaredOutputCount: manifestPage.outputs.length,
+                        detectedRaster: planned.detectedRasterByPage.get(pageNumber),
+                        pageGeometry,
+                        resolvePageOutputMode: planned.resolvePageOutputMode,
+                        fittedMarginBoxPages,
+                        emptyOutputMappings,
+                    });
+                    if (collected.pageOutputs.length > 0) {
+                        const textPlan = buildScanCleanupTextLayerPlanFromPageSizeMap(
+                            collected.pageOutputs,
+                            new Map([[
+                                pageNumber,
+                                pageGeometry,
+                            ]]),
+                        );
+                        textPages.push(...textPlan.pages.map(page => ({
+                            ...page,
+                            outputPageIndex: page.outputPageIndex + outputPages.length,
+                        })));
+                        skippedNonAffine.push(...textPlan.skippedNonAffine);
+                        const combined = await runBrowserPdfCombineWorkerRequest('combinePdfs', {
+                            inputs: [...collected.planes].map(([
+                                fileName,
+                                data,
+                            ]) => ({
+                                fileName,
+                                data,
+                            })),
+                            wasmImagePreprocessing: {compactManifestLines: collected.pageOutputs.map(pageOutput => serializeScanCleanupCombinePage(
+                                planScanCleanupCombinePage(pageOutput, undefined),
+                            ))},
+                        }, pageSignal, {onEngineIdentity: context.engines.observe('pdfImageCombine')});
+                        output.append(combined.data);
+                        outputPages.push(...collected.pageOutputs);
+                    }
+                    completedPageNumbers.add(pageNumber);
+                    emitProgress('rendering', completedPageNumbers.size, pageCount, completedPageNumbers);
+                }
+            },
+            // Nothing is staged outside memory.
+            cleanupStaged: () => Promise.resolve(),
+        });
     }
     if (fittedMarginBoxPages.size > 0) {
         context.warnEvent({
@@ -937,9 +985,13 @@ async function runLosslessConversion(
             ...(documentCanvas === null ? {} : {documentCanvas}),
             signal,
             onEngineIdentity: context.engines.observe('scanCleanup'),
-            rasterize: async job => {
+            estimatePixels: (job) => {
                 const page = facts[job.index]!;
-                return (await rasterizePage(context, page.view, page.analysisDpi, SCAN_CLEANUP_RASTER_MAX_PIXELS)).ppm;
+                return pageRasterPixels(page.view, page.analysisDpi, SCAN_CLEANUP_RASTER_MAX_PIXELS);
+            },
+            rasterize: async (job, jobSignal) => {
+                const page = facts[job.index]!;
+                return (await rasterizePage(context, page.view, page.analysisDpi, SCAN_CLEANUP_RASTER_MAX_PIXELS, jobSignal)).ppm;
             },
             onAnalyzed: () => emitProgress('classifying', completed.size, pageCount, completed),
         });

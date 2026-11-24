@@ -4,7 +4,11 @@ import {
     createBrowserPdfBoxRaster,
     renderBrowserPdfRaster,
 } from '@app/platform/browser-api/browserPdfRaster';
-import {runBrowserScanCleanupWorkerRequest} from '@app/platform/browser-api/browserScanCleanupWorkerClient';
+import {
+    estimateBrowserScanCleanupEngineBytes,
+    resolveBrowserScanCleanupPageLanes,
+    runBrowserScanCleanupWorkerRequest,
+} from '@app/platform/browser-api/browserScanCleanupWorkerClient';
 import {
     BrowserPageOpsWorkerUnavailableError,
     runBrowserPageOpsWorkerRequest,
@@ -53,6 +57,7 @@ import {
     resolvePagePreviewDpi,
     resolvePreviewProcessingDpi,
     resolveScanCleanupAnalysisDpi,
+    resolveScanCleanupRasterRenderLimits,
     SCAN_CLEANUP_RASTER_MAX_PIXELS,
 } from '@evb/scan-cleanup/core/policy/scanCleanupRasterPolicy';
 import {
@@ -81,6 +86,7 @@ import {
     resolveScanCleanupProvisionalDocumentCanvasFromAccumulator,
 } from '@evb/scan-cleanup/core/policy/documentCanvas';
 import {resolveReusablePagePlan} from '@evb/scan-cleanup/core/policy/effectiveOptions';
+import {runBoundedRasterProducerConsumer} from '@evb/scan-cleanup/core/streamingRasterHandoff';
 import type {
     IPageRasterDetectionResult,
     IScanCleanupRasterRow,
@@ -243,6 +249,14 @@ export async function renderPageRaster(
     } finally {
         page.cleanup();
     }
+}
+
+/** The pixels of the raster `renderPageRaster` paints of a page view, which size the engine memory it takes. */
+export function pageRasterPixels(pageSize: IPdfPageSize, dpi: number, maxPixels: number) {
+    const {
+        expectedWidthPx, expectedHeightPx,
+    } = resolveScanCleanupRasterRenderLimits(pageSize, dpi, maxPixels);
+    return Math.min(maxPixels, expectedWidthPx * expectedHeightPx);
 }
 
 /** The page's compact-layer facts, as desktop reads them from pdfimages. */
@@ -516,6 +530,7 @@ async function renderBase(
             renderMode: 'preview',
             ...(matchedCanvas === undefined ? {} : {documentCanvas: matchedCanvas}),
             signal,
+            estimatePixels: () => canonical.width * canonical.height,
             rasterize: () => Promise.resolve(copy(canonical.ppm)),
         });
         if (plan.rawPng === undefined) throw new Error('Scan cleanup preserve-quality preview has no original');
@@ -741,8 +756,13 @@ export interface IRunBrowserScanCleanupAnalysisInput {
     analysisPurpose?: WasmAnalyzePageRequestV2['analysisPurpose'];
     renderMode: RenderMode;
     documentCanvas?: DocumentCanvas;
-    /** The raster of the view a job names; null declines an alternate view. */
-    rasterize: (job: AnalysisJob) => Promise<TScanCleanupEncodedRaster | null>;
+    /**
+     * The raster of the view a job names; null declines an alternate view.
+     * `signal` also ends when another job of the run fails.
+     */
+    rasterize: (job: AnalysisJob, signal: AbortSignal) => Promise<TScanCleanupEncodedRaster | null>;
+    /** The pixels of the raster a job names, which bound the analyses in flight. */
+    estimatePixels: (job: AnalysisJob) => number;
     onAnalyzed?: (job: AnalysisJob, result: IScanCleanupWasmAnalyzeResult) => Promise<void> | void;
     signal: AbortSignal;
     onEngineIdentity?: (sha256: string) => void;
@@ -752,7 +772,9 @@ export interface IRunBrowserScanCleanupAnalysisInput {
  * Runs one analyze manifest's document sequence as the engine plans it, as
  * the desktop CLI does between its pages: the engine names each page analysis
  * it needs, this host renders that view and hands the result back, until the
- * engine returns every page finished. One raster is held at a time.
+ * engine returns every page finished. A plan's analyses are independent, so
+ * they run on the page lanes at once, each holding its own raster, and are
+ * handed back in the plan's order.
  */
 export async function runBrowserScanCleanupAnalysis({
     pages,
@@ -761,11 +783,13 @@ export async function runBrowserScanCleanupAnalysis({
     renderMode,
     documentCanvas,
     rasterize,
+    estimatePixels,
     onAnalyzed,
     signal,
     onEngineIdentity,
 }: IRunBrowserScanCleanupAnalysisInput): Promise<IScanCleanupWasmPageResult[]> {
     const analyses: WasmPageAnalysisV3[] = [];
+    const budget = resolveBrowserScanCleanupPageLanes();
     for (;;) {
         const plan = unwrapBrowserScanCleanupOutcome(await runBrowserScanCleanupWorkerRequest('plan-analysis', {
             renderMode,
@@ -774,30 +798,62 @@ export async function runBrowserScanCleanupAnalysis({
             analyses,
         }, signal, onEngineIdentity));
         if (plan.kind === 'finished') return plan.pages;
-        for (const job of plan.jobs) {
-            signal.throwIfAborted();
-            const input = await rasterize(job);
-            if (input === null) {
-                analyses.push({job});
-                continue;
-            }
-            const page = pages[job.index]!;
-            const result = unwrapBrowserScanCleanupOutcome(await runBrowserScanCleanupWorkerRequest('analyze-page', {
-                input,
-                page: {
-                    options: job.view === 'alternate' ? page.alternateView!.options : page.options,
-                    sourcePageIndex: page.sourcePageIndex,
-                    canvasScope,
-                    ...(analysisPurpose === undefined ? {} : {analysisPurpose}),
-                    ...(job.documentPrior == null ? {} : {documentPrior: job.documentPrior}),
-                },
-            }, signal, onEngineIdentity));
-            await onAnalyzed?.(job, result);
-            analyses.push({
-                job,
-                pageMetadataJson: result.pageMetadataJson,
-                reconciliation: result.reconciliation,
-            });
-        }
+        await runBoundedRasterProducerConsumer<AnalysisJob, {
+            job: AnalysisJob;
+            result: IScanCleanupWasmAnalyzeResult | null;
+        }>({
+            items: plan.jobs,
+            budget,
+            signal,
+            estimateItemBytes: job => estimateBrowserScanCleanupEngineBytes(estimatePixels(job), true),
+            produce: async (job, _index, jobSignal) => {
+                const input = await rasterize(job, jobSignal);
+                if (input === null) {
+                    return {
+                        staged: {
+                            job,
+                            result: null,
+                        },
+                        actualBytes: 0,
+                    };
+                }
+                const page = pages[job.index]!;
+                const result = unwrapBrowserScanCleanupOutcome(await runBrowserScanCleanupWorkerRequest('analyze-page', {
+                    input,
+                    page: {
+                        options: job.view === 'alternate' ? page.alternateView!.options : page.options,
+                        sourcePageIndex: page.sourcePageIndex,
+                        canvasScope,
+                        ...(analysisPurpose === undefined ? {} : {analysisPurpose}),
+                        ...(job.documentPrior == null ? {} : {documentPrior: job.documentPrior}),
+                    },
+                }, jobSignal, onEngineIdentity));
+                return {
+                    staged: {
+                        job,
+                        result,
+                    },
+                    actualBytes: result.pageMetadataJson.length,
+                };
+            },
+            consumeChunk: async chunk => {
+                for (const {
+                    job, result,
+                } of chunk) {
+                    if (result === null) {
+                        analyses.push({job});
+                        continue;
+                    }
+                    await onAnalyzed?.(job, result);
+                    analyses.push({
+                        job,
+                        pageMetadataJson: result.pageMetadataJson,
+                        reconciliation: result.reconciliation,
+                    });
+                }
+            },
+            // Nothing is staged outside memory.
+            cleanupStaged: () => Promise.resolve(),
+        });
     }
 }

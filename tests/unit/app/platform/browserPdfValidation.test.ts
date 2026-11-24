@@ -619,8 +619,19 @@ describe('browser qpdf engine worker', () => {
         vi.spyOn(damagedBlob, 'arrayBuffer').mockImplementation(() => {
             throw new Error('normalize-append-base must not copy a damaged Blob whole via arrayBuffer()');
         });
-        const repairedBytes = await normalize(damaged.slice());
-        const repairedBlob = await normalize(damagedBlob);
+        // qpdf derives a repaired file's identifier from the clock; both repairs read one instant.
+        vi.useFakeTimers({
+            toFake: ['Date'],
+            now: 1_800_000_000_000,
+        });
+        let repairedBytes;
+        let repairedBlob;
+        try {
+            repairedBytes = await normalize(damaged.slice());
+            repairedBlob = await normalize(damagedBlob);
+        } finally {
+            vi.useRealTimers();
+        }
         expect(repairedBytes.ok && repairedBlob.ok).toBe(true);
         expect(repairedBlob.data.verdict).toBe('repairable');
         expect(repairedBlob.data.output).toEqual(repairedBytes.data.output);

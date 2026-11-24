@@ -11,10 +11,8 @@ export {
     reclaimScanCleanupCheckpoint,
     reclaimScanCleanupCheckpointOwner,
 } from '@evb/scan-cleanup/core/conversionCheckpoint';
-export {
-    resolveStreamingRasterHandoffBudget,
-    runBoundedRasterProducerConsumer,
-} from '@evb/scan-cleanup/core/streamingRasterHandoff';
+export {resolveStreamingRasterHandoffBudget} from '@evb/scan-cleanup/core/resolveRasterHandoff';
+export {runBoundedRasterProducerConsumer} from '@evb/scan-cleanup/core/streamingRasterHandoff';
 export {resolveScanCleanupMatchedCanvasPlacement} from '@evb/scan-cleanup/core/policy/documentCanvas';
 export * from '@evb/scan-cleanup/core/policy/effectiveOptions';
 export * from '@evb/scan-cleanup/core/policy/buildRunnableNativeScanCleanupManifest';
