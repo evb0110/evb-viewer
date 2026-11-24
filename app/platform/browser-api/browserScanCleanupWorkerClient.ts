@@ -65,10 +65,11 @@ const ENGINE_BASE_WASM_BYTES = 32 * 1024 * 1024;
  * memory they may hold together. Each page runs on one thread of its own
  * instance, so pages in flight are how a cleanup uses the device's cores.
  * One core stays free for interaction and one for the preview's lane; at most
- * half of reported memory goes to the engines, as for OCR. Browsers omit or
- * round deviceMemory, so an unknown device gets a 4 GiB budget. A phone, a
- * small device and the low performance mode run one page at a time: the
- * performance profile calls those low memory.
+ * a quarter of reported memory goes to the pages in flight. Browsers omit or
+ * round deviceMemory, and Chrome reports 8 for any larger machine, so an
+ * unknown device is taken for a 4 GiB one. A phone, a small device and the
+ * low performance mode run one page at a time: the performance profile calls
+ * those low memory.
  */
 export function resolveBrowserScanCleanupPageLanes(): IResolvedStreamingRasterHandoffBudget {
     const cores = typeof navigator === 'undefined' ? 2 : navigator.hardwareConcurrency || 2;
@@ -84,17 +85,19 @@ export function resolveBrowserScanCleanupPageLanes(): IResolvedStreamingRasterHa
         maxChunkPages: 1,
         // Finished pages waiting on an earlier one leave the other lanes working.
         maxInFlightPages: lanes * 2,
-        maxInFlightBytes: (memoryGb ?? 4) * 1024 ** 3 / 2,
+        maxInFlightBytes: (memoryGb ?? 4) * 1024 ** 3 / 4,
     };
 }
 
 /**
- * The engine memory one page of `pixels` reaches, by the native planner's
- * measured high-water model (`peak_page_bytes_for_pixels`): 80 bytes a pixel
- * where the page is decoded in color, as every analysis is, and 40 otherwise.
+ * The memory one page of `pixels` takes in its lane: the engine's linear
+ * memory at its high-water mark and the worker's own copies of the request.
+ * Measured on 300 dpi pages, an analysis takes 34 bytes a pixel, a color
+ * render 29 and a bilevel or grayscale render 20; each class is padded by
+ * half. Every analysis decodes color.
  */
 export function estimateBrowserScanCleanupEngineBytes(pixels: number, decodesColor: boolean) {
-    return ENGINE_BASE_WASM_BYTES + Math.ceil(pixels) * (decodesColor ? 80 : 40);
+    return ENGINE_BASE_WASM_BYTES + Math.ceil(pixels) * (decodesColor ? 50 : 30);
 }
 
 let owner: BrowserWorkerRequestOwner<IPendingBrowserWorkerRequest> | null = null;
