@@ -95,7 +95,7 @@
             <div class="scan-cleanup-toolbar-primary-slot">
                 <AppTooltip v-if="isRunning" :text="cancelLabel" usefulness="no-text">
                     <UButton
-                        :class="[SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_CLASS, 'scan-cleanup-toolbar-cancel-run']"
+                        :class="[SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_CLASS, 'scan-cleanup-toolbar-cancel-run', {'is-canceling': cancelRequested && !finishing}]"
                         type="button"
                         color="neutral"
                         variant="outline"
@@ -294,6 +294,12 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
     }
 }
 
+/* Canceling has no notice in the meter, so on a phone too the disabled
+   Cancel says “Canceling…” in words. */
+.scan-cleanup-toolbar-cancel-run.is-canceling :deep([data-slot='leadingIcon']) {
+    display: none;
+}
+
 /* On a phone the buttons keep their icons and give the meter the width, so
    the bar stays one row, as tall as the reader's. */
 @media (width < 37.5rem) {
@@ -301,12 +307,13 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
         gap: var(--app-space-sm);
     }
 
-    .scan-cleanup-toolbar-title {
+    .scan-cleanup-toolbar-title,
+    .scan-cleanup-toolbar-trailing-slot:empty {
         display: none;
     }
 
     .scan-cleanup-toolbar-done :deep([data-slot='label']),
-    .scan-cleanup-toolbar-primary-action :deep([data-slot='label']) {
+    .scan-cleanup-toolbar-primary-action:not(.is-canceling) :deep([data-slot='label']) {
         display: none;
     }
 
