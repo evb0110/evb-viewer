@@ -539,6 +539,66 @@ describe('browser Scan Cleanup workspace', () => {
         }
     }, scanCleanupUiTimeoutMs);
 
+    // Switching tabs does not move the tab strip. Where Scan cleanup's bar is
+    // one row, the window's top bar keeps one height whether a tab is empty,
+    // shows the reader or shows Scan cleanup, so the tabs and pages under it
+    // stay where the user aims.
+    it('keeps the tab strip in place when switching between a reader tab and a Scan cleanup tab', async () => {
+        const context = await lifecycle.browser.newContext({viewport: {
+            width: 1440,
+            height: 1000,
+        }});
+        const page = await context.newPage();
+        const problems = collectConsoleProblems(page);
+        try {
+            await installProbe(page);
+            const source = await fixture();
+            await openWorkspace(page, source);
+            await waitForPixels(page, 1);
+            const tab = page.locator('.editor-pane.is-active .tab.is-active[data-tab-id]');
+            const cleanupTabId = await tab.getAttribute('data-tab-id');
+            const read = async (state: string) => {
+                await page.screenshot({
+                    path: join(evidenceRoot, `top-bar-${state}.png`),
+                    clip: {x: 0, y: 0, width: 1440, height: 160},
+                });
+                return page.evaluate(() => ({
+                    topBarHeight: document.querySelector('.editor-global-toolbar-shell')!.getBoundingClientRect().height,
+                    tabStripTop: document.querySelector('.editor-pane.is-active .tab-bar')!.getBoundingClientRect().top,
+                }));
+            };
+            const show = async (tabId: string | null, state: 'reader' | 'cleanup') => {
+                await page.locator(`.editor-pane.is-active .tab[data-tab-id="${tabId!}"]`).click();
+                await page.locator('#editor-global-toolbar-host .scan-cleanup-toolbar').waitFor({state: state === 'cleanup' ? 'visible' : 'detached'});
+                await page.locator(state === 'cleanup' ? '.scan-cleanup-surface:visible' : '.page_container[data-page="1"] canvas:visible').first().waitFor();
+                return read(state);
+            };
+            await page.getByRole('button', {name: 'New Tab', exact: true}).click();
+            await expect.poll(() => tab.innerText()).toBe('New Tab');
+            await page.locator('#editor-global-toolbar-host .scan-cleanup-toolbar').waitFor({state: 'detached'});
+            const empty = await read('empty');
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {name: 'Menu', exact: true}).click();
+            await page.getByRole('menuitem', {name: /^Open File/u}).click();
+            await (await chooser).setFiles({...source, name: 'reader-tab-scans.pdf'});
+            await expect.poll(() => tab.innerText()).toContain('reader-tab-scans.pdf');
+            await settleActiveOpen(page);
+            const readerTabId = await tab.getAttribute('data-tab-id');
+            expect(readerTabId).not.toBe(cleanupTabId);
+            const reader = await show(readerTabId, 'reader');
+            const cleanup = await show(cleanupTabId, 'cleanup');
+            const readerAgain = await show(readerTabId, 'reader');
+            expect({empty, cleanup, readerAgain}, 'every tab state keeps the reader tab\'s top bar and tab strip').toEqual({
+                empty: reader,
+                cleanup: reader,
+                readerAgain: reader,
+            });
+            expect(problems).toEqual([]);
+        } finally {
+            await context.close();
+        }
+    }, scanCleanupUiTimeoutMs);
+
     it('opens without OCR and paints black and white, original, grayscale and zoomed detail pixels', async () => {
         const context = await lifecycle.browser.newContext({
             ...(process.env.SC3B_RECORD_VIDEO === '1' ? {recordVideo: {dir: join(evidenceRoot, 'case-1-views-video')}} : {}),

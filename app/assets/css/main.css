@@ -52,7 +52,13 @@
 
     /* Chrome-density tokens — kept in rem so they scale with --app-ui-scale via root font-size. */
     --app-toolbar-control-size: 2.25rem;
-    --app-toolbar-row-height: calc(var(--app-toolbar-control-size) + var(--app-space-3xl) + var(--app-space-3xl) + 2px);
+
+    /* One row of the window's toolbar, whichever bar fills it. Its tallest
+       content is the reader's page and zoom groups: a control with a hairline
+       border on each side. Add the row's padding and its top and bottom
+       borders. Scan cleanup has no such group, so this row height is what
+       keeps its bar as tall as the reader's when tabs switch. */
+    --app-toolbar-row-height: calc(var(--app-toolbar-control-size) + 4 * var(--app-hairline-height) + 2 * var(--app-space-3xl));
     --app-toolbar-icon-size: 1.125rem;
     --app-toolbar-control-padding-x: 0.625rem;
     --app-toolbar-button-radius: 0.4375rem;
