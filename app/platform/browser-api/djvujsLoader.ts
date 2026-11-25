@@ -614,14 +614,39 @@ function toTransferableBuffer(bytes: Uint8Array) {
         : bytes.slice().buffer;
 }
 
+/** Where DjVu.js keeps the callbacks of the task it runs and the tasks it queued. */
+interface IDjvuWorkerTasks {
+    promiseCallbacks?: {reject: (error: unknown) => void} | null;
+    promiseMap?: Map<unknown, {callbacks: {reject: (error: unknown) => void}}>;
+    cancelAllTasks?: () => void;
+}
+
+/**
+ * Stops a DjVu.js worker. DjVu.js only ends the thread, which leaves every
+ * call it was running or had queued waiting forever; those are rejected as
+ * aborted instead, so a canceled job ends.
+ */
+function stopDjvuWorker(worker: IDjvuWorker, terminate: () => void) {
+    const tasks = worker as IDjvuWorker & IDjvuWorkerTasks;
+    const pending = [
+        tasks.promiseCallbacks,
+        ...Array.from(tasks.promiseMap?.values() ?? [], task => task.callbacks),
+    ];
+    tasks.cancelAllTasks?.();
+    terminate();
+    const error = new DOMException('The DjVu worker was stopped', 'AbortError');
+    for (const callbacks of pending) callbacks?.reject(error);
+}
+
 /**
  * Starts a DjVu.js worker. With a component reader, the worker loads every
  * page and shared dictionary of an indirect document through it.
  */
 export function createDjvuWorker(djvuGlobal: IDjvuGlobal, readComponent?: TDjvuComponentReader): IDjvuWorker {
     const worker = new djvuGlobal.Worker(getDjvuWorkerScriptUrl(djvuGlobal));
+    const terminate = worker.terminate.bind(worker);
     if (!readComponent) {
-        return worker;
+        return Object.assign(worker, {terminate: () => stopDjvuWorker(worker, terminate)});
     }
     const domWorker = worker.worker;
     if (!domWorker) {
@@ -648,9 +673,8 @@ export function createDjvuWorker(djvuGlobal: IDjvuGlobal, readComponent?: TDjvuC
         });
     };
     domWorker.postMessage({evbComponentPort: channel.port2}, [channel.port2]);
-    const terminate = worker.terminate.bind(worker);
     return Object.assign(worker, {terminate() {
         channel.port1.close();
-        terminate();
+        stopDjvuWorker(worker, terminate);
     }});
 }
