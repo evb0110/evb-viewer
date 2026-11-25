@@ -103,13 +103,14 @@ import {createPagePlanResolver} from '@evb/scan-cleanup/core/createPagePlanResol
 import {runBoundedRasterProducerConsumer} from '@evb/scan-cleanup/core/streamingRasterHandoff';
 import {
     estimateBrowserScanCleanupEngineBytes,
-    resolveBrowserScanCleanupPageLanes,
     runBrowserScanCleanupWorkerRequest,
 } from '@app/platform/browser-api/browserScanCleanupWorkerClient';
+import {resolveBrowserPageLanes} from '@app/platform/browser-api/browserWorkerClient';
 import {runBrowserPdfCombineWorkerRequest} from '@app/platform/browser-api/browserPdfCombineWorkerClient';
 import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
 import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
 import {
+    createOrderedPdfMerge,
     overlayPdfTextLayers,
     splitPdfPages,
 } from '@app/platform/browser-api/browserPageOpsCore';
@@ -396,32 +397,6 @@ function rasterizePage(context: IConversionContext, pageSize: IPdfPageSize, dpi:
     return renderPageRaster(context.source, pageSize, dpi, maxPixels, signal, undefined, context.engines.observe('pdfPageOps'));
 }
 
-/** The output pages' PDFs, joined once in the page-ops worker, as on desktop. */
-function createOutputPages(signal: AbortSignal, onEngineIdentity: (sha256: string) => void) {
-    const pages: Uint8Array[] = [];
-    return {
-        append: (pagePdf: Uint8Array) => pages.push(pagePdf),
-        async merge() {
-            if (pages.length < 2) return pages[0] ?? null;
-            const result = await runBrowserPageOpsWorkerRequest('pageStructure', {
-                edit: {kind: 'merge'},
-                sources: pages.map(page => new Blob([page as Uint8Array<ArrayBuffer>])),
-                output: null,
-            }, {
-                signal,
-                dedicated: true,
-                requireWorker: true,
-                onEngineIdentity,
-            });
-            if (result.status !== 'written' || !result.data) {
-                const reason = result.status === 'failed' ? result.error.message : 'the browser\'s storage is full';
-                throw new ScanCleanupContractError(`Scan cleanup could not merge its output pages: ${reason}`);
-            }
-            return result.data;
-        },
-    };
-}
-
 async function runRasterConversion(
     context: IConversionContext,
     rasterSource: Parameters<typeof planScanCleanupFinalPages>[0]['rasterSource'],
@@ -430,7 +405,12 @@ async function runRasterConversion(
     const {
         request, signal, summary, emitProgress, pageNumbers, pageCount, options, documentCanvas,
     } = context;
-    const output = createOutputPages(signal, context.engines.observe('pdfPageOps'));
+    // The output pages' PDFs, joined once in the page-ops worker, as on desktop.
+    const output = createOrderedPdfMerge({
+        signal,
+        onEngineIdentity: context.engines.observe('pdfPageOps'),
+        createError: reason => new ScanCleanupContractError(`Scan cleanup could not merge its output pages: ${reason}`),
+    });
     const outputPages: TRenderedOutput[] = [];
     const emptyOutputMappings: IScanCleanupOutputMapping[] = [];
     const nativeOptionsBySource = new Map<number, NonNullable<ReturnType<typeof buildShapeOnlyNativeScanCleanupManifest>['pages'][number]['options']>>();
@@ -518,7 +498,7 @@ async function runRasterConversion(
             rendered: IScanCleanupWasmRenderPageResult;
         }>({
             items: manifest.pages,
-            budget: resolveBrowserScanCleanupPageLanes(),
+            budget: resolveBrowserPageLanes(),
             signal,
             estimateItemBytes: (_manifestPage, index) => {
                 const plan = planned.rasterPlans[index]!;

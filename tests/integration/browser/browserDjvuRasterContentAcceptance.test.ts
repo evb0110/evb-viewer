@@ -53,12 +53,37 @@ beforeAll(async () => {
         sourcemap: false,
         tsconfig: resolve(process.cwd(), 'tsconfig.json'),
     });
+    // The export joins its pages in the page-ops worker.
+    const pageOpsWorkerPath = join(temporaryDirectory, 'browserPageOps.worker.ts');
+    await build({
+        bundle: true,
+        entryPoints: [resolve(process.cwd(), 'app/platform/browser-api/browserPageOps.worker.ts')],
+        format: 'esm',
+        outfile: pageOpsWorkerPath,
+        platform: 'browser',
+        sourcemap: false,
+        tsconfig: resolve(process.cwd(), 'tsconfig.json'),
+    });
     const assets = new Map([
         [
             '/browserPdfCombine.worker.ts',
             {
                 type: 'text/javascript',
                 bytes: await readFile(workerPath),
+            },
+        ],
+        [
+            '/browserPageOps.worker.ts',
+            {
+                type: 'text/javascript',
+                bytes: await readFile(pageOpsWorkerPath),
+            },
+        ],
+        [
+            '/wasm/evb-pdf-page-ops.wasm',
+            {
+                type: 'application/wasm',
+                bytes: await readFile(resolve(process.cwd(), 'public/wasm/evb-pdf-page-ops.wasm')),
             },
         ],
         [

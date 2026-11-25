@@ -8,14 +8,13 @@ import {
     BrowserWorkerClient,
     BrowserWorkerRequestOwner,
     canUseBrowserWorker,
+    resolveBrowserPageLanes,
 } from '@app/platform/browser-api/browserWorkerClient';
 import {
     settleBrowserWorkerResult,
     type IPendingBrowserWorkerRequest,
 } from '@app/platform/browser-api/settleBrowserWorkerResult';
 import {getErrorMessage} from '@app/utils/error';
-import {getPerformanceProfile} from '@app/utils/performanceProfile';
-import type {IResolvedStreamingRasterHandoffBudget} from '@evb/scan-cleanup/core/streamingRasterHandoff';
 
 // A cleanup operation runs its engine calls back to back; keep the engine and
 // its compiled module between them, and release both once the workspace idles.
@@ -57,37 +56,7 @@ function createClient() {
     });
 }
 
-const MAX_PAGE_LANES = 8;
 const ENGINE_BASE_WASM_BYTES = 32 * 1024 * 1024;
-
-/**
- * The engine instances a document's pages run on at once, and the engine
- * memory they may hold together. Each page runs on one thread of its own
- * instance, so pages in flight are how a cleanup uses the device's cores.
- * One core stays free for interaction and one for the preview's lane; at most
- * a quarter of reported memory goes to the pages in flight. Browsers omit or
- * round deviceMemory, and Chrome reports 8 for any larger machine, so an
- * unknown device is taken for a 4 GiB one. A phone, a small device and the
- * low performance mode run one page at a time: the performance profile calls
- * those low memory.
- */
-export function resolveBrowserScanCleanupPageLanes(): IResolvedStreamingRasterHandoffBudget {
-    const cores = typeof navigator === 'undefined' ? 2 : navigator.hardwareConcurrency || 2;
-    const memoryGb = typeof navigator === 'undefined'
-        ? undefined
-        : (navigator as Navigator & {deviceMemory?: number}).deviceMemory;
-    const lanes = getPerformanceProfile().lowMemory
-        ? 1
-        : Math.max(1, Math.min(MAX_PAGE_LANES, cores - 2));
-    return {
-        producerConcurrency: lanes,
-        // A finished page is committed as soon as every page before it is.
-        maxChunkPages: 1,
-        // Finished pages waiting on an earlier one leave the other lanes working.
-        maxInFlightPages: lanes * 2,
-        maxInFlightBytes: (memoryGb ?? 4) * 1024 ** 3 / 4,
-    };
-}
 
 /**
  * The memory one page of `pixels` takes in its lane: the engine's linear
@@ -109,7 +78,7 @@ let owner: BrowserWorkerRequestOwner<IPendingBrowserWorkerRequest> | null = null
  */
 function getOwner() {
     if (owner === null) {
-        const pageLanes = resolveBrowserScanCleanupPageLanes().producerConcurrency;
+        const pageLanes = resolveBrowserPageLanes().producerConcurrency;
         owner = new BrowserWorkerRequestOwner(createClient, pageLanes === 1 ? 1 : pageLanes + 1);
     }
     return owner;

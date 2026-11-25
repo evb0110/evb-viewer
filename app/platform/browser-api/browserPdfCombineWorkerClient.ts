@@ -16,6 +16,7 @@ import {
     BrowserWorkerClient,
     BrowserWorkerRequestOwner,
     canUseBrowserWorker,
+    resolveBrowserPageLanes,
 } from '@app/platform/browser-api/browserWorkerClient';
 import { getErrorMessage } from '@app/utils/error';
 import { captureRendererFailure } from '@app/utils/failureReporter';
@@ -167,7 +168,17 @@ function createBrowserPdfCombineWorkerClient() {
     });
 }
 
-const browserPdfCombineWorkerOwner = new BrowserWorkerRequestOwner(createBrowserPdfCombineWorkerClient);
+let owner: BrowserWorkerRequestOwner<IPendingBrowserWorkerRequest> | null = null;
+
+/**
+ * A combine engine per page lane: the engine is single-threaded WASM, so a
+ * job's pages combine at once only on separate workers. Each worker starts
+ * when a request first needs it and ends when it idles.
+ */
+function getOwner() {
+    owner ??= new BrowserWorkerRequestOwner(createBrowserPdfCombineWorkerClient, resolveBrowserPageLanes().producerConcurrency);
+    return owner;
+}
 
 export async function runBrowserPdfCombineWorkerRequest<K extends TBrowserPdfCombineWorkerRequestType>(
     type: K,
@@ -184,6 +195,7 @@ export async function runBrowserPdfCombineWorkerRequest<K extends TBrowserPdfCom
             ? signal.reason
             : new DOMException('PDF combine was canceled.', 'AbortError');
     }
+    const browserPdfCombineWorkerOwner = getOwner();
     const request: IBrowserPdfCombineWorkerRequest<K> = {
         id: browserPdfCombineWorkerOwner.createRequestId(),
         type,

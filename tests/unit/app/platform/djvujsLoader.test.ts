@@ -998,6 +998,7 @@ describe('DjVu foreground overlap routing', () => {
         const library = {
             Worker: function (url: string) {
                 urls.push(url);
+                return {terminate() {}};
             },
             DjVuScript: function () {
                 class Page {
@@ -1090,5 +1091,50 @@ describe('DjVu foreground overlap routing', () => {
                 ],
                 colorRatio: 1,
             });
+    });
+});
+
+describe('DjVu worker shutdown', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    it('ends the calls a stopped worker was running or had queued', async () => {
+        const {createDjvuWorker} = await import('@app/platform/browser-api/djvujsLoader');
+        // The vendored library, driving a worker thread that never answers.
+        const posted: unknown[] = [];
+        let threadTerminated = false;
+        const library = runInNewContext(`${readFileSync('public/vendor/djvujs/djvu.js', 'utf8')}\nDjVu;`, {
+            Worker: class {
+                public onmessage: unknown = null;
+                public onerror: unknown = null;
+                public postMessage(message: unknown) {
+                    posted.push(message);
+                }
+                public terminate() {
+                    threadTerminated = true;
+                }
+            },
+            // A page, not a worker scope: the library starts its worker side without a document.
+            self: {
+                document: {},
+                TextDecoder,
+            },
+            URL,
+            Blob,
+            console,
+            setTimeout,
+            clearTimeout,
+        });
+        const worker = createDjvuWorker(library);
+        const running = worker.doc.getPage(1).getText().run();
+        const queued = worker.doc.getPage(2).getText().run();
+        expect(posted).toHaveLength(1);
+
+        worker.terminate();
+
+        await expect(running).rejects.toMatchObject({name: 'AbortError'});
+        await expect(queued).rejects.toMatchObject({name: 'AbortError'});
+        expect(threadTerminated).toBe(true);
     });
 });
