@@ -180,10 +180,14 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
 <style scoped>
 .scan-cleanup-toolbar {
     display: grid;
+
+    /* One row, as tall as the reader's, so switching tabs leaves the tab
+       strip in place. The sides never shrink below Done and the primary
+       action (#967, #976); the meter takes the rest and its text yields. */
     grid-template-columns:
-        minmax(0, 1fr)
+        minmax(min-content, 1fr)
         minmax(0, var(--app-scan-toolbar-meter-width))
-        minmax(0, 1fr);
+        minmax(min-content, 1fr);
     gap: var(--app-space-7xl);
     overflow: hidden;
     padding: var(--app-space-3xl) var(--app-space-7xl);
@@ -221,8 +225,12 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
     flex: none;
 }
 
+/* The title adds nothing to the side's minimum, so it is the first text
+   to yield in a narrow window. */
 .scan-cleanup-toolbar-title {
+    width: 0;
     min-width: 0;
+    flex-grow: 1;
     overflow: hidden;
     color: var(--ui-text-highlighted);
     font-size: var(--app-text-size-body);
@@ -267,7 +275,9 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
     justify-content: center;
 }
 
-@media (width <= 64rem) {
+/* Below 600 px one row leaves the meter too narrow for its page count, so it
+   gets a row of its own. */
+@media (width < 37.5rem) {
     .scan-cleanup-toolbar {
         height: auto;
         max-height: none;

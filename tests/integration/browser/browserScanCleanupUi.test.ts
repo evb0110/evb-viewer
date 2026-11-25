@@ -543,10 +543,10 @@ describe('browser Scan Cleanup workspace', () => {
         }
     }, scanCleanupUiTimeoutMs);
 
-    // Switching tabs does not move the tab strip. Where Scan cleanup's bar is
-    // one row, the window's top bar keeps one height whether a tab is empty,
-    // shows the reader or shows Scan cleanup, so the tabs and pages under it
-    // stay where the user aims.
+    // Switching tabs does not move the tab strip. From a 600 px window up, the
+    // window's top bar keeps one height whether a tab is empty, shows the
+    // reader or shows Scan cleanup, so the tabs and pages under it stay where
+    // the user aims. Below 1024 px Scan cleanup's bar used to take two rows.
     it('keeps the tab strip in place when switching between a reader tab and a Scan cleanup tab', async () => {
         const context = await lifecycle.browser.newContext({viewport: {
             width: 1440,
@@ -561,10 +561,16 @@ describe('browser Scan Cleanup workspace', () => {
             await waitForPixels(page, 1);
             const tab = page.locator('.editor-pane.is-active .tab.is-active[data-tab-id]');
             const cleanupTabId = await tab.getAttribute('data-tab-id');
+            const widths = [
+                1440,
+                900,
+                600,
+            ];
             const read = async (state: string) => {
+                const width = page.viewportSize()!.width;
                 await page.screenshot({
-                    path: join(evidenceRoot, `top-bar-${state}.png`),
-                    clip: {x: 0, y: 0, width: 1440, height: 160},
+                    path: join(evidenceRoot, `top-bar-${state}-${String(width)}.png`),
+                    clip: {x: 0, y: 0, width, height: 160},
                 });
                 return page.evaluate(() => ({
                     topBarHeight: document.querySelector('.editor-global-toolbar-shell')!.getBoundingClientRect().height,
@@ -580,7 +586,12 @@ describe('browser Scan Cleanup workspace', () => {
             await page.getByRole('button', {name: 'New Tab', exact: true}).click();
             await expect.poll(() => tab.innerText()).toBe('New Tab');
             await page.locator('#editor-global-toolbar-host .scan-cleanup-toolbar').waitFor({state: 'detached'});
-            const empty = await read('empty');
+            const empty = new Map<number, Awaited<ReturnType<typeof read>>>();
+            for (const width of widths) {
+                await page.setViewportSize({width, height: 1000});
+                empty.set(width, await read('empty'));
+            }
+            await page.setViewportSize({width: 1440, height: 1000});
             const chooser = page.waitForEvent('filechooser');
             await page.getByRole('button', {name: 'Menu', exact: true}).click();
             await page.getByRole('menuitem', {name: /^Open File/u}).click();
@@ -589,14 +600,18 @@ describe('browser Scan Cleanup workspace', () => {
             await settleActiveOpen(page);
             const readerTabId = await tab.getAttribute('data-tab-id');
             expect(readerTabId).not.toBe(cleanupTabId);
-            const reader = await show(readerTabId, 'reader');
-            const cleanup = await show(cleanupTabId, 'cleanup');
-            const readerAgain = await show(readerTabId, 'reader');
-            expect({empty, cleanup, readerAgain}, 'every tab state keeps the reader tab\'s top bar and tab strip').toEqual({
-                empty: reader,
-                cleanup: reader,
-                readerAgain: reader,
-            });
+            for (const width of widths) {
+                await page.setViewportSize({width, height: 1000});
+                const reader = await show(readerTabId, 'reader');
+                const cleanup = await show(cleanupTabId, 'cleanup');
+                const readerAgain = await show(readerTabId, 'reader');
+                expect({width, empty: empty.get(width), cleanup, readerAgain}, 'every tab state keeps the reader tab\'s top bar and tab strip').toEqual({
+                    width,
+                    empty: reader,
+                    cleanup: reader,
+                    readerAgain: reader,
+                });
+            }
             expect(problems).toEqual([]);
         } finally {
             await context.close();
