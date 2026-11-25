@@ -571,6 +571,8 @@ describe('scan cleanup engine threads', () => {
         expect(isSixtyFourBitBrowser({userAgent: chromeLinux, bitness: '64'})).toBe(true);
         expect(isSixtyFourBitBrowser({userAgent: chromeLinux, bitness: '32'})).toBe(false);
         expect(isSixtyFourBitBrowser({userAgent: chromeLinux, bitness: null})).toBe(false);
+        // A 32-bit Chrome on 64-bit Windows reports the platform's bitness and wow64.
+        expect(isSixtyFourBitBrowser({userAgent: chromeLinux, bitness: '64', wow64: true})).toBe(false);
         expect(isSixtyFourBitBrowser({userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15'})).toBe(true);
         expect(isSixtyFourBitBrowser({userAgent: firefox('Macintosh; Intel Mac OS X 10.15')})).toBe(true);
         expect(isSixtyFourBitBrowser({userAgent: firefox('Windows NT 10.0; Win64; x64')})).toBe(true);

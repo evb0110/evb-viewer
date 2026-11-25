@@ -82,6 +82,8 @@ export interface IBrowserArchitecture {
     userAgent: string;
     /** Chromium's high-entropy `bitness`: undefined where the browser has no client hints, null where it would not tell. */
     bitness?: string | null;
+    /** Chromium's `wow64`: a 32-bit browser on 64-bit Windows, which reports the platform's bitness. */
+    wow64?: boolean;
 }
 
 /**
@@ -91,8 +93,8 @@ export interface IBrowserArchitecture {
  * hint decides; elsewhere the platform token does: every macOS browser is
  * 64-bit, and Windows and Linux name the build. Anything unclear is not.
  */
-export function isSixtyFourBitBrowser({userAgent, bitness}: IBrowserArchitecture) {
-    if (bitness !== undefined) return bitness === '64';
+export function isSixtyFourBitBrowser({userAgent, bitness, wow64}: IBrowserArchitecture) {
+    if (bitness !== undefined) return bitness === '64' && wow64 !== true;
     if (/WOW64|\bi[3-6]86\b|armv7|armv8l/u.test(userAgent)) return false;
     return /Macintosh|\bWin64\b|\bx86_64\b|\baarch64\b|\barm64\b/u.test(userAgent);
 }
@@ -103,11 +105,14 @@ async function readBrowserArchitecture(): Promise<IBrowserArchitecture> {
     const getHighEntropyValues: unknown = hints === undefined || hints === null ? undefined : Reflect.get(hints, 'getHighEntropyValues');
     if (typeof getHighEntropyValues !== 'function') return {userAgent};
     try {
-        const values: unknown = await getHighEntropyValues.call(hints, ['bitness']);
-        const bitness: unknown = typeof values === 'object' && values !== null ? Reflect.get(values, 'bitness') : undefined;
+        const values: unknown = await getHighEntropyValues.call(hints, ['bitness', 'wow64']);
+        const read = (name: string): unknown => (typeof values === 'object' && values !== null ? Reflect.get(values, name) : undefined);
+        const bitness = read('bitness');
         return {
             userAgent,
             bitness: typeof bitness === 'string' ? bitness : null,
+            // Unknown counts as 32-bit: the bitness alone may be the platform's.
+            wow64: read('wow64') !== false,
         };
     } catch {
         return {
