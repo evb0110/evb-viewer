@@ -78,13 +78,14 @@ self.addEventListener('message', (event: MessageEvent<INativeWasmThreadLoadMessa
     try {
         start(message.threadId, message.startArg);
     } catch (error) {
-        // A trap marks the engine faulted: the request it runs fails with this message and drops it.
-        reportNativeWasmThreadFault(memory, message.faultPointer);
+        // The reason is posted before the engine is marked faulted, so the
+        // request that then fails can carry it.
         const reason = describe(error);
         console.warn(`${label}: thread ${message.threadId} stopped: ${reason}`);
         self.postMessage({
             type: 'fault',
             message: reason,
         } satisfies TNativeWasmThreadReply);
+        reportNativeWasmThreadFault(memory, message.faultPointer);
     }
 });
