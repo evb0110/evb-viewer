@@ -1067,13 +1067,14 @@ describe('browser Scan Cleanup workspace', () => {
                     await page.evaluate(() => Reflect.set(window, '__holdPages', true));
                     await cleanUp.click();
                     await page.waitForFunction(() => (Reflect.get(window, '__heldPages') as string[]).length > 0, undefined, {timeout: 60_000});
+                    // The engines alive and the pages held, read together before the click.
+                    const held = await page.evaluate(() => [...(Reflect.get(window, '__heldPages') as string[])]);
                     const running = {...live};
                     const primary = page.locator('.scan-cleanup-toolbar-primary-action');
                     await primary.filter({hasText: /Cancel/u}).click();
                     await expect.poll(() => primary.innerText(), {timeout: 15_000}).toMatch(/^Clean up/u);
                     // Every engine whose page was held ends with its threads;
                     // the idle ones end with their idle lifetime. None survives.
-                    const held = await page.evaluate(() => [...(Reflect.get(window, '__heldPages') as string[])]);
                     const heldThreads = held.reduce((total, name) => total + (readScanCleanupEngineWorkerThreads(name) ?? 0), 0);
                     expect(heldThreads, 'the held pages ran on threaded engines').toBeGreaterThan(0);
                     await expect.poll(() => running.engines - live.engines >= held.length && running.threads - live.threads >= heldThreads, {timeout: 15_000}).toBe(true);
