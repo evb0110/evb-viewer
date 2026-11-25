@@ -219,3 +219,35 @@ export function replacePdfPageImages(
         options,
     ));
 }
+
+/**
+ * Output PDFs appended in document order, then joined once by the page-ops
+ * merge desktop uses. `createError` names the job a failed merge belongs to.
+ */
+export function createOrderedPdfMerge(options: {
+    signal: AbortSignal;
+    onEngineIdentity?: (sha256: string) => void;
+    createError: (reason: string) => Error;
+}) {
+    const pages: Uint8Array[] = [];
+    return {
+        append: (pdf: Uint8Array) => pages.push(pdf),
+        async merge() {
+            if (pages.length < 2) return pages[0] ?? null;
+            const result = await runBrowserPageOpsWorkerRequest('pageStructure', {
+                edit: {kind: 'merge'},
+                sources: pages.map(page => new Blob([page as Uint8Array<ArrayBuffer>])),
+                output: null,
+            }, {
+                signal: options.signal,
+                dedicated: true,
+                requireWorker: true,
+                ...(options.onEngineIdentity === undefined ? {} : {onEngineIdentity: options.onEngineIdentity}),
+            });
+            if (result.status !== 'written' || !result.data) {
+                throw options.createError(result.status === 'failed' ? result.error.message : 'the browser\'s storage is full');
+            }
+            return result.data;
+        },
+    };
+}

@@ -6,9 +6,9 @@ import {
 } from '@app/platform/browser-api/browserPdfRaster';
 import {
     estimateBrowserScanCleanupEngineBytes,
-    resolveBrowserScanCleanupPageLanes,
     runBrowserScanCleanupWorkerRequest,
 } from '@app/platform/browser-api/browserScanCleanupWorkerClient';
+import {resolveBrowserPageLanes} from '@app/platform/browser-api/browserWorkerClient';
 import {
     BrowserPageOpsWorkerUnavailableError,
     runBrowserPageOpsWorkerRequest,
@@ -789,7 +789,7 @@ export async function runBrowserScanCleanupAnalysis({
     onEngineIdentity,
 }: IRunBrowserScanCleanupAnalysisInput): Promise<IScanCleanupWasmPageResult[]> {
     const analyses: WasmPageAnalysisV3[] = [];
-    const budget = resolveBrowserScanCleanupPageLanes();
+    const budget = resolveBrowserPageLanes();
     for (;;) {
         const plan = unwrapBrowserScanCleanupOutcome(await runBrowserScanCleanupWorkerRequest('plan-analysis', {
             renderMode,

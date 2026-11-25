@@ -3,6 +3,8 @@ import {
     BrowserWorkerResetError,
 } from '@app/platform/browser-api/browserWorkerClientLifecycle';
 export {BrowserWorkerResetError} from '@app/platform/browser-api/browserWorkerClientLifecycle';
+import {getPerformanceProfile} from '@app/utils/performanceProfile';
+import type {IResolvedStreamingRasterHandoffBudget} from '@evb/scan-cleanup/core/streamingRasterHandoff';
 
 interface IBrowserWorkerClientOptions<TPendingRequest> {
     createWorker: () => Worker;
@@ -19,6 +21,36 @@ interface IBrowserWorkerClientOptions<TPendingRequest> {
 interface IWorkerEventListeners {
     message: (event: MessageEvent<unknown>) => void;
     error: (event: ErrorEvent) => void;
+}
+
+const MAX_PAGE_LANES = 8;
+
+/**
+ * The pages a browser document job works on at once, and the memory they may
+ * hold together. Each page runs on one thread of its own engine instance, so
+ * pages in flight are how a job uses the device's cores. One core stays free
+ * for interaction and one for a preview's lane; at most a quarter of reported
+ * memory goes to the pages in flight. Browsers omit or round deviceMemory
+ * down, so an unknown device is taken for a 4 GiB one. A phone, a small device
+ * and the low performance mode run one page at a time: the performance profile
+ * calls those low memory.
+ */
+export function resolveBrowserPageLanes(): IResolvedStreamingRasterHandoffBudget {
+    const cores = typeof navigator === 'undefined' ? 2 : navigator.hardwareConcurrency || 2;
+    const memoryGb = typeof navigator === 'undefined'
+        ? undefined
+        : (navigator as Navigator & {deviceMemory?: number}).deviceMemory;
+    const lanes = getPerformanceProfile().lowMemory
+        ? 1
+        : Math.max(1, Math.min(MAX_PAGE_LANES, cores - 2));
+    return {
+        producerConcurrency: lanes,
+        // A finished page is committed as soon as every page before it is.
+        maxChunkPages: 1,
+        // Finished pages waiting on an earlier one leave the other lanes working.
+        maxInFlightPages: lanes * 2,
+        maxInFlightBytes: (memoryGb ?? 4) * 1024 ** 3 / 4,
+    };
 }
 
 export function canUseBrowserWorker() {
