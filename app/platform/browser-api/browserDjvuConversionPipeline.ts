@@ -259,12 +259,11 @@ interface IFinalizablePdfSink extends IStreamingPdfSink {
 class BrowserStoredPdfSink implements IFinalizablePdfSink {
     private constructor(
         private readonly outputPath: TDocumentRef,
-        private readonly saveName: string,
         private readonly stream: Awaited<ReturnType<typeof browserDocumentStore.writeStream>>,
     ) {}
 
-    public static async create(outputPath: TDocumentRef, saveName: string) {
-        return new BrowserStoredPdfSink(outputPath, saveName, await browserDocumentStore.writeStream(outputPath));
+    public static async create(outputPath: TDocumentRef) {
+        return new BrowserStoredPdfSink(outputPath, await browserDocumentStore.writeStream(outputPath));
     }
 
     public write(bytes: Uint8Array) {
@@ -272,7 +271,7 @@ class BrowserStoredPdfSink implements IFinalizablePdfSink {
     }
 
     public async finish() {
-        await this.stream.close(this.saveName);
+        await this.stream.close();
         await browserDocumentStore.setRetention(this.outputPath, 'durable');
         browserDocumentStore.unload(this.outputPath);
         return this.outputPath;
@@ -344,7 +343,7 @@ async function createBrowserDjvuPdfOutputSink(
     if (saveTarget.saveHandle) {
         return BrowserHandlePdfSink.create(outputPath, saveTarget.saveHandle, saveTarget.saveName, signal);
     }
-    const sink = await BrowserStoredPdfSink.create(outputPath, saveTarget.saveName);
+    const sink = await BrowserStoredPdfSink.create(outputPath);
     if (signal?.aborted) await sink.abort();
     throwIfCanceled(signal);
     return sink;

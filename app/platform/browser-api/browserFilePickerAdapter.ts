@@ -514,11 +514,15 @@ async function openBrowserOutput(
 
     const {stagingRef} = target;
     const stream = await browserDocumentStore.writeStream(stagingRef);
+    // A cancel ends the stream at once, as it holds its document until it ends: writes and close fail with the cancel.
+    const cancel = () => void stream.abort(signal.reason);
+    signal.addEventListener('abort', cancel, {once: true});
+    if (signal.aborted) {
+        await stream.abort(signal.reason);
+        throwIfAborted(signal);
+    }
     return {
-        write(chunk) {
-            throwIfAborted(signal);
-            return stream.write(chunk);
-        },
+        write: chunk => stream.write(chunk),
         async close() {
             throwIfAborted(signal);
             await stream.close();

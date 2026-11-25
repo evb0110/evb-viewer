@@ -7,7 +7,6 @@ import {
     type TDocumentInit,
     type TMutation,
     type TMutationResult,
-    type TRevisionWriter,
 } from '@document-store/documentDirectory';
 import {
     saveDocument,
@@ -26,6 +25,11 @@ import {
     createBrowserDocumentRef,
     getBrowserDocumentFileName,
 } from '@app/platform/browser/browserDocumentRefs';
+import {
+    canceledWrite,
+    pushRevisionStream,
+    streamWriter,
+} from '@app/platform/browser/browserRevisionStream';
 import {
     BROWSER_DOCUMENT_FULL_READ_TOO_LARGE,
     BrowserDocumentReadError,
@@ -103,6 +107,8 @@ export interface IBrowserDocumentEntry {
     release: (() => void) | null;
     instance: symbol;
     closed?: boolean;
+    /** Aborts the open `writeStream`, which holds the document until it ends. */
+    endStream?: (reason: unknown) => Promise<void>;
     /** An edit appended to the current revision's file and not committed: its lease, base revision and end. */
     pendingAppend?: {lease: string; token: TDocumentRevisionToken; length: number} | undefined;
 }
@@ -154,44 +160,6 @@ function extensionOf(fileName: string) {
 function bytesBlob(data: Uint8Array | ArrayBuffer | Blob) {
     if (data instanceof Blob) return data;
     return new Blob([data instanceof Uint8Array ? data as Uint8Array<ArrayBuffer> : new Uint8Array(data)]);
-}
-
-/**
- * Writes `stream` into a new revision file as it arrives, in batches of at most `BROWSER_DOCUMENT_CHUNK_SIZE`: no
- * more of it is held at once, and nothing copies it whole. A stream reads once, so a second write, such as the
- * memory store's retry after the browser's store filled up, is refused rather than given what was left of it.
- */
-function streamWriter(stream: ReadableStream<Uint8Array>): TRevisionWriter {
-    let read = false;
-    return async file => {
-        if (read) throw new Error('A streamed document can be stored only once');
-        read = true;
-        const reader = stream.getReader();
-        const batch = new Uint8Array(BROWSER_DOCUMENT_CHUNK_SIZE);
-        let filled = 0;
-        let offset = 0;
-        // A store file's write finishes with the bytes before it resolves, so the batch is reused at once.
-        const write = async () => {
-            await file.writeAt(offset, batch.subarray(0, filled));
-            offset += filled;
-            filled = 0;
-        };
-        try {
-            for (let next = await reader.read(); !next.done; next = await reader.read()) {
-                for (let at = 0; at < next.value.byteLength;) {
-                    const count = Math.min(next.value.byteLength - at, batch.byteLength - filled);
-                    batch.set(next.value.subarray(at, at + count), filled);
-                    filled += count;
-                    at += count;
-                    if (filled === batch.byteLength) await write();
-                }
-            }
-            if (filled > 0) await write();
-        } catch (error) {
-            await reader.cancel(error).catch(() => undefined);
-            throw error;
-        }
-    };
 }
 
 function isQuotaError(error: unknown) {
@@ -620,28 +588,20 @@ export class BrowserDocumentStore {
      * Bytes the app makes, such as a converted or exported document, written as they come. When `close` resolves
      * they are the document's and its baseline, as an import's are: it starts clean and names no work of the
      * person's, so a window that goes away later offers none for recovery. Until then, and after `abort` or a
-     * failed write, the document keeps the bytes it had.
+     * failed write, the document keeps the bytes it had (see `pushRevisionStream`). The stream holds the document
+     * until it ends, so closing the entry aborts it, and a new stream ends the one before.
      */
     public async writeStream(ref: string) {
         const entry = await this.requireEntry(ref);
-        const {readable, writable} = new TransformStream<Uint8Array, Uint8Array>();
-        const writer = writable.getWriter();
-        const written = this.mutate(entry, this.tokenOf(entry), {kind: 'rewrite', source: streamWriter(readable), drafts: 'clear', imported: true}, 'write');
-        // A failed write stops the writer, so the caller's next write or close fails with it.
-        written.catch((error: unknown) => writer.abort(error)).catch(() => undefined);
-        return {
-            // The store reads a chunk after the write that gave it resolves, so it keeps its own copy.
-            write: (bytes: Uint8Array) => writer.write(bytes.slice()),
-            close: async (saveName?: string) => {
-                await writer.close();
-                await written;
-                if (saveName) entry.saveName = entry.fileName = saveName;
-            },
-            abort: async () => {
-                await writer.abort().catch(() => undefined);
-                await written.catch(() => undefined);
-            },
+        // Calls that start together each wait for the stream before theirs to end, so none is left holding the document.
+        while (entry.endStream) await entry.endStream(canceledWrite());
+        const stream = pushRevisionStream(source => this.mutate(entry, this.tokenOf(entry), {kind: 'rewrite', source, drafts: 'clear', imported: true}, 'write'));
+        entry.endStream = stream.abort;
+        const ended = () => {
+            if (entry.endStream === stream.abort) delete entry.endStream;
         };
+        void stream.written.then(ended, ended);
+        return stream;
     }
 
     /** The caller wrote the document's bytes to `saveHandle`: from now on they are that file's. */
@@ -1171,6 +1131,7 @@ export class BrowserDocumentStore {
     private async closeEntry(entry: IBrowserDocumentEntry, removeBytes = false) {
         entry.closed = true;
         try {
+            await entry.endStream?.(canceledWrite());
             await entry.doc?.close();
             if (removeBytes && entry.doc && entry.store) await entry.store.port.remove(`documents/${entry.doc.id}`);
             if (removeBytes && entry.saveHandle && !entry.doc && entry.kind !== 'working') {

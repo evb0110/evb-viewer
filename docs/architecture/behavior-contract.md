@@ -206,9 +206,6 @@ Editing, typing, undo and redo do not wait for storage. A crash or forced quit
 recovers the last completed draft write and committed byte revision, including
 after a computer restart; a change whose write has not completed can be lost.
 A storage failure is reported and does not discard already stored work.
-Only unsaved work comes back: a document with nothing unsaved, such as a
-converted PDF not yet edited, does not return as recovered work after a crash,
-a reload, or a reload that interrupts its tab's close.
 
 Save, close or quit preparation, page operations, OCR apply and moving a tab to
 another window wait for the document's drafts. A Save still writes the edits

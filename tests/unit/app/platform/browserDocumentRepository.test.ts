@@ -335,3 +335,91 @@ it('#1609 explains browser undo refusal when Save could not retain the opened by
         message: expect.stringMatching(/opened.*retained.*saved/iu),
     });
 });
+
+async function outputDocument(repo: BrowserDocumentStore, text: string) {
+    const ref = await repo.createStoredDocument('out.pdf', encode(text), {mimeType: 'application/pdf', kind: 'output'});
+    return {ref, doc: (await repo.requireEntry(ref)).doc!};
+}
+
+it('stores the bytes the app streams as the document\'s clean baseline, names no work for recovery, and keeps no buffer it was given', async () => {
+    const {repo} = await repository();
+    const named = vi.spyOn(repo, 'onDirectoryEdited');
+    const {ref, doc} = await outputDocument(repo, '');
+    const stream = await repo.writeStream(ref);
+    // One buffer longer than a store chunk, refilled by the caller as soon as each write resolves.
+    const buffer = new Uint8Array(BROWSER_DOCUMENT_CHUNK_SIZE + 3);
+    for (const fill of [1, 2]) {
+        await stream.write(buffer.fill(fill));
+    }
+    buffer.fill(9);
+    await stream.close();
+
+    const bytes = await repo.read(ref);
+    expect(bytes.byteLength).toBe(2 * buffer.byteLength);
+    expect(bytes.findIndex((byte, index) => byte !== (index < buffer.byteLength ? 1 : 2))).toBe(-1);
+    expect(doc.state()).toMatchObject({dirty: false, history: []});
+    expect(named).not.toHaveBeenCalled();
+});
+
+it('keeps the bytes a document had when its stream is aborted or the store fails to take it, and fails the writer with why', async () => {
+    const {repo, store} = await repository();
+    const {ref, doc} = await outputDocument(repo, 'earlier');
+    const aborted = await repo.writeStream(ref);
+    await aborted.write(encode('partial'));
+    await aborted.abort();
+    await expect(aborted.write(encode('more'))).rejects.toMatchObject({name: 'AbortError'});
+    await expect(aborted.close()).rejects.toMatchObject({name: 'AbortError'});
+    expect(decode(await repo.read(ref))).toBe('earlier');
+
+    const open = store.port.open.bind(store.port);
+    const full = vi.spyOn(store.port, 'open').mockImplementation(async (path) => {
+        const file = await open(path);
+        return {...file, writeAt: async () => {
+            throw new DOMException('The browser\'s storage is full', 'QuotaExceededError');
+        }};
+    });
+    const failed = await repo.writeStream(ref);
+    await expect(failed.write(new Uint8Array(BROWSER_DOCUMENT_CHUNK_SIZE + 1))).rejects.toMatchObject({name: 'QuotaExceededError'});
+    await expect(failed.close()).rejects.toMatchObject({name: 'QuotaExceededError'});
+    full.mockRestore();
+    expect(decode(await repo.read(ref))).toBe('earlier');
+    expect(doc.state()).toMatchObject({dirty: false});
+});
+
+it('commits a stream whose close began before an abort, and lets the abort wait for the commit', async () => {
+    const {repo} = await repository();
+    const {ref, doc} = await outputDocument(repo, 'earlier');
+    const stream = await repo.writeStream(ref);
+    await stream.write(encode('replacement'));
+    const closed = stream.close();
+    await stream.abort();
+
+    await expect(closed).resolves.toBeUndefined();
+    expect(decode(await repo.read(ref))).toBe('replacement');
+    expect(doc.state()).toMatchObject({dirty: false});
+});
+
+it('removes a document whose stream is still open, ending the stream first', async () => {
+    const {repo, store} = await repository();
+    const {ref, doc} = await outputDocument(repo, 'earlier');
+    const stream = await repo.writeStream(ref);
+    await stream.write(encode('partial'));
+    // Node has no localStorage for the Recent list `remove` also updates.
+    vi.spyOn(repo, 'removeRecentFile').mockResolvedValue(true);
+
+    await repo.remove(ref);
+    await expect(stream.close()).rejects.toMatchObject({name: 'AbortError'});
+    expect(await store.port.list('documents')).not.toContain(doc.id);
+});
+
+it('ends the earlier of two streams started together on one document, so the later one owns it', async () => {
+    const {repo} = await repository();
+    const {ref, doc} = await outputDocument(repo, 'earlier');
+    const [first, second] = await Promise.all([repo.writeStream(ref), repo.writeStream(ref)]);
+
+    await expect(first.write(encode('first'))).rejects.toMatchObject({name: 'AbortError'});
+    await second.write(encode('second'));
+    await second.close();
+    expect(decode(await repo.read(ref))).toBe('second');
+    expect(doc.state()).toMatchObject({dirty: false});
+});
