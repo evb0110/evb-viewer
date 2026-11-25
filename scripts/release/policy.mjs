@@ -305,6 +305,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'scripts/run-build-strict.mjs',
                 'scripts/ensure-wasm-artifacts.mjs',
                 'scripts/wasm-artifacts.mjs',
+                'scripts/lib/lower-wasm-bulk-memory.mjs',
                 'scripts/fixtures/ocr-quality-corpus.json',
                 'scripts/ocrQualityMetrics.mjs',
                 'scripts/test-ocr-quality-corpus.mjs',

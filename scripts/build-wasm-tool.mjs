@@ -7,6 +7,8 @@ import { spawnSync } from 'node:child_process';
 import {
     mkdir,
     readFile,
+    rename,
+    rm,
     writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
@@ -64,6 +66,45 @@ export function createWasmToolBuildPlan({
     };
 }
 
+/**
+ * @param {Uint8Array} wasmBytes
+ * @param {{label: string, requiredExports: string[]}} plan
+ */
+function assertWasmExports(wasmBytes, plan) {
+    const wasmModule = new WebAssembly.Module(wasmBytes);
+    const exportNames = new Set(WebAssembly.Module.exports(wasmModule).map(entry => entry.name));
+    const missingExports = plan.requiredExports.filter(name => !exportNames.has(name));
+    if (missingExports.length > 0) {
+        throw new Error(`${plan.label} is missing exports: ${missingExports.join(', ')}`);
+    }
+}
+
+/**
+ * Lowers the Cargo output's bulk memory instructions and replaces the
+ * destination only once the lowered module has none left, validates and has
+ * its exports, so a failed or interrupted build never leaves an unlowered file.
+ * @param {string} sourcePath
+ * @param {{destinationPath: string, label: string, requiredExports: string[]}} plan
+ */
+async function stageLoweredArtifact(sourcePath, plan) {
+    const {
+        bytes, lowered,
+    } = lowerWasmBulkMemory(await readFile(sourcePath));
+    const left = countWasmBulkMemory(bytes);
+    if (left.copy + left.fill > 0) {
+        throw new Error(`${plan.label} still has ${left.copy} memory.copy and ${left.fill} memory.fill after lowering`);
+    }
+    assertWasmExports(bytes, plan);
+    const partialPath = `${plan.destinationPath}.${process.pid}.partial`;
+    try {
+        await writeFile(partialPath, bytes);
+        await rename(partialPath, plan.destinationPath);
+    } finally {
+        await rm(partialPath, {force: true});
+    }
+    console.log(`Lowered ${lowered.copy} memory.copy and ${lowered.fill} memory.fill in ${plan.label}`);
+}
+
 async function resolveTool(toolId) {
     const { getGeneratedNativeToolResource } = await tsImport(
         './nativeResourceManifest.ts',
@@ -109,25 +150,13 @@ export async function buildWasmArtifact(artifact, {outputDir} = {}) {
     }
 
     await mkdir(path.dirname(plan.destinationPath), {recursive: true});
-    await copyCargoArtifactVerified(sourcePath, plan.destinationPath);
     if (artifact.lowerBulkMemory) {
-        const {
-            bytes, lowered,
-        } = lowerWasmBulkMemory(await readFile(plan.destinationPath));
-        const left = countWasmBulkMemory(bytes);
-        if (left.copy + left.fill > 0) {
-            throw new Error(`${plan.label} still has ${left.copy} memory.copy and ${left.fill} memory.fill after lowering`);
-        }
-        await writeFile(plan.destinationPath, bytes);
-        console.log(`Lowered ${lowered.copy} memory.copy and ${lowered.fill} memory.fill in ${plan.label}`);
+        await stageLoweredArtifact(sourcePath, plan);
+    } else {
+        await copyCargoArtifactVerified(sourcePath, plan.destinationPath);
     }
     const wasmBytes = await readFile(plan.destinationPath);
-    const wasmModule = new WebAssembly.Module(wasmBytes);
-    const exportNames = new Set(WebAssembly.Module.exports(wasmModule).map(entry => entry.name));
-    const missingExports = plan.requiredExports.filter(name => !exportNames.has(name));
-    if (missingExports.length > 0) {
-        throw new Error(`${plan.label} is missing exports: ${missingExports.join(', ')}`);
-    }
+    assertWasmExports(wasmBytes, plan);
 
     console.log(
         `Staged ${plan.label}: ${path.relative(projectRoot, plan.destinationPath)} `
