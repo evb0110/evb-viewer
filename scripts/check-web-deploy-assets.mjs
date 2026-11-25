@@ -17,6 +17,14 @@ import {
     REQUIRED_WEB_WASM_ASSETS,
 } from './web-deploy-asset-manifest.mjs';
 import {scanPublicArtifactDirectory} from './check-build-artifacts-hygiene.mjs';
+import { countWasmBulkMemory } from './lib/lower-wasm-bulk-memory.mjs';
+import { WASM_ARTIFACTS } from './wasm-artifacts.mjs';
+
+// Browser WASM the build lowers: a deployed copy must have no bulk memory
+// instructions left, even if a stale build skipped the step.
+const LOWERED_WASM_RELATIVE_PATHS = new Set(WASM_ARTIFACTS
+    .filter(artifact => artifact.lowerBulkMemory)
+    .map(artifact => artifact.publicRelativePath.replace(/^public\//u, '')));
 
 const defaultProjectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const FORBIDDEN_INITIAL_RENDERER_DEPENDENCIES = [
@@ -150,6 +158,15 @@ async function assertWasmAsset(rootPath, rootLabel, asset) {
         throw new Error(
             `${rootLabel} asset ${asset.relativePath} is missing exports: ${missingExports.join(', ')}`,
         );
+    }
+    if (LOWERED_WASM_RELATIVE_PATHS.has(asset.relativePath)) {
+        const bulk = countWasmBulkMemory(wasmBytes);
+        if (bulk.copy + bulk.fill > 0) {
+            throw new Error(
+                `${rootLabel} asset ${asset.relativePath} has ${bulk.copy} memory.copy and ${bulk.fill} memory.fill; `
+                + 'rebuild it with node scripts/build-wasm-tool.mjs scan-cleanup',
+            );
+        }
     }
 
     return {

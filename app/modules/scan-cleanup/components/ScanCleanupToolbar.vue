@@ -4,16 +4,21 @@
         :aria-label="t('scanCleanup.workspaceTitle')"
     >
         <div class="scan-cleanup-toolbar-zone scan-cleanup-toolbar-zone-left">
-            <UButton
-                class="scan-cleanup-toolbar-done"
-                type="button"
-                color="neutral"
-                variant="ghost"
-                size="sm"
-                icon="i-ph-caret-left"
-                :label="t('scanCleanup.done')"
-                @click="emit('done')"
-            />
+            <!-- On a phone the toolbar buttons show only their icons; the
+                 name stays for assistive tech and the tooltip says it. -->
+            <AppTooltip :text="t('scanCleanup.done')" usefulness="no-text">
+                <UButton
+                    class="scan-cleanup-toolbar-done"
+                    type="button"
+                    color="neutral"
+                    variant="ghost"
+                    size="sm"
+                    icon="i-ph-caret-left"
+                    :label="t('scanCleanup.done')"
+                    :aria-label="t('scanCleanup.done')"
+                    @click="emit('done')"
+                />
+            </AppTooltip>
             <AppTooltip :text="t('scanCleanup.description')" usefulness="always">
                 <h2 class="scan-cleanup-toolbar-title">{{ t('scanCleanup.workspaceTitle') }}</h2>
             </AppTooltip>
@@ -88,17 +93,20 @@
 
         <div class="scan-cleanup-toolbar-zone scan-cleanup-toolbar-zone-right">
             <div class="scan-cleanup-toolbar-primary-slot">
-                <UButton
-                    v-if="isRunning"
-                    :class="SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_CLASS"
-                    type="button"
-                    color="neutral"
-                    variant="outline"
-                    size="sm"
-                    :label="finishing ? t('scanCleanup.finishing') : cancelRequested ? t('scanCleanup.canceling') : t('scanCleanup.cancel')"
-                    :disabled="cancelRequested || finishing"
-                    @click="emit('cancel')"
-                />
+                <AppTooltip v-if="isRunning" :text="cancelLabel" usefulness="no-text">
+                    <UButton
+                        :class="[SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_CLASS, 'scan-cleanup-toolbar-cancel-run', {'is-canceling': cancelRequested && !finishing}]"
+                        type="button"
+                        color="neutral"
+                        variant="outline"
+                        size="sm"
+                        :icon="cancelRequested || finishing ? 'i-ph-circle-notch' : 'i-ph-x'"
+                        :label="cancelLabel"
+                        :aria-label="cancelLabel"
+                        :disabled="cancelRequested || finishing"
+                        @click="emit('cancel')"
+                    />
+                </AppTooltip>
                 <AppTooltip
                     v-else
                     :text="runDisabledReason || runLabel"
@@ -111,6 +119,7 @@
                         size="sm"
                         icon="i-ph-play"
                         :label="runLabel"
+                        :aria-label="runLabel"
                         :disabled="!canRun"
                         @click="emit('run')"
                     />
@@ -172,6 +181,9 @@ const {t} = useTypedI18n();
 const meterVisible = computed(() => activity !== null && (activity.run || runError === ''));
 // Cancelling detection is not destructive: pages already detected keep their
 // results, so the control names that outcome instead of a bare “Cancel”.
+const cancelLabel = computed(() => t(finishing
+    ? 'scanCleanup.finishing'
+    : cancelRequested ? 'scanCleanup.canceling' : 'scanCleanup.cancel'));
 const detectionCancelLabel = computed(() => t(detectionCancelRequested
     ? 'scanCleanup.detectAll.canceling'
     : 'scanCleanup.detectAll.cancelDetection'));
@@ -275,25 +287,39 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
     justify-content: center;
 }
 
-/* Below 600 px one row leaves the meter too narrow for its page count, so it
-   gets a row of its own. */
+/* The running Cancel shows its icon only where its label is hidden. */
+@media (width >= 37.5rem) {
+    .scan-cleanup-toolbar-cancel-run :deep([data-slot='leadingIcon']) {
+        display: none;
+    }
+}
+
+/* Canceling has no notice in the meter, so on a phone too the disabled
+   Cancel says “Canceling…” in words. */
+.scan-cleanup-toolbar-cancel-run.is-canceling :deep([data-slot='leadingIcon']) {
+    display: none;
+}
+
+/* On a phone the buttons keep their icons and give the meter the width, so
+   the bar stays one row, as tall as the reader's. */
 @media (width < 37.5rem) {
     .scan-cleanup-toolbar {
-        height: auto;
-        max-height: none;
-        flex-basis: auto;
-        grid-template-columns:
-            minmax(var(--app-scan-toolbar-primary-width), 1fr)
-            minmax(var(--app-scan-toolbar-primary-width), auto);
-        grid-template-rows: repeat(2, var(--app-control-height-sm));
-        gap: var(--app-space-3xl);
+        gap: var(--app-space-sm);
     }
 
-    /* Analysis can finish during a settings click. Keep its row reserved so
-       the controls below it do not move between aiming and pressing. */
-    .scan-cleanup-toolbar-zone-center {
-        grid-column: 1 / -1;
-        grid-row: 2;
+    .scan-cleanup-toolbar-title,
+    .scan-cleanup-toolbar-trailing-slot:empty {
+        display: none;
+    }
+
+    .scan-cleanup-toolbar-done :deep([data-slot='label']),
+    .scan-cleanup-toolbar-primary-action:not(.is-canceling) :deep([data-slot='label']) {
+        display: none;
+    }
+
+    .scan-cleanup-toolbar-primary-slot {
+        width: auto;
+        min-width: 0;
     }
 }
 
