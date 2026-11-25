@@ -18,6 +18,10 @@ import {
 import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 import type {IProbe} from './scanCleanupUiTestHelpers';
 import {
+    HOST_TIER_LOW_CPU_MAX, HOST_TIER_LOW_RAM_MAX_GIB,
+} from '@contracts/hostResourceProfile';
+import {readScanCleanupEngineWorkerThreads} from '@app/platform/browser-api/scanCleanupEngineWorkerName';
+import {
     evidenceRoot, scanCleanupUiTimeoutMs, previewImage, cleanedImage, sha256, installProbe, openWorkspace, showWorkspace, waitForPixels, pixels, cleanedPixels, assertBrowserScope, select, drag, undoRedo,
     conversionModes, prepareConversionSource, inspectConversionPdf, assertConversionPdf,
 } from './scanCleanupUiTestHelpers';
@@ -923,7 +927,7 @@ describe('browser Scan Cleanup workspace', () => {
     // A cross-origin isolated page runs the threaded engine; any other page
     // runs today's. Both clean the same pages, and a cancelled run leaves no
     // engine or engine thread behind.
-    it('cleans the same pages on the threaded engine when isolated and on the single-threaded engine otherwise', async () => {
+    it('cleans the same pages on the threaded engine when isolated and on the single-threaded engine otherwise', async (testContext) => {
         const sourcePath = resolve('tests/fixtures/release/scan-cleanup-four-page-grayscale.pdf');
         const sourceBytes = await readFile(sourcePath);
         const source = await inspectConversionPdf(sourceBytes);
@@ -968,20 +972,45 @@ describe('browser Scan Cleanup workspace', () => {
                 const problems = collectConsoleProblems(page);
                 await installProbe(page);
                 await page.addInitScript(() => {
-                    const post = Worker.prototype.postMessage;
-                    Reflect.set(window, '__renderPagesSent', 0);
-                    Worker.prototype.postMessage = function(message: unknown, transfer?: unknown) {
-                        if ((message as {type?: unknown} | null)?.type === 'render-page') {
-                            Reflect.set(window, '__renderPagesSent', Number(Reflect.get(window, '__renderPagesSent')) + 1);
+                    // While `__holdPages` is set, a finished page's reply waits
+                    // here, so the run is still in its engines when it is
+                    // cancelled; each held reply records its worker's name.
+                    const held: string[] = [];
+                    Reflect.set(window, '__heldPages', held);
+                    const names = new WeakMap<object, string>();
+                    const Original = window.Worker;
+                    window.Worker = class extends Original {
+                        public constructor(url: string | URL, options?: WorkerOptions) {
+                            super(url, options);
+                            names.set(this, options?.name ?? '');
                         }
-                        return Reflect.apply(post, this, [
-                            message,
-                            transfer ?? [],
-                        ]);
+                    };
+                    const add = Original.prototype.addEventListener;
+                    Original.prototype.addEventListener = function(this: Worker, type: string, listener: unknown, options?: unknown) {
+                        if (type !== 'message' || typeof listener !== 'function') return Reflect.apply(add, this, [type, listener, options]);
+                        const worker = this;
+                        const filtered = (event: MessageEvent) => {
+                            if (Reflect.get(window, '__holdPages') === true && (event.data as {type?: unknown} | null)?.type === 'render-page') {
+                                held.push(names.get(worker) ?? '');
+                                return;
+                            }
+                            listener.call(worker, event);
+                        };
+                        return Reflect.apply(add, this, [type, filtered, options]);
                     };
                 });
                 await openWorkspace(page, sourcePath);
                 expect(await page.evaluate(() => crossOriginIsolated)).toBe(isolated);
+                if (isolated) {
+                    // The performance profile keeps a small device on today's engine.
+                    const device = await page.evaluate(() => ({
+                        cores: navigator.hardwareConcurrency,
+                        memoryGb: (navigator as Navigator & {deviceMemory?: number}).deviceMemory,
+                    }));
+                    if (device.cores <= HOST_TIER_LOW_CPU_MAX || (device.memoryGb ?? Infinity) < HOST_TIER_LOW_RAM_MAX_GIB) {
+                        testContext.skip(`this host's ${JSON.stringify(device)} profile runs the single-threaded engine`);
+                    }
+                }
                 const sourceRef = await documentRef(page);
                 await prepareConversionSource(page);
                 await page.getByRole('radio', {
@@ -1014,17 +1043,23 @@ describe('browser Scan Cleanup workspace', () => {
                 });
                 expect([...engineWorkers].some(url => url.includes('nativeWasmThread.worker')), 'engine threads ran').toBe(isolated);
                 if (isolated) {
-                    // Cancel a second run while its pages are in the engines.
+                    // Cancel a second run once a page is done but its reply is
+                    // held, so the run cannot end before the click.
                     await page.locator(`.tab[data-tab-id="${outputTabId}"] .tab-close`).click();
                     await expect.poll(() => documentRef(page), {timeout: 30_000}).toBe(sourceRef);
-                    await page.evaluate(() => Reflect.set(window, '__renderPagesSent', 0));
+                    await page.evaluate(() => Reflect.set(window, '__holdPages', true));
                     await cleanUp.click();
-                    await page.waitForFunction(() => Number(Reflect.get(window, '__renderPagesSent')) >= 2, undefined, {timeout: 60_000});
+                    await page.waitForFunction(() => (Reflect.get(window, '__heldPages') as string[]).length > 0, undefined, {timeout: 60_000});
                     const running = {...live};
-                    await page.locator('.scan-cleanup-toolbar-primary-action').filter({hasText: /Cancel/u}).click();
-                    // Cancelling ends the busy engines and their threads; the
-                    // idle ones end with their idle lifetime. None survives.
-                    await expect.poll(() => live.engines < running.engines && live.threads < running.threads, {timeout: 15_000}).toBe(true);
+                    const primary = page.locator('.scan-cleanup-toolbar-primary-action');
+                    await primary.filter({hasText: /Cancel/u}).click();
+                    await expect.poll(() => primary.innerText(), {timeout: 15_000}).toMatch(/^Clean up/u);
+                    // Every engine whose page was held ends with its threads;
+                    // the idle ones end with their idle lifetime. None survives.
+                    const held = await page.evaluate(() => [...(Reflect.get(window, '__heldPages') as string[])]);
+                    const heldThreads = held.reduce((total, name) => total + (readScanCleanupEngineWorkerThreads(name) ?? 0), 0);
+                    expect(heldThreads, 'the held pages ran on threaded engines').toBeGreaterThan(0);
+                    await expect.poll(() => running.engines - live.engines >= held.length && running.threads - live.threads >= heldThreads, {timeout: 15_000}).toBe(true);
                     await expect.poll(() => ({...live}), {timeout: 45_000}).toEqual({
                         engines: 0,
                         threads: 0,
