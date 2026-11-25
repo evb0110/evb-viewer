@@ -7,10 +7,15 @@ import { spawnSync } from 'node:child_process';
 import {
     mkdir,
     readFile,
+    writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tsImport } from 'tsx/esm/api';
+import {
+    countWasmBulkMemory,
+    lowerWasmBulkMemory,
+} from './lib/lower-wasm-bulk-memory.mjs';
 import {
     copyCargoArtifactVerified,
     getCargoArtifactPath,
@@ -105,6 +110,17 @@ export async function buildWasmArtifact(artifact, {outputDir} = {}) {
 
     await mkdir(path.dirname(plan.destinationPath), {recursive: true});
     await copyCargoArtifactVerified(sourcePath, plan.destinationPath);
+    if (artifact.lowerBulkMemory) {
+        const {
+            bytes, lowered,
+        } = lowerWasmBulkMemory(await readFile(plan.destinationPath));
+        const left = countWasmBulkMemory(bytes);
+        if (left.copy + left.fill > 0) {
+            throw new Error(`${plan.label} still has ${left.copy} memory.copy and ${left.fill} memory.fill after lowering`);
+        }
+        await writeFile(plan.destinationPath, bytes);
+        console.log(`Lowered ${lowered.copy} memory.copy and ${lowered.fill} memory.fill in ${plan.label}`);
+    }
     const wasmBytes = await readFile(plan.destinationPath);
     const wasmModule = new WebAssembly.Module(wasmBytes);
     const exportNames = new Set(WebAssembly.Module.exports(wasmModule).map(entry => entry.name));

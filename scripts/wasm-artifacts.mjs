@@ -6,8 +6,10 @@ const WASM_THREADS_TARGET = 'wasm32-wasip1-threads';
 /** @typedef {{relativePath: string, requiredExports: string[]}} IRequiredWebWasmAsset */
 /**
  * One browser WASM file built by cargo. `id` keys its recorded build identity;
- * a crate can have several artifacts, one per Rust target.
- * @typedef {{builtFileName: string, crateName: string, id: string, label: string, manifestPath: string, publicRelativePath: string, requiredExports: string[], rustTarget: string, rustflags: string[]}} IWasmArtifact
+ * a crate can have several artifacts, one per Rust target. `lowerBulkMemory`
+ * replaces its `memory.copy` and `memory.fill` after the link (see
+ * scripts/lib/lower-wasm-bulk-memory.mjs).
+ * @typedef {{builtFileName: string, crateName: string, id: string, label: string, lowerBulkMemory?: boolean, manifestPath: string, publicRelativePath: string, requiredExports: string[], rustTarget: string, rustflags: string[]}} IWasmArtifact
  */
 /** @typedef {{bytes: number, label: string, publicRelativePath: string, sha256: string, url: string}} IPrebuiltWasmFile */
 
@@ -147,6 +149,9 @@ export const WASM_ARTIFACTS = [
         crateName: 'scan-cleanup',
         id: 'scan-cleanup-threads',
         label: 'Threaded scan cleanup WASM',
+        // V8 checks bulk memory instructions against each thread's cached
+        // memory size, which can lag another thread's growth.
+        lowerBulkMemory: true,
         manifestPath: 'native/scan-cleanup/Cargo.toml',
         publicRelativePath: 'public/wasm/evb-scan-cleanup-threads.wasm',
         requiredExports: getRequiredExports('wasm/evb-scan-cleanup-threads.wasm'),
