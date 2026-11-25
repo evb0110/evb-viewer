@@ -59,6 +59,13 @@ import type {
 export const BROWSER_SCAN_CLEANUP_WASM_PATH = '/wasm/evb-scan-cleanup.wasm';
 
 /**
+ * The same engine built for `wasm32-wasip1-threads`
+ * (`native/scan-cleanup/src/wasm_threads.rs`): one request runs on several
+ * threads over a shared memory. Only a cross-origin isolated page can run it.
+ */
+export const BROWSER_SCAN_CLEANUP_THREADS_WASM_PATH = '/wasm/evb-scan-cleanup-threads.wasm';
+
+/**
  * A page raster as the engine reads it: PNG, or binary PPM (P6), told apart by
  * signature exactly as the CLI's file readers do.
  */

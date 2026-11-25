@@ -14,6 +14,10 @@ import {
     settleBrowserWorkerResult,
     type IPendingBrowserWorkerRequest,
 } from '@app/platform/browser-api/settleBrowserWorkerResult';
+import {
+    runWithScanCleanupEngineFailover,
+    scanCleanupEngineWorkerName,
+} from '@app/platform/browser-api/scanCleanupEngineVariant';
 import {getErrorMessage} from '@app/utils/error';
 
 // A cleanup operation runs its engine calls back to back; keep the engine and
@@ -38,9 +42,14 @@ export function canUseBrowserScanCleanupWorker() {
 function createClient() {
     return new BrowserWorkerClient<IPendingBrowserWorkerRequest>({
         idleTtlMs: BROWSER_SCAN_CLEANUP_WORKER_IDLE_TTL_MS,
-        createWorker: () => {
+        // The worker's name tells it which engine to run, on how many threads.
+        defaultWorkerKey: () => scanCleanupEngineWorkerName(undefined),
+        createWorker: (name) => {
             try {
-                return new Worker(new URL('./browserScanCleanup.worker.ts', import.meta.url), {type: 'module'});
+                return new Worker(new URL('./browserScanCleanup.worker.ts', import.meta.url), {
+                    type: 'module',
+                    name: name ?? '',
+                });
             } catch (error) {
                 throw new BrowserScanCleanupWorkerUnavailableError(getErrorMessage(error));
             }
@@ -104,25 +113,52 @@ function abortError(signal: AbortSignal) {
         : new DOMException('Scan cleanup was canceled.', 'AbortError');
 }
 
+/** Requests that only move pixels; they run on any cleanup worker, whatever its engine. */
+const ENGINELESS_REQUESTS: ReadonlySet<TBrowserScanCleanupWorkerRequestType> = new Set([
+    'assemble-raster',
+    'encode-png',
+]);
+
 /**
  * Runs one request on the cleanup worker. Every buffer and bitmap in the
  * payload is transferred, so a caller that still needs a raster afterwards
  * passes a copy. Aborting terminates the worker, which is the only way to stop
  * a synchronous engine call; the next request starts a fresh engine.
+ *
+ * `concurrency` is how many such requests the caller runs at once: an
+ * interactive request runs alone and says 1, a batch says its page lanes. On a
+ * page that runs the threaded engine it sets the request's threads; a request
+ * that says nothing gets one thread.
  */
 export function runBrowserScanCleanupWorkerRequest<K extends TBrowserScanCleanupWorkerRequestType>(
     type: K,
     payload: IBrowserScanCleanupWorkerRequestMap[K],
     signal: AbortSignal,
     onEngineIdentity?: (sha256: string) => void,
+    concurrency?: number,
+): Promise<IBrowserScanCleanupWorkerResultMap[K]> {
+    return runWithScanCleanupEngineFailover(
+        payload,
+        attempt => runOnWorker(type, attempt, signal, onEngineIdentity, concurrency),
+        () => getOwner().resetIdleWorkers(),
+    );
+}
+
+function runOnWorker<K extends TBrowserScanCleanupWorkerRequestType>(
+    type: K,
+    payload: IBrowserScanCleanupWorkerRequestMap[K],
+    signal: AbortSignal,
+    onEngineIdentity: ((sha256: string) => void) | undefined,
+    concurrency: number | undefined,
 ): Promise<IBrowserScanCleanupWorkerResultMap[K]> {
     if (signal.aborted) return Promise.reject(abortError(signal));
     const engines = getOwner();
     const id = engines.createRequestId();
     const abort = () => engines.cancel(id, abortError(signal));
     signal.addEventListener('abort', abort, {once: true});
+    const workerName = ENGINELESS_REQUESTS.has(type) ? undefined : scanCleanupEngineWorkerName(concurrency);
     return engines.run(id, client => new Promise<IBrowserScanCleanupWorkerResultMap[K]>((resolve, reject) => {
-        const worker = client.getWorker();
+        const worker = client.getWorker(workerName);
         client.registerPendingRequest(id, {
             requestType: type,
             onEngineIdentity,
@@ -142,5 +178,5 @@ export function runBrowserScanCleanupWorkerRequest<K extends TBrowserScanCleanup
         } catch (error) {
             client.cancelPendingRequest(id, error instanceof Error ? error : new Error(String(error)));
         }
-    })).finally(() => signal.removeEventListener('abort', abort));
+    }), workerName).finally(() => signal.removeEventListener('abort', abort));
 }

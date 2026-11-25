@@ -16,6 +16,10 @@ import {
     settleBrowserWorkerResult,
     type ITypedPendingBrowserWorkerRequest,
 } from '@app/platform/browser-api/settleBrowserWorkerResult';
+import {
+    runWithScanCleanupEngineFailover,
+    scanCleanupEngineWorkerName,
+} from '@app/platform/browser-api/scanCleanupEngineVariant';
 import * as v from 'valibot';
 
 // A lane keeps its Tesseract engine and models loaded between pages for a while.
@@ -109,10 +113,16 @@ export class BrowserOcrEngineUnavailableError extends Error {
     }
 }
 
-function createWorkerClient(createWorker: () => Worker, idleTtlMs: number, fallbackMessage: string) {
+function createWorkerClient(
+    createWorker: (name: string | undefined) => Worker,
+    idleTtlMs: number,
+    fallbackMessage: string,
+    defaultWorkerKey?: () => string,
+) {
     return new BrowserWorkerClient<TPendingEngineRequest>({
         idleTtlMs,
         createWorker,
+        ...(defaultWorkerKey === undefined ? {} : {defaultWorkerKey}),
         createError: event => new BrowserOcrEngineUnavailableError(
             event.error instanceof Error ? event.error.message : event.message || fallbackMessage,
         ),
@@ -138,9 +148,14 @@ function getRecognizeOwner() {
 function getPreprocessOwner() {
     preprocessOwner ??= new BrowserWorkerRequestOwner(
         () => createWorkerClient(
-            () => new Worker(new URL('./browserOcrPreprocess.worker.ts', import.meta.url), {type: 'module'}),
+            // The worker's name tells it which cleanup engine to run, on how many threads.
+            name => new Worker(new URL('./browserOcrPreprocess.worker.ts', import.meta.url), {
+                type: 'module',
+                name: name ?? '',
+            }),
             PREPROCESS_IDLE_TTL_MS,
             'The OCR preprocessing engine stopped',
+            () => scanCleanupEngineWorkerName(undefined),
         ),
         // A job preprocesses on as many of these as its own page size affords.
         resolveBrowserOcrLanes().lanes,
@@ -161,6 +176,7 @@ function runWorkerRequest<TResult>(
         ms: number;
         message: string
     },
+    workerKey?: string,
 ): Promise<TResult> {
     const {payload} = request;
     const closeTiles = () => {
@@ -180,7 +196,7 @@ function runWorkerRequest<TResult>(
             reject(new DOMException('OCR was canceled', 'AbortError'));
             return;
         }
-        const worker = client.getWorker();
+        const worker = client.getWorker(workerKey);
         client.registerPendingRequest(requestId, {
             requestType: request.type,
             reject,
@@ -195,7 +211,7 @@ function runWorkerRequest<TResult>(
             ...request,
             id: requestId,
         }, payload.image instanceof Uint8Array ? [payload.image.buffer] : payload.image.tiles);
-    })).finally(() => {
+    }), workerKey).finally(() => {
         signal.removeEventListener('abort', onAbort);
         closeTiles();
     });
@@ -222,19 +238,22 @@ export function runBrowserOcrEngine(
  * Cleans one rendered page for recognition in a preprocessing worker separate
  * from the Tesseract workers. Rejects when the engine stopped or ran past
  * its time limit; the caller then recognizes the rendered page, as desktop does.
+ * `concurrency` is how many pages the job keeps in its engines at once, which
+ * sets the cleanup engine's threads on a page that runs the threaded engine.
  */
 export function preprocessBrowserOcrRaster(
     payload: TBrowserOcrPreprocessRequest['payload'],
     signal: AbortSignal,
+    concurrency?: number,
 ): Promise<IBrowserOcrPreprocessResult> {
-    return runWorkerRequest(getPreprocessOwner(), {
+    return runWithScanCleanupEngineFailover(payload, attempt => runWorkerRequest(getPreprocessOwner(), {
         type: 'preprocess',
-        payload,
+        payload: attempt,
     }, signal, (data) => {
         const parsed = v.safeParse(BROWSER_OCR_PREPROCESS_RESULT_SCHEMA, data, {abortEarly: true});
         return parsed.success ? parsed.output : null;
     }, {
         ms: PASS_TIMEOUT_MS,
         message: 'OCR preprocessing did not finish within its time limit',
-    });
+    }, scanCleanupEngineWorkerName(concurrency)), () => getPreprocessOwner().resetIdleWorkers());
 }

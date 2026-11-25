@@ -3,9 +3,15 @@ import {
     createNativeWasmToolLoader,
     type TNativeWasmCallResult,
 } from '@app/platform/browser-api/nativeWasmTool';
+import {NativeWasmThreadStartError} from '@app/platform/browser-api/nativeWasmThreadedTool';
+import {
+    readScanCleanupEngineWorkerThreads,
+    SCAN_CLEANUP_ENGINE_MAXIMUM_MEMORY_PAGES,
+} from '@app/platform/browser-api/scanCleanupEngineWorkerName';
 import type {INativeErrorEnvelope} from '@contracts/nativeErrors';
 import type {TScanCleanupWasmOutcome} from '@contracts/scan-cleanup/browserScanCleanupWorker';
 import {
+    BROWSER_SCAN_CLEANUP_THREADS_WASM_PATH,
     BROWSER_SCAN_CLEANUP_WASM_PATH,
     decodeScanCleanupWasmAnalyzeResult,
     decodeScanCleanupWasmPlanAnalysisResult,
@@ -40,9 +46,13 @@ import {
 
 /**
  * The browser scan-cleanup engine for this thread. It is synchronous WASM, so
- * call it from a worker: the OCR engine worker or a dedicated cleanup worker.
- * A request cannot be cancelled once it runs; terminate the worker instead.
+ * call it from a worker: the OCR preprocessing worker or a dedicated cleanup
+ * worker. A request cannot be cancelled once it runs; terminate the worker
+ * instead. The worker's name, read once here, says whether it runs the
+ * threaded build and on how many threads.
  */
+const workerName: unknown = Reflect.get(globalThis, 'name');
+const engineThreads = readScanCleanupEngineWorkerThreads(typeof workerName === 'string' ? workerName : undefined);
 const engine = createNativeWasmToolLoader({
     path: BROWSER_SCAN_CLEANUP_WASM_PATH,
     prefix: 'evb_scan_cleanup',
@@ -52,7 +62,17 @@ const engine = createNativeWasmToolLoader({
     maxOutputBytes: SCAN_CLEANUP_WASM_MAX_OUTPUT_BYTES,
     // Rust's clock traps on wasm32-unknown-unknown; stage timings read this one.
     imports: () => ({env: {evb_now_ms: () => performance.now()}}),
+    ...(engineThreads === null
+        ? {}
+        : {threads: {
+            path: BROWSER_SCAN_CLEANUP_THREADS_WASM_PATH,
+            count: engineThreads,
+            maximumMemoryPages: SCAN_CLEANUP_ENGINE_MAXIMUM_MEMORY_PAGES,
+        }}),
 });
+
+/** The SHA-256 of the engine module this worker runs, once it has compiled it. */
+export const readBrowserScanCleanupEngineDigest = () => engine.readDigest();
 
 export type TBrowserScanCleanupOutcome<TResult> = TScanCleanupWasmOutcome<TResult>;
 
@@ -74,6 +94,8 @@ async function run<TResult>(
     try {
         called = await engine.call(encode());
     } catch (error) {
+        // The worker hands the request back so the page can run it on today's engine.
+        if (error instanceof NativeWasmThreadStartError) throw error;
         return failed('invalid-request', getErrorMessage(error));
     }
     if (called.status === 'failed') return called;

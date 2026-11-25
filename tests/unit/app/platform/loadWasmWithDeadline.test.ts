@@ -346,3 +346,88 @@ describe('WASM memory high-water release', () => {
         expect(instances).toHaveLength(2);
     });
 });
+
+const ERROR_POINTER = 64;
+
+/**
+ * Exports of a threaded build's main instance over a shared memory: `run`
+ * answers with `code`, writing `envelope` as the error first when given.
+ */
+function sharedMemoryExports(prefix: string, code: number, envelope?: string) {
+    const memory = new WebAssembly.Memory({initial: 1, maximum: 16, shared: true});
+    const encoded = new TextEncoder().encode(envelope ?? '');
+    const free = vi.fn();
+    return {
+        free,
+        exports: {
+            memory,
+            evb_wasm_request_allocation_abi_version: () => WASM_REQUEST_ALLOCATION_ABI_VERSION,
+            [`${prefix}_alloc`]: () => TOOL_POINTER,
+            [`${prefix}_free`]: free,
+            [`${prefix}_run`]: () => {
+                new Uint8Array(memory.buffer, ERROR_POINTER, encoded.byteLength).set(encoded);
+                return code;
+            },
+            [`${prefix}_output_ptr`]: () => 0,
+            [`${prefix}_output_len`]: () => 0,
+            [`${prefix}_error_ptr`]: () => ERROR_POINTER,
+            [`${prefix}_error_len`]: () => encoded.byteLength,
+        },
+    };
+}
+
+/** Browsers' TextDecoder refuses a view of shared memory; Node's does not. */
+class BrowserTextDecoder extends TextDecoder {
+    public override decode(input?: AllowSharedBufferSource, options?: TextDecodeOptions) {
+        const buffer = input && 'buffer' in input ? input.buffer : input;
+        if (buffer instanceof SharedArrayBuffer) throw new TypeError('The provided ArrayBufferView value must not be shared.');
+        return super.decode(input, options);
+    }
+}
+
+const TEST_TOOL = {
+    path: '/wasm/evb-test.wasm',
+    prefix: 'evb_test',
+    runExport: 'run',
+    label: 'test tool',
+    maxRequestBytes: 1024,
+    maxOutputBytes: 1024,
+};
+
+// A threaded build runs on shared memory, and one of its threads can die.
+describe('a native tool on a threaded build', () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+        vi.unstubAllGlobals();
+        vi.resetModules();
+    });
+
+    it('reports a dead thread as a panic, frees nothing in the faulted instance and loads a fresh one', async () => {
+        const made: Array<ReturnType<typeof sharedMemoryExports>> = [];
+        const instances = stubInstances(() => {
+            const tool = sharedMemoryExports('evb_test', made.length === 0 ? -2 : -1, '{"code":"invalid-request","message":"bad page"}');
+            made.push(tool);
+            return tool.exports;
+        });
+        const {createNativeWasmToolLoader} = await import('@app/platform/browser-api/nativeWasmTool');
+        const tool = createNativeWasmToolLoader(TEST_TOOL);
+
+        expect(await tool.call(Uint8Array.of(1))).toMatchObject({status: 'failed', error: {code: 'panic'}});
+        // The instance may hold the allocator's lock: freeing could wait forever.
+        expect(made[0]!.free).not.toHaveBeenCalled();
+        expect(await tool.call(Uint8Array.of(2))).toMatchObject({status: 'failed', error: {code: 'invalid-request', message: 'bad page'}});
+        expect(instances).toHaveLength(2);
+        expect(made[1]!.free).toHaveBeenCalledOnce();
+    });
+
+    it('reads an error envelope out of shared memory as a browser can', async () => {
+        vi.stubGlobal('TextDecoder', BrowserTextDecoder);
+        stubInstances(() => sharedMemoryExports('evb_test', -1, '{"code":"too-large","message":"The page is too large"}').exports);
+        const {createNativeWasmToolLoader} = await import('@app/platform/browser-api/nativeWasmTool');
+
+        expect(await createNativeWasmToolLoader(TEST_TOOL).call(Uint8Array.of(1))).toEqual({
+            status: 'failed',
+            error: {code: 'too-large', message: 'The page is too large'},
+        });
+    });
+});

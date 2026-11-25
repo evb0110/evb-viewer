@@ -9,6 +9,8 @@ import {getBrowserPageOpsWorkerRequestId} from '@contracts/browserPageOpsWorker'
 import type {IScanCleanupWasmPlane} from '@contracts/scan-cleanup/browserScanCleanupWasm';
 import {assembleBrowserPdfRasterPpm} from '@app/platform/browser-api/assembleBrowserPdfRasterPpm';
 import {preprocessBrowserOcrPage} from '@app/platform/browser-api/browserScanCleanupWasm';
+import {NativeWasmThreadStartError} from '@app/platform/browser-api/nativeWasmThreadedTool';
+import {SCAN_CLEANUP_THREADED_ENGINE_UNAVAILABLE} from '@app/platform/browser-api/scanCleanupEngineWorkerName';
 import {getErrorMessage} from '@app/utils/error';
 import {
     encodePnm,
@@ -16,6 +18,13 @@ import {
 } from '@ocr-core/ppmRaster';
 
 declare const self: DedicatedWorkerGlobalScope;
+
+/** The threaded engine did not start; the page gets the page back, as the raster this worker assembled. */
+class ThreadedEngineUnavailable extends Error {
+    public constructor(cause: Error, public readonly payload: TBrowserOcrPreprocessRequest['payload'] & {image: Uint8Array}) {
+        super(cause.message, {cause});
+    }
+}
 
 function readRaster(image: TBrowserOcrPreprocessRequest['payload']['image']) {
     return image instanceof Uint8Array ? image : assembleBrowserPdfRasterPpm(image);
@@ -38,7 +47,16 @@ function encodePlane(plane: IScanCleanupWasmPlane) {
 async function preprocess(payload: TBrowserOcrPreprocessRequest['payload']): Promise<IBrowserOcrPreprocessResult> {
     const raster = readRaster(payload.image);
     const size = payload.image instanceof Uint8Array ? readPnmSize(raster) : payload.image;
-    const outcome = await preprocessBrowserOcrPage(raster, payload.mode, payload.dpi);
+    let outcome: Awaited<ReturnType<typeof preprocessBrowserOcrPage>>;
+    try {
+        outcome = await preprocessBrowserOcrPage(raster, payload.mode, payload.dpi);
+    } catch (error) {
+        if (error instanceof NativeWasmThreadStartError) throw new ThreadedEngineUnavailable(error, {
+            ...payload,
+            image: raster,
+        });
+        throw error;
+    }
     if (outcome.status === 'failed') {
         return {
             image: raster,
@@ -89,6 +107,19 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
             data,
         }, [data.image.buffer]);
     } catch (error) {
+        if (error instanceof ThreadedEngineUnavailable) {
+            self.postMessage({
+                id: request.id,
+                ok: false,
+                error: error.message,
+                errorEnvelope: {
+                    code: SCAN_CLEANUP_THREADED_ENGINE_UNAVAILABLE,
+                    message: error.message,
+                    details: {payload: error.payload},
+                },
+            }, [error.payload.image.buffer]);
+            return;
+        }
         self.postMessage({
             id: request.id,
             ok: false,

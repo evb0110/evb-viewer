@@ -7,7 +7,13 @@ import {getPerformanceProfile} from '@app/utils/performanceProfile';
 import type {IResolvedStreamingRasterHandoffBudget} from '@evb/scan-cleanup/core/streamingRasterHandoff';
 
 interface IBrowserWorkerClientOptions<TPendingRequest> {
-    createWorker: () => Worker;
+    /**
+     * Starts the worker. `key` is the kind of worker a request asked for, such
+     * as an engine's thread count; a worker keeps its key for life.
+     */
+    createWorker: (key: string | undefined) => Worker;
+    /** The key of a worker started for a request that takes any kind. */
+    defaultWorkerKey?: () => string;
     idleTtlMs: number;
     requestTimeoutMs?: number;
     handleMessage: (
@@ -66,6 +72,7 @@ export class BrowserWorkerClient<
     public readonly pendingRequests = new Map<number, TPendingRequest>();
 
     private worker: Worker | null = null;
+    private currentWorkerKey: string | undefined = undefined;
     private workerEventListeners: IWorkerEventListeners | null = null;
     private workerGeneration = 0;
     private nextRequestId = 1;
@@ -132,13 +139,20 @@ export class BrowserWorkerClient<
         }
     }
 
-    public getWorker() {
-        if (this.worker) {
+    /**
+     * The worker for a request of `key`. A worker of another key is replaced,
+     * so ask only while the client runs nothing else; no key takes any worker.
+     */
+    public getWorker(key?: string) {
+        if (this.worker && (key === undefined || key === this.currentWorkerKey)) {
             this.clearIdleTerminateTimer();
             return this.worker;
         }
+        if (this.worker) this.resetWorker();
 
-        const worker = this.options.createWorker();
+        const workerKey = key ?? this.options.defaultWorkerKey?.();
+        const worker = this.options.createWorker(workerKey);
+        this.currentWorkerKey = workerKey;
         const generation = this.workerGeneration + 1;
         const workerEventListeners: IWorkerEventListeners = {
             message: event => {
@@ -172,6 +186,11 @@ export class BrowserWorkerClient<
 
     public hasWorker() {
         return this.worker !== null;
+    }
+
+    /** The key of the running worker, or undefined when none runs. */
+    public get workerKey() {
+        return this.worker === null ? undefined : this.currentWorkerKey;
     }
 
     public hasPendingRequest(requestId: number) {
@@ -269,6 +288,16 @@ export class BrowserWorkerClient<
     }
 }
 
+interface IOwnedRequest<TPendingRequest extends {
+    reject: (error: Error) => void;
+    timeoutTimer?: ReturnType<typeof setTimeout> | null;
+}> {
+    client: BrowserWorkerClient<TPendingRequest> | null;
+    workerKey: string | undefined;
+    start: (client: BrowserWorkerClient<TPendingRequest>) => void;
+    reject: (error: Error) => void;
+}
+
 /**
  * Admission and cancellation for synchronous engines, one request per worker.
  * Each slot keeps its worker until the worker's idle lifetime ends.
@@ -279,11 +308,7 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
 }> {
     private readonly clients: Array<BrowserWorkerClient<TPendingRequest>>;
     private readonly lifecycle = new BrowserWorkerClientLifecycle();
-    private readonly requests = new Map<number, {
-        client: BrowserWorkerClient<TPendingRequest> | null;
-        start: (client: BrowserWorkerClient<TPendingRequest>) => void;
-        reject: (error: Error) => void;
-    }>();
+    private readonly requests = new Map<number, IOwnedRequest<TPendingRequest>>();
 
     public constructor(
         createClient: () => BrowserWorkerClient<TPendingRequest>,
@@ -298,16 +323,20 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
         return this.clients[0]!.createRequestId();
     }
 
+    /**
+     * Runs a request once a client is free. A request with `workerKey` gets a
+     * client whose worker has that key if one is free, else one with no
+     * worker, else any free client, whose worker `run` then replaces by asking
+     * for its key. A request without a key prefers a client whose worker runs.
+     */
     public run<TResult>(
         requestId: number,
         run: (client: BrowserWorkerClient<TPendingRequest>, isAdmitted: () => boolean) => Promise<TResult>,
+        workerKey?: string,
     ): Promise<TResult> {
-        const request: {
-            client: BrowserWorkerClient<TPendingRequest> | null;
-            start: (client: BrowserWorkerClient<TPendingRequest>) => void;
-            reject: (error: Error) => void;
-        } = {
+        const request: IOwnedRequest<TPendingRequest> = {
             client: null,
+            workerKey,
             start: () => {},
             reject: () => {},
         };
@@ -347,6 +376,14 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
         }
     }
 
+    /** Ends the workers of the clients that run nothing now; busy ones keep theirs until replaced. */
+    public resetIdleWorkers() {
+        const admitted = new Set([...this.requests.values()].map(entry => entry.client));
+        for (const client of this.clients) {
+            if (!admitted.has(client)) client.resetWorker();
+        }
+    }
+
     private reset() {
         const requests = [...this.requests.values()];
         this.requests.clear();
@@ -362,7 +399,11 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
         const admitted = [...this.requests.values()].flatMap(entry => entry.client ? [entry.client] : []);
         for (const request of this.requests.values()) {
             if (request.client) continue;
-            const client = this.clients.find(candidate => !admitted.includes(candidate));
+            const free = this.clients.filter(candidate => !admitted.includes(candidate));
+            const client = (request.workerKey === undefined
+                ? free.find(candidate => candidate.hasWorker())
+                : free.find(candidate => candidate.workerKey === request.workerKey)
+                    ?? free.find(candidate => !candidate.hasWorker())) ?? free[0];
             if (!client) return;
             request.start(client);
             admitted.push(client);

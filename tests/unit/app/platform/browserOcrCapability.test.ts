@@ -1032,7 +1032,7 @@ describe('browser OCR request cancellation', () => {
         const controller = new AbortController();
         controller.abort(new DOMException('OCR was canceled', 'AbortError'));
 
-        expect(() => preprocessBrowserOcrRaster({
+        await expect(preprocessBrowserOcrRaster({
             image: {
                 width: 1,
                 height: 1,
@@ -1040,7 +1040,7 @@ describe('browser OCR request cancellation', () => {
             } as never,
             mode: 'clean',
             dpi: 300,
-        }, controller.signal)).toThrow('OCR was canceled');
+        }, controller.signal)).rejects.toThrow('OCR was canceled');
         expect(close).toHaveBeenCalledOnce();
     });
 });

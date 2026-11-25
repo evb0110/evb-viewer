@@ -1,8 +1,6 @@
 /// <reference lib="webworker" />
 
 import {encode as encodePng} from 'fast-png';
-import {readLoadedWasmDigest} from '@app/platform/browser/loadWasmWithDeadline';
-import {BROWSER_SCAN_CLEANUP_WASM_PATH} from '@contracts/scan-cleanup/browserScanCleanupWasm';
 import {
     getBrowserScanCleanupWorkerRequestId,
     parseBrowserScanCleanupWorkerRequest,
@@ -13,9 +11,12 @@ import {assembleBrowserPdfRasterPpm} from '@app/platform/browser-api/assembleBro
 import {
     analyzeBrowserScanCleanupPage,
     planBrowserScanCleanupAnalysis,
+    readBrowserScanCleanupEngineDigest,
     renderBrowserScanCleanupPage,
     renderBrowserScanCleanupPreview,
 } from '@app/platform/browser-api/browserScanCleanupWasm';
+import {NativeWasmThreadStartError} from '@app/platform/browser-api/nativeWasmThreadedTool';
+import {SCAN_CLEANUP_THREADED_ENGINE_UNAVAILABLE} from '@app/platform/browser-api/scanCleanupEngineWorkerName';
 import {toTransferableUint8Array} from '@app/platform/browser-api/toTransferableUint8Array';
 import {getErrorMessage} from '@app/utils/error';
 
@@ -94,7 +95,7 @@ self.addEventListener('message', (event: MessageEvent<unknown>) => {
     }
     void handle(request).then(async (data) => {
         // A success names the engine module that produced it.
-        const engineSha256 = await readLoadedWasmDigest(BROWSER_SCAN_CLEANUP_WASM_PATH)?.catch(() => null);
+        const engineSha256 = await readBrowserScanCleanupEngineDigest()?.catch(() => null);
         self.postMessage({
             id: request.id,
             type: request.type,
@@ -103,6 +104,20 @@ self.addEventListener('message', (event: MessageEvent<unknown>) => {
             ...(typeof engineSha256 === 'string' ? {engineSha256} : {}),
         }, [...transferablesOf(data)]);
     }, (error: unknown) => {
+        if (error instanceof NativeWasmThreadStartError) {
+            // Nothing ran: the page gets its request back to run on today's engine.
+            self.postMessage({
+                id: request.id,
+                ok: false,
+                error: error.message,
+                errorEnvelope: {
+                    code: SCAN_CLEANUP_THREADED_ENGINE_UNAVAILABLE,
+                    message: error.message,
+                    details: {payload: request.payload},
+                },
+            }, [...transferablesOf(request.payload)]);
+            return;
+        }
         self.postMessage({
             id: request.id,
             ok: false,

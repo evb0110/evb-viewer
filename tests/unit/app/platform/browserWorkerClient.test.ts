@@ -8,8 +8,19 @@ import {
 } from 'vitest';
 import {
     BrowserWorkerClient,
+    BrowserWorkerRequestOwner,
     BrowserWorkerResetError,
 } from '@app/platform/browser-api/browserWorkerClient';
+import {
+    canRunThreadedScanCleanupEngine,
+    resolveScanCleanupEngineThreads,
+    runWithScanCleanupEngineFailover,
+} from '@app/platform/browser-api/scanCleanupEngineVariant';
+import {
+    encodeScanCleanupEngineWorkerName,
+    readScanCleanupEngineWorkerThreads,
+    SCAN_CLEANUP_THREADED_ENGINE_UNAVAILABLE,
+} from '@app/platform/browser-api/scanCleanupEngineWorkerName';
 
 interface IPendingTestRequest {
     reject: (error: Error) => void;
@@ -18,6 +29,10 @@ interface IPendingTestRequest {
 
 class FakeWorker extends EventTarget implements Worker {
     public static terminateCount = 0;
+    public constructor(public readonly name = '') {
+        super();
+    }
+
     public onerror: ((this: AbstractWorker, event: ErrorEvent) => unknown) | null = null;
     public onmessage: ((this: Worker, event: MessageEvent) => unknown) | null = null;
     public onmessageerror: ((this: Worker, event: MessageEvent) => unknown) | null = null;
@@ -205,5 +220,183 @@ describe('BrowserWorkerClient', () => {
         windowTarget.dispatchEvent(Object.assign(new Event('pagehide'), {persisted: false}));
         expect(secondReject).toHaveBeenCalledOnce();
         expect(client.hasWorker()).toBe(false);
+    });
+});
+
+describe('BrowserWorkerRequestOwner admission by worker key', () => {
+    beforeEach(() => {
+        FakeWorker.terminateCount = 0;
+    });
+
+    function createOwner(slots: number) {
+        const started: string[] = [];
+        const owner = new BrowserWorkerRequestOwner(() => new BrowserWorkerClient<IPendingTestRequest>({
+            idleTtlMs: 60_000,
+            defaultWorkerKey: () => 'default',
+            createWorker: (key) => {
+                started.push(key ?? '');
+                return new FakeWorker(key);
+            },
+            createError: event => new Error(event.message),
+            handleMessage: () => {},
+        }), slots);
+        let nextId = 1;
+        /** Runs a request until `finish` is called, reporting the worker it ran on. */
+        const hold = (key?: string) => {
+            let finish!: () => void;
+            const finished = new Promise<void>(resolve => void (finish = resolve));
+            let ranOn!: (name: string) => void;
+            const worker = new Promise<string>(resolve => void (ranOn = resolve));
+            const done = owner.run(nextId++, async (client) => {
+                ranOn((client.getWorker(key) as FakeWorker).name);
+                await finished;
+            }, key);
+            return {
+                worker,
+                finish: async () => {
+                    finish();
+                    await done;
+                },
+            };
+        };
+        return {
+            owner,
+            started,
+            hold,
+        };
+    }
+
+    it('reuses a worker of the wanted key, then starts one on an empty slot, then replaces an idle one', async () => {
+        const {started, hold} = createOwner(3);
+        const first = hold('threads-6');
+        expect(await first.worker).toBe('threads-6');
+        await first.finish();
+
+        const batch = hold('threads-2');
+        // The idle threads-6 worker is kept; an empty slot takes the new key.
+        expect(await batch.worker).toBe('threads-2');
+        const preview = hold('threads-6');
+        expect(await preview.worker).toBe('threads-6');
+        expect(started).toEqual(['threads-6', 'threads-2']);
+        await preview.finish();
+
+        const lone = hold('threads-1');
+        expect(await lone.worker).toBe('threads-1');
+        const other = hold('threads-3');
+        // Every slot has a worker; the idle one of another key is replaced.
+        expect(await other.worker).toBe('threads-3');
+        expect(started).toEqual(['threads-6', 'threads-2', 'threads-1', 'threads-3']);
+        expect(FakeWorker.terminateCount).toBe(1);
+        await Promise.all([batch.finish(), lone.finish(), other.finish()]);
+    });
+
+    it('runs a request without a key on any running worker before starting one', async () => {
+        const {started, hold} = createOwner(2);
+        const keyed = hold('threads-6');
+        await keyed.worker;
+        await keyed.finish();
+        const any = hold();
+        expect(await any.worker).toBe('threads-6');
+        const second = hold();
+        expect(await second.worker).toBe('default');
+        expect(started).toEqual(['threads-6', 'default']);
+        await Promise.all([any.finish(), second.finish()]);
+    });
+
+    it('ends only the idle workers when asked', async () => {
+        const {owner, hold} = createOwner(2);
+        const idle = hold('threads-6');
+        await idle.worker;
+        await idle.finish();
+        const busy = hold('threads-2');
+        await busy.worker;
+        owner.resetIdleWorkers();
+        expect(FakeWorker.terminateCount).toBe(1);
+        await busy.finish();
+    });
+});
+
+describe('scan cleanup engine threads', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+        vi.restoreAllMocks();
+    });
+
+    it('splits the cores but one among the requests a caller runs at once, from one to six threads', () => {
+        // On 11 cores: a lone preview, a 4-page job, an 8-lane batch.
+        expect(resolveScanCleanupEngineThreads(1, 11)).toBe(6);
+        expect(resolveScanCleanupEngineThreads(4, 11)).toBe(2);
+        expect(resolveScanCleanupEngineThreads(8, 11)).toBe(1);
+        expect(resolveScanCleanupEngineThreads(3, 4)).toBe(1);
+        expect(resolveScanCleanupEngineThreads(1, 2)).toBe(1);
+        // A request that declares nothing never oversubscribes.
+        expect(resolveScanCleanupEngineThreads(undefined, 11)).toBe(1);
+    });
+
+    it('runs the threaded engine only on an isolated page with shared memory, cores and memory to spare', () => {
+        const capable = {
+            crossOriginIsolated: true,
+            hasSharedArrayBuffer: true,
+            lowMemory: false,
+            cores: 8,
+            probeMemory: () => undefined,
+        };
+        expect(canRunThreadedScanCleanupEngine(capable)).toBe(true);
+        expect(canRunThreadedScanCleanupEngine({...capable, crossOriginIsolated: false})).toBe(false);
+        expect(canRunThreadedScanCleanupEngine({...capable, hasSharedArrayBuffer: false})).toBe(false);
+        expect(canRunThreadedScanCleanupEngine({...capable, lowMemory: true})).toBe(false);
+        expect(canRunThreadedScanCleanupEngine({...capable, cores: 1})).toBe(false);
+        expect(canRunThreadedScanCleanupEngine({...capable, probeMemory: () => {
+            throw new RangeError('Out of memory');
+        }})).toBe(false);
+    });
+
+    it('names each worker after the engine it runs, and a page that switched off runs today\'s engine', async () => {
+        vi.stubGlobal('crossOriginIsolated', true);
+        vi.stubGlobal('navigator', {hardwareConcurrency: 11, userAgent: 'test'});
+        vi.resetModules();
+        const variant = await import('@app/platform/browser-api/scanCleanupEngineVariant');
+        const {SerializableError} = await import('@contracts/serializableError');
+        expect(variant.usesThreadedScanCleanupEngine()).toBe(true);
+        expect(readScanCleanupEngineWorkerThreads(variant.scanCleanupEngineWorkerName(1))).toBe(6);
+        expect(readScanCleanupEngineWorkerThreads(variant.scanCleanupEngineWorkerName(4))).toBe(2);
+
+        // The worker could not start its threads and handed the page back.
+        const unavailable = new SerializableError({
+            code: SCAN_CLEANUP_THREADED_ENGINE_UNAVAILABLE,
+            message: 'its threads did not start',
+            details: {payload: 'page 1 returned'},
+        });
+        vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const attempts: Array<{payload: string; worker: string}> = [];
+        const resetIdleWorkers = vi.fn();
+        const result = await variant.runWithScanCleanupEngineFailover('page 1', async (payload) => {
+            attempts.push({payload, worker: variant.scanCleanupEngineWorkerName(1)});
+            if (attempts.length === 1) throw unavailable;
+            return 'cleaned';
+        }, resetIdleWorkers);
+        expect(result).toBe('cleaned');
+        expect(attempts.map(attempt => [attempt.payload, readScanCleanupEngineWorkerThreads(attempt.worker)])).toEqual([
+            ['page 1', 6],
+            ['page 1 returned', null],
+        ]);
+        expect(resetIdleWorkers).toHaveBeenCalledOnce();
+        expect(variant.usesThreadedScanCleanupEngine()).toBe(false);
+    });
+
+    it('does not retry a request that failed for any other reason', async () => {
+        const attempt = vi.fn(async () => {
+            throw new Error('The page is damaged');
+        });
+        await expect(runWithScanCleanupEngineFailover('page', attempt, () => undefined)).rejects.toThrow('The page is damaged');
+        expect(attempt).toHaveBeenCalledOnce();
+    });
+
+    it('reads back the thread count a worker name carries, and none from a name it did not write', () => {
+        expect(readScanCleanupEngineWorkerThreads(encodeScanCleanupEngineWorkerName(3))).toBe(3);
+        expect(readScanCleanupEngineWorkerThreads(encodeScanCleanupEngineWorkerName(null))).toBeNull();
+        expect(readScanCleanupEngineWorkerThreads(encodeScanCleanupEngineWorkerName(99))).toBeNull();
+        expect(readScanCleanupEngineWorkerThreads(undefined)).toBeNull();
+        expect(readScanCleanupEngineWorkerThreads('')).toBeNull();
     });
 });

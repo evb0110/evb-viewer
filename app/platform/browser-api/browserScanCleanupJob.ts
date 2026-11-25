@@ -574,7 +574,8 @@ async function renderBase(
             },
         planeEncoding: 'png',
     };
-    const rendered = unwrapBrowserScanCleanupOutcome(await runBrowserScanCleanupWorkerRequest('render-preview', engineRequest, signal));
+    // A preview runs alone: on a threaded engine it takes the spare cores.
+    const rendered = unwrapBrowserScanCleanupOutcome(await runBrowserScanCleanupWorkerRequest('render-preview', engineRequest, signal, undefined, 1));
     const pageMetadata = decodeNativeScanCleanupPreviewPageMetadataJson(rendered.pageMetadataJson);
     const outputs: Extract<TScanCleanupPreviewWireResult, {pageMetadata: unknown}>['outputs'] = [];
     const nativeOutputs: TScanCleanupPreviewBaseOutputs = {};
@@ -731,7 +732,7 @@ async function renderDetail(
                 baseCleaned: copy(baseCleaned),
             },
             planeEncoding: 'png',
-        }, signal));
+        }, signal, undefined, 1));
         const [output] = rendered.outputs;
         if (output === undefined || rendered.outputs.length !== 1) {
             throw new Error('Scan cleanup detail render produced no single output');
@@ -790,13 +791,15 @@ export async function runBrowserScanCleanupAnalysis({
 }: IRunBrowserScanCleanupAnalysisInput): Promise<IScanCleanupWasmPageResult[]> {
     const analyses: WasmPageAnalysisV3[] = [];
     const budget = resolveBrowserPageLanes();
+    // The analyses a plan runs at once; its plan requests share their engines.
+    const concurrency = Math.min(budget.producerConcurrency, pages.length);
     for (;;) {
         const plan = unwrapBrowserScanCleanupOutcome(await runBrowserScanCleanupWorkerRequest('plan-analysis', {
             renderMode,
             ...(documentCanvas === undefined ? {} : {documentCanvas}),
             pages: [...pages],
             analyses,
-        }, signal, onEngineIdentity));
+        }, signal, onEngineIdentity, concurrency));
         if (plan.kind === 'finished') return plan.pages;
         await runBoundedRasterProducerConsumer<AnalysisJob, {
             job: AnalysisJob;
@@ -827,7 +830,7 @@ export async function runBrowserScanCleanupAnalysis({
                         ...(analysisPurpose === undefined ? {} : {analysisPurpose}),
                         ...(job.documentPrior == null ? {} : {documentPrior: job.documentPrior}),
                     },
-                }, jobSignal, onEngineIdentity));
+                }, jobSignal, onEngineIdentity, concurrency));
                 return {
                     staged: {
                         job,

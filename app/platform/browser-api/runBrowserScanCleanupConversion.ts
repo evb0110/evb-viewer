@@ -493,12 +493,14 @@ async function runRasterConversion(
         });
         // A page's raster and engine call run on a lane of their own; the
         // pages then join the output in document order.
+        const budget = resolveBrowserPageLanes();
+        const concurrency = Math.min(budget.producerConcurrency, manifest.pages.length);
         await runBoundedRasterProducerConsumer<typeof manifest.pages[number], {
             index: number;
             rendered: IScanCleanupWasmRenderPageResult;
         }>({
             items: manifest.pages,
-            budget: resolveBrowserPageLanes(),
+            budget,
             signal,
             estimateItemBytes: (_manifestPage, index) => {
                 const plan = planned.rasterPlans[index]!;
@@ -548,7 +550,7 @@ async function runRasterConversion(
                     },
                     analysisPlane,
                     planes: 'encoded',
-                }, pageSignal, context.engines.observe('scanCleanup')));
+                }, pageSignal, context.engines.observe('scanCleanup'), concurrency));
                 return {
                     staged: {
                         index,

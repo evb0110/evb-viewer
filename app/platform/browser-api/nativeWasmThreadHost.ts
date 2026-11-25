@@ -147,6 +147,19 @@ export function reportNativeWasmThreadFault(memory: WebAssembly.Memory, faultPoi
     Atomics.notify(cells, faultPointer >>> 2);
 }
 
+/**
+ * Collects what an engine writes, which arrives in fragments, and passes on
+ * each complete line without its newline.
+ */
+export function createNativeWasmLineWriter(writeLine: (line: string) => void) {
+    let pending = '';
+    return (text: string) => {
+        const lines = (pending + text).split('\n');
+        pending = lines.pop() ?? '';
+        for (const line of lines) writeLine(line);
+    };
+}
+
 export interface INativeWasmThreadStart {
     module: WebAssembly.Module;
     imports: WebAssembly.Imports;
