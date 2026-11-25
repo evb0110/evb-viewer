@@ -36,7 +36,19 @@ const mocks = vi.hoisted(() => ({
     buildCompactPage: vi.fn(),
     combineWorker: vi.fn(),
     pageOps: vi.fn(),
+    /** The page-ops request boundary a test lowers; null keeps the real one. */
+    pageOpsMaxRequestBytes: null as number | null,
 }));
+
+vi.mock('@contracts/browserPageOpsLimits', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@contracts/browserPageOpsLimits')>();
+    return {
+        ...actual,
+        get BROWSER_PAGE_OPS_MAX_REQUEST_BYTES() {
+            return mocks.pageOpsMaxRequestBytes ?? actual.BROWSER_PAGE_OPS_MAX_REQUEST_BYTES;
+        },
+    };
+});
 
 vi.mock('@app/platform/browser-api/createDjvuWorkerFromPath', () => ({
     createDjvuWorkerFromPath: mocks.createWorker,
@@ -331,6 +343,66 @@ describe('browserDjvuConversionPipeline', () => {
             vi.unstubAllGlobals();
             mocks.buildCompactPage.mockReset();
             mocks.createWorker.mockReset();
+            stat.mockRestore();
+            getSaveTarget.mockRestore();
+        }
+    });
+
+    it('streams the direct PDF when the encoded pages together exceed what one merge request holds', async () => {
+        const stat = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
+            size: 1,
+            modifiedAt: 1,
+        });
+        const getSaveTarget = vi.spyOn(browserDocumentStore, 'getSaveTarget').mockRejectedValue(new Error('direct export output requested'));
+        const page = {
+            width: 100,
+            height: 100,
+            dpi: 300,
+        };
+        mocks.createWorker.mockResolvedValue({terminate: vi.fn()});
+        mocks.getPageSizes.mockResolvedValueOnce([
+            page,
+            page,
+        ]);
+        mocks.buildCompactPage.mockResolvedValue({
+            route: 'photo',
+            spec: {
+                kind: 'image',
+                pageSize: {
+                    widthPoints: 72,
+                    heightPoints: 72,
+                },
+                image: {
+                    fileName: 'page.ppm',
+                    data: new Uint8Array([1]),
+                },
+            },
+        });
+        // Each page encodes to four bytes; one fits the boundary, two do not.
+        mocks.combineWorker.mockResolvedValue({data: new Uint8Array(4)});
+        mocks.pageOpsMaxRequestBytes = 6;
+
+        try {
+            await expect(runBrowserDjvuConversion(
+                requireDocumentRef('browser://documents/book.djvu'),
+                requireDocumentRef('browser://documents/output.pdf'),
+                {
+                    jobId: requireJobId('djvu-compact-joined-boundary'),
+                    pdfStrategy: 'compact-djvu-aware',
+                    preserveBookmarks: false,
+                },
+            )).resolves.toMatchObject({
+                success: false,
+                error: 'direct export output requested',
+            });
+            expect(getSaveTarget).toHaveBeenCalledOnce();
+            expect(mocks.pageOps).not.toHaveBeenCalled();
+        } finally {
+            mocks.pageOpsMaxRequestBytes = null;
+            mocks.buildCompactPage.mockReset();
+            mocks.combineWorker.mockReset();
+            mocks.createWorker.mockReset();
+            mocks.pageOps.mockReset();
             stat.mockRestore();
             getSaveTarget.mockRestore();
         }

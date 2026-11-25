@@ -59,7 +59,11 @@ import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
 import { toPdfDateString } from '@app/utils/pdfDate';
 import { toOwnedArrayBuffer } from '@app/platform/browser-api/browserDjvuCanvas';
 import {PdfCombineCapabilityError} from '@contracts/pdfCombineErrors';
-import {isPdfCombineOutputTooLargeError} from '@contracts/pdfCombineOutputPolicy';
+import {
+    createPdfCombineOutputTooLargeError,
+    isPdfCombineOutputTooLargeError,
+} from '@contracts/pdfCombineOutputPolicy';
+import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
 import {getRawElectronPlatformApi} from '@app/utils/electronPlatformBridge';
 import {
     DjvuCanceledError,
@@ -785,6 +789,7 @@ async function buildCompactDjvuPdfWithWasm(options: {
         createError: reason => new Error(`Browser compact DjVu export could not join its pages: ${reason}`),
     });
     let processed = 0;
+    let outputBytes = 0;
     try {
         await runBoundedRasterProducerConsumer<IDjvuOutputPage, Uint8Array>({
             items: options.pages,
@@ -821,6 +826,14 @@ async function buildCompactDjvuPdfWithWasm(options: {
             },
             consumeChunk: async (chunk) => {
                 for (const pagePdf of chunk) {
+                    // The pages are joined by one page-ops request; past its
+                    // boundary the export streams the direct PDF instead.
+                    outputBytes += pagePdf.byteLength;
+                    if (outputBytes > BROWSER_PAGE_OPS_MAX_REQUEST_BYTES) {
+                        throw createPdfCombineOutputTooLargeError(
+                            `Browser compact DjVu pages exceed the WASM request boundary (${outputBytes} bytes encoded)`,
+                        );
+                    }
                     output.append(pagePdf);
                     processed += 1;
                     options.onPageProcessed?.(processed, pageCount);
@@ -1114,12 +1127,12 @@ export async function runBrowserDjvuConversion(
                     onBookmarksStart: reportBookmarksStart,
                 });
             } catch (error) {
-                // A page the combine engine cannot hold is written by the
-                // streaming direct export instead.
+                // A page the combine engine cannot hold, or pages too large
+                // to join, are written by the streaming direct export instead.
                 if (!isPdfCombineOutputTooLargeError(error)) {
                     throw error;
                 }
-                BrowserLogger.info('djvu-browser', 'A browser compact DjVu page exceeds the WASM boundary; using streaming direct export', {
+                BrowserLogger.info('djvu-browser', 'Browser compact DjVu export exceeds the WASM boundary; using streaming direct export', {
                     jobId,
                     error: getErrorMessage(error),
                 });
