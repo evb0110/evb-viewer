@@ -57,6 +57,8 @@ export interface IPendingPublish {
 export interface IManifest {
     version: 1;
     ext: string;
+    /** The file name the document was created under, for a view with no other name for it; absent in older stores. */
+    name?: string | undefined;
     /** The id of the next revision, which also names its file. Revision 1 is the destination's bytes as opened. */
     next: number;
     current?: IRevision | undefined;
@@ -164,9 +166,13 @@ export type TRestoreResult = { status: 'committed'; revision: IRevision | null }
 /**
  * `imported`: bytes the person supplied without a destination; they are the baseline, so the document starts clean.
  * `id`: the directory's id when the caller must know it first, for example to lock it before it exists. A writer
- * `source` writes the first revision itself, such as bytes arriving as a stream.
+ * `source` writes the first revision itself, such as bytes arriving as a stream. `name`: the file name the document
+ * is created under; the manifest keeps it, and its extension, or `bin`, names the revision files, as `ext` does.
  */
-export type TDocumentInit = { ext: string; id?: string } & ({ destination: string } | { source: TExternalSource | TRevisionWriter; imported?: boolean });
+export type TDocumentInit = ({ ext: string } | { name: string }) & { id?: string }
+    & ({ destination: string } | { source: TExternalSource | TRevisionWriter; imported?: boolean });
+
+const extensionOf = (name: string) => /\.([A-Za-z0-9]{1,16})$/u.exec(name)?.[1]?.toLowerCase() ?? 'bin';
 
 /**
  * The manifest names a current revision whose file is missing or short, as when a profile comes back without it. The
@@ -202,7 +208,7 @@ const isPendingPublish = (value: unknown) => isRecord(value) && typeof value.des
 
 function isManifest(value: unknown): value is IManifest {
     return isRecord(value) && value.version === 1 && typeof value.ext === 'string' && EXT_PATTERN.test(value.ext)
-        && isCount(value.next) && Array.isArray(value.history)
+        && isOptionalString(value.name) && isCount(value.next) && Array.isArray(value.history)
         && value.history.every(revision => isRevision(revision) || isDestinationRevision(revision))
         && (value.current === undefined || isRevision(value.current))
         && isOptionalString(value.destination) && isOptionalString(value.baseline)
@@ -256,17 +262,18 @@ export class DocumentDirectory {
     ) {}
 
     static async create(store: IDocumentStore, init: TDocumentInit) {
-        if (!EXT_PATTERN.test(init.ext)) throw new Error(`Unsupported document extension: ${init.ext}`);
+        const ext = 'name' in init ? extensionOf(init.name) : init.ext;
+        if (!EXT_PATTERN.test(ext)) throw new Error(`Unsupported document extension: ${ext}`);
         const id = init.id ?? crypto.randomUUID();
         if (!STORE_ID_PATTERN.test(id)) throw new Error(`Invalid document directory id: ${id}`);
-        const manifest: IManifest = { version: 1, ext: init.ext, next: 2, history: [] };
+        const manifest: IManifest = { version: 1, ext, ...('name' in init ? { name: init.name } : {}), next: 2, history: [] };
         const doc = new DocumentDirectory(id, store, manifest, null, undefined);
         if ('destination' in init) {
             const baseline = await store.publication.witness(init.destination);
             if (baseline === null) throw new Error('The destination has no readable content');
             await doc.commitFirst({ ...manifest, destination: init.destination, baseline }, null, undefined);
         } else {
-            const name = `r1.${init.ext}`;
+            const name = `r1.${ext}`;
             const { file, length, witness } = await doc.createRevisionFile(name, init.source, init.imported === true);
             await doc.commitFirst({ ...manifest, current: { id: 1, file: name, length, witness }, baseline: witness }, file, undefined);
         }

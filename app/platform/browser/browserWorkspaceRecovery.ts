@@ -114,8 +114,8 @@ function collectOnce() {
 
 /**
  * The tab an unsaved directory its window's checkpoint names, but whose layout never showed, comes back in, named
- * after its destination, under the working reference its drafts were captured with so they replay. One whose
- * manifest cannot be read comes back as a notice that its work was not found.
+ * after its destination, else the name it was created under, with the working reference its drafts were captured
+ * with so they replay. One whose manifest cannot be read comes back as a notice that its work was not found.
  */
 async function orphanTab(id: string, paneId: IWorkspaceCheckpointTab['paneId']): Promise<IWorkspaceCheckpointTab | null> {
     const {durable} = await browserDocumentStore.stores();
@@ -141,7 +141,7 @@ async function orphanTab(id: string, paneId: IWorkspaceCheckpointTab['paneId']):
     const key = handleKeyOf(manifest.destination ?? null);
     const stored = key === null ? undefined : await fileHandleStore.get(key).catch(() => undefined);
     const fileName = stored?.name ?? destinationFileName(manifest.destination ?? null)
-        ?? (draftsRef && getBrowserDocumentFileName(draftsRef)) ?? 'Recovered document.pdf';
+        ?? (draftsRef && getBrowserDocumentFileName(draftsRef)) ?? manifest.name ?? 'Recovered document.pdf';
     const workingCopyRef = draftsRef ?? createBrowserDocumentRef(fileName, id);
     return {
         tabId: createTabId(),
