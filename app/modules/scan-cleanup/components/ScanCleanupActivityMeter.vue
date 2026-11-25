@@ -314,6 +314,14 @@ const stepGroups = computed(() => SCAN_CLEANUP_ACTIVITY_PHASES.map(phase => ({
     text-overflow: ellipsis;
 }
 
+/* On a phone the step name yields to the phase and the page count. */
+@media (width < 37.5rem) {
+    .scan-cleanup-activity-separator,
+    .scan-cleanup-activity-detail {
+        display: none;
+    }
+}
+
 .scan-cleanup-activity-dot {
     flex: none;
     color: var(--ui-text-dimmed);
