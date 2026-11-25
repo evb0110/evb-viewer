@@ -131,6 +131,10 @@ function readDetectionLayout(page: Page) {
                 };
             })(),
             toolbar: document.querySelector('#editor-global-toolbar-host .scan-cleanup-toolbar')?.getBoundingClientRect().toJSON() as DOMRect | undefined,
+            row: {
+                height: document.querySelector('.editor-global-toolbar-shell')!.getBoundingClientRect().height,
+                tabStripTop: document.querySelector('.editor-pane.is-active .tab-bar')!.getBoundingClientRect().top,
+            },
             host: document.querySelector('#editor-global-toolbar-host')?.getBoundingClientRect().toJSON() as DOMRect | undefined,
             viewerTop: document.querySelector('.workspace-main-shell')?.getBoundingClientRect().top,
             pending: document.querySelector('.scan-cleanup-surface')?.getAttribute('data-detection-status') === 'pending'
@@ -147,9 +151,24 @@ function readDetectionLayout(page: Page) {
     }, SCAN_CLEANUP_TOOLBAR_COUNT_SELECTOR, SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR);
 }
 
-function expectDetectionLayout(layout: Awaited<ReturnType<typeof readDetectionLayout>>) {
+// The window's toolbar row and the tab strip under it, which a tab switch
+// must leave in place.
+function readToolbarRow() {
+    return {
+        height: document.querySelector('.editor-global-toolbar-shell')!.getBoundingClientRect().height,
+        tabStripTop: document.querySelector('.editor-pane.is-active .tab-bar')!.getBoundingClientRect().top,
+    };
+}
+
+function expectDetectionLayout(
+    layout: Awaited<ReturnType<typeof readDetectionLayout>>,
+    readerRow: ReturnType<typeof readToolbarRow>,
+) {
     // Measured while analysis runs; a finished detection changes the layout.
     expect(layout.pending, JSON.stringify(layout)).toBe(true);
+    // One row, as tall as the reader's, so switching tabs leaves the tab
+    // strip in place at every width.
+    expect(layout.row, JSON.stringify(layout)).toEqual(readerRow);
     // Done stays whole and reachable beside the meter (#976).
     expect(layout.done, JSON.stringify(layout)).toMatchObject({
         candidates: 1,
@@ -226,6 +245,7 @@ describe('scan cleanup toolbar contract', () => {
         const otherPath = await createLargeScannedFixturePdf('scan-cleanup-toolbar-other.pdf', 2, 0);
         await openPdfInApp(session.page, otherPath);
         await waitForPdfLoaded(session.page);
+        const readerRow = await session.page.evaluate(readToolbarRow);
 
         // Enough pages that detection is reliably observable in flight.
         const sourcePath = await createLargeScannedFixturePdf(
@@ -284,7 +304,7 @@ describe('scan cleanup toolbar contract', () => {
             window.innerWidth,
             window.innerHeight,
         ]);
-        expectDetectionLayout(await readDetectionLayout(session.page));
+        expectDetectionLayout(await readDetectionLayout(session.page), readerRow);
         try {
             for (const width of [
                 690,
@@ -294,7 +314,7 @@ describe('scan cleanup toolbar contract', () => {
                     width,
                     naturalSize[1],
                 ]);
-                expectDetectionLayout(await readDetectionLayout(session.page));
+                expectDetectionLayout(await readDetectionLayout(session.page), readerRow);
             }
         } catch (error) {
             await session.command('windowResize', naturalSize).catch(() => undefined);
