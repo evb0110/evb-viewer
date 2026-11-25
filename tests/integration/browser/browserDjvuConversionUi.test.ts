@@ -420,6 +420,18 @@ describe('browser document lifecycle UI', () => {
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
                 Reflect.set(window, 'showSaveFilePicker', undefined);
                 window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+                // Stands for the page going away at once: once set, nothing more reaches the document store.
+                const NativeWorker = window.Worker;
+                window.Worker = class extends NativeWorker {
+                    public constructor(url: string | URL, options?: WorkerOptions) {
+                        super(url, options);
+                        if (!String(url).includes('opfsStore')) return;
+                        const post = this.postMessage.bind(this) as (message: unknown, transfer?: Transferable[]) => void;
+                        this.postMessage = ((message: unknown, transfer?: Transferable[]) => {
+                            if (!Reflect.get(window, '__storeGone')) post(message, transfer);
+                        }) as Worker['postMessage'];
+                    }
+                };
             });
             await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
             await waitForOpenFileReady(page);
@@ -539,37 +551,47 @@ describe('browser document lifecycle UI', () => {
                 fullPage: true,
             });
 
-            // A real edit of the converted PDF is unsaved work: committed, it comes back after a reload.
-            const committed = () => page.evaluate(async () => {
-                const revisions: Record<string, number | null> = {};
-                const documents = await (await navigator.storage.getDirectory()).getDirectoryHandle('documents');
-                for await (const [id, dir] of (documents as unknown as {entries(): AsyncIterable<[string, FileSystemDirectoryHandle]>}).entries()) {
-                    const manifest = JSON.parse(await (await (await dir.getFileHandle('manifest.json')).getFile()).text()) as {current?: {id: number}};
-                    revisions[id] = manifest.current?.id ?? null;
-                }
-                return revisions;
-            });
-            const opened = await committed();
-            await page.getByRole('button', {name: 'Toggle Sidebar', exact: true}).click();
-            await page.getByRole('tab', {name: 'Pages', exact: true}).click();
-            await page.locator('[data-thumbnail-page="1"]').first().click({button: 'right'});
-            await page.getByRole('menuitem', {name: 'Rotate Clockwise', exact: true}).click();
-            await expect.poll(committed, {timeout: 60_000}).not.toEqual(opened);
+            // A real edit of the converted PDF is unsaved work. It comes back under its name when the page goes away
+            // the moment its revision commits, before the window's workspace record shows the edited tab.
             const readWorkingCopy = () => page.evaluate(() => {
                 const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
                 return api?.readActiveWorkspaceStateValues?.<{workingCopyPath: string | null}>(['workingCopyPath']).workingCopyPath ?? null;
             });
             const editedCopy = await readWorkingCopy();
-            // A reload restores the tabs the window's workspace record names, which it writes shortly after a tab opens.
-            await expect.poll(() => page.evaluate(async (ref) => {
-                const workspaces = await (await navigator.storage.getDirectory()).getDirectoryHandle('workspaces');
-                for await (const [, handle] of (workspaces as unknown as {entries(): AsyncIterable<[string, FileSystemFileHandle]>}).entries()) {
-                    const record = await (await handle.getFile()).text().catch(() => '');
-                    if (record.includes(JSON.stringify(ref).slice(1, -1))) return true;
+            expect(editedCopy).toMatch(/\.pdf$/u);
+            const directoryId = editedCopy!.slice('browser://documents/'.length).split('/')[0]!;
+            // The revision before the edit, read before the edit starts so the watch below cannot miss the commit.
+            const opened = await page.evaluate(async (id) => {
+                const dir = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('documents')).getDirectoryHandle(id);
+                const manifest = JSON.parse(await (await (await dir.getFileHandle('manifest.json')).getFile()).text()) as {current?: {id: number}};
+                return manifest.current?.id ?? null;
+            }, directoryId);
+            const reloaded = page.waitForEvent('framenavigated');
+            const reloadOnCommit = page.evaluate(async ({id, opened}) => {
+                const dir = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('documents')).getDirectoryHandle(id);
+                const revision = () => dir.getFileHandle('manifest.json')
+                    .then(async handle => (JSON.parse(await (await handle.getFile()).text()) as {current?: {id: number}}).current?.id ?? null)
+                    .catch(() => undefined);
+                for (const until = Date.now() + 60_000; Date.now() < until;) {
+                    const current = await revision();
+                    if (current !== undefined && current !== opened) {
+                        Reflect.set(window, '__storeGone', true);
+                        location.reload();
+                        return;
+                    }
                 }
-                return false;
-            }, editedCopy), {timeout: 30_000}).toBe(true);
-            await page.reload({waitUntil: 'domcontentloaded'});
+                throw new Error('The rotation did not commit');
+            }, {id: directoryId, opened}).catch((error: unknown) => {
+                // The reload ends the script that made it.
+                if (!/context was destroyed|navigat/iu.test(String(error))) throw error;
+            });
+            await page.getByRole('button', {name: 'Toggle Sidebar', exact: true}).click();
+            await page.getByRole('tab', {name: 'Pages', exact: true}).click();
+            await page.locator('[data-thumbnail-page="1"]').first().click({button: 'right'});
+            await page.getByRole('menuitem', {name: 'Rotate Clockwise', exact: true}).click();
+            await reloadOnCommit;
+            await reloaded;
+            await page.waitForLoadState('domcontentloaded');
             await waitForOpenFileReady(page);
             await expect.poll(() => page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').evaluate(tab => ({
                 name: tab.textContent?.trim(),

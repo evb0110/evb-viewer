@@ -152,11 +152,6 @@ export class BrowserDocumentSourceChangedError extends Error {
     }
 }
 
-function extensionOf(fileName: string) {
-    const match = /\.([A-Za-z0-9]{1,16})$/u.exec(fileName);
-    return match ? match[1]!.toLowerCase() : 'bin';
-}
-
 function bytesBlob(data: Uint8Array | ArrayBuffer | Blob) {
     if (data instanceof Blob) return data;
     return new Blob([data instanceof Uint8Array ? data as Uint8Array<ArrayBuffer> : new Uint8Array(data)]);
@@ -1059,7 +1054,7 @@ export class BrowserDocumentStore {
         const id = browserDocumentRefId(ref);
         const release = await this.lock(id, 0);
         const fileName = meta.fileName ?? getBrowserDocumentFileName(ref);
-        const documentInit = {...init, id, ext: extensionOf(fileName)} as TDocumentInit;
+        const documentInit = {...init, id, name: fileName} as TDocumentInit;
         let store = durable ?? memory;
         let doc: DocumentDirectory | null = null;
         let existedInStore = (await store.port.list('documents').catch((): string[] => [])).includes(id);
