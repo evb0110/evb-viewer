@@ -14,6 +14,7 @@ import {
 } from '@app/platform/browser-api/browserWorkerClient';
 import {
     canRunThreadedScanCleanupEngine,
+    isSixtyFourBitBrowser,
     resolveScanCleanupEngineThreads,
     runWithScanCleanupEngineFailover,
 } from '@app/platform/browser-api/scanCleanupEngineVariant';
@@ -455,7 +456,7 @@ describe('scan cleanup engine threads', () => {
 
     it('runs no queued request on a threaded worker once a threaded start failed, in either pool', async () => {
         vi.stubGlobal('crossOriginIsolated', true);
-        vi.stubGlobal('navigator', {hardwareConcurrency: 11, userAgent: 'test'});
+        vi.stubGlobal('navigator', {hardwareConcurrency: 11, userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15'});
         vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         vi.resetModules();
         const variant = await import('@app/platform/browser-api/scanCleanupEngineVariant');
@@ -523,6 +524,34 @@ describe('scan cleanup engine threads', () => {
         expect(events.filter(event => event.kind === 'failed').length).toBe(ran.filter(event => event.payload?.endsWith('returned')).length);
         expect(otherPool).toHaveBeenCalledOnce();
         expect(variant.usesThreadedScanCleanupEngine()).toBe(false);
+    });
+
+    it('offers the threaded engine only to a browser it knows is a 64-bit build', () => {
+        const firefox = (platform: string) => `Mozilla/5.0 (${platform}; rv:140.0) Gecko/20100101 Firefox/140.0`;
+        // Chromium's client hint decides; its frozen user agent cannot.
+        const chromeLinux = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
+        expect(isSixtyFourBitBrowser({userAgent: chromeLinux, bitness: '64'})).toBe(true);
+        expect(isSixtyFourBitBrowser({userAgent: chromeLinux, bitness: '32'})).toBe(false);
+        expect(isSixtyFourBitBrowser({userAgent: chromeLinux, bitness: null})).toBe(false);
+        expect(isSixtyFourBitBrowser({userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15'})).toBe(true);
+        expect(isSixtyFourBitBrowser({userAgent: firefox('Macintosh; Intel Mac OS X 10.15')})).toBe(true);
+        expect(isSixtyFourBitBrowser({userAgent: firefox('Windows NT 10.0; Win64; x64')})).toBe(true);
+        expect(isSixtyFourBitBrowser({userAgent: firefox('X11; Linux x86_64')})).toBe(true);
+        expect(isSixtyFourBitBrowser({userAgent: firefox('X11; Linux aarch64')})).toBe(true);
+        expect(isSixtyFourBitBrowser({userAgent: firefox('Windows NT 10.0; WOW64')})).toBe(false);
+        expect(isSixtyFourBitBrowser({userAgent: firefox('Windows NT 10.0')})).toBe(false);
+        expect(isSixtyFourBitBrowser({userAgent: firefox('X11; Linux i686')})).toBe(false);
+        expect(isSixtyFourBitBrowser({userAgent: firefox('X11; Linux armv7l')})).toBe(false);
+        expect(isSixtyFourBitBrowser({userAgent: ''})).toBe(false);
+    });
+
+    it('runs the single-threaded engine in a 32-bit browser even when the page is isolated', async () => {
+        vi.stubGlobal('crossOriginIsolated', true);
+        vi.stubGlobal('navigator', {hardwareConcurrency: 11, userAgent: 'Mozilla/5.0 (Windows NT 10.0; WOW64; rv:140.0) Gecko/20100101 Firefox/140.0'});
+        vi.resetModules();
+        const variant = await import('@app/platform/browser-api/scanCleanupEngineVariant');
+        expect(await variant.prepareScanCleanupEngine()).toBe(false);
+        expect(readScanCleanupEngineWorkerThreads(variant.scanCleanupEngineWorkerName(1))).toBeNull();
     });
 
     it('does not retry a request that failed for any other reason', async () => {

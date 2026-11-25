@@ -78,13 +78,68 @@ function readPageEnvironment(): IThreadedScanCleanupEngineEnvironment {
     };
 }
 
+export interface IBrowserArchitecture {
+    userAgent: string;
+    /** Chromium's high-entropy `bitness`: undefined where the browser has no client hints, null where it would not tell. */
+    bitness?: string | null;
+}
+
+/**
+ * Whether the browser is a 64-bit build. The threaded engine relies on guard
+ * pages to bounds-check plain loads and stores, which only 64-bit engines use.
+ * Chromium freezes its user agent (Linux always reads x86_64), so its client
+ * hint decides; elsewhere the platform token does: every macOS browser is
+ * 64-bit, and Windows and Linux name the build. Anything unclear is not.
+ */
+export function isSixtyFourBitBrowser({userAgent, bitness}: IBrowserArchitecture) {
+    if (bitness !== undefined) return bitness === '64';
+    if (/WOW64|\bi[3-6]86\b|armv7|armv8l/u.test(userAgent)) return false;
+    return /Macintosh|\bWin64\b|\bx86_64\b|\baarch64\b|\barm64\b/u.test(userAgent);
+}
+
+async function readBrowserArchitecture(): Promise<IBrowserArchitecture> {
+    const userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent;
+    const hints: unknown = typeof navigator === 'undefined' ? undefined : Reflect.get(navigator, 'userAgentData');
+    const getHighEntropyValues: unknown = hints === undefined || hints === null ? undefined : Reflect.get(hints, 'getHighEntropyValues');
+    if (typeof getHighEntropyValues !== 'function') return {userAgent};
+    try {
+        const values: unknown = await getHighEntropyValues.call(hints, ['bitness']);
+        const bitness: unknown = typeof values === 'object' && values !== null ? Reflect.get(values, 'bitness') : undefined;
+        return {
+            userAgent,
+            bitness: typeof bitness === 'string' ? bitness : null,
+        };
+    } catch {
+        return {
+            userAgent,
+            bitness: null,
+        };
+    }
+}
+
 let threadedEngine: boolean | null = null;
+let deciding: Promise<boolean> | null = null;
 const switchedOff = new Set<() => void>();
 
-/** Whether this page runs the threaded engine. Decided on first use, then fixed. */
+/**
+ * Decides once whether this page runs the threaded engine. Every engine
+ * request awaits it before it is admitted, so no request of a job runs before
+ * the decision is fixed.
+ */
+export function prepareScanCleanupEngine() {
+    deciding ??= (async () => {
+        const capable = canRunThreadedScanCleanupEngine(readPageEnvironment())
+            && isSixtyFourBitBrowser(await readBrowserArchitecture());
+        // A start failure may have switched the page off meanwhile.
+        threadedEngine ??= capable;
+        return threadedEngine;
+    })();
+    return deciding;
+}
+
+/** Whether this page runs the threaded engine; false until `prepareScanCleanupEngine` has decided. */
 export function usesThreadedScanCleanupEngine() {
-    threadedEngine ??= canRunThreadedScanCleanupEngine(readPageEnvironment());
-    return threadedEngine;
+    return threadedEngine === true;
 }
 
 /**
@@ -93,7 +148,9 @@ export function usesThreadedScanCleanupEngine() {
  */
 export function switchOffThreadedScanCleanupEngine() {
     if (threadedEngine === false) return;
+    const wasThreaded = threadedEngine === true;
     threadedEngine = false;
+    if (!wasThreaded) return;
     for (const reset of switchedOff) reset();
 }
 
@@ -151,6 +208,7 @@ export async function runWithScanCleanupEngineFailover<TPayload, TResult>(
     payload: TPayload,
     attempt: (payload: TPayload) => Promise<TResult>,
 ): Promise<TResult> {
+    await prepareScanCleanupEngine();
     try {
         return await attempt(payload);
     } catch (error) {
