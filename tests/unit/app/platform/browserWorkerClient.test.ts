@@ -415,10 +415,38 @@ describe('BrowserWorkerBudget across pools', () => {
         const preview = pool.hold('threads-6');
         await settle();
         expect(preview.ranOn()).toBe('threads-6');
-        await Promise.all([...pages.slice(0, 2), preview].map(request => request.finish()));
+        // The preview ends while the batch runs: its place stays free for the next preview.
+        await preview.finish();
+        await settle();
+        expect(pages[2]!.ranOn()).toBeNull();
+        const nextPreview = pool.hold('threads-6');
+        await settle();
+        expect(nextPreview.ranOn()).toBe('threads-6');
+        await Promise.all([...pages.slice(0, 2), nextPreview].map(request => request.finish()));
         await settle();
         expect(pages[2]!.ranOn()).toBe('threads-2');
         await pages[2]!.finish();
+    });
+
+    it('ends no idle worker of another pool when busy workers leave no place to take', async () => {
+        const budget = new BrowserWorkerBudget(() => 2, key => key?.startsWith('threads') === true);
+        const cleanup = createPool(3, budget);
+        const ocr = createPool(3, budget);
+        const preview = cleanup.hold('threads-6');
+        await settle();
+        await preview.finish();
+        const page = ocr.hold('threads-2', 1);
+        await settle();
+        expect(page.ranOn()).toBe('threads-2');
+        // One place busy, one held by the idle preview worker: another batch page cannot fit.
+        const next = ocr.hold('threads-2', 1);
+        await settle();
+        expect(next.ranOn()).toBeNull();
+        expect(FakeWorker.terminateCount).toBe(0);
+        await page.finish();
+        await settle();
+        expect(next.ranOn()).toBe('threads-2');
+        await next.finish();
     });
 });
 

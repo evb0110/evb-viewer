@@ -322,18 +322,29 @@ export class BrowserWorkerBudget {
         return this.holders.has(client as TAnyBrowserWorkerClient);
     }
 
-    /** Whether one more counted worker fits with `keepFree` places left over. */
-    public hasRoom(keepFree: number) {
-        return this.holders.size + 1 + keepFree <= this.limit();
+    /**
+     * Whether one more counted request may run with `keepFree` places left
+     * over. Only busy workers count here: an idle one can be replaced or ended.
+     */
+    public admits(keepFree: number) {
+        let busy = 0;
+        for (const holder of this.holders) {
+            if (!holder.idle) busy += 1;
+        }
+        return busy + 1 + keepFree <= this.limit();
     }
 
-    /** Ends idle counted workers until one more fits with `keepFree` places left over. */
-    public reclaim(keepFree: number) {
+    /** Whether one more counted worker fits beside the ones alive, busy or idle. */
+    public hasRoom() {
+        return this.holders.size < this.limit();
+    }
+
+    /** Ends idle counted workers until one more worker fits; call only after `admits`. */
+    public makeRoom() {
         for (const holder of [...this.holders]) {
-            if (this.hasRoom(keepFree)) break;
+            if (this.hasRoom()) break;
             if (holder.idle) holder.resetWorker();
         }
-        return this.hasRoom(keepFree);
     }
 
     public hold(client: object) {
@@ -508,15 +519,16 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
 
     private chooseClient(free: Array<BrowserWorkerClient<TPendingRequest>>, workerKey: string | undefined, keepFree: number) {
         if (workerKey === undefined) return free.find(candidate => candidate.hasWorker()) ?? free[0];
+        const budget = this.budget?.counts(workerKey) ? this.budget : null;
+        if (budget && !budget.admits(keepFree)) return null;
         const same = free.find(candidate => candidate.workerKey === workerKey);
         if (same) return same;
         const empty = free.find(candidate => !candidate.hasWorker()) ?? free[0];
-        const budget = this.budget;
-        if (!budget?.counts(workerKey)) return empty;
+        if (!budget || budget.hasRoom()) return empty;
         // Replacing an idle counted worker of this pool keeps the count.
         const holder = free.find(candidate => budget.holds(candidate));
-        if (budget.hasRoom(keepFree)) return empty;
         if (holder) return holder;
-        return budget.reclaim(keepFree) ? empty : null;
+        budget.makeRoom();
+        return empty;
     }
 }
