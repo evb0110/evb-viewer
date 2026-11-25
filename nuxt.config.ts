@@ -570,12 +570,21 @@ export default defineNuxtConfig({
             // only workers whose script carries COEP. Set ahead of Vite's own
             // handlers so its 304 revalidations carry it too: WebKit reads the
             // policy from the 304, and `server.headers` leaves it off.
+            // The desktop app serves its renderer without these headers
+            // (electron/protocol.ts); in development the Electron renderer
+            // loads from this server, so no response it gets carries COEP,
+            // Nitro's route rules and static files included.
             name: 'evb:dev-cross-origin-embedder-policy',
             apply: 'serve',
             configureServer(server) {
                 server.middlewares.use((request, response, next) => {
-                    // Nitro's route rules already answer everything else.
-                    if (request.url?.startsWith('/_nuxt/')) response.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+                    if (request.headers['user-agent']?.includes(' Electron/')) {
+                        const setHeader = response.setHeader.bind(response);
+                        response.setHeader = (name, value) => name.toLowerCase() === 'cross-origin-embedder-policy' ? response : setHeader(name, value);
+                    } else if (request.url?.startsWith('/_nuxt/')) {
+                        // Nitro's route rules answer everything else.
+                        response.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+                    }
                     next();
                 });
             },
