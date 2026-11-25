@@ -300,15 +300,15 @@ it('#1609 reports a failed IndexedDB handle write while keeping the current sess
 
 
 it('pairs a readable Blob only with the revision whose bytes it holds, even across an edit undone while it was read', async () => {
-    const {repo} = await repository();
-    const {ref, entry, doc} = await workingDocument(repo, 'revision A');
+    const {repo, store} = await repository();
+    const {ref, entry} = await workingDocument(repo, 'revision A');
     const revisionA = repo.tokenOf(entry);
     const blobText = async (blob: Blob) => decode(new Uint8Array(await blob.arrayBuffer()));
     // An edit lands as the Blob is read, and is undone before the Blob is handed over.
-    const read = doc.read.bind(doc);
-    vi.spyOn(doc, 'read').mockImplementationOnce(async (offset, length) => {
+    const read = store.port.read.bind(store.port);
+    vi.spyOn(store.port, 'read').mockImplementationOnce(async (path) => {
         await repo.write(ref, encode('revision B'), {expectedDocumentRevisionToken: revisionA});
-        const bytes = await read(offset, length);
+        const bytes = await read(path);
         await repo.restoreRevision(ref, revisionA, repo.tokenOf(entry));
         return bytes;
     });
