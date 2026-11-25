@@ -241,7 +241,7 @@ describe('browser document lifecycle UI', () => {
             await page.locator('[data-thumbnail-page="1"]').first().click({button: 'right'});
             await page.getByRole('menuitem', {name: 'Rotate Clockwise', exact: true}).click();
             // The kill follows the rotation's commit within milliseconds, well inside the layout record's delay.
-            await expect.poll(() => readCommittedRevisions(page), {interval: 5, timeout: 60_000}).not.toBe(opened);
+            await expect.poll(() => readCommittedRevisions(page), {interval: 5, timeout: 60_000}).not.toEqual(opened);
             killBrowser(profile);
             await context.close().catch(() => undefined);
             ({context, page} = await launch(profile));
