@@ -23,14 +23,7 @@ pub mod protocol;
 pub mod split;
 pub mod text_tone;
 mod thin_strokes;
-#[cfg(any(
-    test,
-    all(
-        target_family = "wasm",
-        target_os = "unknown",
-        feature = "wasm-exports"
-    )
-))]
+#[cfg(any(test, all(target_family = "wasm", feature = "wasm-exports")))]
 mod wasm;
 
 pub use domain::options::*;

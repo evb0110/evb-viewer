@@ -868,14 +868,7 @@ pub(crate) struct OutputPlane<'a> {
 
 impl OutputPlane<'_> {
     /// The bytes [`Self::write_atomic`] publishes.
-    #[cfg(any(
-        test,
-        all(
-            target_family = "wasm",
-            target_os = "unknown",
-            feature = "wasm-exports"
-        )
-    ))]
+    #[cfg(any(test, all(target_family = "wasm", feature = "wasm-exports")))]
     pub(crate) fn encode(&self) -> Result<Vec<u8>, String> {
         match (&self.pixels, self.file) {
             (PlanePixels::Gray(image), PlaneFile::Png) => png::encode_gray(image),
@@ -909,14 +902,7 @@ impl OutputPlane<'_> {
         }
     }
 
-    #[cfg(any(
-        test,
-        all(
-            target_family = "wasm",
-            target_os = "unknown",
-            feature = "wasm-exports"
-        )
-    ))]
+    #[cfg(any(test, all(target_family = "wasm", feature = "wasm-exports")))]
     fn unsupported(&self) -> String {
         format!("The {:?} plane has no {:?} encoding", self.role, self.file)
     }

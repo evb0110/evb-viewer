@@ -28,7 +28,7 @@ serde_json = { workspace = true, features = ["float_roundtrip"] }
 thiserror.workspace = true
 
 # Publication names draw OS randomness; the browser engine publishes no files.
-[target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dependencies]
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
 getrandom = "0.4.3"
 
 # The CLI's SIGTERM handler; the library never calls libc.

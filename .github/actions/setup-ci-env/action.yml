@@ -61,13 +61,13 @@ runs:
         path: |
           public/wasm
           .tmp/wasm-build-ids.json
-        key: wasm-v3-${{ runner.os }}-${{ steps.wasm-sources.outputs.build-ids }}-${{ hashFiles('scripts/build-wasm-tool.mjs', 'scripts/wasm-artifacts.mjs', 'scripts/lib/build-environment.mjs') }}
+        key: wasm-v3-${{ runner.os }}-${{ steps.wasm-sources.outputs.build-ids }}-${{ hashFiles('scripts/build-wasm-tool.mjs', 'scripts/wasm-artifacts.mjs', 'scripts/lib/build-environment.mjs', 'scripts/lib/lower-wasm-bulk-memory.mjs') }}
 
     - name: Ensure browser and OCR WASM
       if: inputs.wasm == 'true'
       shell: bash
       run: |
         if [ '${{ steps.wasm-cache.outputs.cache-hit }}' != 'true' ]; then
-          rustup target add wasm32-unknown-unknown
+          rustup target add wasm32-unknown-unknown wasm32-wasip1-threads
         fi
         node scripts/ensure-wasm-artifacts.mjs

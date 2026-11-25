@@ -83,7 +83,7 @@ fi
 
 export PATH="$HOME/.cargo/bin:$PATH"
 rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
-rustup target add wasm32-unknown-unknown --toolchain "$RUST_TOOLCHAIN"
+rustup target add wasm32-unknown-unknown wasm32-wasip1-threads --toolchain "$RUST_TOOLCHAIN"
 
 echo "Installing root workspace dependencies..."
 node scripts/ci-install-dependencies.mjs --frozen-lockfile

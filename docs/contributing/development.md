@@ -58,9 +58,9 @@ docs/       Project-specific implementation and release notes
 
 - Node.js latest LTS, currently `26.x`
 - `pnpm` `10.x`
-- Rust through `rustup`, with the WebAssembly target that `pnpm dev`, `pnpm build`
+- Rust through `rustup`, with the WebAssembly targets that `pnpm dev`, `pnpm build`
   and `pnpm test:unit` use to build the browser WASM tools:
-  `rustup target add wasm32-unknown-unknown`
+  `rustup target add wasm32-unknown-unknown wasm32-wasip1-threads`
 
 ### Root App Setup
 

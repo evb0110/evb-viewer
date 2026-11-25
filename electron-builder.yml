@@ -53,6 +53,9 @@ files:
   - "!nuxt-output/public/sitemap.xml"
   # The browser qpdf engine; desktop runs the native qpdf.
   - "!nuxt-output/public/wasm/evb-qpdf.*"
+  # The threaded browser cleanup engine needs a cross-origin isolated page the
+  # desktop shell does not serve; desktop runs the native cleanup engine.
+  - "!nuxt-output/public/wasm/evb-scan-cleanup-threads.wasm"
   - "!.devkit/**/*"
   - "!.devkit"
 

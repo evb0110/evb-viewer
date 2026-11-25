@@ -39,12 +39,12 @@ pub(crate) fn write_atomic_with(
 /// Unpredictable bytes for publication temporary names. The browser engine
 /// publishes nothing to a filesystem, so its build carries no randomness
 /// source and reports any publication attempt as unavailable.
-#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+#[cfg(not(target_family = "wasm"))]
 fn fill_publication_random(bytes: &mut [u8]) -> Result<(), String> {
     getrandom::fill(bytes).map_err(|error| format!("unable to obtain random bytes: {error}"))
 }
 
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+#[cfg(target_family = "wasm")]
 fn fill_publication_random(_bytes: &mut [u8]) -> Result<(), String> {
     Err("file publication is unavailable in the browser cleanup engine".to_owned())
 }

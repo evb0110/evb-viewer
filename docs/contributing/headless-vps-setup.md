@@ -88,7 +88,7 @@ Then run:
 
 ```bash
 rustup toolchain install 1.89.0 --profile minimal
-rustup target add wasm32-unknown-unknown
+rustup target add wasm32-unknown-unknown wasm32-wasip1-threads
 node scripts/ci-install-dependencies.mjs --frozen-lockfile
 pnpm exec playwright install chromium
 pnpm run fetch:runtime-binaries

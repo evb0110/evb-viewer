@@ -220,11 +220,15 @@ console.log(executablePath);
         'list',
         '--installed',
     ]);
-    const hasWasmTarget = wasmTargetResult.ok && wasmTargetResult.stdout.split('\n').includes('wasm32-unknown-unknown');
+    const installedTargets = wasmTargetResult.ok ? wasmTargetResult.stdout.split('\n') : [];
+    const hasWasmTarget = [
+        'wasm32-unknown-unknown',
+        'wasm32-wasip1-threads',
+    ].every(target => installedTargets.includes(target));
     addCheck({
-        detail: wasmTargetResult.ok ? wasmTargetResult.stdout.split('\n').join(', ') : wasmTargetResult.stderr || wasmTargetResult.error,
-        name: 'Rust wasm32 target',
-        remedy: 'Run rustup target add wasm32-unknown-unknown.',
+        detail: wasmTargetResult.ok ? installedTargets.join(', ') : wasmTargetResult.stderr || wasmTargetResult.error,
+        name: 'Rust wasm32 targets',
+        remedy: 'Run rustup target add wasm32-unknown-unknown wasm32-wasip1-threads.',
         required: true,
         status: hasWasmTarget ? 'ok' : 'missing',
     });

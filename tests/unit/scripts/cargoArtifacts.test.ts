@@ -28,7 +28,13 @@ import {
 import { createWasmToolBuildPlan } from '@scripts/build-wasm-tool.mjs';
 import { getRequestedNativeRustTarget } from '@scripts/native-rust-targets.mjs';
 import { getGeneratedNativeToolResource } from '@scripts/nativeResourceManifest';
-import { getWasmArtifactByCrateName } from '@scripts/wasm-artifacts.mjs';
+import { getWasmArtifactsByCrateName } from '@scripts/wasm-artifacts.mjs';
+import {
+    countWasmBulkMemory,
+    lowerWasmBulkMemory,
+} from '@scripts/lib/lower-wasm-bulk-memory.mjs';
+import { existsSync } from 'node:fs';
+import { readFile as readFileBytes } from 'node:fs/promises';
 
 interface ICargoArtifactsModule {
     computeCargoInputFingerprint: (options: {
@@ -234,7 +240,7 @@ describe('Cargo artifact staging', () => {
             'link-arg=-Wl,-oso_prefix,/work/evb viewer',
         ]);
         const plan = createWasmToolBuildPlan({
-            artifact: getWasmArtifactByCrateName('pdf-page-ops'),
+            artifact: getWasmArtifactsByCrateName('pdf-page-ops')[0]!,
             env,
             projectRoot: '/work/evb viewer',
         });
@@ -615,19 +621,244 @@ describe('Cargo artifact staging', () => {
             'scan-cleanup',
         ]) {
             const tool = getGeneratedNativeToolResource(toolId);
-            const artifact = getWasmArtifactByCrateName(tool.crateName);
-            const plan = createWasmToolBuildPlan({
-                artifact,
-                env: {RUSTFLAGS: '--cfg existing'},
-                projectRoot: '/repo',
-            });
-            expect(plan.manifestPath).toBe(`native/${tool.crateName}/Cargo.toml`);
-            expect(plan.destinationPath).toBe(path.join('/repo', artifact.publicRelativePath));
-            expect(plan.requiredExports).toBe(artifact.requiredExports);
-            expect(plan.rustflags).toContain('--remap-path-prefix=/repo=/evb-viewer');
+            for (const artifact of getWasmArtifactsByCrateName(tool.crateName)) {
+                const plan = createWasmToolBuildPlan({
+                    artifact,
+                    env: {RUSTFLAGS: '--cfg existing'},
+                    projectRoot: '/repo',
+                });
+                expect(plan.manifestPath).toBe(`native/${tool.crateName}/Cargo.toml`);
+                expect(plan.destinationPath).toBe(path.join('/repo', artifact.publicRelativePath));
+                expect(plan.requiredExports).toBe(artifact.requiredExports);
+                expect(plan.rustflags).toContain('--remap-path-prefix=/repo=/evb-viewer');
+                expect(plan.cargoArgs).toContain(artifact.rustTarget);
+            }
         }
-        expect(() => getWasmArtifactByCrateName('pdf-search')).toThrow(
+        expect(getWasmArtifactsByCrateName('scan-cleanup').map(artifact => [
+            artifact.publicRelativePath,
+            artifact.rustTarget,
+        ])).toEqual([
+            [
+                'public/wasm/evb-scan-cleanup.wasm',
+                'wasm32-unknown-unknown',
+            ],
+            [
+                'public/wasm/evb-scan-cleanup-threads.wasm',
+                'wasm32-wasip1-threads',
+            ],
+        ]);
+        expect(() => getWasmArtifactsByCrateName('pdf-search')).toThrow(
             'Unknown WASM artifact crate: pdf-search',
         );
+    });
+});
+
+// A minimal WebAssembly encoder for the lowering's test modules.
+function leb(value: number | bigint, signed = false, width = 0): number[] {
+    let remaining = BigInt(value);
+    const out: number[] = [];
+    for (;;) {
+        const byte = Number(remaining & 0x7fn);
+        remaining >>= 7n;
+        const done = signed
+            ? (remaining === 0n && !(byte & 0x40)) || (remaining === -1n && Boolean(byte & 0x40))
+            : remaining === 0n;
+        if (done && out.length + 1 >= width) {
+            out.push(byte);
+            return out;
+        }
+        out.push(byte | 0x80);
+        if (done) {
+            // Pad a non-minimal encoding with continuation bytes of the sign.
+            const fill = signed && remaining === -1n ? 0x7f : 0x00;
+            while (out.length + 1 < width) out.push(fill | 0x80);
+            out.push(fill);
+            return out;
+        }
+    }
+}
+const wasmVector = (items: number[][]) => [...leb(items.length), ...items.flat()];
+const wasmSection = (id: number, content: number[]) => [id, ...leb(content.length), ...content];
+const wasmName = (name: string) => [...leb(name.length), ...Buffer.from(name)];
+const wasmModule = (...sections: number[][]) => Uint8Array.from([0x00, 0x61, 0x73, 0x6d, 1, 0, 0, 0, ...sections.flat()]);
+const wasmBody = (code: number[], locals: number[][] = []) => {
+    const body = [...wasmVector(locals), ...code, 0x0b];
+    return [...leb(body.length), ...body];
+};
+const I32 = 0x7f;
+const memoryImport = (name: string, shared: boolean) => [...wasmName('env'), ...wasmName(name), 0x02, ...(shared ? [0x03, 1, 1] : [0x00, 1])];
+const MEMORY_COPY = [0xfc, 0x0a, 0x00, 0x00];
+const MEMORY_FILL = [0xfc, 0x0b, 0x00];
+const get = (local: number) => [0x20, local];
+const i32 = (value: number) => [0x41, ...leb(value, true)];
+
+/** A module whose `copy` and `fill` exports run the two bulk instructions on an imported memory. */
+function bulkMemoryModule(shared: boolean) {
+    return wasmModule(
+        wasmSection(1, wasmVector([[0x60, 3, I32, I32, I32, 0]])),
+        wasmSection(2, wasmVector([memoryImport('memory', shared)])),
+        wasmSection(3, wasmVector([[0], [0]])),
+        wasmSection(7, wasmVector([[...wasmName('copy'), 0, 0], [...wasmName('fill'), 0, 1]])),
+        wasmSection(10, wasmVector([
+            wasmBody([...get(0), ...get(1), ...get(2), ...MEMORY_COPY]),
+            wasmBody([...get(0), ...get(1), ...get(2), ...MEMORY_FILL]),
+        ])),
+    );
+}
+
+function instantiate(bytes: Uint8Array<ArrayBuffer>, imports: WebAssembly.Imports) {
+    return new WebAssembly.Instance(new WebAssembly.Module(bytes), imports).exports as Record<string, (...args: number[]) => number>;
+}
+
+describe('browser WASM bulk memory lowering', () => {
+    for (const shared of [false, true]) {
+        it(`copies and fills a${shared ? ' shared' : 'n unshared'} memory exactly as memory.copy and memory.fill do`, () => {
+            const original = bulkMemoryModule(shared);
+            const {bytes, lowered} = lowerWasmBulkMemory(original);
+            expect(lowered).toEqual({copy: 1, fill: 1});
+            expect(countWasmBulkMemory(bytes)).toEqual({copy: 0, fill: 0});
+            const pattern = Uint8Array.from({length: 65536}, (_, index) => (index * 7 + 3) & 0xff);
+            const engines = [original, bytes].map((moduleBytes) => {
+                const memory = new WebAssembly.Memory({initial: 1, maximum: 1, shared});
+                return {memory, exports: instantiate(moduleBytes, {env: {memory}})};
+            });
+            const end = 65536;
+            const cases: Array<['copy' | 'fill', number, number, number]> = [];
+            for (let length = 0; length <= 65; length += 1) {
+                for (const base of [0, 3, 1000, end - length]) {
+                    for (const delta of [-40, -9, -8, -7, -1, 0, 1, 7, 8, 9, 40]) {
+                        const source = base + delta;
+                        if (source >= 0 && source + length <= end) cases.push(['copy', base, source, length]);
+                    }
+                    for (const value of [0, 1, 0x7f, 0x80, 0xff, 0x1ab, -1, -128]) cases.push(['fill', base, value, length]);
+                }
+            }
+            cases.push(['copy', end, 0, 0], ['copy', 0, end, 0], ['fill', end, 9, 0]);
+            for (const [kind, destination, sourceOrValue, length] of cases) {
+                const results = engines.map(({memory, exports}) => {
+                    const view = new Uint8Array(memory.buffer);
+                    view.set(pattern);
+                    exports[kind]!(destination, sourceOrValue, length);
+                    return view.slice();
+                });
+                expect(Buffer.compare(results[0]!, results[1]!), `${kind}(${destination}, ${sourceOrValue}, ${length})`).toBe(0);
+            }
+            expect(cases.length).toBeGreaterThan(3000);
+        });
+    }
+
+    it('keeps imports, tables, start, passive segments and indirect calls working', () => {
+        const T_VOID = 0;
+        const T_LOG = 1;
+        const T_RESULT = 2;
+        const original = wasmModule(
+            wasmSection(1, wasmVector([[0x60, 0, 0], [0x60, 1, I32, 0], [0x60, 0, 1, I32]])),
+            wasmSection(2, wasmVector([
+                memoryImport('memory', false),
+                [...wasmName('env'), ...wasmName('log'), 0x00, T_LOG],
+            ])),
+            // 1: start, 2: indirect target, 3: run
+            wasmSection(3, wasmVector([[T_VOID], [T_RESULT], [T_RESULT]])),
+            wasmSection(4, wasmVector([[0x70, 0x00, 1]])),
+            wasmSection(7, wasmVector([[...wasmName('run'), 0, 3]])),
+            wasmSection(8, leb(1)),
+            wasmSection(9, wasmVector([[0x00, ...i32(0), 0x0b, ...wasmVector([[2]])]])),
+            wasmSection(12, leb(1)),
+            wasmSection(10, wasmVector([
+                wasmBody([...i32(100), ...i32(1), 0x36, 0x02, 0x00]),
+                wasmBody([...i32(7), 0x10, 0, ...i32(42)]),
+                wasmBody([
+                    ...i32(200), ...i32(0), ...i32(8), 0xfc, 0x08, 0x00, 0x00, 0xfc, 0x09, 0x00,
+                    ...i32(300), ...i32(200), ...i32(8), ...MEMORY_COPY,
+                    ...i32(400), ...i32(0x5a), ...i32(4), ...MEMORY_FILL,
+                    0xd2, 2, 0x1a,
+                    ...i32(0), 0x11, T_RESULT, 0x00,
+                ]),
+            ])),
+            wasmSection(11, wasmVector([[0x01, ...wasmVector([...Buffer.from('ABCDEFGH')].map(byte => [byte]))]])),
+        );
+        const {bytes} = lowerWasmBulkMemory(original);
+        const outcomes = [original, bytes].map((moduleBytes) => {
+            const memory = new WebAssembly.Memory({initial: 1});
+            const logged: number[] = [];
+            const exports = instantiate(moduleBytes, {env: {memory, log: (value: number) => logged.push(value)}});
+            return {result: exports.run!(), logged, memory: new Uint8Array(memory.buffer).slice(0, 512)};
+        });
+        expect(outcomes[0]!.result).toBe(42);
+        expect(outcomes[0]!.logged).toEqual([7]);
+        expect(Buffer.from(outcomes[0]!.memory.subarray(300, 308)).toString()).toBe('ABCDEFGH');
+        expect(outcomes[1]).toEqual(outcomes[0]);
+    });
+
+    it('lowers a function body larger than a call can spread', () => {
+        const original = wasmModule(
+            wasmSection(1, wasmVector([[0x60, 0, 0]])),
+            wasmSection(2, wasmVector([memoryImport('memory', false)])),
+            wasmSection(3, wasmVector([[0]])),
+            wasmSection(10, wasmVector([wasmBody([...new Array(160_000).fill(0x01), ...i32(0), ...i32(1), ...i32(1), ...MEMORY_FILL])])),
+        );
+        const {bytes, lowered} = lowerWasmBulkMemory(original);
+        expect(lowered).toEqual({copy: 0, fill: 1});
+        expect(WebAssembly.validate(bytes)).toBe(true);
+    });
+
+    it('reads a memory index in a load and refuses bulk memory on another memory', () => {
+        const twoMemories = (code: number[]) => wasmModule(
+            wasmSection(1, wasmVector([[0x60, 0, 1, I32]])),
+            wasmSection(2, wasmVector([memoryImport('m0', false), memoryImport('m1', false)])),
+            wasmSection(3, wasmVector([[0]])),
+            wasmSection(7, wasmVector([[...wasmName('run'), 0, 0]])),
+            wasmSection(10, wasmVector([wasmBody(code)])),
+        );
+        // i32.load from memory 1 at offset 1404, whose LEB128 bytes read as memory.copy.
+        const load = twoMemories([...i32(0), ...i32(5), ...i32(1), ...MEMORY_FILL, ...i32(0), 0x28, 0x40, 0x01, ...leb(1404)]);
+        expect(countWasmBulkMemory(load)).toEqual({copy: 0, fill: 1});
+        const m0 = new WebAssembly.Memory({initial: 1});
+        const m1 = new WebAssembly.Memory({initial: 1});
+        new DataView(m1.buffer).setInt32(1404, 123456, true);
+        expect(instantiate(lowerWasmBulkMemory(load).bytes, {env: {m0, m1}}).run!()).toBe(123456);
+        expect(new Uint8Array(m0.buffer)[0]).toBe(5);
+
+        const fillSecond = twoMemories([...i32(0), ...i32(5), ...i32(1), 0xfc, 0x0b, 0x01, ...i32(0)]);
+        expect(() => lowerWasmBulkMemory(fillSecond)).toThrow(/targets memory 1/u);
+    });
+
+    it('refuses instructions it does not decode', () => {
+        const simd = wasmModule(
+            wasmSection(1, wasmVector([[0x60, 0, 0]])),
+            wasmSection(3, wasmVector([[0]])),
+            wasmSection(10, wasmVector([wasmBody([0xfd, 0x0c, ...new Array(16).fill(0), 0x1a])])),
+        );
+        expect(() => lowerWasmBulkMemory(simd)).toThrow(/Unknown WebAssembly instruction 0xfd/u);
+    });
+
+    it('reads five- and ten-byte LEB128 immediates', () => {
+        const original = wasmModule(
+            wasmSection(1, wasmVector([[0x60, 0, 1, I32]])),
+            wasmSection(2, wasmVector([memoryImport('memory', false)])),
+            wasmSection(3, wasmVector([[0]])),
+            wasmSection(7, wasmVector([[...wasmName('run'), 0, 0]])),
+            wasmSection(10, wasmVector([wasmBody([
+                0x41, ...leb(0, true, 5), 0x41, ...leb(7, true, 5), 0x41, ...leb(1, true, 5), ...MEMORY_FILL,
+                0x42, ...leb(-5n, true, 10), 0xa7,
+            ])])),
+        );
+        const memory = new WebAssembly.Memory({initial: 1});
+        expect(instantiate(lowerWasmBulkMemory(original).bytes, {env: {memory}}).run!()).toBe(-5);
+        expect(new Uint8Array(memory.buffer)[0]).toBe(7);
+    });
+
+    it('traps before writing when a range would wrap past 4 GiB', () => {
+        const memory = new WebAssembly.Memory({initial: 1});
+        const exports = instantiate(lowerWasmBulkMemory(bulkMemoryModule(false)).bytes, {env: {memory}});
+        const before = new Uint8Array(memory.buffer).slice();
+        expect(() => exports.copy!(0, 0xffffffff, 2)).toThrow(/unreachable/u);
+        expect(() => exports.fill!(0xfffffff8, 0xaa, 16)).toThrow(/unreachable/u);
+        expect(Buffer.compare(new Uint8Array(memory.buffer), before)).toBe(0);
+    });
+
+    const threadsWasm = path.join(process.cwd(), 'public', 'wasm', 'evb-scan-cleanup-threads.wasm');
+    it.skipIf(!existsSync(threadsWasm))('builds the threaded engine without bulk memory instructions', async () => {
+        expect(countWasmBulkMemory(new Uint8Array(await readFileBytes(threadsWasm)))).toEqual({copy: 0, fill: 0});
     });
 });
