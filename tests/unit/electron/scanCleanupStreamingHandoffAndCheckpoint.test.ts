@@ -3207,7 +3207,7 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
                 sourcePdfPath: string;
                 witness: {sourceSha256: string; optionsSignature: string; witnessId: string};
                 ownerId: string;
-                pauseAfterLockLstat?: boolean;
+                pauseAtLockLstatHit?: number;
                 pauseAfterLockOpenBeforeWrite?: boolean;
                 pauseBeforeReclaim?: boolean;
                 pauseAtUnlink?: boolean;
@@ -3245,7 +3245,7 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
                             afterLockLstat: async info => {
                                 lstatHits += 1;
                                 parentPort?.postMessage({kind: \`lstatHit-\${String(lstatHits)}\`, ...info});
-                                if (data.pauseAfterLockLstat && lstatHits === 1) {
+                                if (lstatHits === data.pauseAtLockLstatHit) {
                                     await waitForRelease('afterLockLstat', info);
                                 }
                             },
@@ -3455,20 +3455,34 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
 
             // Spawn Contender B1 while A1 holds `.checkpoint.reclaim-<staleToken1>`:
             // B1 observes the same stale lock, gets EEXIST on the reclaim lock,
-            // and must wait cleanly without touching `.checkpoint.lock`.
+            // and must wait cleanly without touching `.checkpoint.lock`. B1
+            // parks on its next poll of the still-present stale lock, so it
+            // cannot take the free `.checkpoint.lock` in the gap between A1's
+            // unlink and A1's create; winning that gap is legal for a mutex
+            // without fairness, but it is not the interleaving under test.
             contenderB1 = spawnContender({
                 checkpointDir: ckptDir1,
                 sourcePdfPath,
                 witness: witnessB,
                 ownerId: 'contender-b1',
+                pauseAtLockLstatHit: 2,
             });
             await contenderB1.waitFor('sawStaleLock');
+            await contenderB1.waitFor('afterLockLstat');
+            const staleLockWhileBWaits = JSON.parse(await readFile(join(ckptDir1, '.checkpoint.lock'), 'utf8')) as {
+                token: string;
+            };
+            expect(staleLockWhileBWaits.token).toBe(staleToken1);
+            expect(existsSync(join(ckptDir1, `.checkpoint.reclaim-${staleToken1}`))).toBe(true);
 
             // Release A1 to unlink the stale lock and acquire a fresh live lock.
             contenderA1.release('beforeStaleLockUnlink');
             await contenderA1.waitFor('atRename');
 
-            // While A1 holds the live lock, B1 must NOT steal or complete.
+            // While A1 holds the live lock, B1 must NOT steal or complete:
+            // lstat hit 3 proves B1 read A1's live lock, declined it and polled again.
+            contenderB1.release('afterLockLstat');
+            await contenderB1.waitFor('lstatHit-3');
             const liveLock1 = JSON.parse(await readFile(join(ckptDir1, '.checkpoint.lock'), 'utf8')) as {
                 pid: number;
                 ownerId: string;
@@ -3868,7 +3882,7 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             sourcePdfPath,
             witness: witnessA,
             ownerId: 'contender-s14-1',
-            pauseAfterLockLstat: true,
+            pauseAtLockLstatHit: 1,
         });
         let contender2: ReturnType<typeof spawnContender> | null = null;
         try {
