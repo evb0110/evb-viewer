@@ -86,6 +86,14 @@ describe('browser document lifecycle UI', () => {
                     height: 900,
                 }});
                 const page = await context.newPage();
+                // The journey stores two books and the open one's working copy, 810 MiB at most. An incognito
+                // context draws its origin's quota afresh, physical memory × 15-20 % / 3, so on a 16 GB runner it
+                // is sometimes smaller. Give the origin room for them, as a normal profile has, so no copy falls
+                // back to memory.
+                await (await context.newCDPSession(page)).send('Storage.overrideQuotaForOrigin', {
+                    origin: lifecycle.origin,
+                    quotaSize: 2 * 1024 ** 3,
+                });
                 const problems = collectConsoleProblems(page);
                 const paintings = new Map<string, string>();
                 const recentNames = () => page.locator('.recent-file-name').allTextContents().then(names => names.map(name => name.trim()));
