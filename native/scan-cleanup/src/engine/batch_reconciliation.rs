@@ -69,14 +69,7 @@ impl ReconciliationCandidate {
 
     /// Puts back the reconciliation inputs a page's metadata file does not
     /// carry, when this candidate was taken from that same analysis.
-    #[cfg(any(
-        test,
-        all(
-            target_family = "wasm",
-            target_os = "unknown",
-            feature = "wasm-exports"
-        )
-    ))]
+    #[cfg(any(test, all(target_family = "wasm", feature = "wasm-exports")))]
     pub(crate) fn restore(self, metadata: &mut PageResultMetadata) -> Result<(), String> {
         let restored = Self {
             tier1_confidence: self.tier1_confidence,

@@ -1,4 +1,5 @@
-//! Browser entry for the scan-cleanup engine on `wasm32-unknown-unknown`.
+//! Browser entry for the scan-cleanup engine, built for `wasm32-unknown-unknown`
+//! and, with threads, for `wasm32-wasip1-threads`.
 //!
 //! A request frame carries a versioned JSON request and the page's rasters as
 //! role-tagged attachments; the result frame carries the page's metadata JSON,
@@ -11,9 +12,11 @@
 //! options comes out byte-identical on either platform. Manifests, staging and
 //! file publication stay in the native CLI.
 //!
-//! The module is single-threaded: Rayon runs on the calling thread, and a
-//! request cannot be cancelled once it has entered the engine. The host stops
-//! work by terminating the worker that owns the instance.
+//! The `wasm32-unknown-unknown` module is single-threaded: Rayon runs on the
+//! calling thread. The `wasm32-wasip1-threads` module runs each request on a
+//! Rayon pool of host threads (see `threads`). Either way a request cannot be
+//! cancelled once it has entered the engine; the host stops work by
+//! terminating the worker that owns the instance.
 
 use crate::cache::{PageCache, SourceFingerprint};
 use crate::engine::batch_reconciliation::ReconciliationCandidate;
@@ -52,6 +55,13 @@ use evb_native_support::{
 use scan_primitives::GrayImage;
 use serde::{Deserialize, Serialize};
 use std::{cell::RefCell, error::Error, slice, sync::atomic::AtomicBool};
+
+// Stable Rust exposes no `target_feature = "atomics"` to `cfg`, so the WASI
+// target stands for the threads build: the engine is built for WASI only as
+// `wasm32-wasip1-threads`.
+#[cfg(target_os = "wasi")]
+#[path = "wasm_threads.rs"]
+mod threads;
 
 pub(crate) const REQUEST_MAGIC: &[u8; 4] = b"ESCW";
 pub(crate) const REQUEST_VERSION: u32 = 3;
@@ -452,6 +462,15 @@ pub unsafe extern "C" fn evb_scan_cleanup_free(pointer: *mut u8, byte_length: us
 /// `evb_scan_cleanup_output_ptr`, or -1 with a native error envelope at
 /// `evb_scan_cleanup_error_ptr`.
 ///
+/// The threads build also returns -2 when one of its host threads has trapped
+/// (see `evb_scan_cleanup_thread_fault_ptr`), before, during or right after
+/// the request. It then writes no result and builds no error envelope, and it
+/// frees nothing, leaking what it holds: a dead thread may hold the
+/// allocator's lock or one of the engine's own, and a free or an allocation
+/// could wait on it forever. The instance is unusable. The host must drop it,
+/// its memory and its threads without calling into it again, not even
+/// `evb_scan_cleanup_free`.
+///
 /// # Safety
 /// `request_pointer` must be the live allocation of `request_len` bytes.
 #[no_mangle]
@@ -459,6 +478,10 @@ pub unsafe extern "C" fn evb_scan_cleanup_run(
     request_pointer: *const u8,
     request_len: usize,
 ) -> i32 {
+    #[cfg(target_os = "wasi")]
+    if threads::faulted() {
+        return threads::ENGINE_FAULT;
+    }
     clear_last_result();
     if request_pointer.is_null() || request_len == 0 || request_len > MAX_REQUEST_BYTES {
         set_error_envelope(NativeErrorEnvelope {
@@ -475,29 +498,37 @@ pub unsafe extern "C" fn evb_scan_cleanup_run(
         return -1;
     }
     let request = slice::from_raw_parts(request_pointer, request_len);
-    match std::panic::catch_unwind(|| run_request(request)) {
-        Ok(Ok(output)) if output.len() <= MAX_OUTPUT_BYTES => {
+    #[cfg(not(target_os = "wasi"))]
+    let outcome = execute(request);
+    #[cfg(target_os = "wasi")]
+    let Some(outcome) = threads::execute_on_pool(request) else {
+        return threads::ENGINE_FAULT;
+    };
+    match outcome {
+        Ok(output) => {
             LAST_OUTPUT.with(|slot| *slot.borrow_mut() = output);
             0
         }
-        Ok(Ok(_)) => {
-            set_error_envelope(NativeErrorEnvelope {
-                code: NativeErrorCode::TooLarge,
-                message: "Scan-cleanup WASM output exceeds the admission ceiling".to_string(),
-            });
+        Err(envelope) => {
+            set_error_envelope(envelope);
             -1
         }
-        Ok(Err(error)) => {
-            set_error_envelope(NativeErrorEnvelope::from_error(error.as_ref()));
-            -1
-        }
-        Err(_) => {
-            set_error_envelope(NativeErrorEnvelope {
-                code: NativeErrorCode::Panic,
-                message: "Native scan cleanup panicked".to_string(),
-            });
-            -1
-        }
+    }
+}
+
+/// One request's result frame, or the error envelope the host reads instead.
+fn execute(request: &[u8]) -> Result<Vec<u8>, NativeErrorEnvelope> {
+    match std::panic::catch_unwind(|| run_request(request)) {
+        Ok(Ok(output)) if output.len() <= MAX_OUTPUT_BYTES => Ok(output),
+        Ok(Ok(_)) => Err(NativeErrorEnvelope {
+            code: NativeErrorCode::TooLarge,
+            message: "Scan-cleanup WASM output exceeds the admission ceiling".to_string(),
+        }),
+        Ok(Err(error)) => Err(NativeErrorEnvelope::from_error(error.as_ref())),
+        Err(_) => Err(NativeErrorEnvelope {
+            code: NativeErrorCode::Panic,
+            message: "Native scan cleanup panicked".to_string(),
+        }),
     }
 }
 
