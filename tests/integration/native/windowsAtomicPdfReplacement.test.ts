@@ -118,7 +118,14 @@ async function runPublicationHarness(
 describe.skipIf(process.platform !== 'win32')('Windows atomic PDF replacement', () => {
     const rootPaths: string[] = [];
 
-    beforeAll(async () => { await mkdir(runtimeRoot, {recursive: true}); });
+    beforeAll(async () => {
+        await mkdir(runtimeRoot, {recursive: true});
+        // PowerShell's first start on a fresh runner can take tens of seconds. Pay it here, so the sharing case's
+        // wait for its reader measures the reader, not that start.
+        await new Promise<void>((resolvePromise, rejectPromise) => {
+            execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'exit 0'], {timeout: 100_000}, error => error ? rejectPromise(error) : resolvePromise());
+        });
+    }, 120_000);
 
     afterEach(async () => {
         await Promise.all(rootPaths.splice(0).map(path => rm(path, {

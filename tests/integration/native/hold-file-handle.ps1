@@ -33,9 +33,8 @@ $readyDirectory = Split-Path -Parent $ReadyFile
 if ($readyDirectory -and -not (Test-Path -LiteralPath $readyDirectory)) {
     New-Item -ItemType Directory -Path $readyDirectory -Force | Out-Null
 }
-if (Test-Path -LiteralPath $releaseFile) {
-    Remove-Item -LiteralPath $releaseFile -Force
-}
+# Each case passes a ready path of its own, so a release file already present was
+# written by this case before the handle opened (a slow PowerShell start): honour it.
 
 $stream = [System.IO.File]::Open(
     $Path,
