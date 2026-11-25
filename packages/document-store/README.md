@@ -11,7 +11,7 @@ Each `documents/<id>/` directory contains:
 
 | Entry | Meaning |
 | --- | --- |
-| `manifest.json` | The only commit point: current revision, retained history, destination, baseline witness, pending publication and drafts reference. |
+| `manifest.json` | The only commit point: current revision, retained history, destination, baseline witness, pending publication and drafts reference, and the file name the document was created under, which a fork keeps and recovery shows when nothing else names the document. Older manifests have no name. |
 | `r<n>.<ext>` | Revision bytes, immutable within every length the manifest names. |
 | `drafts-<uuid>.json` | Immutable annotations and metadata not yet written into the document bytes. |
 

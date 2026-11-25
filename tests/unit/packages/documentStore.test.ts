@@ -850,6 +850,20 @@ describe('fork', () => {
         expect(await currentText(fork)).toBe('v1');
         await expect(create(store(), { ext: 'pdf', source: new Blob([encode('v1')]), id: '../escape' })).rejects.toThrow('Invalid document directory id');
     });
+
+    it('keeps the file name a document was created under through edits, forks and reopening, and opens a manifest without one', async () => {
+        const named = await create(store(), { name: 'Scan 2.PDF', source: new Blob([encode('v1')]) });
+        await named.mutate(1, append('+a'));
+        expect(named.snapshot()).toMatchObject({ name: 'Scan 2.PDF', ext: 'pdf' });
+        const fork = keep(await forkDocument(store(), named.id));
+        await fork.close();
+        expect((await open(store(), fork.id)).snapshot()).toMatchObject({ name: 'Scan 2.PDF', ext: 'pdf' });
+        expect((await create(store(), { name: 'notes', source: new Blob([encode('x')]) })).snapshot()).toMatchObject({ name: 'notes', ext: 'bin' });
+
+        const unnamed = await create(store(), { ext: 'pdf', source: new Blob([encode('v1')]) });
+        await unnamed.close();
+        expect((await open(store(), unnamed.id)).snapshot().name).toBeUndefined();
+    });
 });
 
 describe('workspace checkpoints and collection', () => {
