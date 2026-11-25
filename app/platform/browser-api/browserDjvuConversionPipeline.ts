@@ -26,7 +26,6 @@ import {
     type TJobId,
 } from '@contracts/shared';
 import {
-    BROWSER_DOCUMENT_CHUNK_SIZE,
     browserDocumentStore,
     isBrowserDocumentRef,
 } from '@app/platform/browserDocumentStore';
@@ -256,63 +255,31 @@ interface IFinalizablePdfSink extends IStreamingPdfSink {
     abort(): Promise<void>;
 }
 
-class BrowserChunkedPdfSink implements IFinalizablePdfSink {
-    private readonly buffer: Uint8Array;
-    private chunkIndex = 0;
-    private bufferedBytes = 0;
-    private fileSize = 0;
-
-    public constructor(
+/** The PDF stored in the browser as it is written; finished, it is a clean document of its own, not unsaved work. */
+class BrowserStoredPdfSink implements IFinalizablePdfSink {
+    private constructor(
         private readonly outputPath: TDocumentRef,
         private readonly saveName: string,
-        private readonly chunkSize = BROWSER_DOCUMENT_CHUNK_SIZE,
-    ) {
-        this.buffer = new Uint8Array(chunkSize);
+        private readonly stream: Awaited<ReturnType<typeof browserDocumentStore.writeStream>>,
+    ) {}
+
+    public static async create(outputPath: TDocumentRef, saveName: string) {
+        return new BrowserStoredPdfSink(outputPath, saveName, await browserDocumentStore.writeStream(outputPath));
     }
 
-    public async init() {
-        await browserDocumentStore.prepareChunkedDocument(this.outputPath, { chunkSize: this.chunkSize });
-    }
-
-    public async write(bytes: Uint8Array) {
-        let readOffset = 0;
-        this.fileSize += bytes.byteLength;
-        while (readOffset < bytes.byteLength) {
-            const writeLength = Math.min(this.chunkSize - this.bufferedBytes, bytes.byteLength - readOffset);
-            this.buffer.set(bytes.subarray(readOffset, readOffset + writeLength), this.bufferedBytes);
-            this.bufferedBytes += writeLength;
-            readOffset += writeLength;
-            if (this.bufferedBytes === this.chunkSize) {
-                await browserDocumentStore.writeChunk(this.outputPath, this.chunkIndex, this.buffer);
-                this.chunkIndex += 1;
-                this.bufferedBytes = 0;
-            }
-        }
+    public write(bytes: Uint8Array) {
+        return this.stream.write(bytes);
     }
 
     public async finish() {
-        if (this.bufferedBytes > 0) {
-            await browserDocumentStore.writeChunk(
-                this.outputPath,
-                this.chunkIndex,
-                this.buffer.slice(0, this.bufferedBytes),
-            );
-            this.chunkIndex += 1;
-            this.bufferedBytes = 0;
-        }
-        await browserDocumentStore.finalizeChunkedDocument(this.outputPath, {
-            fileSize: this.fileSize,
-            chunkCount: this.chunkIndex,
-            chunkSize: this.chunkSize,
-            saveName: this.saveName,
-        });
+        await this.stream.close(this.saveName);
         await browserDocumentStore.setRetention(this.outputPath, 'durable');
         browserDocumentStore.unload(this.outputPath);
         return this.outputPath;
     }
 
-    public async abort() {
-        await browserDocumentStore.clearChunkedDocument(this.outputPath);
+    public abort() {
+        return this.stream.abort();
     }
 }
 
@@ -377,16 +344,10 @@ async function createBrowserDjvuPdfOutputSink(
     if (saveTarget.saveHandle) {
         return BrowserHandlePdfSink.create(outputPath, saveTarget.saveHandle, saveTarget.saveName, signal);
     }
-    const sink = new BrowserChunkedPdfSink(outputPath, saveTarget.saveName);
+    const sink = await BrowserStoredPdfSink.create(outputPath, saveTarget.saveName);
+    if (signal?.aborted) await sink.abort();
     throwIfCanceled(signal);
-    try {
-        await sink.init();
-        throwIfCanceled(signal);
-        return sink;
-    } catch (error) {
-        await sink.abort().catch(() => undefined);
-        throw error;
-    }
+    return sink;
 }
 
 /** A source page written to the output PDF, in output order. */

@@ -103,7 +103,6 @@ export interface IBrowserDocumentEntry {
     release: (() => void) | null;
     instance: symbol;
     closed?: boolean;
-    chunkSize?: number;
     /** An edit appended to the current revision's file and not committed: its lease, base revision and end. */
     pendingAppend?: {lease: string; token: TDocumentRevisionToken; length: number} | undefined;
 }
@@ -617,31 +616,32 @@ export class BrowserDocumentStore {
         return {blob, token, byteRevision: epoch, instance};
     }
 
-    /** Streamed output: chunks are appended in order, and `finalizeChunkedDocument` checks the result. */
-    public async prepareChunkedDocument(ref: string, options?: {chunkSize?: number}) {
+    /**
+     * Bytes the app makes, such as a converted or exported document, written as they come. When `close` resolves
+     * they are the document's and its baseline, as an import's are: it starts clean and names no work of the
+     * person's, so a window that goes away later offers none for recovery. Until then, and after `abort` or a
+     * failed write, the document keeps the bytes it had.
+     */
+    public async writeStream(ref: string) {
         const entry = await this.requireEntry(ref);
-        entry.chunkSize = options?.chunkSize ?? BROWSER_DOCUMENT_CHUNK_SIZE;
-        if (await this.sizeOf(entry) > 0) await this.mutate(entry, this.tokenOf(entry), {kind: 'rewrite', source: new Blob(), drafts: 'clear'}, 'write');
-    }
-
-    public async writeChunk(ref: string, index: number, data: Uint8Array) {
-        const entry = await this.requireEntry(ref);
-        const offset = index * (entry.chunkSize ?? BROWSER_DOCUMENT_CHUNK_SIZE);
-        if (offset !== await this.sizeOf(entry)) throw new Error(`Browser document chunk ${index} is out of order: ${ref}`);
-        await this.mutate(entry, this.tokenOf(entry), {kind: 'append', bytes: data, drafts: 'keep'}, 'write', false);
-    }
-
-    public async finalizeChunkedDocument(ref: string, options: {fileSize: number; chunkCount: number; chunkSize?: number; saveName?: string}) {
-        const entry = await this.requireEntry(ref);
-        if (await this.sizeOf(entry) !== options.fileSize) throw new Error(`No complete browser document chunks are available: ${ref}`);
-        if (options.saveName) entry.saveName = entry.fileName = options.saveName;
-        delete entry.chunkSize;
-        this.emitRevision(entry, undefined, 'write');
-    }
-
-    public async clearChunkedDocument(ref: string) {
-        const entry = await this.ensureEntry(ref);
-        if (entry?.doc && await this.sizeOf(entry) > 0) await this.mutate(entry, this.tokenOf(entry), {kind: 'rewrite', source: new Blob(), drafts: 'clear'}, 'write');
+        const {readable, writable} = new TransformStream<Uint8Array, Uint8Array>();
+        const writer = writable.getWriter();
+        const written = this.mutate(entry, this.tokenOf(entry), {kind: 'rewrite', source: streamWriter(readable), drafts: 'clear', imported: true}, 'write');
+        // A failed write stops the writer, so the caller's next write or close fails with it.
+        written.catch((error: unknown) => writer.abort(error)).catch(() => undefined);
+        return {
+            // The store reads a chunk after the write that gave it resolves, so it keeps its own copy.
+            write: (bytes: Uint8Array) => writer.write(bytes.slice()),
+            close: async (saveName?: string) => {
+                await writer.close();
+                await written;
+                if (saveName) entry.saveName = entry.fileName = saveName;
+            },
+            abort: async () => {
+                await writer.abort().catch(() => undefined);
+                await written.catch(() => undefined);
+            },
+        };
     }
 
     /** The caller wrote the document's bytes to `saveHandle`: from now on they are that file's. */

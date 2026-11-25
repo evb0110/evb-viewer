@@ -500,14 +500,33 @@ describe('browser document lifecycle UI', () => {
                 path: resolve(process.cwd(), '.devkit/browser-djvu-viewer-pdf-reopen.png'),
                 fullPage: true,
             });
-            await page.getByRole('button', {name: 'Close tab'}).last().click();
-            await page.reload({waitUntil: 'domcontentloaded'});
             const recentPdf = page.locator('[data-recent-open-actionable="true"] .recent-open')
                 .filter({hasText: 'bitonal-faint-pencil.pdf'});
-            await recentPdf.waitFor({
+            // The converted PDF is the conversion's output, not unsaved work: a reload, with its tab open or
+            // closed a moment before, restores no tab to recover, whether or not the close finished.
+            const reloadToStartPage = async () => {
+                await page.reload({waitUntil: 'domcontentloaded'});
+                await waitForOpenFileReady(page);
+                expect(await page.locator('[data-tab-list] [role="tab"]').evaluateAll(tabs => tabs.map(tab => ({
+                    name: tab.textContent?.trim(),
+                    state: tab.getAttribute('aria-description'),
+                })))).toEqual([{
+                    name: 'New Tab',
+                    state: null,
+                }]);
+                await recentPdf.waitFor({
+                    state: 'visible',
+                    timeout: 60_000,
+                });
+            };
+            await reloadToStartPage();
+            await recentPdf.click();
+            await renderedPdf.waitFor({
                 state: 'visible',
                 timeout: 60_000,
             });
+            await page.getByRole('button', {name: 'Close tab'}).last().click();
+            await reloadToStartPage();
             await recentPdf.click();
             await renderedPdf.waitFor({
                 state: 'visible',
