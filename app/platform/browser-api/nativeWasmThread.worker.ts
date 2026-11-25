@@ -3,14 +3,15 @@
 import {
     createNativeWasmLineWriter,
     createNativeWasmThreadImports,
-    runNativeWasmThread,
+    reportNativeWasmThreadFault,
 } from '@app/platform/browser-api/nativeWasmThreadHost';
 
 /**
  * One host thread of a threaded native WASM engine, nested in the engine's
  * worker (`nativeWasmThreadedTool.ts`). It receives the compiled module and
- * the shared memory, reports ready, and on its start message acknowledges and
- * runs its thread until the engine's worker ends it.
+ * the shared memory and reports ready. On its start message it instantiates
+ * its thread, reports started, or failed when it could not, and runs the
+ * thread until the engine's worker ends it.
  */
 
 declare const self: DedicatedWorkerGlobalScope;
@@ -30,9 +31,16 @@ export interface INativeWasmThreadStartMessage {
 }
 
 export type TNativeWasmThreadReply = {type: 'ready'} | {type: 'started'} | {
+    /** The thread could not be instantiated; the engine never started. */
+    type: 'failed';
+    message: string;
+} | {
+    /** The running thread trapped; the engine is faulted. */
     type: 'fault';
     message: string;
 };
+
+const describe = (error: unknown) => error instanceof Error ? `${error.name}: ${error.message}` : String(error);
 
 let loaded: INativeWasmThreadLoadMessage | null = null;
 
@@ -47,24 +55,32 @@ self.addEventListener('message', (event: MessageEvent<INativeWasmThreadLoadMessa
     const {
         module, memory, label,
     } = loaded;
+    let start: (threadId: number, startArg: number) => void;
+    try {
+        // Instantiated before it reports started, so a thread that cannot
+        // exist fails the engine's start instead of its first request.
+        const {exports} = new WebAssembly.Instance(module, createNativeWasmThreadImports({
+            memory,
+            spawnThread: () => -1,
+            writeOutput: createNativeWasmLineWriter(line => console.warn(`${label}: ${line}`)),
+        }));
+        if (typeof exports.wasi_thread_start !== 'function') throw new Error('The threaded module has no wasi_thread_start export');
+        start = exports.wasi_thread_start as typeof start;
+    } catch (error) {
+        self.postMessage({
+            type: 'failed',
+            message: describe(error),
+        } satisfies TNativeWasmThreadReply);
+        return;
+    }
     // Posted before the thread blocks this worker for good.
     self.postMessage({type: 'started'} satisfies TNativeWasmThreadReply);
     try {
-        runNativeWasmThread({
-            module,
-            memory,
-            faultPointer: message.faultPointer,
-            threadId: message.threadId,
-            startArg: message.startArg,
-            imports: createNativeWasmThreadImports({
-                memory,
-                spawnThread: () => -1,
-                writeOutput: createNativeWasmLineWriter(line => console.warn(`${label}: ${line}`)),
-            }),
-        });
+        start(message.threadId, message.startArg);
     } catch (error) {
-        // The engine has been marked faulted; the request it runs fails with this message and drops it.
-        const reason = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+        // A trap marks the engine faulted: the request it runs fails with this message and drops it.
+        reportNativeWasmThreadFault(memory, message.faultPointer);
+        const reason = describe(error);
         console.warn(`${label}: thread ${message.threadId} stopped: ${reason}`);
         self.postMessage({
             type: 'fault',

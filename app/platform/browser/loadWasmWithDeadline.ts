@@ -49,7 +49,8 @@ function createWasmStallError(timeoutMs: number) {
 }
 
 interface IWasmBuild<TResult> {
-    streaming: (response: Response) => Promise<TResult>;
+    /** Undefined where the browser lacks the streaming call; the build then buffers. */
+    streaming: ((response: Response) => Promise<TResult>) | undefined;
     buffered: (bytes: ArrayBuffer) => Promise<TResult>;
 }
 
@@ -65,7 +66,9 @@ export function loadWasmWithDeadline(
     stallTimeoutMs = DEFAULT_WASM_STALL_TIMEOUT_MS,
 ) {
     return fetchWasmWithDeadline(url, stallTimeoutMs, {
-        streaming: response => WebAssembly.instantiateStreaming(response, imports),
+        streaming: typeof WebAssembly.instantiateStreaming === 'function'
+            ? response => WebAssembly.instantiateStreaming(response, imports)
+            : undefined,
         buffered: bytes => WebAssembly.instantiate(bytes, imports),
     });
 }
@@ -73,7 +76,9 @@ export function loadWasmWithDeadline(
 /** Fetches and compiles a WASM module under `loadWasmWithDeadline`'s stall deadline, for a host that instantiates it several times. */
 export function compileWasmWithDeadline(url: string, stallTimeoutMs = DEFAULT_WASM_STALL_TIMEOUT_MS) {
     return fetchWasmWithDeadline(url, stallTimeoutMs, {
-        streaming: response => WebAssembly.compileStreaming(response),
+        streaming: typeof WebAssembly.compileStreaming === 'function'
+            ? response => WebAssembly.compileStreaming(response)
+            : undefined,
         buffered: bytes => WebAssembly.compile(bytes),
     });
 }
@@ -137,7 +142,7 @@ async function fetchWasmWithDeadline<TResult>(url: string, stallTimeoutMs: numbe
                 // Streaming compilation requires the wasm MIME type anyway, so branching
                 // on it up front avoids a doomed streaming attempt whose failure could
                 // otherwise leave the body consumed before the buffered fallback reads it.
-                if (typeof WebAssembly.instantiateStreaming === 'function' && servesWasmContentType(response)) {
+                if (build.streaming && servesWasmContentType(response)) {
                     const built = await build.streaming(response);
                     if (observed !== null) loadedWasmDigests.set(wasmPath(url), observed);
                     return built;

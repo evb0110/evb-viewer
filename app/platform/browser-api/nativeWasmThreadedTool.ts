@@ -52,17 +52,23 @@ function call(value: WebAssembly.ExportValue | undefined, name: string, ...args:
     return (value as (...values: number[]) => number)(...args);
 }
 
-/** The next reply of `type` from a thread worker; a worker error rejects it. */
-function replyOf(worker: Worker, type: TNativeWasmThreadReply['type']) {
+/** The next reply of `type` from a thread worker; a worker error or its failed reply rejects it. */
+function replyOf(worker: Worker, type: 'ready' | 'started') {
     return new Promise<void>((resolve, reject) => {
         const onMessage = (event: MessageEvent<TNativeWasmThreadReply>) => {
+            if (event.data?.type === 'failed') {
+                settle();
+                reject(new Error(`a thread could not start: ${event.data.message}`));
+                return;
+            }
             if (event.data?.type !== type) return;
             settle();
             resolve();
         };
-        const onError = (event: ErrorEvent | MessageEvent) => {
+        const onError = (event: Event) => {
             settle();
-            reject(new Error(event instanceof ErrorEvent && event.message ? event.message : 'A thread worker failed to start'));
+            const message: unknown = Reflect.get(event, 'message');
+            reject(new Error(typeof message === 'string' && message ? message : 'A thread worker failed to start'));
         };
         const settle = () => {
             worker.removeEventListener('message', onMessage);
@@ -198,12 +204,20 @@ export function createNativeWasmThreadedInstances({
     }
 
     /**
-     * A new running instance. A failed download or compilation rejects as
-     * itself and is tried again next time; anything after it rejects with
-     * `NativeWasmThreadStartError`.
+     * A new running instance. A failed download rejects as itself and is
+     * tried again next time. A module this browser cannot compile, and
+     * anything after compilation, rejects with `NativeWasmThreadStartError`.
      */
     async function instantiate() {
-        const module = await compile();
+        let module: WebAssembly.Module;
+        try {
+            module = await compile();
+        } catch (error) {
+            if (error instanceof WebAssembly.CompileError || error instanceof WebAssembly.LinkError) {
+                throw new NativeWasmThreadStartError(`This browser cannot compile the threaded ${label}: ${getErrorMessage(error)}`, {cause: error});
+            }
+            throw error;
+        }
         try {
             return await start(module);
         } catch (error) {
