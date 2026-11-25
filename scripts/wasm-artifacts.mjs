@@ -1,7 +1,14 @@
-export const WASM_TARGET = 'wasm32-unknown-unknown';
+/** The browser target every browser WASM tool is built for. */
+const WASM_TARGET = 'wasm32-unknown-unknown';
+/** The target of browser engines that run on threads over a shared memory. */
+const WASM_THREADS_TARGET = 'wasm32-wasip1-threads';
 
 /** @typedef {{relativePath: string, requiredExports: string[]}} IRequiredWebWasmAsset */
-/** @typedef {{builtFileName: string, crateName: string, label: string, manifestPath: string, publicRelativePath: string, requiredExports: string[], rustflags: string[]}} IWasmArtifact */
+/**
+ * One browser WASM file built by cargo. `id` keys its recorded build identity;
+ * a crate can have several artifacts, one per Rust target.
+ * @typedef {{builtFileName: string, crateName: string, id: string, label: string, manifestPath: string, publicRelativePath: string, requiredExports: string[], rustTarget: string, rustflags: string[]}} IWasmArtifact
+ */
 /** @typedef {{bytes: number, label: string, publicRelativePath: string, sha256: string, url: string}} IPrebuiltWasmFile */
 
 /** @type {IRequiredWebWasmAsset[]} */
@@ -49,6 +56,27 @@ export const REQUIRED_WEB_WASM_ASSETS = [
             'evb_scan_cleanup_error_len',
         ],
     },
+    // The same engine on a Rayon pool of host threads. A WASI reactor: the host
+    // calls _initialize once on the main instance and starts each thread
+    // instance at wasi_thread_start.
+    {
+        relativePath: 'wasm/evb-scan-cleanup-threads.wasm',
+        requiredExports: [
+            'memory',
+            '_initialize',
+            'wasi_thread_start',
+            'evb_wasm_request_allocation_abi_version',
+            'evb_scan_cleanup_alloc',
+            'evb_scan_cleanup_free',
+            'evb_scan_cleanup_run',
+            'evb_scan_cleanup_output_ptr',
+            'evb_scan_cleanup_output_len',
+            'evb_scan_cleanup_error_ptr',
+            'evb_scan_cleanup_error_len',
+            'evb_scan_cleanup_start_threads',
+            'evb_scan_cleanup_thread_fault_ptr',
+        ],
+    },
     // Emscripten minifies the engine's export names; its pinned digest is the identity.
     {
         relativePath: 'wasm/evb-tesseract.wasm',
@@ -81,19 +109,23 @@ export const WASM_ARTIFACTS = [
     {
         builtFileName: 'evb_pdf_image_combine.wasm',
         crateName: 'pdf-image-combine',
+        id: 'pdf-image-combine',
         label: 'PDF image combine WASM',
         manifestPath: 'native/pdf-image-combine/Cargo.toml',
         publicRelativePath: 'public/wasm/evb-pdf-image-combine.wasm',
         requiredExports: getRequiredExports('wasm/evb-pdf-image-combine.wasm'),
+        rustTarget: WASM_TARGET,
         rustflags: [],
     },
     {
         builtFileName: 'evb_pdf_page_ops.wasm',
         crateName: 'pdf-page-ops',
+        id: 'pdf-page-ops',
         label: 'PDF page ops WASM',
         manifestPath: 'native/pdf-page-ops/Cargo.toml',
         publicRelativePath: 'public/wasm/evb-pdf-page-ops.wasm',
         requiredExports: getRequiredExports('wasm/evb-pdf-page-ops.wasm'),
+        rustTarget: WASM_TARGET,
         rustflags: [
             '--cfg',
             'getrandom_backend="custom"',
@@ -102,11 +134,36 @@ export const WASM_ARTIFACTS = [
     {
         builtFileName: 'evb_scan_cleanup.wasm',
         crateName: 'scan-cleanup',
+        id: 'scan-cleanup',
         label: 'Scan cleanup WASM',
         manifestPath: 'native/scan-cleanup/Cargo.toml',
         publicRelativePath: 'public/wasm/evb-scan-cleanup.wasm',
         requiredExports: getRequiredExports('wasm/evb-scan-cleanup.wasm'),
+        rustTarget: WASM_TARGET,
         rustflags: [],
+    },
+    {
+        builtFileName: 'evb_scan_cleanup.wasm',
+        crateName: 'scan-cleanup',
+        id: 'scan-cleanup-threads',
+        label: 'Threaded scan cleanup WASM',
+        manifestPath: 'native/scan-cleanup/Cargo.toml',
+        publicRelativePath: 'public/wasm/evb-scan-cleanup-threads.wasm',
+        requiredExports: getRequiredExports('wasm/evb-scan-cleanup-threads.wasm'),
+        rustTarget: WASM_THREADS_TARGET,
+        // The shared memory starts at a fixed 32 pages, so a host can create it
+        // without reading the module, and may grow to the 4 GiB wasm32 limit
+        // (the linker otherwise caps it at its initial size). The reactor
+        // startup object, which rustc leaves out of a cdylib, sets up libc and
+        // exports _initialize; the linker finds it by name in the toolchain.
+        rustflags: [
+            '-C',
+            'link-arg=--initial-memory=2097152',
+            '-C',
+            'link-arg=--max-memory=4294967296',
+            '-C',
+            'link-arg=-l:crt1-reactor.o',
+        ],
     },
 ];
 
@@ -156,11 +213,11 @@ export const BROWSER_WASM_PUBLIC_PATHS = [
     ...PREBUILT_WASM_FILES.map(file => file.publicRelativePath),
 ];
 
-/** @param {string} crateName @returns {IWasmArtifact} */
-export function getWasmArtifactByCrateName(crateName) {
-    const artifact = WASM_ARTIFACTS.find(entry => entry.crateName === crateName);
-    if (!artifact) {
+/** @param {string} crateName @returns {IWasmArtifact[]} */
+export function getWasmArtifactsByCrateName(crateName) {
+    const artifacts = WASM_ARTIFACTS.filter(entry => entry.crateName === crateName);
+    if (artifacts.length === 0) {
         throw new Error(`Unknown WASM artifact crate: ${crateName}`);
     }
-    return artifact;
+    return artifacts;
 }

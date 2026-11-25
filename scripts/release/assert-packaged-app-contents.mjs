@@ -22,6 +22,11 @@ const { WORKER_BUNDLES } = /** @type {{WORKER_BUNDLES: IWorkerBundle[]}} */ (awa
 
 const RELEASE_DIR = path.resolve(process.cwd(), process.argv[2] ?? 'release');
 
+// The threaded browser cleanup engine needs a cross-origin isolated page for
+// its shared memory, which the desktop shell does not serve; desktop runs the
+// native cleanup engine.
+const WEB_ONLY_WASM_ENTRIES = ['/nuxt-output/public/wasm/evb-scan-cleanup-threads.wasm'];
+
 export const REQUIRED_ASAR_ENTRIES = [
     '/package.json',
     '/dist-electron/main.js',
@@ -31,7 +36,9 @@ export const REQUIRED_ASAR_ENTRIES = [
     '/nuxt-output/public/electron/index.html',
     '/nuxt-output/public/index.html',
     '/nuxt-output/public/_nuxt',
-    ...WASM_ARTIFACTS.map(artifact => `/nuxt-output/public/${artifact.publicRelativePath.replace('public/', '')}`),
+    ...WASM_ARTIFACTS
+        .map(artifact => `/nuxt-output/public/${artifact.publicRelativePath.replace('public/', '')}`)
+        .filter(entry => !WEB_ONLY_WASM_ENTRIES.includes(entry)),
     // Desktop OCR runs the same engine as the browser, in worker threads.
     '/nuxt-output/public/wasm/evb-tesseract.mjs',
     '/nuxt-output/public/wasm/evb-tesseract.wasm',
@@ -47,6 +54,7 @@ export const FORBIDDEN_EXACT_ENTRIES = [
     '/nuxt-output/public/sitemap.xml',
     '/nuxt-output/public/wasm/evb-qpdf.mjs',
     '/nuxt-output/public/wasm/evb-qpdf.wasm',
+    ...WEB_ONLY_WASM_ENTRIES,
 ];
 
 export const FORBIDDEN_PREFIXES = [

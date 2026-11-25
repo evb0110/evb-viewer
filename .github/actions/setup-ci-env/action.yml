@@ -68,6 +68,6 @@ runs:
       shell: bash
       run: |
         if [ '${{ steps.wasm-cache.outputs.cache-hit }}' != 'true' ]; then
-          rustup target add wasm32-unknown-unknown
+          rustup target add wasm32-unknown-unknown wasm32-wasip1-threads
         fi
         node scripts/ensure-wasm-artifacts.mjs

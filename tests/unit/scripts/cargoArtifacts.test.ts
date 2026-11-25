@@ -28,7 +28,7 @@ import {
 import { createWasmToolBuildPlan } from '@scripts/build-wasm-tool.mjs';
 import { getRequestedNativeRustTarget } from '@scripts/native-rust-targets.mjs';
 import { getGeneratedNativeToolResource } from '@scripts/nativeResourceManifest';
-import { getWasmArtifactByCrateName } from '@scripts/wasm-artifacts.mjs';
+import { getWasmArtifactsByCrateName } from '@scripts/wasm-artifacts.mjs';
 
 interface ICargoArtifactsModule {
     computeCargoInputFingerprint: (options: {
@@ -234,7 +234,7 @@ describe('Cargo artifact staging', () => {
             'link-arg=-Wl,-oso_prefix,/work/evb viewer',
         ]);
         const plan = createWasmToolBuildPlan({
-            artifact: getWasmArtifactByCrateName('pdf-page-ops'),
+            artifact: getWasmArtifactsByCrateName('pdf-page-ops')[0]!,
             env,
             projectRoot: '/work/evb viewer',
         });
@@ -615,18 +615,33 @@ describe('Cargo artifact staging', () => {
             'scan-cleanup',
         ]) {
             const tool = getGeneratedNativeToolResource(toolId);
-            const artifact = getWasmArtifactByCrateName(tool.crateName);
-            const plan = createWasmToolBuildPlan({
-                artifact,
-                env: {RUSTFLAGS: '--cfg existing'},
-                projectRoot: '/repo',
-            });
-            expect(plan.manifestPath).toBe(`native/${tool.crateName}/Cargo.toml`);
-            expect(plan.destinationPath).toBe(path.join('/repo', artifact.publicRelativePath));
-            expect(plan.requiredExports).toBe(artifact.requiredExports);
-            expect(plan.rustflags).toContain('--remap-path-prefix=/repo=/evb-viewer');
+            for (const artifact of getWasmArtifactsByCrateName(tool.crateName)) {
+                const plan = createWasmToolBuildPlan({
+                    artifact,
+                    env: {RUSTFLAGS: '--cfg existing'},
+                    projectRoot: '/repo',
+                });
+                expect(plan.manifestPath).toBe(`native/${tool.crateName}/Cargo.toml`);
+                expect(plan.destinationPath).toBe(path.join('/repo', artifact.publicRelativePath));
+                expect(plan.requiredExports).toBe(artifact.requiredExports);
+                expect(plan.rustflags).toContain('--remap-path-prefix=/repo=/evb-viewer');
+                expect(plan.cargoArgs).toContain(artifact.rustTarget);
+            }
         }
-        expect(() => getWasmArtifactByCrateName('pdf-search')).toThrow(
+        expect(getWasmArtifactsByCrateName('scan-cleanup').map(artifact => [
+            artifact.publicRelativePath,
+            artifact.rustTarget,
+        ])).toEqual([
+            [
+                'public/wasm/evb-scan-cleanup.wasm',
+                'wasm32-unknown-unknown',
+            ],
+            [
+                'public/wasm/evb-scan-cleanup-threads.wasm',
+                'wasm32-wasip1-threads',
+            ],
+        ]);
+        expect(() => getWasmArtifactsByCrateName('pdf-search')).toThrow(
             'Unknown WASM artifact crate: pdf-search',
         );
     });

@@ -10,8 +10,8 @@ import {
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+    buildWasmArtifact,
     createWasmToolBuildPlan,
-    runWasmToolBuilder,
 } from './build-wasm-tool.mjs';
 import {
     getCargoConfigurationInputs,
@@ -24,7 +24,8 @@ import {
 } from './wasm-artifacts.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-// Keyed by crate name: the build identity each public/wasm file was built from.
+// Keyed by artifact id: the build identity each public/wasm file was built from.
+// An artifact's id is its crate name unless the crate has several artifacts.
 const buildIdsPathFor = root => path.join(root, '.tmp', 'wasm-build-ids.json');
 
 /**
@@ -98,7 +99,7 @@ export function findWasmArtifactsToBuild(root = projectRoot) {
         }))
         .filter(({
             artifact, buildId,
-        }) => !isPresent(artifact) || recorded[artifact.crateName] !== buildId);
+        }) => !isPresent(artifact) || recorded[artifact.id] !== buildId);
 }
 
 const PREBUILT_WASM_DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000;
@@ -176,8 +177,8 @@ export async function ensureWasmArtifacts() {
     for (const {
         artifact, buildId,
     } of stale) {
-        await runWasmToolBuilder([artifact.crateName]);
-        recorded[artifact.crateName] = buildId;
+        await buildWasmArtifact(artifact);
+        recorded[artifact.id] = buildId;
         mkdirSync(path.dirname(buildIdsPathFor(projectRoot)), {recursive: true});
         writeFileSync(buildIdsPathFor(projectRoot), `${JSON.stringify(recorded, null, 2)}\n`);
     }

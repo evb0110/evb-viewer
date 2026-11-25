@@ -529,7 +529,7 @@ jobs:
       # cold-builds the unrelated page-ops and image-combiner browser tools.
       - name: Build tools for native-backed TypeScript checks
         run: |
-          rustup target add wasm32-unknown-unknown
+          rustup target add wasm32-unknown-unknown wasm32-wasip1-threads
           node scripts/build-wasm-tool.mjs scan-cleanup
           pnpm run build:pdf-image-combine
 

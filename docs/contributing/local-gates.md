@@ -158,8 +158,8 @@ macOS launch requires the verified copied app bundle and the shared launcher.
 native compiler for the workspace projects. A diagnostic can occur in only one
 of these checks. Identify the owning compiler before changing a type or option.
 
-Strict desktop builds require the pinned Rust toolchain and
-`wasm32-unknown-unknown`. They verify generated WASM fingerprints. A web-only
+Strict desktop builds require the pinned Rust toolchain and the
+`wasm32-unknown-unknown` and `wasm32-wasip1-threads` targets. They verify generated WASM fingerprints. A web-only
 session can use the committed fallback artifacts; a release must use artifacts
 that match its sources. Local packaging reuses a strict build only when a build
 receipt (`EVB_RELEASE_BUILD_RECEIPT`) proves that its sources, toolchain, compiled

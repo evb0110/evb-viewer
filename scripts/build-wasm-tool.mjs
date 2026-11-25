@@ -17,16 +17,14 @@ import {
     parseCargoToolBuildRequest,
     resolveCargoTargetDirectory,
 } from './cargo-artifacts.mjs';
-import {
-    getWasmArtifactByCrateName,
-    WASM_TARGET,
-} from './wasm-artifacts.mjs';
+import { getWasmArtifactsByCrateName } from './wasm-artifacts.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const usage = `Usage: node scripts/build-wasm-tool.mjs <tool> [--dry-run]
 
-Builds a browser WASM tool registered by the canonical native resource manifest.
-Use --dry-run to resolve and print the build plan without invoking Cargo.`;
+Builds the browser WASM files of a tool registered by the canonical native
+resource manifest, one per registered Rust target.
+Use --dry-run to resolve and print the build plans without invoking Cargo.`;
 
 export function createWasmToolBuildPlan({
     artifact,
@@ -43,7 +41,7 @@ export function createWasmToolBuildPlan({
             '--release',
             '--locked',
             '--target',
-            WASM_TARGET,
+            artifact.rustTarget,
             '--lib',
         ],
         destinationPath: outputDir
@@ -52,6 +50,7 @@ export function createWasmToolBuildPlan({
         label: artifact.label,
         manifestPath: artifact.manifestPath,
         requiredExports: artifact.requiredExports,
+        rustTarget: artifact.rustTarget,
         rustflags: getCargoRustflags({
             env,
             extraRustflags: artifact.rustflags,
@@ -67,42 +66,29 @@ async function resolveTool(toolId) {
     );
     const tool = getGeneratedNativeToolResource(toolId);
     return {
-        artifact: getWasmArtifactByCrateName(tool.crateName),
+        artifacts: getWasmArtifactsByCrateName(tool.crateName),
         tool,
     };
 }
 
-export async function runWasmToolBuilder(argv = process.argv.slice(2)) {
-    const request = parseCargoToolBuildRequest(argv, usage);
-    if (request.help) {
-        console.log(usage);
-        return;
-    }
-
-    const {
-        artifact,
-        tool,
-    } = await resolveTool(request.toolId);
+/**
+ * Builds one browser WASM file and stages it with its required exports checked.
+ * @param {import('./wasm-artifacts.mjs').IWasmArtifact} artifact
+ * @param {{outputDir?: string}} [options]
+ */
+export async function buildWasmArtifact(artifact, {outputDir} = {}) {
     const plan = createWasmToolBuildPlan({
         artifact,
-        outputDir: request.outputDir ? path.resolve(projectRoot, request.outputDir) : undefined,
+        outputDir,
         projectRoot,
     });
-    if (request.dryRun) {
-        console.log(JSON.stringify({
-            tool,
-            ...plan,
-        }, null, 2));
-        return;
-    }
-
     const cargoTargetDirectory = resolveCargoTargetDirectory({
         manifestPath: plan.manifestPath,
         projectRoot,
     });
     const sourcePath = getCargoArtifactPath({
         fileName: plan.builtFileName,
-        rustTarget: WASM_TARGET,
+        rustTarget: plan.rustTarget,
         targetDirectory: cargoTargetDirectory,
     });
     const result = spawnSync('cargo', plan.cargoArgs, {
@@ -131,6 +117,34 @@ export async function runWasmToolBuilder(argv = process.argv.slice(2)) {
         `Staged ${plan.label}: ${path.relative(projectRoot, plan.destinationPath)} `
         + `(${wasmBytes.byteLength} bytes)`,
     );
+}
+
+export async function runWasmToolBuilder(argv = process.argv.slice(2)) {
+    const request = parseCargoToolBuildRequest(argv, usage);
+    if (request.help) {
+        console.log(usage);
+        return;
+    }
+
+    const {
+        artifacts,
+        tool,
+    } = await resolveTool(request.toolId);
+    const outputDir = request.outputDir ? path.resolve(projectRoot, request.outputDir) : undefined;
+    if (request.dryRun) {
+        console.log(JSON.stringify({
+            tool,
+            plans: artifacts.map(artifact => createWasmToolBuildPlan({
+                artifact,
+                outputDir,
+                projectRoot,
+            })),
+        }, null, 2));
+        return;
+    }
+    for (const artifact of artifacts) {
+        await buildWasmArtifact(artifact, {outputDir});
+    }
 }
 
 const isDirectRun = process.argv[1]

@@ -321,6 +321,7 @@ function createProjectFixture() {
     writeFileSync(path.join(projectRoot, 'public', 'wasm', 'evb-pdf-image-combine.wasm'), 'wasm\n');
     writeFileSync(path.join(projectRoot, 'public', 'wasm', 'evb-pdf-page-ops.wasm'), 'wasm\n');
     writeFileSync(path.join(projectRoot, 'public', 'wasm', 'evb-scan-cleanup.wasm'), 'wasm\n');
+    writeFileSync(path.join(projectRoot, 'public', 'wasm', 'evb-scan-cleanup-threads.wasm'), 'wasm\n');
     // The OCR and qpdf engines are checked by their pinned digests, so the fixture
     // carries the fetched files (`pnpm test:unit` runs ensure-wasm-artifacts first).
     for (const fileName of [
@@ -410,7 +411,7 @@ function createProjectFixture() {
 // a local `ensure-wasm-artifacts.mjs` run would record for them.
 function writeNativeWasmFixture(projectRoot: string) {
     const nativeRoot = path.join(projectRoot, 'native');
-    const crateNames = WASM_ARTIFACTS.map(artifact => artifact.crateName);
+    const crateNames = [...new Set(WASM_ARTIFACTS.map(artifact => artifact.crateName))];
     writeFileSync(path.join(nativeRoot, 'Cargo.toml'), `[workspace]\nmembers = ${JSON.stringify(crateNames)}\n`);
     writeFileSync(path.join(nativeRoot, 'Cargo.lock'), 'version = 4\n');
     writeFileSync(path.join(nativeRoot, 'rust-toolchain.toml'), '[toolchain]\nchannel = "stable"\n');
@@ -426,7 +427,7 @@ function writeNativeWasmFixture(projectRoot: string) {
     mkdirSync(path.join(projectRoot, '.tmp'), {recursive: true});
     writeFileSync(path.join(projectRoot, '.tmp', 'wasm-build-ids.json'), `${JSON.stringify(Object.fromEntries(
         WASM_ARTIFACTS.map(artifact => [
-            artifact.crateName,
+            artifact.id,
             computeWasmBuildIdentity(projectRoot, artifact),
         ]),
     ), null, 2)}\n`);

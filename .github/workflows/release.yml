@@ -206,7 +206,7 @@ jobs:
         uses: ./.github/actions/setup-release-env
         with:
           node-version: ${{ env.NODE_VERSION }}
-          rust-targets: ${{ matrix.platform == 'win' && matrix.arch == 'arm64' && 'wasm32-unknown-unknown aarch64-pc-windows-msvc' || 'wasm32-unknown-unknown' }}
+          rust-targets: ${{ matrix.platform == 'win' && matrix.arch == 'arm64' && 'wasm32-unknown-unknown wasm32-wasip1-threads aarch64-pc-windows-msvc' || 'wasm32-unknown-unknown wasm32-wasip1-threads' }}
           needs-system-fpm: ${{ matrix.platform == 'linux' }}
 
       - name: Test Windows PDF append sharing
