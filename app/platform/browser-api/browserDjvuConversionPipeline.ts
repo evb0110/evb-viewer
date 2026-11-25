@@ -62,6 +62,7 @@ import {PdfCombineCapabilityError} from '@contracts/pdfCombineErrors';
 import {
     createPdfCombineOutputTooLargeError,
     isPdfCombineOutputTooLargeError,
+    PDF_COMBINE_OUTPUT_POLICY,
 } from '@contracts/pdfCombineOutputPolicy';
 import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
 import {getRawElectronPlatformApi} from '@app/utils/electronPlatformBridge';
@@ -786,7 +787,10 @@ async function buildCompactDjvuPdfWithWasm(options: {
     const idleWorkers = [options.worker];
     const output = createOrderedPdfMerge({
         signal: options.signal,
-        createError: reason => new Error(`Browser compact DjVu export could not join its pages: ${reason}`),
+        // A merge the engine has no room for takes the direct export, as an oversized page does.
+        createError: (reason, code) => (code === PDF_COMBINE_OUTPUT_POLICY.tooLargeCode
+            ? createPdfCombineOutputTooLargeError(`Browser compact DjVu pages are too large to join: ${reason}`)
+            : new Error(`Browser compact DjVu export could not join its pages: ${reason}`)),
     });
     let processed = 0;
     let outputBytes = 0;

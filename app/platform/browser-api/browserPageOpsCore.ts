@@ -222,12 +222,13 @@ export function replacePdfPageImages(
 
 /**
  * Output PDFs appended in document order, then joined once by the page-ops
- * merge desktop uses. `createError` names the job a failed merge belongs to.
+ * merge desktop uses. `createError` names the job a failed merge belongs to,
+ * and is told the engine's error code when the engine refused the merge.
  */
 export function createOrderedPdfMerge(options: {
     signal: AbortSignal;
     onEngineIdentity?: (sha256: string) => void;
-    createError: (reason: string) => Error;
+    createError: (reason: string, code?: string) => Error;
 }) {
     const pages: Uint8Array[] = [];
     return {
@@ -245,7 +246,9 @@ export function createOrderedPdfMerge(options: {
                 ...(options.onEngineIdentity === undefined ? {} : {onEngineIdentity: options.onEngineIdentity}),
             });
             if (result.status !== 'written' || !result.data) {
-                throw options.createError(result.status === 'failed' ? result.error.message : 'the browser\'s storage is full');
+                throw result.status === 'failed'
+                    ? options.createError(result.error.message, result.error.code)
+                    : options.createError('the browser\'s storage is full');
             }
             return result.data;
         },

@@ -408,6 +408,70 @@ describe('browserDjvuConversionPipeline', () => {
         }
     });
 
+    it('streams the direct PDF when the merge engine has no room to join the pages', async () => {
+        const stat = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
+            size: 1,
+            modifiedAt: 1,
+        });
+        const getSaveTarget = vi.spyOn(browserDocumentStore, 'getSaveTarget').mockRejectedValue(new Error('direct export output requested'));
+        const page = {
+            width: 100,
+            height: 100,
+            dpi: 300,
+        };
+        mocks.createWorker.mockResolvedValue({terminate: vi.fn()});
+        mocks.getPageSizes.mockResolvedValueOnce([
+            page,
+            page,
+        ]);
+        mocks.buildCompactPage.mockResolvedValue({
+            route: 'photo',
+            spec: {
+                kind: 'image',
+                pageSize: {
+                    widthPoints: 72,
+                    heightPoints: 72,
+                },
+                image: {
+                    fileName: 'page.ppm',
+                    data: new Uint8Array([1]),
+                },
+            },
+        });
+        mocks.combineWorker.mockResolvedValue({data: new Uint8Array(4)});
+        mocks.pageOps.mockResolvedValue({
+            status: 'failed',
+            error: {
+                code: 'too-large',
+                message: 'The PDF page engine ran out of memory',
+            },
+        });
+
+        try {
+            await expect(runBrowserDjvuConversion(
+                requireDocumentRef('browser://documents/book.djvu'),
+                requireDocumentRef('browser://documents/output.pdf'),
+                {
+                    jobId: requireJobId('djvu-compact-merge-refused'),
+                    pdfStrategy: 'compact-djvu-aware',
+                    preserveBookmarks: false,
+                },
+            )).resolves.toMatchObject({
+                success: false,
+                error: 'direct export output requested',
+            });
+            expect(getSaveTarget).toHaveBeenCalledOnce();
+            expect(mocks.pageOps).toHaveBeenCalledOnce();
+        } finally {
+            mocks.buildCompactPage.mockReset();
+            mocks.combineWorker.mockReset();
+            mocks.createWorker.mockReset();
+            mocks.pageOps.mockReset();
+            stat.mockRestore();
+            getSaveTarget.mockRestore();
+        }
+    });
+
     it('fails a conversion that keeps bookmarks when the outline cannot be read', async () => {
         const stat = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
             size: 1,
