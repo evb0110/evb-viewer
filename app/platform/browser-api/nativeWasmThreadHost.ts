@@ -85,12 +85,15 @@ export function createNativeWasmThreadImports({
     // The buffer object changes when the memory grows: read it on every call.
     const view = () => new DataView(memory.buffer);
     const decoder = new TextDecoder();
+    // WASM passes addresses and lengths as signed 32-bit numbers: one past
+    // 2 GiB arrives negative, so each is read back as unsigned.
+    const unsigned = (value: number) => value >>> 0;
     return {
         env: {memory},
         wasi_snapshot_preview1: {
             clock_time_get(clockId: number, _precision: bigint, timePointer: number) {
                 if (clockId !== WASI_CLOCK_REALTIME && clockId !== WASI_CLOCK_MONOTONIC) return WASI_EINVAL;
-                view().setBigUint64(timePointer, nowNanoseconds(), true);
+                view().setBigUint64(unsigned(timePointer), nowNanoseconds(), true);
                 return WASI_ESUCCESS;
             },
             fd_write(fd: number, iovecs: number, iovecCount: number, writtenPointer: number) {
@@ -98,31 +101,31 @@ export function createNativeWasmThreadImports({
                 const data = view();
                 let written = 0;
                 let text = '';
-                for (let index = 0; index < iovecCount; index += 1) {
-                    const pointer = data.getUint32(iovecs + index * 8, true);
-                    const length = data.getUint32(iovecs + index * 8 + 4, true);
+                for (let index = 0; index < unsigned(iovecCount); index += 1) {
+                    const pointer = data.getUint32(unsigned(iovecs) + index * 8, true);
+                    const length = data.getUint32(unsigned(iovecs) + index * 8 + 4, true);
                     // Decoders reject shared views; decode a private copy.
                     text += decoder.decode(new Uint8Array(memory.buffer, pointer, length).slice(), {stream: true});
                     written += length;
                 }
                 if (text) writeOutput(text);
-                data.setUint32(writtenPointer, written, true);
+                data.setUint32(unsigned(writtenPointer), written, true);
                 return WASI_ESUCCESS;
             },
             sched_yield: () => WASI_ESUCCESS,
             random_get(pointer: number, length: number) {
                 // getRandomValues rejects shared views; fill a private array and copy.
-                for (let offset = 0; offset < length; offset += RANDOM_CHUNK_BYTES) {
-                    const chunk = crypto.getRandomValues(new Uint8Array(Math.min(RANDOM_CHUNK_BYTES, length - offset)));
-                    new Uint8Array(memory.buffer, pointer + offset, chunk.byteLength).set(chunk);
+                for (let offset = 0; offset < unsigned(length); offset += RANDOM_CHUNK_BYTES) {
+                    const chunk = crypto.getRandomValues(new Uint8Array(Math.min(RANDOM_CHUNK_BYTES, unsigned(length) - offset)));
+                    new Uint8Array(memory.buffer, unsigned(pointer) + offset, chunk.byteLength).set(chunk);
                 }
                 return WASI_ESUCCESS;
             },
             environ_get: () => WASI_ESUCCESS,
             environ_sizes_get(countPointer: number, sizePointer: number) {
                 const data = view();
-                data.setUint32(countPointer, 0, true);
-                data.setUint32(sizePointer, 0, true);
+                data.setUint32(unsigned(countPointer), 0, true);
+                data.setUint32(unsigned(sizePointer), 0, true);
                 return WASI_ESUCCESS;
             },
             proc_exit(code: number) {
