@@ -29,9 +29,9 @@ async function request(fetchFn, url, init) {
     }
 }
 
-/** @param {string} url @param {typeof fetch} [fetchFn] @returns {Promise<Response>} */
-async function readPublic(url, fetchFn = fetch) {
-    const response = await request(fetchFn, url);
+/** @param {string} url @param {typeof fetch} [fetchFn] @param {RequestInit} [init] @returns {Promise<Response>} */
+async function readPublic(url, fetchFn = fetch, init) {
+    const response = await request(fetchFn, url, init);
     if (!response.ok) throw new Error(`${url} returned HTTP ${response.status}`);
     return response;
 }
@@ -108,7 +108,13 @@ async function verify(tag, {
 } = {}) {
     if (!tag || !repository) throw new Error('Expected a release tag and GITHUB_REPOSITORY');
     if (!drillRunId) {
-        const response = await readPublic(`https://api.github.com/repos/${repository}/releases/latest`, fetchFn);
+        // An anonymous call shares its runner's address-wide limit of 60 an hour; a token has its own.
+        const token = env.GH_TOKEN || env.GITHUB_TOKEN;
+        const response = await readPublic(
+            `https://api.github.com/repos/${repository}/releases/latest`,
+            fetchFn,
+            token ? {headers: {authorization: `Bearer ${token}`}} : undefined,
+        );
         const release = await response.json();
         if (tag !== '--latest' && release.tag_name !== tag) throw new Error(`GitHub latest release is ${release.tag_name ?? 'missing'}, expected ${tag}`);
         if (tag === '--latest') tag = release.tag_name;

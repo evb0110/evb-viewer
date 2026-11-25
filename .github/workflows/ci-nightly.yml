@@ -79,6 +79,8 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Check latest public release and updater mirror
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: node --import tsx scripts/release/verifyReleaseMirror.mjs --latest
 
   nightly_scan_cleanup_heavy:

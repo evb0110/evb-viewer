@@ -43,11 +43,22 @@ describe('public release mirror verification', () => {
         await expect(verify('v1.2.3', {
             repository: 'owner/repo',
             fetchFn,
+            env: {GH_TOKEN: 'run-token'},
         })).resolves.toMatchObject({
             publicRoute: true,
             tag: 'v1.2.3',
         });
         expect(requests.map(([url]) => url)).toHaveLength(5);
+        // GitHub's API is asked as the run; the mirror's public routes stay anonymous.
+        expect(requests.map(([
+            , init,
+        ]) => new Headers(init?.headers).get('authorization'))).toEqual([
+            'Bearer run-token',
+            null,
+            null,
+            null,
+            null,
+        ]);
         expect(requests.slice(3).map(([
             url,
             init,
