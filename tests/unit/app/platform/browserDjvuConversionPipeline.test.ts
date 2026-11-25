@@ -35,6 +35,7 @@ const mocks = vi.hoisted(() => ({
     loggerWarn: vi.fn(),
     buildCompactPage: vi.fn(),
     combineWorker: vi.fn(),
+    pageOps: vi.fn(),
 }));
 
 vi.mock('@app/platform/browser-api/createDjvuWorkerFromPath', () => ({
@@ -47,6 +48,7 @@ vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
     warn: mocks.loggerWarn,
 }}));
 vi.mock('@app/platform/browser-api/browserPdfCombineWorkerClient', () => ({runBrowserPdfCombineWorkerRequest: mocks.combineWorker}));
+vi.mock('@app/platform/browser-api/browserPageOpsWorkerClient', () => ({runBrowserPageOpsWorkerRequest: mocks.pageOps}));
 vi.mock('@app/platform/browser-api/buildBrowserDjvuCompactPage', () => ({buildBrowserDjvuCompactPage: mocks.buildCompactPage}));
 vi.mock('@app/platform/browser-api/browserDjvuRasterizer', () => ({
     DjvuCanceledError: class DjvuCanceledError extends Error {
@@ -264,6 +266,71 @@ describe('browserDjvuConversionPipeline', () => {
             });
             expect(getSaveTarget).toHaveBeenCalledOnce();
         } finally {
+            stat.mockRestore();
+            getSaveTarget.mockRestore();
+        }
+    });
+
+    it('streams the direct PDF when one page of many exceeds the WASM boundary while another is still building', async () => {
+        const stat = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
+            size: 1,
+            modifiedAt: 1,
+        });
+        const getSaveTarget = vi.spyOn(browserDocumentStore, 'getSaveTarget').mockRejectedValue(new Error('direct export output requested'));
+        vi.stubGlobal('navigator', {hardwareConcurrency: 8});
+        const page = {
+            width: 100,
+            height: 100,
+            dpi: 300,
+        };
+        mocks.createWorker.mockResolvedValue({terminate: vi.fn()});
+        mocks.getPageSizes.mockResolvedValueOnce([
+            page,
+            page,
+        ]);
+        // Page 1 is still decoding when page 2 is refused; it stops as a
+        // canceled DjVu page does, with an error of its own.
+        mocks.buildCompactPage.mockImplementation((_worker: unknown, pageNumber: number, _metrics: unknown, _preset: unknown, signal: AbortSignal) => (pageNumber === 1
+            ? new Promise((_resolve, reject) => {
+                signal.addEventListener('abort', () => reject(new Error('DjVu conversion canceled')), {once: true});
+            })
+            : Promise.resolve({
+                route: 'photo',
+                spec: {
+                    kind: 'image',
+                    pageSize: {
+                        widthPoints: 72,
+                        heightPoints: 72,
+                    },
+                    image: {
+                        fileName: 'page.ppm',
+                        data: new Uint8Array([2]),
+                    },
+                },
+            })));
+        mocks.combineWorker.mockRejectedValueOnce(new SerializableError({
+            code: 'too-large',
+            message: 'Image dimensions are too large to combine safely: 10000x8001',
+        }));
+
+        try {
+            await expect(runBrowserDjvuConversion(
+                requireDocumentRef('browser://documents/book.djvu'),
+                requireDocumentRef('browser://documents/output.pdf'),
+                {
+                    jobId: requireJobId('djvu-compact-page-boundary'),
+                    pdfStrategy: 'compact-djvu-aware',
+                    preserveBookmarks: false,
+                },
+            )).resolves.toMatchObject({
+                success: false,
+                error: 'direct export output requested',
+            });
+            expect(getSaveTarget).toHaveBeenCalledOnce();
+        } finally {
+            vi.unstubAllGlobals();
+            mocks.buildCompactPage.mockReset();
+            mocks.createWorker.mockReset();
             stat.mockRestore();
             getSaveTarget.mockRestore();
         }
@@ -572,24 +639,37 @@ describe('browserDjvuConversionPipeline', () => {
         }
     });
 
-    it('reports each converted page and the PDF assembly to the job runner that started the conversion', async () => {
+    it('writes compact pages in document order when a later page finishes first, reporting each in order', async () => {
         const stat = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
             size: 1,
             modifiedAt: 1,
         });
-        // The conversion stops at the direct export's output sink, after every page has been reported.
-        const getSaveTarget = vi.spyOn(browserDocumentStore, 'getSaveTarget').mockRejectedValue(new Error('direct export output requested'));
+        const written: Uint8Array[] = [];
+        const getSaveTarget = vi.spyOn(browserDocumentStore, 'getSaveTarget').mockResolvedValue({
+            saveName: 'output.pdf',
+            saveKind: 'pdf',
+            saveHandle: {createWritable: async () => ({
+                write: async (chunk: ArrayBuffer) => {
+                    written.push(new Uint8Array(chunk));
+                },
+                close: async () => {},
+                abort: async () => {},
+            })} as unknown as FileSystemFileHandle,
+        });
+        const replace = vi.spyOn(browserDocumentStore, 'replaceWithHandleBackedDocument').mockResolvedValue(undefined as never);
+        const setRetention = vi.spyOn(browserDocumentStore, 'setRetention').mockResolvedValue(undefined as never);
+        const unload = vi.spyOn(browserDocumentStore, 'unload').mockReturnValue(undefined as never);
         const page = {
             width: 100,
             height: 100,
             dpi: 300,
         };
-        mocks.createWorker.mockResolvedValueOnce({terminate: vi.fn()});
+        mocks.createWorker.mockResolvedValue({terminate: vi.fn()});
         mocks.getPageSizes.mockResolvedValueOnce([
             page,
             page,
         ]);
-        mocks.buildCompactPage.mockResolvedValue({
+        mocks.buildCompactPage.mockImplementation(async (_worker: unknown, pageNumber: number) => ({
             route: 'photo',
             spec: {
                 kind: 'image',
@@ -598,17 +678,23 @@ describe('browserDjvuConversionPipeline', () => {
                     heightPoints: 72,
                 },
                 image: {
-                    fileName: 'page.ppm',
-                    data: new Uint8Array([
-                        0x50,
-                        0x36,
-                    ]),
+                    fileName: `page-${pageNumber}.ppm`,
+                    data: new Uint8Array([pageNumber]),
                 },
             },
+        }));
+        // Page 1 encodes only after page 2 has finished, on a device with lanes for both.
+        vi.stubGlobal('navigator', {hardwareConcurrency: 8});
+        const pageTwoEncoded = Promise.withResolvers<void>();
+        mocks.combineWorker.mockImplementation(async (_type: string, payload: {wasmImagePreprocessing: {pageSpecs: Array<{image: {fileName: string}}>}}) => {
+            const fileName = payload.wasmImagePreprocessing.pageSpecs[0]!.image.fileName;
+            if (fileName === 'page-1.ppm') await pageTwoEncoded.promise;
+            else pageTwoEncoded.resolve();
+            return {data: new TextEncoder().encode(`[${fileName}]`)};
         });
-        mocks.combineWorker.mockRejectedValueOnce(new SerializableError({
-            code: 'too-large',
-            message: 'Image combine WASM request exceeds the admission ceiling',
+        mocks.pageOps.mockImplementation(async (_type: string, payload: {sources: Blob[]}) => ({
+            status: 'written',
+            data: new TextEncoder().encode((await Promise.all(payload.sources.map(source => source.text()))).join('')),
         }));
         const requestId = createRequestId('djvu-convert');
         const shown: string[] = [];
@@ -635,19 +721,28 @@ describe('browserDjvuConversionPipeline', () => {
         });
 
         try {
-            await conversion.promise;
+            await expect(conversion.promise).resolves.toMatchObject({success: true});
+            expect(new TextDecoder().decode(Uint8Array.from(written.flatMap(chunk => [...chunk])))).toBe('[page-1.ppm][page-2.ppm]');
             expect(shown).toEqual([
                 'loading 0%',
                 'converting 0%',
                 'converting 45%',
                 'converting 90%',
                 'assembling 90%',
+                'bookmarks 100%',
             ]);
         } finally {
             void run.cancel();
+            vi.unstubAllGlobals();
             mocks.buildCompactPage.mockReset();
+            mocks.combineWorker.mockReset();
+            mocks.createWorker.mockReset();
+            mocks.pageOps.mockReset();
             stat.mockRestore();
             getSaveTarget.mockRestore();
+            replace.mockRestore();
+            setRetention.mockRestore();
+            unload.mockRestore();
         }
     });
 });

@@ -1,7 +1,7 @@
 // fallow-ignore-file unused-file -- bundled by browserDjvuFinalizationAcceptance.test.ts for Chromium.
 
 import {
-    PDFDocument, rgb,
+    PDFDict, PDFDocument, PDFName, PDFRawStream, rgb,
 } from 'pdf-lib';
 import type {TDocumentRef} from '@contracts/documentRef';
 import {browserDjvuCapability} from '@app/platform/browser-api/browserDjvuCapability';
@@ -124,6 +124,32 @@ async function runBrowserDjvuFinalizationAcceptance() {
 
 Reflect.set(globalThis, '__evbRunBrowserDjvuFinalizationAcceptance', runBrowserDjvuFinalizationAcceptance);
 
+/**
+ * What a reader gets from each page, in order: its box, its drawing and the
+ * images it draws, byte for byte. The file's layout, object numbers and the
+ * names a page gives its images are left out.
+ */
+async function readPdfPageContent(bytes: Uint8Array) {
+    const pdf = await PDFDocument.load(bytes);
+    const streamText = (stream: unknown) => (stream instanceof PDFRawStream
+        ? `${stream.dict.toString()}:${Array.from(stream.getContents()).join(',')}`
+        : String(stream));
+    return pdf.getPages().map((page) => {
+        const images = page.node.Resources()?.lookup(PDFName.of('XObject'), PDFDict);
+        const contents = page.node.Contents();
+        const drawing = contents instanceof PDFRawStream ? new TextDecoder().decode(contents.getContents()) : '';
+        const drawn = [...drawing.matchAll(/\/([^\s/]+)\s+Do\b/gu)].map(([, name]) => {
+            const image = images?.get(PDFName.of(name!));
+            return image === undefined ? `missing ${name!}` : streamText(pdf.context.lookup(image));
+        });
+        return [
+            page.node.MediaBox().toString(),
+            drawing.replaceAll(/\/[^\s/]+(?=\s+Do\b)/gu, '/Image'),
+            ...drawn,
+        ].join('|');
+    });
+}
+
 async function installBrowserCompactDjvuAcceptance(documentCount = 1, compareReference = true) {
     const fixtureBytes = new Uint8Array(await (await fetch('/fixtures/bitonal-faint-pencil.djvu')).arrayBuffer());
     const sourcePath = await browserDocumentStore.createStoredDocument('compact.djvu', fixtureBytes, {
@@ -138,8 +164,8 @@ async function installBrowserCompactDjvuAcceptance(documentCount = 1, compareRef
         retention: 'transient',
         saveKind: 'pdf',
     });
-    // A trusted export must produce exactly the old encoder's bytes even when
-    // the UI cannot run WASM. Cancellation asserts no bytes and needs no encoder
+    // A trusted export must produce exactly the encoder's pages even when the
+    // UI cannot run WASM. Cancellation asserts no bytes and needs no encoder
     // control; avoid building a throwaway PDF before its pending-load probe.
     const reference = compareReference ? await withBrowserDjvuWorker(sourcePath, async (worker) => {
         const pageSizes = await getDjvuWorkerPageSizes(worker);
@@ -207,8 +233,8 @@ async function installBrowserCompactDjvuAcceptance(documentCount = 1, compareRef
                             outputBytes: bytes.byteLength,
                             generatedPdfHeader: new TextDecoder().decode(bytes.slice(0, 5)),
                             pageSizes: pdf?.getPages().map(page => page.getSize()),
-                            referenceMatches: reference !== null && bytes.byteLength === reference.byteLength
-                                && bytes.every((value, offset) => value === reference[offset]),
+                            referenceMatches: reference !== null && result.success
+                                && JSON.stringify(await readPdfPageContent(bytes)) === JSON.stringify(await readPdfPageContent(reference)),
                         });
                         status.textContent = result.success ? 'Completed' : 'Canceled';
                     } finally {
