@@ -153,8 +153,15 @@ describe('browser document lifecycle UI', () => {
                 // copy of this old app would contend with its cached document
                 // lease and make Chromium evict A before pageshow can run.
                 const away = `${lifecycle.origin}/__settings-history-away`;
+                // It is isolated as every page of the app is; a page of
+                // another isolation state would move history to another
+                // browsing context group and keep A out of the history cache.
                 await context.route(away, route => route.fulfill({
                     contentType: 'text/html',
+                    headers: {
+                        'Cross-Origin-Opener-Policy': 'same-origin',
+                        'Cross-Origin-Embedder-Policy': 'require-corp',
+                    },
                     body: '<p>Settings history navigation fixture</p>',
                 }));
                 const second = await context.newPage();

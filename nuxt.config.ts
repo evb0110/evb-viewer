@@ -125,9 +125,14 @@ const appContentSecurityPolicy = [
     "frame-ancestors 'none'",
     "form-action 'self'",
 ].join('; ');
+// COOP with COEP makes the hosted app cross-origin isolated, which the
+// threaded scan cleanup engine needs (shared memory between workers). Worker
+// scripts must carry COEP too, or an isolated page cannot start them.
+// `credentialless` would admit more cross-origin content, but Safari lacks it.
 const appSecurityHeaders = {
     'Content-Security-Policy': appContentSecurityPolicy,
     'Cross-Origin-Opener-Policy': 'same-origin',
+    'Cross-Origin-Embedder-Policy': 'require-corp',
     'Cross-Origin-Resource-Policy': 'same-origin',
     'X-Frame-Options': 'DENY',
     'X-Content-Type-Options': 'nosniff',
@@ -137,6 +142,14 @@ const appSecurityHeaders = {
 const withAppSecurityHeaders = (headers: Record<string, string> = {}) => ({
     ...appSecurityHeaders,
     ...headers,
+});
+// The desktop app serves its renderer through electron/protocol.ts without
+// these headers, so it is never isolated; the dev server's Electron routes
+// match it. Nitro merges the '/**' rule into every route, so the value is set.
+const electronShellHeaders = withAppSecurityHeaders({
+    ...appShellCacheHeaders,
+    'Cross-Origin-Embedder-Policy': 'unsafe-none',
+    'X-Robots-Tag': 'noindex, nofollow',
 });
 const appDir = fileURLToPath(new URL('./app', import.meta.url));
 const knownSourcemapWarningPlugins = new Set([
@@ -342,18 +355,12 @@ export default defineNuxtConfig({
         '/electron': {
             prerender: true,
             ssr: false,
-            headers: withAppSecurityHeaders({
-                ...appShellCacheHeaders,
-                'X-Robots-Tag': 'noindex, nofollow',
-            }),
+            headers: electronShellHeaders,
         },
         '/electron/**': {
             prerender: true,
             ssr: false,
-            headers: withAppSecurityHeaders({
-                ...appShellCacheHeaders,
-                'X-Robots-Tag': 'noindex, nofollow',
-            }),
+            headers: electronShellHeaders,
         },
         '/': {
             prerender: true,
@@ -557,6 +564,22 @@ export default defineNuxtConfig({
 
     vite: {
         ...(isolatedNuxtViteCacheDir ? {cacheDir: isolatedNuxtViteCacheDir} : {}),
+        plugins: [{
+            // In development Vite serves /_nuxt/, worker scripts included,
+            // before Nitro's route rules apply, and an isolated page starts
+            // only workers whose script carries COEP. Set ahead of Vite's own
+            // handlers so its 304 revalidations carry it too: WebKit reads the
+            // policy from the 304, and `server.headers` leaves it off.
+            name: 'evb:dev-cross-origin-embedder-policy',
+            apply: 'serve',
+            configureServer(server) {
+                server.middlewares.use((request, response, next) => {
+                    // Nitro's route rules already answer everything else.
+                    if (request.url?.startsWith('/_nuxt/')) response.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+                    next();
+                });
+            },
+        }],
         // Scan Cleanup provenance names the source revision, as desktop does.
         define: {__EVB_BUILD_GIT_SHA__: JSON.stringify(resolveBuildGitSha(buildEnv))},
         $client: {
