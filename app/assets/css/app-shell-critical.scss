@@ -32,7 +32,9 @@ body {
     --app-chrome: color-mix(in oklab, var(--ui-bg) 35%, var(--ui-border) 65%);
     --app-chrome-hover: color-mix(in oklab, var(--ui-bg) 55%, var(--ui-border) 45%);
     --app-toolbar-control-size: 2.25rem;
-    --app-toolbar-row-height: calc(var(--app-toolbar-control-size) + 1rem + 2px);
+
+    /* Matches main.css: a bordered control group, the row's padding and borders. */
+    --app-toolbar-row-height: calc(var(--app-toolbar-control-size) + 1rem + 4px);
     --app-toolbar-control-hover-bg: var(--app-chrome-hover);
     --app-toolbar-control-active-bg: #ffffff;
     --app-toolbar-control-active-hover-bg: #ffffff;
