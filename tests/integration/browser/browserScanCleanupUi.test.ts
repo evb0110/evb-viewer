@@ -539,8 +539,8 @@ describe('browser Scan Cleanup workspace', () => {
         }
     }, scanCleanupUiTimeoutMs);
 
-    // Switching tabs does not move the tab strip. From a 600 px window up, the
-    // window's top bar keeps one height whether a tab is empty, shows the
+    // Switching tabs does not move the tab strip. Down to a phone's width,
+    // the window's top bar keeps one height whether a tab is empty, shows the
     // reader or shows Scan cleanup, so the tabs and pages under it stay where
     // the user aims. Below 1024 px Scan cleanup's bar used to take two rows.
     it('keeps the tab strip in place when switching between a reader tab and a Scan cleanup tab', async () => {
@@ -561,6 +561,8 @@ describe('browser Scan Cleanup workspace', () => {
                 1440,
                 900,
                 600,
+                390,
+                360,
             ];
             const read = async (state: string) => {
                 const width = page.viewportSize()!.width;
