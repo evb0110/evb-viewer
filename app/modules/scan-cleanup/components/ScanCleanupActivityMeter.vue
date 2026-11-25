@@ -18,15 +18,20 @@
             >
                 <span class="scan-cleanup-activity-line">
                     <span class="scan-cleanup-activity-phase">{{ t(`scanCleanup.activity.phase.${activity.phase}`) }}</span>
-                    <UIcon name="i-ph-caret-right" class="scan-cleanup-activity-separator" aria-hidden="true" />
-                    <span class="scan-cleanup-activity-detail">{{ notice || detailText }}</span>
+                    <UIcon
+                        name="i-ph-caret-right"
+                        class="scan-cleanup-activity-separator"
+                        :class="{'is-notice': notice}"
+                        aria-hidden="true"
+                    />
+                    <span class="scan-cleanup-activity-detail" :class="{'is-notice': notice}">{{ notice || detailText }}</span>
                     <template v-if="countText">
                         <span class="scan-cleanup-activity-dot" aria-hidden="true">·</span>
                         <!-- The label carries the current count alone; the text also
                              holds the reserved widest count. -->
                         <ScanCleanupStableWidthText
                             class="scan-cleanup-activity-count"
-                            :class="{[SCAN_CLEANUP_TOOLBAR_COUNT_CLASS]: !activity.run}"
+                            :class="{[SCAN_CLEANUP_TOOLBAR_COUNT_CLASS]: !activity.run, 'is-beside-notice': notice}"
                             :aria-label="countText"
                             :text="countText"
                             :widest="countWidestText"
@@ -34,6 +39,7 @@
                     </template>
                     <ScanCleanupStableWidthText
                         class="scan-cleanup-activity-time"
+                        :class="{'is-beside-notice': notice}"
                         :text="timeText"
                         :widest="timeWidestText"
                     />
@@ -312,6 +318,20 @@ const stepGroups = computed(() => SCAN_CLEANUP_ACTIVITY_PHASES.map(phase => ({
     color: var(--ui-text-highlighted);
     font-weight: var(--app-font-weight-heading);
     text-overflow: ellipsis;
+}
+
+/* On a phone the step name yields to the phase and the page count, and the
+   dot goes so a count that does not fit leaves nothing behind. A
+   cancellation notice says why Cancel cannot be pressed, so it stays and the
+   count and clock yield to it until it clears. */
+@media (width < 37.5rem) {
+    .scan-cleanup-activity-separator:not(.is-notice),
+    .scan-cleanup-activity-detail:not(.is-notice),
+    .scan-cleanup-activity-dot,
+    .scan-cleanup-activity-count.is-beside-notice,
+    .scan-cleanup-activity-time.is-beside-notice {
+        display: none;
+    }
 }
 
 .scan-cleanup-activity-dot {

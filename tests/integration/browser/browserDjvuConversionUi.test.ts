@@ -500,14 +500,33 @@ describe('browser document lifecycle UI', () => {
                 path: resolve(process.cwd(), '.devkit/browser-djvu-viewer-pdf-reopen.png'),
                 fullPage: true,
             });
-            await page.getByRole('button', {name: 'Close tab'}).last().click();
-            await page.reload({waitUntil: 'domcontentloaded'});
             const recentPdf = page.locator('[data-recent-open-actionable="true"] .recent-open')
                 .filter({hasText: 'bitonal-faint-pencil.pdf'});
-            await recentPdf.waitFor({
+            // The converted PDF is the conversion's output, not unsaved work: a reload, with its tab open or
+            // closed a moment before, restores no tab to recover, whether or not the close finished.
+            const reloadToStartPage = async () => {
+                await page.reload({waitUntil: 'domcontentloaded'});
+                await waitForOpenFileReady(page);
+                expect(await page.locator('[data-tab-list] [role="tab"]').evaluateAll(tabs => tabs.map(tab => ({
+                    name: tab.textContent?.trim(),
+                    state: tab.getAttribute('aria-description'),
+                })))).toEqual([{
+                    name: 'New Tab',
+                    state: null,
+                }]);
+                await recentPdf.waitFor({
+                    state: 'visible',
+                    timeout: 60_000,
+                });
+            };
+            await reloadToStartPage();
+            await recentPdf.click();
+            await renderedPdf.waitFor({
                 state: 'visible',
                 timeout: 60_000,
             });
+            await page.getByRole('button', {name: 'Close tab'}).last().click();
+            await reloadToStartPage();
             await recentPdf.click();
             await renderedPdf.waitFor({
                 state: 'visible',
@@ -519,6 +538,51 @@ describe('browser document lifecycle UI', () => {
                 path: resolve(process.cwd(), '.devkit/browser-djvu-viewer-reloaded.png'),
                 fullPage: true,
             });
+
+            // A real edit of the converted PDF is unsaved work: committed, it comes back after a reload.
+            const committed = () => page.evaluate(async () => {
+                const revisions: Record<string, number | null> = {};
+                const documents = await (await navigator.storage.getDirectory()).getDirectoryHandle('documents');
+                for await (const [id, dir] of (documents as unknown as {entries(): AsyncIterable<[string, FileSystemDirectoryHandle]>}).entries()) {
+                    const manifest = JSON.parse(await (await (await dir.getFileHandle('manifest.json')).getFile()).text()) as {current?: {id: number}};
+                    revisions[id] = manifest.current?.id ?? null;
+                }
+                return revisions;
+            });
+            const opened = await committed();
+            await page.getByRole('button', {name: 'Toggle Sidebar', exact: true}).click();
+            await page.getByRole('tab', {name: 'Pages', exact: true}).click();
+            await page.locator('[data-thumbnail-page="1"]').first().click({button: 'right'});
+            await page.getByRole('menuitem', {name: 'Rotate Clockwise', exact: true}).click();
+            await expect.poll(committed, {timeout: 60_000}).not.toEqual(opened);
+            const readWorkingCopy = () => page.evaluate(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
+                return api?.readActiveWorkspaceStateValues?.<{workingCopyPath: string | null}>(['workingCopyPath']).workingCopyPath ?? null;
+            });
+            const editedCopy = await readWorkingCopy();
+            // A reload restores the tabs the window's workspace record names, which it writes shortly after a tab opens.
+            await expect.poll(() => page.evaluate(async (ref) => {
+                const workspaces = await (await navigator.storage.getDirectory()).getDirectoryHandle('workspaces');
+                for await (const [, handle] of (workspaces as unknown as {entries(): AsyncIterable<[string, FileSystemFileHandle]>}).entries()) {
+                    const record = await (await handle.getFile()).text().catch(() => '');
+                    if (record.includes(JSON.stringify(ref).slice(1, -1))) return true;
+                }
+                return false;
+            }, editedCopy), {timeout: 30_000}).toBe(true);
+            await page.reload({waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            await expect.poll(() => page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').evaluate(tab => ({
+                name: tab.textContent?.trim(),
+                state: tab.getAttribute('aria-description'),
+            })), {timeout: 30_000}).toEqual({
+                name: 'bitonal-faint-pencil.pdf',
+                state: 'Unsaved changes',
+            });
+            // The pages are square, so the rotation shows in the recovered working copy's bytes rather than its shape.
+            const workingCopy = await readWorkingCopy();
+            expect(workingCopy).toMatch(/\.pdf$/u);
+            const recovered = await PDFDocument.load(Uint8Array.from(await readPersistedDocumentBytes(page, workingCopy!)));
+            expect(recovered.getPage(0).getRotation().angle).toBe(90);
         } finally {
             await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
         }

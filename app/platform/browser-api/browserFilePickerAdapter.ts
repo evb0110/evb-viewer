@@ -480,8 +480,8 @@ export async function openBrowserOutputSink(
 
 /**
  * With a handle the bytes go to the file a chunk at a time. Without one they
- * are staged as chunks of the store record `stagingRef` and downloaded as one
- * file on close, so neither path holds the whole output in memory.
+ * are streamed into the store record `stagingRef` and downloaded as one file
+ * on close, so neither path holds the whole output in memory.
  */
 async function openBrowserOutput(
     target: TBrowserOutputTarget,
@@ -513,40 +513,22 @@ async function openBrowserOutput(
     }
 
     const {stagingRef} = target;
-    await browserDocumentStore.prepareChunkedDocument(stagingRef);
-    let buffer = new Uint8Array(BROWSER_DOCUMENT_CHUNK_SIZE);
-    let filled = 0;
-    let chunkCount = 0;
-    let fileSize = 0;
-    const flush = async () => {
-        await browserDocumentStore.writeChunk(stagingRef, chunkCount, buffer.subarray(0, filled));
-        chunkCount += 1;
-        fileSize += filled;
-        filled = 0;
-        buffer = new Uint8Array(BROWSER_DOCUMENT_CHUNK_SIZE);
-    };
+    const stream = await browserDocumentStore.writeStream(stagingRef);
+    // A cancel ends the stream at once, as it holds its document until it ends: writes and close fail with the cancel.
+    const cancel = () => void stream.abort(signal.reason);
+    signal.addEventListener('abort', cancel, {once: true});
+    if (signal.aborted) {
+        await stream.abort(signal.reason);
+        throwIfAborted(signal);
+    }
     return {
-        async write(chunk) {
-            for (let offset = 0; offset < chunk.byteLength;) {
-                throwIfAborted(signal);
-                const length = Math.min(chunk.byteLength - offset, buffer.byteLength - filled);
-                buffer.set(chunk.subarray(offset, offset + length), filled);
-                filled += length;
-                offset += length;
-                if (filled === buffer.byteLength) await flush();
-            }
-        },
+        write: chunk => stream.write(chunk),
         async close() {
             throwIfAborted(signal);
-            if (filled > 0) await flush();
-            await browserDocumentStore.finalizeChunkedDocument(stagingRef, {
-                fileSize,
-                chunkCount,
-                chunkSize: BROWSER_DOCUMENT_CHUNK_SIZE,
-            });
+            await stream.close();
             await downloadBrowserDocument(stagingRef, target.fileName, mimeType, signal);
         },
-        abort: () => browserDocumentStore.clearChunkedDocument(stagingRef),
+        abort: () => stream.abort(),
     };
 }
 

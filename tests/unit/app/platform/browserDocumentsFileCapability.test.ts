@@ -2787,7 +2787,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
     });
 
     it.each([
-        'finalizeChunkedDocument',
+        'writeStream',
         'readRange',
     ] as const)('cancels a DOCX while commit waits for %s, without publishing a download', async (phase) => {
         const downloads: Blob[] = [];
@@ -2805,18 +2805,19 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: undefined}});
         const outputPath = await capability.saveDocxAs(requireDocumentRef('/tmp/work.pdf'));
         if (!outputPath) throw new Error('Expected browser DOCX output path');
-        const {sessionId} = await capability.beginDocxFileStream(outputPath);
-        await capability.writeDocxFileStreamChunk(sessionId, Uint8Array.of(80, 75, 3, 4));
         const entered = Promise.withResolvers<undefined>();
         const release = Promise.withResolvers<undefined>();
-        // Both waits occur after commit starts and before the download is published.
-        const finalize = browserDocumentStore.finalizeChunkedDocument.bind(browserDocumentStore);
+        // Both waits occur after commit starts and before the download is published: the stored bytes' commit, and the download's read.
+        const writeStream = browserDocumentStore.writeStream.bind(browserDocumentStore);
         const readRange = browserDocumentStore.readRange.bind(browserDocumentStore);
-        const pending = phase === 'finalizeChunkedDocument'
-            ? vi.spyOn(browserDocumentStore, 'finalizeChunkedDocument').mockImplementationOnce(async (...args) => {
-                entered.resolve(undefined);
-                await release.promise;
-                return finalize(...args);
+        const pending = phase === 'writeStream'
+            ? vi.spyOn(browserDocumentStore, 'writeStream').mockImplementationOnce(async (...args) => {
+                const stream = await writeStream(...args);
+                return {...stream, close: async (...closeArgs) => {
+                    entered.resolve(undefined);
+                    await release.promise;
+                    return stream.close(...closeArgs);
+                }};
             })
             : vi.spyOn(browserDocumentStore, 'readRange').mockImplementationOnce(async (...args) => {
                 entered.resolve(undefined);
@@ -2824,6 +2825,8 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
                 return readRange(...args);
             });
         try {
+            const {sessionId} = await capability.beginDocxFileStream(outputPath);
+            await capability.writeDocxFileStreamChunk(sessionId, Uint8Array.of(80, 75, 3, 4));
             const commit = capability.commitDocxFileStream(sessionId);
             const commitResult = commit.then(() => 'published', (error: unknown) => error);
             await entered.promise;
