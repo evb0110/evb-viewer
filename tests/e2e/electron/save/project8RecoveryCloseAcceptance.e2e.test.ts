@@ -228,39 +228,13 @@ async function getFileSha256(filePath: string) {
     return hash.digest('hex');
 }
 
+/**
+ * Clicks the active tab's close button where it is when the pointer goes down.
+ * A point measured beforehand can be stale: a Save As renames the tab, and a
+ * renamed tab may move its button.
+ */
 async function clickActiveTabClose(session: IElectronE2ESession) {
-    const target = await session.page.evaluate(() => {
-        const activePane = document.querySelector<HTMLElement>('.editor-pane.is-active');
-        const activeTab = activePane?.querySelector<HTMLElement>('.tab-list .tab.is-active');
-        const button = activeTab?.querySelector<HTMLButtonElement>('.tab-close');
-        if (!activeTab || !button) {
-            return {
-                found: false as const,
-                tabs: Array.from(activePane?.querySelectorAll<HTMLElement>('.tab-list .tab') ?? []).map(tab => ({
-                    id: tab.dataset.tabId ?? null,
-                    active: tab.classList.contains('is-active'),
-                    closeLabel: tab.querySelector<HTMLButtonElement>('.tab-close')?.getAttribute('aria-label') ?? null,
-                })),
-            };
-        }
-        const bounds = button.getBoundingClientRect();
-        return {
-            found: true as const,
-            disabled: button.disabled,
-            label: button.getAttribute('aria-label'),
-            x: bounds.left + bounds.width / 2,
-            y: bounds.top + bounds.height / 2,
-        };
-    });
-    expect(target.found, `active tab close button should be available: ${JSON.stringify(target)}`).toBe(true);
-    if (!target.found) {
-        throw new Error(`Active tab close button was not available: ${JSON.stringify(target)}`);
-    }
-    expect(target.disabled, `active tab close button should be enabled: ${JSON.stringify(target)}`).toBe(false);
-    if (target.disabled) {
-        throw new Error(`Active tab close button was disabled: ${JSON.stringify(target)}`);
-    }
-    await session.page.mouse.click(target.x, target.y);
+    await clickAsUser(session.page, '.editor-pane.is-active .tab-list .tab.is-active .tab-close:not(:disabled)');
 }
 
 async function clickActiveTabCloseIfEnabled(session: IElectronE2ESession) {
