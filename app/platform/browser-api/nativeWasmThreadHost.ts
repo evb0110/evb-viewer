@@ -184,9 +184,10 @@ export function runNativeWasmThread({
     } catch (error) {
         try {
             onTrap?.(error);
-        } finally {
-            reportNativeWasmThreadFault(memory, faultPointer);
+        } catch {
+            // A failing observer must not hide why the thread died.
         }
+        reportNativeWasmThreadFault(memory, faultPointer);
         throw error;
     }
 }
