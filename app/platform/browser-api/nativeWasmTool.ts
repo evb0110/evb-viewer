@@ -295,9 +295,12 @@ export function createNativeWasmToolLoader(descriptor: INativeWasmToolDescriptor
                 if (reason !== null) result = failure('panic', `${result.error.message}: ${reason}`);
             }
             // The call has ended; whoever still holds the instance finishes on it.
+            // A threaded instance is kept past the high-water mark: its memory
+            // is reserved in full when created, so a new one would only add a
+            // reservation until the old is collected. It ends with its worker.
             if (loaded === tool && (
                 (result.status === 'failed' && result.error.code === 'panic')
-                || exceedsWasmMemoryHighWater(tool.memory)
+                || (threaded === null && exceedsWasmMemoryHighWater(tool.memory))
             )) discard();
             return result;
         } catch (error) {

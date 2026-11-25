@@ -14,6 +14,8 @@ interface IBrowserWorkerClientOptions<TPendingRequest> {
     createWorker: (key: string | undefined) => Worker;
     /** The key of a worker started for a request that takes any kind. */
     defaultWorkerKey?: () => string;
+    /** The page-wide budget a worker of a counted key holds a place in while it lives. */
+    budget?: BrowserWorkerBudget;
     idleTtlMs: number;
     requestTimeoutMs?: number;
     handleMessage: (
@@ -72,6 +74,8 @@ export class BrowserWorkerClient<
     public readonly pendingRequests = new Map<number, TPendingRequest>();
 
     private worker: Worker | null = null;
+    /** Set by the request owner while it has admitted a request here. */
+    public leased = false;
     private currentWorkerKey: string | undefined = undefined;
     private workerEventListeners: IWorkerEventListeners | null = null;
     private workerGeneration = 0;
@@ -124,6 +128,7 @@ export class BrowserWorkerClient<
         this.worker = null;
         this.workerEventListeners = null;
         this.lifecycle.clear();
+        this.options.budget?.release(this);
 
         if (worker) {
             if (workerEventListeners) {
@@ -153,6 +158,7 @@ export class BrowserWorkerClient<
         const workerKey = key ?? this.options.defaultWorkerKey?.();
         const worker = this.options.createWorker(workerKey);
         this.currentWorkerKey = workerKey;
+        if (this.options.budget?.counts(workerKey)) this.options.budget.hold(this);
         const generation = this.workerGeneration + 1;
         const workerEventListeners: IWorkerEventListeners = {
             message: event => {
@@ -186,6 +192,11 @@ export class BrowserWorkerClient<
 
     public hasWorker() {
         return this.worker !== null;
+    }
+
+    /** Whether the client runs nothing and has no admitted request, so its worker may be ended. */
+    public get idle() {
+        return !this.leased && this.pendingRequests.size === 0;
     }
 
     /** The key of the running worker, or undefined when none runs. */
@@ -288,13 +299,86 @@ export class BrowserWorkerClient<
     }
 }
 
+type TAnyBrowserWorkerClient = BrowserWorkerClient<{reject: (error: Error) => void}>;
+
+/**
+ * Places for workers whose key needs a scarce resource, shared by every pool
+ * that runs such workers: a threaded engine's shared memory, which a browser
+ * reserves in full and grants only so many of. A worker of a counted key holds
+ * a place from its start until it is ended. A pool admits a request that
+ * would start one only into a free place, by replacing an idle counted worker
+ * of its own, or after ending an idle counted worker of any pool; otherwise
+ * the request waits until a place is released.
+ */
+export class BrowserWorkerBudget {
+    private readonly holders = new Set<TAnyBrowserWorkerClient>();
+    private readonly waiters = new Set<() => void>();
+    private wakeQueued = false;
+
+    public constructor(
+        private readonly limit: () => number,
+        public readonly counts: (key: string | undefined) => boolean,
+    ) {}
+
+    public holds(client: object) {
+        return this.holders.has(client as TAnyBrowserWorkerClient);
+    }
+
+    /** Whether one more counted worker fits with `keepFree` places left over. */
+    public hasRoom(keepFree: number) {
+        return this.holders.size + 1 + keepFree <= this.limit();
+    }
+
+    /** Ends idle counted workers until one more fits with `keepFree` places left over. */
+    public reclaim(keepFree: number) {
+        for (const holder of [...this.holders]) {
+            if (this.hasRoom(keepFree)) break;
+            if (holder.idle) holder.resetWorker();
+        }
+        return this.hasRoom(keepFree);
+    }
+
+    public hold(client: object) {
+        this.holders.add(client as TAnyBrowserWorkerClient);
+    }
+
+    public release(client: object) {
+        if (this.holders.delete(client as TAnyBrowserWorkerClient)) this.wake();
+    }
+
+    /**
+     * Lets every pool admit again, once the caller has unwound: a place was
+     * released, or a request ended and left its worker idle for reclaiming.
+     */
+    public wake() {
+        if (this.wakeQueued) return;
+        this.wakeQueued = true;
+        queueMicrotask(() => {
+            this.wakeQueued = false;
+            for (const wake of this.waiters) wake();
+        });
+    }
+
+    /** Calls `wake` whenever a pool may admit again. */
+    public onRelease(wake: () => void) {
+        this.waiters.add(wake);
+    }
+}
+
+export interface IBrowserWorkerAdmission {
+    /** The key of the worker the request needs, read when it is admitted; undefined takes any worker. */
+    workerKey?: () => string | undefined;
+    /** Places of the pool's budget a counted request must leave free for others, such as interactive ones. */
+    budgetReserve?: number;
+}
+
 interface IOwnedRequest<TPendingRequest extends {
     reject: (error: Error) => void;
     timeoutTimer?: ReturnType<typeof setTimeout> | null;
 }> {
     client: BrowserWorkerClient<TPendingRequest> | null;
-    workerKey: string | undefined;
-    start: (client: BrowserWorkerClient<TPendingRequest>) => void;
+    admission: IBrowserWorkerAdmission;
+    start: (client: BrowserWorkerClient<TPendingRequest>, workerKey: string | undefined) => void;
     reject: (error: Error) => void;
 }
 
@@ -315,8 +399,10 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
         slots = Math.min(2, Math.max(1, Math.floor(
             (typeof navigator === 'undefined' ? 4 : navigator.hardwareConcurrency || 4) / 2,
         ))),
+        private readonly budget?: BrowserWorkerBudget,
     ) {
         this.clients = Array.from({length: slots}, () => createClient());
+        budget?.onRelease(() => this.admitWaitingRequests());
     }
 
     public createRequestId() {
@@ -324,30 +410,38 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
     }
 
     /**
-     * Runs a request once a client is free. A request with `workerKey` gets a
-     * client whose worker has that key if one is free, else one with no
-     * worker, else any free client, whose worker `run` then replaces by asking
-     * for its key. A request without a key prefers a client whose worker runs.
+     * Runs a request once a client is free. Its worker key is read when it is
+     * admitted, so a request that waited follows what the page decided since,
+     * and `run` gets it to ask the client for that worker. A request with a
+     * key gets a client whose worker has that key if one is free, else one
+     * with no worker, else any free client, whose worker is then replaced. A
+     * request without a key prefers a client whose worker runs. A key the
+     * owner's budget counts is admitted only within the budget.
      */
     public run<TResult>(
         requestId: number,
-        run: (client: BrowserWorkerClient<TPendingRequest>, isAdmitted: () => boolean) => Promise<TResult>,
-        workerKey?: string,
+        run: (
+            client: BrowserWorkerClient<TPendingRequest>,
+            isAdmitted: () => boolean,
+            workerKey: string | undefined,
+        ) => Promise<TResult>,
+        admission: IBrowserWorkerAdmission = {},
     ): Promise<TResult> {
         const request: IOwnedRequest<TPendingRequest> = {
             client: null,
-            workerKey,
+            admission,
             start: () => {},
             reject: () => {},
         };
         const promise = new Promise<TResult>((resolve, reject) => {
             request.reject = reject;
-            request.start = client => {
+            request.start = (client, workerKey) => {
                 request.client = client;
+                client.leased = true;
                 try {
                     // A reset or cancellation frees the entry; a run that resumes
                     // after one reads that before it starts more work.
-                    void run(client, () => this.requests.get(requestId) === request).then(resolve, reject);
+                    void run(client, () => this.requests.get(requestId) === request, workerKey).then(resolve, reject);
                 } catch (error) {
                     reject(error);
                 }
@@ -357,9 +451,11 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
             this.admitWaitingRequests();
         });
         return promise.finally(() => {
+            if (request.client) request.client.leased = false;
             this.requests.delete(requestId);
             if (this.requests.size === 0) this.lifecycle.clear();
             this.admitWaitingRequests();
+            this.budget?.wake();
         });
     }
 
@@ -378,14 +474,16 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
 
     /** Ends the workers of the clients that run nothing now; busy ones keep theirs until replaced. */
     public resetIdleWorkers() {
-        const admitted = new Set([...this.requests.values()].map(entry => entry.client));
         for (const client of this.clients) {
-            if (!admitted.has(client)) client.resetWorker();
+            if (client.idle) client.resetWorker();
         }
     }
 
     private reset() {
         const requests = [...this.requests.values()];
+        for (const request of requests) {
+            if (request.client) request.client.leased = false;
+        }
         this.requests.clear();
         this.lifecycle.clear();
         const error = new BrowserWorkerResetError();
@@ -400,13 +498,27 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
         for (const request of this.requests.values()) {
             if (request.client) continue;
             const free = this.clients.filter(candidate => !admitted.includes(candidate));
-            const client = (request.workerKey === undefined
-                ? free.find(candidate => candidate.hasWorker())
-                : free.find(candidate => candidate.workerKey === request.workerKey)
-                    ?? free.find(candidate => !candidate.hasWorker())) ?? free[0];
-            if (!client) return;
-            request.start(client);
+            if (free.length === 0) return;
+            const workerKey = request.admission.workerKey?.();
+            const client = this.chooseClient(free, workerKey, request.admission.budgetReserve ?? 0);
+            // A request waiting for a budget place lets later ones that need none, or a reserved one, start.
+            if (!client) continue;
+            request.start(client, workerKey);
             admitted.push(client);
         }
+    }
+
+    private chooseClient(free: Array<BrowserWorkerClient<TPendingRequest>>, workerKey: string | undefined, keepFree: number) {
+        if (workerKey === undefined) return free.find(candidate => candidate.hasWorker()) ?? free[0];
+        const same = free.find(candidate => candidate.workerKey === workerKey);
+        if (same) return same;
+        const empty = free.find(candidate => !candidate.hasWorker()) ?? free[0];
+        const budget = this.budget;
+        if (!budget?.counts(workerKey)) return empty;
+        // Replacing an idle counted worker of this pool keeps the count.
+        const holder = free.find(candidate => budget.holds(candidate));
+        if (budget.hasRoom(keepFree)) return empty;
+        if (holder) return holder;
+        return budget.reclaim(keepFree) ? empty : null;
     }
 }

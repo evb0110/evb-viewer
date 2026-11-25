@@ -15,14 +15,22 @@ import {
     type IPendingBrowserWorkerRequest,
 } from '@app/platform/browser-api/settleBrowserWorkerResult';
 import {
+    observeScanCleanupEngineReply,
+    registerScanCleanupEnginePool,
     runWithScanCleanupEngineFailover,
+    scanCleanupEngineAdmission,
     scanCleanupEngineWorkerName,
+    threadedScanCleanupEngineBudget,
 } from '@app/platform/browser-api/scanCleanupEngineVariant';
 import {getErrorMessage} from '@app/utils/error';
 
 // A cleanup operation runs its engine calls back to back; keep the engine and
 // its compiled module between them, and release both once the workspace idles.
 const BROWSER_SCAN_CLEANUP_WORKER_IDLE_TTL_MS = 30_000;
+// Far past the slowest page seen: an 80 MP final render took 30 s on six
+// threads. It ends a request whose engine thread died without a trace, which
+// would otherwise wait for it forever.
+const BROWSER_SCAN_CLEANUP_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 
 export class BrowserScanCleanupWorkerUnavailableError extends Error {
     public constructor(message: string) {
@@ -42,8 +50,10 @@ export function canUseBrowserScanCleanupWorker() {
 function createClient() {
     return new BrowserWorkerClient<IPendingBrowserWorkerRequest>({
         idleTtlMs: BROWSER_SCAN_CLEANUP_WORKER_IDLE_TTL_MS,
+        requestTimeoutMs: BROWSER_SCAN_CLEANUP_REQUEST_TIMEOUT_MS,
         // The worker's name tells it which engine to run, on how many threads.
         defaultWorkerKey: () => scanCleanupEngineWorkerName(undefined),
+        budget: threadedScanCleanupEngineBudget,
         createWorker: (name) => {
             try {
                 return new Worker(new URL('./browserScanCleanup.worker.ts', import.meta.url), {
@@ -57,11 +67,10 @@ function createClient() {
         createError: event => new BrowserScanCleanupWorkerUnavailableError(
             event.error instanceof Error ? getErrorMessage(event.error) : event.message,
         ),
-        handleMessage: (pendingRequests, response, onSettled) => settleBrowserWorkerResult(
-            pendingRequests,
-            response,
-            onSettled,
-        ),
+        handleMessage: (pendingRequests, response, onSettled) => {
+            observeScanCleanupEngineReply(response);
+            settleBrowserWorkerResult(pendingRequests, response, onSettled);
+        },
     });
 }
 
@@ -88,7 +97,9 @@ let owner: BrowserWorkerRequestOwner<IPendingBrowserWorkerRequest> | null = null
 function getOwner() {
     if (owner === null) {
         const pageLanes = resolveBrowserPageLanes().producerConcurrency;
-        owner = new BrowserWorkerRequestOwner(createClient, pageLanes === 1 ? 1 : pageLanes + 1);
+        const engines = new BrowserWorkerRequestOwner(createClient, pageLanes === 1 ? 1 : pageLanes + 1, threadedScanCleanupEngineBudget);
+        registerScanCleanupEnginePool(() => engines.resetIdleWorkers());
+        owner = engines;
     }
     return owner;
 }
@@ -140,7 +151,6 @@ export function runBrowserScanCleanupWorkerRequest<K extends TBrowserScanCleanup
     return runWithScanCleanupEngineFailover(
         payload,
         attempt => runOnWorker(type, attempt, signal, onEngineIdentity, concurrency),
-        () => getOwner().resetIdleWorkers(),
     );
 }
 
@@ -156,8 +166,7 @@ function runOnWorker<K extends TBrowserScanCleanupWorkerRequestType>(
     const id = engines.createRequestId();
     const abort = () => engines.cancel(id, abortError(signal));
     signal.addEventListener('abort', abort, {once: true});
-    const workerName = ENGINELESS_REQUESTS.has(type) ? undefined : scanCleanupEngineWorkerName(concurrency);
-    return engines.run(id, client => new Promise<IBrowserScanCleanupWorkerResultMap[K]>((resolve, reject) => {
+    return engines.run(id, (client, _isAdmitted, workerName) => new Promise<IBrowserScanCleanupWorkerResultMap[K]>((resolve, reject) => {
         const worker = client.getWorker(workerName);
         client.registerPendingRequest(id, {
             requestType: type,
@@ -178,5 +187,5 @@ function runOnWorker<K extends TBrowserScanCleanupWorkerRequestType>(
         } catch (error) {
             client.cancelPendingRequest(id, error instanceof Error ? error : new Error(String(error)));
         }
-    }), workerName).finally(() => signal.removeEventListener('abort', abort));
+    }), ENGINELESS_REQUESTS.has(type) ? {} : scanCleanupEngineAdmission(concurrency)).finally(() => signal.removeEventListener('abort', abort));
 }

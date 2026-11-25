@@ -17,9 +17,14 @@ import {
     type ITypedPendingBrowserWorkerRequest,
 } from '@app/platform/browser-api/settleBrowserWorkerResult';
 import {
+    observeScanCleanupEngineReply,
+    registerScanCleanupEnginePool,
     runWithScanCleanupEngineFailover,
+    scanCleanupEngineAdmission,
     scanCleanupEngineWorkerName,
+    threadedScanCleanupEngineBudget,
 } from '@app/platform/browser-api/scanCleanupEngineVariant';
+import type {BrowserWorkerBudget, IBrowserWorkerAdmission} from '@app/platform/browser-api/browserWorkerClient';
 import * as v from 'valibot';
 
 // A lane keeps its Tesseract engine and models loaded between pages for a while.
@@ -117,16 +122,22 @@ function createWorkerClient(
     createWorker: (name: string | undefined) => Worker,
     idleTtlMs: number,
     fallbackMessage: string,
-    defaultWorkerKey?: () => string,
+    engine?: {
+        defaultWorkerKey: () => string;
+        budget: BrowserWorkerBudget;
+    },
 ) {
     return new BrowserWorkerClient<TPendingEngineRequest>({
         idleTtlMs,
         createWorker,
-        ...(defaultWorkerKey === undefined ? {} : {defaultWorkerKey}),
+        ...engine,
         createError: event => new BrowserOcrEngineUnavailableError(
             event.error instanceof Error ? event.error.message : event.message || fallbackMessage,
         ),
-        handleMessage: settleBrowserWorkerResult,
+        handleMessage: (pendingRequests, response, onSettled) => {
+            if (engine) observeScanCleanupEngineReply(response);
+            settleBrowserWorkerResult(pendingRequests, response, onSettled);
+        },
     });
 }
 
@@ -146,20 +157,28 @@ function getRecognizeOwner() {
 }
 
 function getPreprocessOwner() {
-    preprocessOwner ??= new BrowserWorkerRequestOwner(
-        () => createWorkerClient(
-            // The worker's name tells it which cleanup engine to run, on how many threads.
-            name => new Worker(new URL('./browserOcrPreprocess.worker.ts', import.meta.url), {
-                type: 'module',
-                name: name ?? '',
-            }),
-            PREPROCESS_IDLE_TTL_MS,
-            'The OCR preprocessing engine stopped',
-            () => scanCleanupEngineWorkerName(undefined),
-        ),
-        // A job preprocesses on as many of these as its own page size affords.
-        resolveBrowserOcrLanes().lanes,
-    );
+    if (preprocessOwner === null) {
+        const pool = new BrowserWorkerRequestOwner(
+            () => createWorkerClient(
+                // The worker's name tells it which cleanup engine to run, on how many threads.
+                name => new Worker(new URL('./browserOcrPreprocess.worker.ts', import.meta.url), {
+                    type: 'module',
+                    name: name ?? '',
+                }),
+                PREPROCESS_IDLE_TTL_MS,
+                'The OCR preprocessing engine stopped',
+                {
+                    defaultWorkerKey: () => scanCleanupEngineWorkerName(undefined),
+                    budget: threadedScanCleanupEngineBudget,
+                },
+            ),
+            // A job preprocesses on as many of these as its own page size affords.
+            resolveBrowserOcrLanes().lanes,
+            threadedScanCleanupEngineBudget,
+        );
+        registerScanCleanupEnginePool(() => pool.resetIdleWorkers());
+        preprocessOwner = pool;
+    }
     return preprocessOwner;
 }
 
@@ -176,7 +195,7 @@ function runWorkerRequest<TResult>(
         ms: number;
         message: string
     },
-    workerKey?: string,
+    admission: IBrowserWorkerAdmission = {},
 ): Promise<TResult> {
     const {payload} = request;
     const closeTiles = () => {
@@ -191,7 +210,7 @@ function runWorkerRequest<TResult>(
         signal.reason instanceof Error ? signal.reason : new DOMException('OCR was canceled', 'AbortError'),
     );
     signal.addEventListener('abort', onAbort, {once: true});
-    return pool.run(requestId, (client, isAdmitted) => new Promise<TResult>((resolve, reject) => {
+    return pool.run(requestId, (client, isAdmitted, workerKey) => new Promise<TResult>((resolve, reject) => {
         if (!isAdmitted()) {
             reject(new DOMException('OCR was canceled', 'AbortError'));
             return;
@@ -211,7 +230,7 @@ function runWorkerRequest<TResult>(
             ...request,
             id: requestId,
         }, payload.image instanceof Uint8Array ? [payload.image.buffer] : payload.image.tiles);
-    }), workerKey).finally(() => {
+    }), admission).finally(() => {
         signal.removeEventListener('abort', onAbort);
         closeTiles();
     });
@@ -255,5 +274,5 @@ export function preprocessBrowserOcrRaster(
     }, {
         ms: PASS_TIMEOUT_MS,
         message: 'OCR preprocessing did not finish within its time limit',
-    }, scanCleanupEngineWorkerName(concurrency)), () => getPreprocessOwner().resetIdleWorkers());
+    }, scanCleanupEngineAdmission(concurrency)));
 }

@@ -7,6 +7,7 @@ import {
     vi,
 } from 'vitest';
 import {
+    BrowserWorkerBudget,
     BrowserWorkerClient,
     BrowserWorkerRequestOwner,
     BrowserWorkerResetError,
@@ -228,29 +229,33 @@ describe('BrowserWorkerRequestOwner admission by worker key', () => {
         FakeWorker.terminateCount = 0;
     });
 
-    function createOwner(slots: number) {
+    function createOwner(slots: number, budget?: BrowserWorkerBudget) {
         const started: string[] = [];
         const owner = new BrowserWorkerRequestOwner(() => new BrowserWorkerClient<IPendingTestRequest>({
             idleTtlMs: 60_000,
             defaultWorkerKey: () => 'default',
+            ...(budget ? {budget} : {}),
             createWorker: (key) => {
                 started.push(key ?? '');
                 return new FakeWorker(key);
             },
             createError: event => new Error(event.message),
             handleMessage: () => {},
-        }), slots);
+        }), slots, budget);
         let nextId = 1;
         /** Runs a request until `finish` is called, reporting the worker it ran on. */
-        const hold = (key?: string) => {
+        const hold = (key?: string, budgetReserve = 0) => {
             let finish!: () => void;
             const finished = new Promise<void>(resolve => void (finish = resolve));
             let ranOn!: (name: string) => void;
             const worker = new Promise<string>(resolve => void (ranOn = resolve));
-            const done = owner.run(nextId++, async (client) => {
-                ranOn((client.getWorker(key) as FakeWorker).name);
+            const done = owner.run(nextId++, async (client, _isAdmitted, workerKey) => {
+                ranOn((client.getWorker(workerKey) as FakeWorker).name);
                 await finished;
-            }, key);
+            }, {
+                ...(key === undefined ? {} : {workerKey: () => key}),
+                budgetReserve,
+            });
             return {
                 worker,
                 finish: async () => {
@@ -316,6 +321,106 @@ describe('BrowserWorkerRequestOwner admission by worker key', () => {
     });
 });
 
+describe('BrowserWorkerBudget across pools', () => {
+    beforeEach(() => {
+        FakeWorker.terminateCount = 0;
+    });
+
+    function createPool(slots: number, budget: BrowserWorkerBudget) {
+        const started: string[] = [];
+        const owner = new BrowserWorkerRequestOwner(() => new BrowserWorkerClient<IPendingTestRequest>({
+            idleTtlMs: 60_000,
+            budget,
+            createWorker: (key) => {
+                started.push(key ?? '');
+                return new FakeWorker(key);
+            },
+            createError: event => new Error(event.message),
+            handleMessage: () => {},
+        }), slots, budget);
+        let nextId = 1;
+        const hold = (key: string, budgetReserve = 0) => {
+            let finish!: () => void;
+            const finished = new Promise<void>(resolve => void (finish = resolve));
+            let ranOn: string | null = null;
+            const done = owner.run(nextId++, async (client, _isAdmitted, workerKey) => {
+                ranOn = (client.getWorker(workerKey) as FakeWorker).name;
+                await finished;
+            }, {
+                workerKey: () => key,
+                budgetReserve,
+            });
+            return {
+                ranOn: () => ranOn,
+                finish: async () => {
+                    finish();
+                    await done;
+                },
+            };
+        };
+        return {
+            started,
+            hold,
+        };
+    }
+
+    /** Lets admission run: owners admit again in a microtask after a place frees. */
+    const settle = async () => {
+        for (let turn = 0; turn < 10; turn += 1) await Promise.resolve();
+    };
+
+    it('starts no counted worker past the budget; a waiting request starts once a place frees, in any pool', async () => {
+        const budget = new BrowserWorkerBudget(() => 2, key => key?.startsWith('threads') === true);
+        const cleanup = createPool(4, budget);
+        const ocr = createPool(4, budget);
+        const first = cleanup.hold('threads-2');
+        const second = cleanup.hold('threads-2');
+        const third = ocr.hold('threads-3');
+        await settle();
+        expect([first.ranOn(), second.ranOn(), third.ranOn()]).toEqual(['threads-2', 'threads-2', null]);
+        // An uncounted worker is not held back.
+        const single = ocr.hold('single');
+        await settle();
+        expect(single.ranOn()).toBe('single');
+
+        // The finished request leaves an idle threaded worker: the other pool ends it and takes its place.
+        await first.finish();
+        await settle();
+        expect(third.ranOn()).toBe('threads-3');
+        expect(FakeWorker.terminateCount).toBe(1);
+        expect(cleanup.started.length + ocr.started.length).toBe(4);
+        await Promise.all([second.finish(), third.finish(), single.finish()]);
+    });
+
+    it('replaces an idle counted worker of its own pool when the budget is full', async () => {
+        const budget = new BrowserWorkerBudget(() => 1, key => key?.startsWith('threads') === true);
+        const pool = createPool(3, budget);
+        const preview = pool.hold('threads-6');
+        await settle();
+        await preview.finish();
+        const batch = pool.hold('threads-2');
+        await settle();
+        expect(batch.ranOn()).toBe('threads-2');
+        expect(FakeWorker.terminateCount).toBe(1);
+        await batch.finish();
+    });
+
+    it('keeps a place free for an interactive request while a batch fills the rest', async () => {
+        const budget = new BrowserWorkerBudget(() => 3, key => key?.startsWith('threads') === true);
+        const pool = createPool(5, budget);
+        const pages = [pool.hold('threads-2', 1), pool.hold('threads-2', 1), pool.hold('threads-2', 1)];
+        await settle();
+        expect(pages.map(page => page.ranOn())).toEqual(['threads-2', 'threads-2', null]);
+        const preview = pool.hold('threads-6');
+        await settle();
+        expect(preview.ranOn()).toBe('threads-6');
+        await Promise.all([...pages.slice(0, 2), preview].map(request => request.finish()));
+        await settle();
+        expect(pages[2]!.ranOn()).toBe('threads-2');
+        await pages[2]!.finish();
+    });
+});
+
 describe('scan cleanup engine threads', () => {
     afterEach(() => {
         vi.unstubAllGlobals();
@@ -326,7 +431,8 @@ describe('scan cleanup engine threads', () => {
         // On 11 cores: a lone preview, a 4-page job, an 8-lane batch.
         expect(resolveScanCleanupEngineThreads(1, 11)).toBe(6);
         expect(resolveScanCleanupEngineThreads(4, 11)).toBe(2);
-        expect(resolveScanCleanupEngineThreads(8, 11)).toBe(1);
+        // A batch runs at most as many pages at once as it has threaded places.
+        expect(resolveScanCleanupEngineThreads(8, 11)).toBe(2);
         expect(resolveScanCleanupEngineThreads(3, 4)).toBe(1);
         expect(resolveScanCleanupEngineThreads(1, 2)).toBe(1);
         // A request that declares nothing never oversubscribes.
@@ -339,48 +445,83 @@ describe('scan cleanup engine threads', () => {
             hasSharedArrayBuffer: true,
             lowMemory: false,
             cores: 8,
-            probeMemory: () => undefined,
         };
         expect(canRunThreadedScanCleanupEngine(capable)).toBe(true);
         expect(canRunThreadedScanCleanupEngine({...capable, crossOriginIsolated: false})).toBe(false);
         expect(canRunThreadedScanCleanupEngine({...capable, hasSharedArrayBuffer: false})).toBe(false);
         expect(canRunThreadedScanCleanupEngine({...capable, lowMemory: true})).toBe(false);
         expect(canRunThreadedScanCleanupEngine({...capable, cores: 1})).toBe(false);
-        expect(canRunThreadedScanCleanupEngine({...capable, probeMemory: () => {
-            throw new RangeError('Out of memory');
-        }})).toBe(false);
     });
 
-    it('names each worker after the engine it runs, and a page that switched off runs today\'s engine', async () => {
+    it('runs no queued request on a threaded worker once a threaded start failed, in either pool', async () => {
         vi.stubGlobal('crossOriginIsolated', true);
         vi.stubGlobal('navigator', {hardwareConcurrency: 11, userAgent: 'test'});
+        vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         vi.resetModules();
         const variant = await import('@app/platform/browser-api/scanCleanupEngineVariant');
-        const {SerializableError} = await import('@contracts/serializableError');
-        expect(variant.usesThreadedScanCleanupEngine()).toBe(true);
-        expect(readScanCleanupEngineWorkerThreads(variant.scanCleanupEngineWorkerName(1))).toBe(6);
-        expect(readScanCleanupEngineWorkerThreads(variant.scanCleanupEngineWorkerName(4))).toBe(2);
+        const otherPool = vi.fn();
+        variant.registerScanCleanupEnginePool(otherPool);
+        const events: Array<{kind: 'started' | 'sent' | 'failed' | 'ran'; worker: string; payload?: string}> = [];
+        // Every threaded worker fails to start its engine and hands the request back.
+        class EngineWorker extends EventTarget {
+            public constructor(_url: URL, private readonly options: {name: string}) {
+                super();
+                events.push({kind: 'started', worker: options.name});
+            }
 
-        // The worker could not start its threads and handed the page back.
-        const unavailable = new SerializableError({
-            code: SCAN_CLEANUP_THREADED_ENGINE_UNAVAILABLE,
-            message: 'its threads did not start',
-            details: {payload: 'page 1 returned'},
-        });
-        vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-        const attempts: Array<{payload: string; worker: string}> = [];
-        const resetIdleWorkers = vi.fn();
-        const result = await variant.runWithScanCleanupEngineFailover('page 1', async (payload) => {
-            attempts.push({payload, worker: variant.scanCleanupEngineWorkerName(1)});
-            if (attempts.length === 1) throw unavailable;
-            return 'cleaned';
-        }, resetIdleWorkers);
-        expect(result).toBe('cleaned');
-        expect(attempts.map(attempt => [attempt.payload, readScanCleanupEngineWorkerThreads(attempt.worker)])).toEqual([
-            ['page 1', 6],
-            ['page 1 returned', null],
-        ]);
-        expect(resetIdleWorkers).toHaveBeenCalledOnce();
+            public postMessage(message: {id: number; type: string; payload: {label: string}}) {
+                events.push({kind: 'sent', worker: this.options.name, payload: message.payload.label});
+                queueMicrotask(() => {
+                    const threaded = readScanCleanupEngineWorkerThreads(this.options.name) !== null;
+                    events.push({kind: threaded ? 'failed' : 'ran', worker: this.options.name, payload: message.payload.label});
+                    this.dispatchEvent(new MessageEvent('message', {data: threaded
+                        ? {
+                            id: message.id,
+                            ok: false,
+                            error: 'its threads did not start',
+                            errorEnvelope: {
+                                code: SCAN_CLEANUP_THREADED_ENGINE_UNAVAILABLE,
+                                message: 'its threads did not start',
+                                details: {payload: {label: `${message.payload.label} returned`}},
+                            },
+                        }
+                        : {
+                            id: message.id,
+                            ok: true,
+                            type: message.type,
+                            data: {status: 'succeeded', result: {}},
+                        }}));
+                });
+            }
+
+            public terminate() {}
+        }
+        vi.stubGlobal('Worker', EngineWorker);
+        const {runBrowserScanCleanupWorkerRequest} = await import('@app/platform/browser-api/browserScanCleanupWorkerClient');
+
+        // A 4-page batch and a preview queue at once, more than the pool's places.
+        const signal = new AbortController().signal;
+        const requests = Array.from({length: 12}, (_unused, index) => runBrowserScanCleanupWorkerRequest(
+            'plan-analysis',
+            {label: `page ${String(index + 1)}`} as never,
+            signal,
+            undefined,
+            index === 11 ? 1 : 4,
+        ));
+        await expect(Promise.all(requests)).resolves.toHaveLength(12);
+
+        const firstFailure = events.findIndex(event => event.kind === 'failed');
+        expect(firstFailure).toBeGreaterThanOrEqual(0);
+        // After the first failure no request reaches a threaded worker, new or already running.
+        const afterSwitch = events.slice(firstFailure + 1);
+        expect(afterSwitch.filter(event => (event.kind === 'started' || event.kind === 'sent')
+            && readScanCleanupEngineWorkerThreads(event.worker) !== null)).toEqual([]);
+        // Requests admitted before the switch ran again with the page they handed back; none ran threaded.
+        const ran = events.filter(event => event.kind === 'ran');
+        expect(ran).toHaveLength(12);
+        expect(ran.every(event => readScanCleanupEngineWorkerThreads(event.worker) === null)).toBe(true);
+        expect(events.filter(event => event.kind === 'failed').length).toBe(ran.filter(event => event.payload?.endsWith('returned')).length);
+        expect(otherPool).toHaveBeenCalledOnce();
         expect(variant.usesThreadedScanCleanupEngine()).toBe(false);
     });
 
@@ -388,7 +529,7 @@ describe('scan cleanup engine threads', () => {
         const attempt = vi.fn(async () => {
             throw new Error('The page is damaged');
         });
-        await expect(runWithScanCleanupEngineFailover('page', attempt, () => undefined)).rejects.toThrow('The page is damaged');
+        await expect(runWithScanCleanupEngineFailover('page', attempt)).rejects.toThrow('The page is damaged');
         expect(attempt).toHaveBeenCalledOnce();
     });
 

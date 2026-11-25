@@ -170,12 +170,15 @@ function createEngineIdentities() {
         if (known !== undefined && known !== sha256) conflict = role;
         identities[role] = sha256;
     };
+    const throwIfChanged = () => {
+        if (conflict !== null) throw new BrowserScanCleanupEngineChangedError(conflict);
+    };
     return {
         observe,
+        /** Ends the run as soon as a module changed, rather than after its last page. */
+        throwIfChanged,
         settled(roles: readonly TEngineRole[]) {
-            if (conflict !== null) {
-                throw new BrowserScanCleanupEngineChangedError(conflict);
-            }
+            throwIfChanged();
             const missing = roles.find(role => identities[role] === undefined);
             if (missing !== undefined) {
                 throw new ScanCleanupContractError(`The browser ${missing} engine did not identify its module`);
@@ -551,6 +554,7 @@ async function runRasterConversion(
                     analysisPlane,
                     planes: 'encoded',
                 }, pageSignal, context.engines.observe('scanCleanup'), concurrency));
+                context.engines.throwIfChanged();
                 return {
                     staged: {
                         index,
