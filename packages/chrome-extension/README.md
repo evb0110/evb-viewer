@@ -77,3 +77,9 @@ any file or folder in the package root whose name starts with `_`. The build
 therefore places Nuxt's output under `assets/`, moves each inline script of
 `index.html` into its own file, leaves out the import map and the inline head
 scripts the client would add again, and fails if either rule is broken.
+
+The manifest's `cross_origin_opener_policy` and `cross_origin_embedder_policy`
+make extension pages cross-origin isolated, as the hosted app is, so scan
+cleanup runs its threaded engine there. Documents still open from any site and
+from `file://`: the extension reads them with its host permissions, which do
+not need the site to send CORS or `Cross-Origin-Resource-Policy` headers.
