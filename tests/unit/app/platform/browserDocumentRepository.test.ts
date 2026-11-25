@@ -29,8 +29,12 @@ const repositories: BrowserDocumentStore[] = [];
 
 afterEach(async () => {
     vi.restoreAllMocks();
-    await Promise.all(repositories.splice(0).flatMap(repo => repo.openEntries().map(entry => entry.doc?.close())));
-    await Promise.all(roots.splice(0).map(root => rm(root, {recursive: true, force: true})));
+    try {
+        // Releasing ends a stream a failed test left open before the entry's directory closes.
+        await Promise.all(repositories.splice(0).flatMap(repo => repo.openEntries().map(entry => repo.release(entry.ref))));
+    } finally {
+        await Promise.all(roots.splice(0).map(root => rm(root, {recursive: true, force: true})));
+    }
 });
 
 /** The repository over a store in a temporary directory, through the core's Node port: Node has no origin private file system. */
