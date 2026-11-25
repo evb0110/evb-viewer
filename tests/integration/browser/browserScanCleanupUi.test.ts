@@ -18,6 +18,10 @@ import {
 import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 import type {IProbe} from './scanCleanupUiTestHelpers';
 import {
+    HOST_TIER_LOW_CPU_MAX, HOST_TIER_LOW_RAM_MAX_GIB,
+} from '@contracts/hostResourceProfile';
+import {readScanCleanupEngineWorkerThreads} from '@app/platform/browser-api/scanCleanupEngineWorkerName';
+import {
     evidenceRoot, scanCleanupUiTimeoutMs, previewImage, cleanedImage, sha256, installProbe, openWorkspace, showWorkspace, waitForPixels, pixels, cleanedPixels, assertBrowserScope, select, drag, undoRedo,
     conversionModes, prepareConversionSource, inspectConversionPdf, assertConversionPdf,
 } from './scanCleanupUiTestHelpers';
@@ -936,4 +940,162 @@ describe('browser Scan Cleanup workspace', () => {
             await context.close();
         }
     }, scanCleanupUiTimeoutMs);
+
+    // A cross-origin isolated page runs the threaded engine; any other page
+    // runs today's. Both clean the same pages, and a cancelled run leaves no
+    // engine or engine thread behind.
+    it('cleans the same pages on the threaded engine when isolated and on the single-threaded engine otherwise', async (testContext) => {
+        const sourcePath = resolve('tests/fixtures/release/scan-cleanup-four-page-grayscale.pdf');
+        const sourceBytes = await readFile(sourcePath);
+        const source = await inspectConversionPdf(sourceBytes);
+        const gray = conversionModes.find(mode => mode.name === 'Gray')!;
+        const runs: Array<{engineSha256: string | undefined; images: string[][]}> = [];
+        for (const isolated of [
+            true,
+            false,
+        ]) {
+            const context = await lifecycle.browser.newContext({viewport: {
+                width: 1440,
+                height: 1000,
+            }});
+            try {
+                if (!isolated) {
+                    // The document alone decides isolation; its scripts keep their headers.
+                    await context.route(url => url.origin === lifecycle.origin && url.pathname === '/', async (route) => {
+                        const response = await route.fetch();
+                        const headers = {...response.headers()};
+                        delete headers['cross-origin-embedder-policy'];
+                        await route.fulfill({
+                            response,
+                            headers,
+                        });
+                    });
+                }
+                const page = await context.newPage();
+                const engineWorkers = new Set<string>();
+                const live = {
+                    engines: 0,
+                    threads: 0,
+                };
+                page.on('worker', (worker) => {
+                    const kind = worker.url().includes('nativeWasmThread.worker') ? 'threads' : worker.url().includes('browserScanCleanup.worker') ? 'engines' : null;
+                    if (kind === null) return;
+                    engineWorkers.add(worker.url());
+                    live[kind] += 1;
+                    worker.on('close', () => {
+                        live[kind] -= 1;
+                    });
+                });
+                const problems = collectConsoleProblems(page);
+                await installProbe(page);
+                await page.addInitScript(() => {
+                    // While `__holdPages` is set, a finished page's reply waits
+                    // here, so the run is still in its engines when it is
+                    // cancelled; each held reply records its worker's name.
+                    const held: string[] = [];
+                    Reflect.set(window, '__heldPages', held);
+                    const names = new WeakMap<object, string>();
+                    const Original = window.Worker;
+                    window.Worker = class extends Original {
+                        public constructor(url: string | URL, options?: WorkerOptions) {
+                            super(url, options);
+                            names.set(this, options?.name ?? '');
+                        }
+                    };
+                    const add = Original.prototype.addEventListener;
+                    Original.prototype.addEventListener = function(this: Worker, type: string, listener: unknown, options?: unknown) {
+                        if (type !== 'message' || typeof listener !== 'function') return Reflect.apply(add, this, [type, listener, options]);
+                        const worker = this;
+                        const filtered = (event: MessageEvent) => {
+                            if (Reflect.get(window, '__holdPages') === true && (event.data as {type?: unknown} | null)?.type === 'render-page') {
+                                held.push(names.get(worker) ?? '');
+                                return;
+                            }
+                            listener.call(worker, event);
+                        };
+                        return Reflect.apply(add, this, [type, filtered, options]);
+                    };
+                });
+                await openWorkspace(page, sourcePath);
+                expect(await page.evaluate(() => crossOriginIsolated)).toBe(isolated);
+                if (isolated) {
+                    // The performance profile keeps a small device on today's engine.
+                    const device = await page.evaluate(() => ({
+                        cores: navigator.hardwareConcurrency,
+                        memoryGb: (navigator as Navigator & {deviceMemory?: number}).deviceMemory,
+                    }));
+                    if (device.cores <= HOST_TIER_LOW_CPU_MAX || (device.memoryGb ?? Infinity) < HOST_TIER_LOW_RAM_MAX_GIB) {
+                        testContext.skip(`this host's ${JSON.stringify(device)} profile runs the single-threaded engine`);
+                    }
+                }
+                const sourceRef = await documentRef(page);
+                await prepareConversionSource(page);
+                await page.getByRole('radio', {
+                    name: gray.radio,
+                    exact: true,
+                }).click();
+                await page.getByRole('checkbox', {
+                    name: 'Keep original images',
+                    exact: true,
+                }).setChecked(false);
+                const tabCount = await page.locator('.tab[data-tab-id]').count();
+                const cleanUp = page.locator('.scan-cleanup-toolbar button').filter({hasText: /^Clean up/u});
+                await cleanUp.click();
+                await expect.poll(() => page.locator('.tab[data-tab-id]').count(), {timeout: 90_000}).toBe(tabCount + 1);
+                await expect.poll(() => newDocumentRef(page, sourceRef), {timeout: 30_000}).toBe(true);
+                await settleActiveOpen(page);
+                const outputTabId = await page.locator('.tab.is-active[data-tab-id]').getAttribute('data-tab-id');
+                const downloading = page.waitForEvent('download');
+                await page.getByRole('button', {
+                    name: 'Save options',
+                    exact: true,
+                }).click();
+                await page.getByRole('menuitem', {name: /^Save As/u}).click();
+                const savedBytes = await readFile(await (await downloading).path());
+                const output = await inspectConversionPdf(savedBytes);
+                const stamp = assertConversionPdf(source, output, sourceBytes, gray);
+                runs.push({
+                    engineSha256: stamp.buildIds.nativeBinarySha256s.scanCleanup,
+                    images: output.pages.map(outputPage => outputPage.images.map(image => image.streamSha256)),
+                });
+                expect([...engineWorkers].some(url => url.includes('nativeWasmThread.worker')), 'engine threads ran').toBe(isolated);
+                if (isolated) {
+                    // Cancel a second run once a page is done but its reply is
+                    // held, so the run cannot end before the click.
+                    await page.locator(`.tab[data-tab-id="${outputTabId}"] .tab-close`).click();
+                    await expect.poll(() => documentRef(page), {timeout: 30_000}).toBe(sourceRef);
+                    await page.evaluate(() => Reflect.set(window, '__holdPages', true));
+                    await cleanUp.click();
+                    await page.waitForFunction(() => (Reflect.get(window, '__heldPages') as string[]).length > 0, undefined, {timeout: 60_000});
+                    // The engines alive and the pages held, read together before the click.
+                    const held = await page.evaluate(() => [...(Reflect.get(window, '__heldPages') as string[])]);
+                    const running = {...live};
+                    const primary = page.locator('.scan-cleanup-toolbar-primary-action');
+                    await primary.filter({hasText: /Cancel/u}).click();
+                    await expect.poll(() => primary.innerText(), {timeout: 15_000}).toMatch(/^Clean up/u);
+                    // Every engine whose page was held ends with its threads;
+                    // the idle ones end with their idle lifetime. None survives.
+                    const heldThreads = held.reduce((total, name) => total + (readScanCleanupEngineWorkerThreads(name) ?? 0), 0);
+                    expect(heldThreads, 'the held pages ran on threaded engines').toBeGreaterThan(0);
+                    await expect.poll(() => running.engines - live.engines >= held.length && running.threads - live.threads >= heldThreads, {timeout: 15_000}).toBe(true);
+                    await expect.poll(() => ({...live}), {timeout: 45_000}).toEqual({
+                        engines: 0,
+                        threads: 0,
+                    });
+                }
+                // Chromium treats a document Playwright served as public and
+                // refuses its connection to the loopback dev server's HMR socket.
+                const viteSocket = /WebSocket connection to 'ws:|\[vite\] failed to connect|Failed to send error to Vite server/u;
+                expect(isolated ? problems : problems.filter(problem => !viteSocket.test(problem))).toEqual([]);
+            } finally {
+                await context.close();
+            }
+        }
+        const moduleSha256 = async (name: string) => sha256(await readFile(resolve('public/wasm', name)));
+        expect(runs.map(run => run.engineSha256)).toEqual([
+            await moduleSha256('evb-scan-cleanup-threads.wasm'),
+            await moduleSha256('evb-scan-cleanup.wasm'),
+        ]);
+        expect(runs[0]!.images, 'pixel-identical pages').toEqual(runs[1]!.images);
+    }, scanCleanupUiTimeoutMs * 2);
 });

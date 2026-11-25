@@ -48,17 +48,42 @@ function createWasmStallError(timeoutMs: number) {
     return error;
 }
 
+interface IWasmBuild<TResult> {
+    /** Undefined where the browser lacks the streaming call; the build then buffers. */
+    streaming: ((response: Response) => Promise<TResult>) | undefined;
+    buffered: (bytes: ArrayBuffer) => Promise<TResult>;
+}
+
 /**
  * Fetches and instantiates a WASM module. The load is abandoned only when the
  * server sends nothing for `stallTimeoutMs`. A slow connection that keeps
  * delivering bytes finishes however long the whole download takes; compiling
  * after the last byte has no deadline.
  */
-export async function loadWasmWithDeadline(
+export function loadWasmWithDeadline(
     url: string,
     imports: WebAssembly.Imports = {},
     stallTimeoutMs = DEFAULT_WASM_STALL_TIMEOUT_MS,
 ) {
+    return fetchWasmWithDeadline(url, stallTimeoutMs, {
+        streaming: typeof WebAssembly.instantiateStreaming === 'function'
+            ? response => WebAssembly.instantiateStreaming(response, imports)
+            : undefined,
+        buffered: bytes => WebAssembly.instantiate(bytes, imports),
+    });
+}
+
+/** Fetches and compiles a WASM module under `loadWasmWithDeadline`'s stall deadline, for a host that instantiates it several times. */
+export function compileWasmWithDeadline(url: string, stallTimeoutMs = DEFAULT_WASM_STALL_TIMEOUT_MS) {
+    return fetchWasmWithDeadline(url, stallTimeoutMs, {
+        streaming: typeof WebAssembly.compileStreaming === 'function'
+            ? response => WebAssembly.compileStreaming(response)
+            : undefined,
+        buffered: bytes => WebAssembly.compile(bytes),
+    });
+}
+
+async function fetchWasmWithDeadline<TResult>(url: string, stallTimeoutMs: number, build: IWasmBuild<TResult>) {
     const abortController = new AbortController();
     const watch: {
         settled: boolean;
@@ -117,15 +142,15 @@ export async function loadWasmWithDeadline(
                 // Streaming compilation requires the wasm MIME type anyway, so branching
                 // on it up front avoids a doomed streaming attempt whose failure could
                 // otherwise leave the body consumed before the buffered fallback reads it.
-                if (typeof WebAssembly.instantiateStreaming === 'function' && servesWasmContentType(response)) {
-                    const instantiated = await WebAssembly.instantiateStreaming(response, imports);
+                if (build.streaming && servesWasmContentType(response)) {
+                    const built = await build.streaming(response);
                     if (observed !== null) loadedWasmDigests.set(wasmPath(url), observed);
-                    return instantiated;
+                    return built;
                 }
                 const bytes = await response.arrayBuffer();
-                const instantiated = await WebAssembly.instantiate(bytes, imports);
+                const built = await build.buffered(bytes);
                 loadedWasmDigests.set(wasmPath(url), sha256Hex([new Uint8Array(bytes)]));
-                return instantiated;
+                return built;
             })(),
             stalled,
         ]);

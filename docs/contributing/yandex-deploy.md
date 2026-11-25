@@ -68,6 +68,14 @@ Object Storage cannot reproduce arbitrary HTTP response headers, including
 If the browser app gains request-time server routes or requires those headers
 for functionality, revisit static hosting before deploying that change.
 
+Without `Cross-Origin-Opener-Policy` and `Cross-Origin-Embedder-Policy` the
+mirror's pages are not cross-origin isolated, so they cannot share memory
+between workers. Scan cleanup and OCR preprocessing there run the
+single-threaded engine (`evb-scan-cleanup.wasm`), one page per worker, instead
+of the threaded engine the Vercel deployment runs. The output is the same; a
+lone page takes longer. A service worker could add the headers, but the mirror
+does not use one.
+
 After deployment, open a PDF, check rendered text and navigation, and save a
 copy in a browser. Reachability from Russia requires a separate check from a
 Russian connection; a successful deployment from another country does not prove it.

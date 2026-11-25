@@ -14,11 +14,22 @@ import {
     settleBrowserWorkerResult,
     type IPendingBrowserWorkerRequest,
 } from '@app/platform/browser-api/settleBrowserWorkerResult';
+import {
+    observeScanCleanupEngineReply,
+    registerScanCleanupEnginePool,
+    runWithScanCleanupEngineFailover,
+    scanCleanupEngineAdmission,
+    threadedScanCleanupEngineBudget,
+} from '@app/platform/browser-api/scanCleanupEngineVariant';
 import {getErrorMessage} from '@app/utils/error';
 
 // A cleanup operation runs its engine calls back to back; keep the engine and
 // its compiled module between them, and release both once the workspace idles.
 const BROWSER_SCAN_CLEANUP_WORKER_IDLE_TTL_MS = 30_000;
+// Far past the slowest page seen: an 80 MP final render took 30 s on six
+// threads. It ends a request whose engine thread died without a trace, which
+// would otherwise wait for it forever.
+const BROWSER_SCAN_CLEANUP_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 
 export class BrowserScanCleanupWorkerUnavailableError extends Error {
     public constructor(message: string) {
@@ -38,9 +49,16 @@ export function canUseBrowserScanCleanupWorker() {
 function createClient() {
     return new BrowserWorkerClient<IPendingBrowserWorkerRequest>({
         idleTtlMs: BROWSER_SCAN_CLEANUP_WORKER_IDLE_TTL_MS,
-        createWorker: () => {
+        requestTimeoutMs: BROWSER_SCAN_CLEANUP_REQUEST_TIMEOUT_MS,
+        // The worker's name tells it which engine to run, on how many threads;
+        // one started for a request that runs no engine has no name.
+        budget: threadedScanCleanupEngineBudget,
+        createWorker: (name) => {
             try {
-                return new Worker(new URL('./browserScanCleanup.worker.ts', import.meta.url), {type: 'module'});
+                return new Worker(new URL('./browserScanCleanup.worker.ts', import.meta.url), {
+                    type: 'module',
+                    name: name ?? '',
+                });
             } catch (error) {
                 throw new BrowserScanCleanupWorkerUnavailableError(getErrorMessage(error));
             }
@@ -48,11 +66,10 @@ function createClient() {
         createError: event => new BrowserScanCleanupWorkerUnavailableError(
             event.error instanceof Error ? getErrorMessage(event.error) : event.message,
         ),
-        handleMessage: (pendingRequests, response, onSettled) => settleBrowserWorkerResult(
-            pendingRequests,
-            response,
-            onSettled,
-        ),
+        handleMessage: (pendingRequests, response, onSettled) => {
+            observeScanCleanupEngineReply(response);
+            settleBrowserWorkerResult(pendingRequests, response, onSettled);
+        },
     });
 }
 
@@ -79,7 +96,9 @@ let owner: BrowserWorkerRequestOwner<IPendingBrowserWorkerRequest> | null = null
 function getOwner() {
     if (owner === null) {
         const pageLanes = resolveBrowserPageLanes().producerConcurrency;
-        owner = new BrowserWorkerRequestOwner(createClient, pageLanes === 1 ? 1 : pageLanes + 1);
+        const engines = new BrowserWorkerRequestOwner(createClient, pageLanes === 1 ? 1 : pageLanes + 1, threadedScanCleanupEngineBudget);
+        registerScanCleanupEnginePool(() => engines.resetIdleWorkers());
+        owner = engines;
     }
     return owner;
 }
@@ -104,25 +123,50 @@ function abortError(signal: AbortSignal) {
         : new DOMException('Scan cleanup was canceled.', 'AbortError');
 }
 
+/** Requests that only move pixels; they run on any cleanup worker, whatever its engine. */
+const ENGINELESS_REQUESTS: ReadonlySet<TBrowserScanCleanupWorkerRequestType> = new Set([
+    'assemble-raster',
+    'encode-png',
+]);
+
 /**
  * Runs one request on the cleanup worker. Every buffer and bitmap in the
  * payload is transferred, so a caller that still needs a raster afterwards
  * passes a copy. Aborting terminates the worker, which is the only way to stop
  * a synchronous engine call; the next request starts a fresh engine.
+ *
+ * `concurrency` is how many such requests the caller runs at once: an
+ * interactive request runs alone and says 1, a batch says its page lanes. On a
+ * page that runs the threaded engine it sets the request's threads; a request
+ * that says nothing gets one thread.
  */
 export function runBrowserScanCleanupWorkerRequest<K extends TBrowserScanCleanupWorkerRequestType>(
     type: K,
     payload: IBrowserScanCleanupWorkerRequestMap[K],
     signal: AbortSignal,
     onEngineIdentity?: (sha256: string) => void,
+    concurrency?: number,
+): Promise<IBrowserScanCleanupWorkerResultMap[K]> {
+    return runWithScanCleanupEngineFailover(
+        payload,
+        attempt => runOnWorker(type, attempt, signal, onEngineIdentity, concurrency),
+    );
+}
+
+function runOnWorker<K extends TBrowserScanCleanupWorkerRequestType>(
+    type: K,
+    payload: IBrowserScanCleanupWorkerRequestMap[K],
+    signal: AbortSignal,
+    onEngineIdentity: ((sha256: string) => void) | undefined,
+    concurrency: number | undefined,
 ): Promise<IBrowserScanCleanupWorkerResultMap[K]> {
     if (signal.aborted) return Promise.reject(abortError(signal));
     const engines = getOwner();
     const id = engines.createRequestId();
     const abort = () => engines.cancel(id, abortError(signal));
     signal.addEventListener('abort', abort, {once: true});
-    return engines.run(id, client => new Promise<IBrowserScanCleanupWorkerResultMap[K]>((resolve, reject) => {
-        const worker = client.getWorker();
+    return engines.run(id, (client, _isAdmitted, workerName) => new Promise<IBrowserScanCleanupWorkerResultMap[K]>((resolve, reject) => {
+        const worker = client.getWorker(workerName);
         client.registerPendingRequest(id, {
             requestType: type,
             onEngineIdentity,
@@ -142,5 +186,5 @@ export function runBrowserScanCleanupWorkerRequest<K extends TBrowserScanCleanup
         } catch (error) {
             client.cancelPendingRequest(id, error instanceof Error ? error : new Error(String(error)));
         }
-    })).finally(() => signal.removeEventListener('abort', abort));
+    }), ENGINELESS_REQUESTS.has(type) ? {} : scanCleanupEngineAdmission(concurrency)).finally(() => signal.removeEventListener('abort', abort));
 }

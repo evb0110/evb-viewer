@@ -385,12 +385,14 @@ async function deploy() {
         const csp = policy.split(';').filter(directive => !directive.trim().startsWith('frame-ancestors')).join(';');
         const metadata = `<meta http-equiv="Content-Security-Policy" content="${escape(csp)}"><meta name="referrer" content="${escape(referrer)}"><meta name="robots" content="noindex, nofollow">`;
         const assets: IAsset[] = [];
+        // Without the isolation headers no page here can load the threaded engine.
+        const isolatedOnly = new Set(['wasm/evb-scan-cleanup-threads.wasm']);
         async function collect(directory: string, prefix = ''): Promise<void> {
             for (const entry of await readdir(directory, {withFileTypes: true})) {
                 const key = `${prefix}${entry.name}`;
                 const name = path.join(directory, entry.name);
                 if (entry.isDirectory()) await collect(name, `${key}/`);
-                else if (entry.isFile()) {
+                else if (entry.isFile() && !isolatedOnly.has(key)) {
                     let body = await readFile(name);
                     if (key.endsWith('.html')) {
                         const html = body.toString();

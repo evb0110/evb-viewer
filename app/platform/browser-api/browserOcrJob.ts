@@ -247,8 +247,14 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
             lanes, preprocessLanes,
         } = resolveBrowserOcrLanes(maxPageArea * (extractionDpi / 72) ** 2,
             modelCodes.reduce((bytes, code) => bytes + OCR_LANGUAGE_MODEL_BYTES[code], 0), cleanupMode);
-        // Lanes share the preprocessing workers this job's memory affords.
-        const preprocess = limitAsync(preprocessBrowserOcrRaster, Math.max(1, preprocessLanes));
+        // Lanes share the preprocessing workers this job's memory affords. A
+        // threaded cleanup engine splits the cores among the pages in flight:
+        // each lane renders, preprocesses and recognizes its page in turn.
+        const pagesInFlight = Math.min(lanes, queue.length);
+        const preprocess = limitAsync(
+            (payload: Parameters<typeof preprocessBrowserOcrRaster>[0], preprocessSignal: AbortSignal) => preprocessBrowserOcrRaster(payload, preprocessSignal, pagesInFlight),
+            Math.max(1, preprocessLanes),
+        );
         /**
          * Renders the page and, when the run sets a preprocessing mode, cleans
          * it as desktop does: 'off' still normalizes polarity. A cleaned page

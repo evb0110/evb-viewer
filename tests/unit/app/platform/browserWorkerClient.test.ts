@@ -7,9 +7,22 @@ import {
     vi,
 } from 'vitest';
 import {
+    BrowserWorkerBudget,
     BrowserWorkerClient,
+    BrowserWorkerRequestOwner,
     BrowserWorkerResetError,
 } from '@app/platform/browser-api/browserWorkerClient';
+import {
+    canRunThreadedScanCleanupEngine,
+    isSixtyFourBitBrowser,
+    resolveScanCleanupEngineThreads,
+    runWithScanCleanupEngineFailover,
+} from '@app/platform/browser-api/scanCleanupEngineVariant';
+import {
+    encodeScanCleanupEngineWorkerName,
+    readScanCleanupEngineWorkerThreads,
+    SCAN_CLEANUP_THREADED_ENGINE_UNAVAILABLE,
+} from '@app/platform/browser-api/scanCleanupEngineWorkerName';
 
 interface IPendingTestRequest {
     reject: (error: Error) => void;
@@ -18,6 +31,10 @@ interface IPendingTestRequest {
 
 class FakeWorker extends EventTarget implements Worker {
     public static terminateCount = 0;
+    public constructor(public readonly name = '') {
+        super();
+    }
+
     public onerror: ((this: AbstractWorker, event: ErrorEvent) => unknown) | null = null;
     public onmessage: ((this: Worker, event: MessageEvent) => unknown) | null = null;
     public onmessageerror: ((this: Worker, event: MessageEvent) => unknown) | null = null;
@@ -205,5 +222,422 @@ describe('BrowserWorkerClient', () => {
         windowTarget.dispatchEvent(Object.assign(new Event('pagehide'), {persisted: false}));
         expect(secondReject).toHaveBeenCalledOnce();
         expect(client.hasWorker()).toBe(false);
+    });
+});
+
+describe('BrowserWorkerRequestOwner admission by worker key', () => {
+    beforeEach(() => {
+        FakeWorker.terminateCount = 0;
+    });
+
+    function createOwner(slots: number, budget?: BrowserWorkerBudget) {
+        const started: string[] = [];
+        const owner = new BrowserWorkerRequestOwner(() => new BrowserWorkerClient<IPendingTestRequest>({
+            idleTtlMs: 60_000,
+            ...(budget ? {budget} : {}),
+            createWorker: (key) => {
+                started.push(key ?? '');
+                return new FakeWorker(key);
+            },
+            createError: event => new Error(event.message),
+            handleMessage: () => {},
+        }), slots, budget);
+        let nextId = 1;
+        /** Runs a request until `finish` is called, reporting the worker it ran on. */
+        const hold = (key?: string, budgetReserve = 0) => {
+            let finish!: () => void;
+            const finished = new Promise<void>(resolve => void (finish = resolve));
+            let ranOn!: (name: string) => void;
+            const worker = new Promise<string>(resolve => void (ranOn = resolve));
+            const done = owner.run(nextId++, async (client, _isAdmitted, workerKey) => {
+                ranOn((client.getWorker(workerKey) as FakeWorker).name);
+                await finished;
+            }, {
+                ...(key === undefined ? {} : {workerKey: () => key}),
+                budgetReserve,
+            });
+            return {
+                worker,
+                finish: async () => {
+                    finish();
+                    await done;
+                },
+            };
+        };
+        return {
+            owner,
+            started,
+            hold,
+        };
+    }
+
+    it('reuses a worker of the wanted key, then starts one on an empty slot, then replaces an idle one', async () => {
+        const {started, hold} = createOwner(3);
+        const first = hold('threads-6');
+        expect(await first.worker).toBe('threads-6');
+        await first.finish();
+
+        const batch = hold('threads-2');
+        // The idle threads-6 worker is kept; an empty slot takes the new key.
+        expect(await batch.worker).toBe('threads-2');
+        const preview = hold('threads-6');
+        expect(await preview.worker).toBe('threads-6');
+        expect(started).toEqual(['threads-6', 'threads-2']);
+        await preview.finish();
+
+        const lone = hold('threads-1');
+        expect(await lone.worker).toBe('threads-1');
+        const other = hold('threads-3');
+        // Every slot has a worker; the idle one of another key is replaced.
+        expect(await other.worker).toBe('threads-3');
+        expect(started).toEqual(['threads-6', 'threads-2', 'threads-1', 'threads-3']);
+        expect(FakeWorker.terminateCount).toBe(1);
+        await Promise.all([batch.finish(), lone.finish(), other.finish()]);
+    });
+
+    it('runs a request without a key on any running worker before starting one', async () => {
+        const {started, hold} = createOwner(2);
+        const keyed = hold('threads-6');
+        await keyed.worker;
+        await keyed.finish();
+        const any = hold();
+        expect(await any.worker).toBe('threads-6');
+        const second = hold();
+        // A worker started for any request has no key.
+        expect(await second.worker).toBe('');
+        expect(started).toEqual(['threads-6', '']);
+        await Promise.all([any.finish(), second.finish()]);
+    });
+
+    it('ends only the idle workers when asked', async () => {
+        const {owner, hold} = createOwner(2);
+        const idle = hold('threads-6');
+        await idle.worker;
+        await idle.finish();
+        const busy = hold('threads-2');
+        await busy.worker;
+        owner.resetIdleWorkers();
+        expect(FakeWorker.terminateCount).toBe(1);
+        await busy.finish();
+    });
+});
+
+describe('BrowserWorkerBudget across pools', () => {
+    beforeEach(() => {
+        FakeWorker.terminateCount = 0;
+    });
+
+    function createPool(slots: number, budget: BrowserWorkerBudget) {
+        const started: string[] = [];
+        const owner = new BrowserWorkerRequestOwner(() => new BrowserWorkerClient<IPendingTestRequest>({
+            idleTtlMs: 60_000,
+            budget,
+            createWorker: (key) => {
+                started.push(key ?? '');
+                return new FakeWorker(key);
+            },
+            createError: event => new Error(event.message),
+            handleMessage: () => {},
+        }), slots, budget);
+        let nextId = 1;
+        const hold = (key: string, budgetReserve = 0) => {
+            let finish!: () => void;
+            const finished = new Promise<void>(resolve => void (finish = resolve));
+            let ranOn: string | null = null;
+            const done = owner.run(nextId++, async (client, _isAdmitted, workerKey) => {
+                ranOn = (client.getWorker(workerKey) as FakeWorker).name;
+                await finished;
+            }, {
+                workerKey: () => key,
+                budgetReserve,
+            });
+            return {
+                ranOn: () => ranOn,
+                finish: async () => {
+                    finish();
+                    await done;
+                },
+            };
+        };
+        return {
+            started,
+            hold,
+        };
+    }
+
+    /** Lets admission run: owners admit again in a microtask after a place frees. */
+    const settle = async () => {
+        for (let turn = 0; turn < 10; turn += 1) await Promise.resolve();
+    };
+
+    it('starts no counted worker past the budget; a waiting request starts once a place frees, in any pool', async () => {
+        const budget = new BrowserWorkerBudget(() => 2, key => key?.startsWith('threads') === true);
+        const cleanup = createPool(4, budget);
+        const ocr = createPool(4, budget);
+        const first = cleanup.hold('threads-2');
+        const second = cleanup.hold('threads-2');
+        const third = ocr.hold('threads-3');
+        await settle();
+        expect([first.ranOn(), second.ranOn(), third.ranOn()]).toEqual(['threads-2', 'threads-2', null]);
+        // An uncounted worker is not held back.
+        const single = ocr.hold('single');
+        await settle();
+        expect(single.ranOn()).toBe('single');
+
+        // The finished request leaves an idle threaded worker: the other pool ends it and takes its place.
+        await first.finish();
+        await settle();
+        expect(third.ranOn()).toBe('threads-3');
+        expect(FakeWorker.terminateCount).toBe(1);
+        expect(cleanup.started.length + ocr.started.length).toBe(4);
+        await Promise.all([second.finish(), third.finish(), single.finish()]);
+    });
+
+    it('replaces an idle counted worker of its own pool when the budget is full', async () => {
+        const budget = new BrowserWorkerBudget(() => 1, key => key?.startsWith('threads') === true);
+        const pool = createPool(3, budget);
+        const preview = pool.hold('threads-6');
+        await settle();
+        await preview.finish();
+        const batch = pool.hold('threads-2');
+        await settle();
+        expect(batch.ranOn()).toBe('threads-2');
+        expect(FakeWorker.terminateCount).toBe(1);
+        await batch.finish();
+    });
+
+    it('keeps a place free for an interactive request while a batch fills the rest', async () => {
+        const budget = new BrowserWorkerBudget(() => 3, key => key?.startsWith('threads') === true);
+        const pool = createPool(5, budget);
+        const pages = [pool.hold('threads-2', 1), pool.hold('threads-2', 1), pool.hold('threads-2', 1)];
+        await settle();
+        expect(pages.map(page => page.ranOn())).toEqual(['threads-2', 'threads-2', null]);
+        const preview = pool.hold('threads-6');
+        await settle();
+        expect(preview.ranOn()).toBe('threads-6');
+        // The preview ends while the batch runs: its place stays free for the next preview.
+        await preview.finish();
+        await settle();
+        expect(pages[2]!.ranOn()).toBeNull();
+        const nextPreview = pool.hold('threads-6');
+        await settle();
+        expect(nextPreview.ranOn()).toBe('threads-6');
+        await Promise.all([...pages.slice(0, 2), nextPreview].map(request => request.finish()));
+        await settle();
+        expect(pages[2]!.ranOn()).toBe('threads-2');
+        await pages[2]!.finish();
+    });
+
+    it('ends no idle worker of another pool when busy workers leave no place to take', async () => {
+        const budget = new BrowserWorkerBudget(() => 2, key => key?.startsWith('threads') === true);
+        const cleanup = createPool(3, budget);
+        const ocr = createPool(3, budget);
+        const preview = cleanup.hold('threads-6');
+        await settle();
+        await preview.finish();
+        const page = ocr.hold('threads-2', 1);
+        await settle();
+        expect(page.ranOn()).toBe('threads-2');
+        // One place busy, one held by the idle preview worker: another batch page cannot fit.
+        const next = ocr.hold('threads-2', 1);
+        await settle();
+        expect(next.ranOn()).toBeNull();
+        expect(FakeWorker.terminateCount).toBe(0);
+        await page.finish();
+        await settle();
+        expect(next.ranOn()).toBe('threads-2');
+        await next.finish();
+    });
+});
+
+describe('scan cleanup engine threads', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+        vi.restoreAllMocks();
+    });
+
+    it('splits the cores but one among the requests a caller runs at once, from one to six threads', () => {
+        // On 11 cores: a lone preview, a 4-page job, an 8-lane batch.
+        expect(resolveScanCleanupEngineThreads(1, 11)).toBe(6);
+        expect(resolveScanCleanupEngineThreads(4, 11)).toBe(2);
+        // A batch runs at most as many pages at once as it has threaded places.
+        expect(resolveScanCleanupEngineThreads(8, 11)).toBe(2);
+        expect(resolveScanCleanupEngineThreads(3, 4)).toBe(1);
+        expect(resolveScanCleanupEngineThreads(1, 2)).toBe(1);
+        // A request that declares nothing never oversubscribes.
+        expect(resolveScanCleanupEngineThreads(undefined, 11)).toBe(1);
+    });
+
+    it('runs the threaded engine only on an isolated page with shared memory, cores and memory to spare', () => {
+        const capable = {
+            crossOriginIsolated: true,
+            hasSharedArrayBuffer: true,
+            lowMemory: false,
+            cores: 8,
+        };
+        expect(canRunThreadedScanCleanupEngine(capable)).toBe(true);
+        expect(canRunThreadedScanCleanupEngine({...capable, crossOriginIsolated: false})).toBe(false);
+        expect(canRunThreadedScanCleanupEngine({...capable, hasSharedArrayBuffer: false})).toBe(false);
+        expect(canRunThreadedScanCleanupEngine({...capable, lowMemory: true})).toBe(false);
+        expect(canRunThreadedScanCleanupEngine({...capable, cores: 1})).toBe(false);
+    });
+
+    it('runs no queued request on a threaded worker once a threaded start failed, in either pool', async () => {
+        vi.stubGlobal('crossOriginIsolated', true);
+        vi.stubGlobal('navigator', {hardwareConcurrency: 11, userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15'});
+        vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        vi.resetModules();
+        const variant = await import('@app/platform/browser-api/scanCleanupEngineVariant');
+        const otherPool = vi.fn();
+        variant.registerScanCleanupEnginePool(otherPool);
+        const events: Array<{kind: 'started' | 'sent' | 'failed' | 'ran'; worker: string; payload?: string}> = [];
+        // Every threaded worker fails to start its engine and hands the request back.
+        const threadedWorkers: Array<{terminated: boolean}> = [];
+        class EngineWorker extends EventTarget {
+            private readonly record = {terminated: false};
+            public constructor(_url: URL, private readonly options: {name: string}) {
+                super();
+                events.push({kind: 'started', worker: options.name});
+                if (readScanCleanupEngineWorkerThreads(options.name) !== null) threadedWorkers.push(this.record);
+            }
+
+            public postMessage(message: {id: number; type: string; payload: {label: string}}) {
+                events.push({kind: 'sent', worker: this.options.name, payload: message.payload.label});
+                queueMicrotask(() => {
+                    const threaded = readScanCleanupEngineWorkerThreads(this.options.name) !== null;
+                    events.push({kind: threaded ? 'failed' : 'ran', worker: this.options.name, payload: message.payload.label});
+                    this.dispatchEvent(new MessageEvent('message', {data: threaded
+                        ? {
+                            id: message.id,
+                            ok: false,
+                            error: 'its threads did not start',
+                            errorEnvelope: {
+                                code: SCAN_CLEANUP_THREADED_ENGINE_UNAVAILABLE,
+                                message: 'its threads did not start',
+                                details: {payload: {label: `${message.payload.label} returned`}},
+                            },
+                        }
+                        : {
+                            id: message.id,
+                            ok: true,
+                            type: message.type,
+                            data: {status: 'succeeded', result: {}},
+                        }}));
+                });
+            }
+
+            public terminate() {
+                this.record.terminated = true;
+            }
+        }
+        vi.stubGlobal('Worker', EngineWorker);
+        const {runBrowserScanCleanupWorkerRequest} = await import('@app/platform/browser-api/browserScanCleanupWorkerClient');
+
+        // A 4-page batch and a preview queue at once, more than the pool's places.
+        const signal = new AbortController().signal;
+        const requests = Array.from({length: 12}, (_unused, index) => runBrowserScanCleanupWorkerRequest(
+            'plan-analysis',
+            {label: `page ${String(index + 1)}`} as never,
+            signal,
+            undefined,
+            index === 11 ? 1 : 4,
+        ));
+        await expect(Promise.all(requests)).resolves.toHaveLength(12);
+
+        const firstFailure = events.findIndex(event => event.kind === 'failed');
+        expect(firstFailure).toBeGreaterThanOrEqual(0);
+        // After the first failure no request reaches a threaded worker, new or already running.
+        const afterSwitch = events.slice(firstFailure + 1);
+        expect(afterSwitch.filter(event => (event.kind === 'started' || event.kind === 'sent')
+            && readScanCleanupEngineWorkerThreads(event.worker) !== null)).toEqual([]);
+        // Requests admitted before the switch ran again with the page they handed back; none ran threaded.
+        const ran = events.filter(event => event.kind === 'ran');
+        expect(ran.every(event => readScanCleanupEngineWorkerThreads(event.worker) === null)).toBe(true);
+        // Each page ran once, and a page a threaded worker refused ran with the payload it handed back.
+        const labels = Array.from({length: 12}, (_unused, index) => `page ${String(index + 1)}`);
+        const failed = new Set(events.filter(event => event.kind === 'failed').map(event => event.payload));
+        expect(ran.map(event => event.payload).sort()).toEqual(labels.map(label => (failed.has(label) ? `${label} returned` : label)).sort());
+        // No threaded worker outlives the switch, busy or idle when it came.
+        expect(threadedWorkers.length).toBeGreaterThan(0);
+        expect(threadedWorkers.every(worker => worker.terminated)).toBe(true);
+        expect(otherPool).toHaveBeenCalledOnce();
+        expect(variant.usesThreadedScanCleanupEngine()).toBe(false);
+    });
+
+    it('offers the threaded engine only to a browser it knows is a 64-bit build', () => {
+        const firefox = (platform: string) => `Mozilla/5.0 (${platform}; rv:140.0) Gecko/20100101 Firefox/140.0`;
+        // Chromium's client hint decides; its frozen user agent cannot.
+        const chromeLinux = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
+        expect(isSixtyFourBitBrowser({userAgent: chromeLinux, bitness: '64'})).toBe(true);
+        expect(isSixtyFourBitBrowser({userAgent: chromeLinux, bitness: '32'})).toBe(false);
+        expect(isSixtyFourBitBrowser({userAgent: chromeLinux, bitness: null})).toBe(false);
+        // A 32-bit Chrome on 64-bit Windows reports the platform's bitness and wow64.
+        expect(isSixtyFourBitBrowser({userAgent: chromeLinux, bitness: '64', wow64: true})).toBe(false);
+        expect(isSixtyFourBitBrowser({userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15'})).toBe(true);
+        expect(isSixtyFourBitBrowser({userAgent: firefox('Macintosh; Intel Mac OS X 10.15')})).toBe(true);
+        expect(isSixtyFourBitBrowser({userAgent: firefox('Windows NT 10.0; Win64; x64')})).toBe(true);
+        expect(isSixtyFourBitBrowser({userAgent: firefox('X11; Linux x86_64')})).toBe(true);
+        expect(isSixtyFourBitBrowser({userAgent: firefox('X11; Linux aarch64')})).toBe(true);
+        expect(isSixtyFourBitBrowser({userAgent: firefox('Windows NT 10.0; WOW64')})).toBe(false);
+        expect(isSixtyFourBitBrowser({userAgent: firefox('Windows NT 10.0')})).toBe(false);
+        expect(isSixtyFourBitBrowser({userAgent: firefox('X11; Linux i686')})).toBe(false);
+        expect(isSixtyFourBitBrowser({userAgent: firefox('X11; Linux armv7l')})).toBe(false);
+        expect(isSixtyFourBitBrowser({userAgent: ''})).toBe(false);
+    });
+
+    it('runs the single-threaded engine in a 32-bit browser even when the page is isolated', async () => {
+        vi.stubGlobal('crossOriginIsolated', true);
+        vi.stubGlobal('navigator', {hardwareConcurrency: 11, userAgent: 'Mozilla/5.0 (Windows NT 10.0; WOW64; rv:140.0) Gecko/20100101 Firefox/140.0'});
+        vi.resetModules();
+        const variant = await import('@app/platform/browser-api/scanCleanupEngineVariant');
+        expect(await variant.prepareScanCleanupEngine()).toBe(false);
+        expect(readScanCleanupEngineWorkerThreads(variant.scanCleanupEngineWorkerName(1))).toBeNull();
+    });
+
+    it('starts no threaded worker for requests that run no engine', async () => {
+        vi.stubGlobal('crossOriginIsolated', true);
+        vi.stubGlobal('navigator', {hardwareConcurrency: 11, userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15'});
+        vi.resetModules();
+        const started: string[] = [];
+        class PixelWorker extends EventTarget {
+            public constructor(_url: URL, options: {name: string}) {
+                super();
+                started.push(options.name);
+            }
+
+            public postMessage(message: {id: number; type: string}) {
+                queueMicrotask(() => this.dispatchEvent(new MessageEvent('message', {data: {
+                    id: message.id,
+                    ok: true,
+                    type: message.type,
+                    data: {png: new Uint8Array(1)},
+                }})));
+            }
+
+            public terminate() {}
+        }
+        vi.stubGlobal('Worker', PixelWorker);
+        const {runBrowserScanCleanupWorkerRequest} = await import('@app/platform/browser-api/browserScanCleanupWorkerClient');
+        const signal = new AbortController().signal;
+        // A batch's pages encode their originals at once, one worker each.
+        await Promise.all(Array.from({length: 9}, () => runBrowserScanCleanupWorkerRequest('encode-png', {ppm: new Uint8Array(1)}, signal)));
+        expect(started).toHaveLength(9);
+        expect(started.filter(name => readScanCleanupEngineWorkerThreads(name) !== null)).toEqual([]);
+    });
+
+    it('does not retry a request that failed for any other reason', async () => {
+        const attempt = vi.fn(async () => {
+            throw new Error('The page is damaged');
+        });
+        await expect(runWithScanCleanupEngineFailover('page', attempt)).rejects.toThrow('The page is damaged');
+        expect(attempt).toHaveBeenCalledOnce();
+    });
+
+    it('reads back the thread count a worker name carries, and none from a name it did not write', () => {
+        expect(readScanCleanupEngineWorkerThreads(encodeScanCleanupEngineWorkerName(3))).toBe(3);
+        expect(readScanCleanupEngineWorkerThreads(encodeScanCleanupEngineWorkerName(null))).toBeNull();
+        expect(readScanCleanupEngineWorkerThreads(encodeScanCleanupEngineWorkerName(99))).toBeNull();
+        expect(readScanCleanupEngineWorkerThreads(undefined)).toBeNull();
+        expect(readScanCleanupEngineWorkerThreads('')).toBeNull();
     });
 });
