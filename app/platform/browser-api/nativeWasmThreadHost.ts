@@ -155,6 +155,11 @@ export interface INativeWasmThreadStart {
     faultPointer: number;
     threadId: number;
     startArg: number;
+    /**
+     * Receives what ended the thread, a trap or a failed instantiation, before
+     * the engine is marked faulted: the place to record why it died.
+     */
+    onTrap?: (error: unknown) => void;
 }
 
 /**
@@ -169,6 +174,7 @@ export function runNativeWasmThread({
     faultPointer,
     threadId,
     startArg,
+    onTrap,
 }: INativeWasmThreadStart) {
     try {
         const instance = new WebAssembly.Instance(module, imports);
@@ -176,7 +182,11 @@ export function runNativeWasmThread({
         if (typeof start !== 'function') throw new Error('The threaded WASM engine has no wasi_thread_start export');
         start(threadId, startArg);
     } catch (error) {
-        reportNativeWasmThreadFault(memory, faultPointer);
+        try {
+            onTrap?.(error);
+        } finally {
+            reportNativeWasmThreadFault(memory, faultPointer);
+        }
         throw error;
     }
 }

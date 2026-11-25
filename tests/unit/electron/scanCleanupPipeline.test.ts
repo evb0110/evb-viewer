@@ -7,7 +7,10 @@ import {
     unlink,
     writeFile,
 } from 'fs/promises';
-import {createHash} from 'node:crypto';
+import {
+    createHash,
+    randomUUID,
+} from 'node:crypto';
 import {existsSync} from 'node:fs';
 import {
     decode as decodePng,
@@ -18,7 +21,10 @@ import {
     join,
     sep,
 } from 'path';
-import {Worker} from 'node:worker_threads';
+import {
+    BroadcastChannel,
+    Worker,
+} from 'node:worker_threads';
 import {
     afterEach,
     describe,
@@ -6516,7 +6522,7 @@ const nativeWasmThreadHostUrl = new URL('../../../app/platform/browser-api/nativ
 // Node strips the host module's types itself, so these workers run the file
 // the browser's workers run. One pool thread:
 const NATIVE_WASM_THREAD_SOURCE = `
-const {workerData} = require('node:worker_threads');
+const {BroadcastChannel, workerData} = require('node:worker_threads');
 import(workerData.hostUrl).then((host) => host.runNativeWasmThread({
     ...workerData,
     imports: host.createNativeWasmThreadImports({
@@ -6524,6 +6530,11 @@ import(workerData.hostUrl).then((host) => host.runNativeWasmThread({
         spawnThread: () => -1,
         writeOutput: () => {},
     }),
+    onTrap: (error) => {
+        const channel = new BroadcastChannel(workerData.trapChannel);
+        channel.postMessage('thread ' + workerData.threadId + ' died: ' + (error && error.stack || String(error)));
+        channel.close();
+    },
 }));
 `;
 // The engine's main instance, which spawns the pool threads and runs one
@@ -6531,7 +6542,7 @@ import(workerData.hostUrl).then((host) => host.runNativeWasmThread({
 const THREADED_SCAN_CLEANUP_ENGINE_SOURCE = `
 const {parentPort, Worker, workerData} = require('node:worker_threads');
 import(workerData.hostUrl).then((host) => {
-    const {hostUrl, maximumPages, module, request, threads, threadSource} = workerData;
+    const {hostUrl, maximumPages, module, request, threads, threadSource, trapChannel} = workerData;
     const memory = host.createNativeWasmThreadMemory(maximumPages);
     const thread = {faultPointer: 0, count: 0};
     const engine = new WebAssembly.Instance(module, host.createNativeWasmThreadImports({
@@ -6541,7 +6552,7 @@ import(workerData.hostUrl).then((host) => {
             thread.count += 1;
             new Worker(threadSource, {
                 eval: true,
-                workerData: {hostUrl, module, memory, faultPointer: thread.faultPointer, threadId: thread.count, startArg},
+                workerData: {hostUrl, module, memory, faultPointer: thread.faultPointer, threadId: thread.count, startArg, trapChannel},
             }).on('error', () => {});
             return thread.count;
         },
@@ -6591,9 +6602,19 @@ async function runSingleThreadedScanCleanup(request: Uint8Array): Promise<IScanC
 /**
  * One request through the threaded engine on `threads` pool threads, in a
  * shared memory made from the host module's constants and capped at
- * `maximumPages`. The engine and its threads stop when the test ends.
+ * `maximumPages`, with why any thread died. The engine and its threads stop
+ * when the test ends.
  */
 async function runThreadedScanCleanup(request: Uint8Array, threads: number, maximumPages?: number) {
+    const trapChannel = `evb-scan-cleanup-thread-traps-${randomUUID()}`;
+    const traps: string[] = [];
+    const channel = new BroadcastChannel(trapChannel);
+    channel.onmessage = (message) => {
+        traps.push(String((message as MessageEvent).data));
+    };
+    onTestFinished(() => {
+        channel.close();
+    });
     const engine = new Worker(THREADED_SCAN_CLEANUP_ENGINE_SOURCE, {
         eval: true,
         workerData: {
@@ -6603,6 +6624,7 @@ async function runThreadedScanCleanup(request: Uint8Array, threads: number, maxi
             request,
             threads,
             threadSource: NATIVE_WASM_THREAD_SOURCE,
+            trapChannel,
         },
     });
     onTestFinished(async () => {
@@ -6613,7 +6635,19 @@ async function runThreadedScanCleanup(request: Uint8Array, threads: number, maxi
         engine.once('error', reject);
     });
     expect(run.started).toBe(threads);
-    return run;
+    if (run.code === -2) {
+        // The thread reports its trap before it marks the engine faulted.
+        await vi.waitFor(() => expect(traps).not.toHaveLength(0)).catch(() => {});
+    }
+    return {
+        ...run,
+        /** The result's error envelope and every thread's trap, for a failure message. */
+        failure: [
+            new TextDecoder().decode(run.result),
+            ...traps,
+        ].join('\n'),
+        traps,
+    };
 }
 
 const THREADED_ENGINE_CASES = [
@@ -6665,7 +6699,7 @@ describe.skipIf(missingThreadedEngines.length > 0)(`threaded browser scan-cleanu
             const expected = await runSingleThreadedScanCleanup(request);
             expect(expected.code, new TextDecoder().decode(expected.result)).toBe(0);
             const actual = await runThreadedScanCleanup(request, threads);
-            expect(actual.code, new TextDecoder().decode(actual.result)).toBe(0);
+            expect(actual.code, actual.failure).toBe(0);
             expect(Buffer.from(actual.result).equals(Buffer.from(expected.result))).toBe(true);
         });
     }
@@ -6683,7 +6717,10 @@ describe.skipIf(missingThreadedEngines.length > 0)(`threaded browser scan-cleanu
         });
         // 16 MiB: room for the pool's stacks and the request, not for the
         // page's work, which takes about twice that.
-        await expect(runThreadedScanCleanup(request, 4, 256)).resolves.toMatchObject({code: -2});
+        const run = await runThreadedScanCleanup(request, 4, 256);
+        expect(run.code, run.failure).toBe(-2);
+        // A pool thread ran out of memory, and its trap says so.
+        expect(run.traps.join('\n')).toMatch(/RuntimeError/u);
     });
 });
 
