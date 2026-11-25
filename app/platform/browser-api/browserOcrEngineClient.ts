@@ -21,7 +21,6 @@ import {
     registerScanCleanupEnginePool,
     runWithScanCleanupEngineFailover,
     scanCleanupEngineAdmission,
-    scanCleanupEngineWorkerName,
     threadedScanCleanupEngineBudget,
 } from '@app/platform/browser-api/scanCleanupEngineVariant';
 import type {BrowserWorkerBudget, IBrowserWorkerAdmission} from '@app/platform/browser-api/browserWorkerClient';
@@ -122,10 +121,7 @@ function createWorkerClient(
     createWorker: (name: string | undefined) => Worker,
     idleTtlMs: number,
     fallbackMessage: string,
-    engine?: {
-        defaultWorkerKey: () => string;
-        budget: BrowserWorkerBudget;
-    },
+    engine?: {budget: BrowserWorkerBudget},
 ) {
     return new BrowserWorkerClient<TPendingEngineRequest>({
         idleTtlMs,
@@ -167,10 +163,7 @@ function getPreprocessOwner() {
                 }),
                 PREPROCESS_IDLE_TTL_MS,
                 'The OCR preprocessing engine stopped',
-                {
-                    defaultWorkerKey: () => scanCleanupEngineWorkerName(undefined),
-                    budget: threadedScanCleanupEngineBudget,
-                },
+                {budget: threadedScanCleanupEngineBudget},
             ),
             // A job preprocesses on as many of these as its own page size affords.
             resolveBrowserOcrLanes().lanes,

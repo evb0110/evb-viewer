@@ -234,7 +234,6 @@ describe('BrowserWorkerRequestOwner admission by worker key', () => {
         const started: string[] = [];
         const owner = new BrowserWorkerRequestOwner(() => new BrowserWorkerClient<IPendingTestRequest>({
             idleTtlMs: 60_000,
-            defaultWorkerKey: () => 'default',
             ...(budget ? {budget} : {}),
             createWorker: (key) => {
                 started.push(key ?? '');
@@ -304,8 +303,9 @@ describe('BrowserWorkerRequestOwner admission by worker key', () => {
         const any = hold();
         expect(await any.worker).toBe('threads-6');
         const second = hold();
-        expect(await second.worker).toBe('default');
-        expect(started).toEqual(['threads-6', 'default']);
+        // A worker started for any request has no key.
+        expect(await second.worker).toBe('');
+        expect(started).toEqual(['threads-6', '']);
         await Promise.all([any.finish(), second.finish()]);
     });
 
@@ -552,6 +552,37 @@ describe('scan cleanup engine threads', () => {
         const variant = await import('@app/platform/browser-api/scanCleanupEngineVariant');
         expect(await variant.prepareScanCleanupEngine()).toBe(false);
         expect(readScanCleanupEngineWorkerThreads(variant.scanCleanupEngineWorkerName(1))).toBeNull();
+    });
+
+    it('starts no threaded worker for requests that run no engine', async () => {
+        vi.stubGlobal('crossOriginIsolated', true);
+        vi.stubGlobal('navigator', {hardwareConcurrency: 11, userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15'});
+        vi.resetModules();
+        const started: string[] = [];
+        class PixelWorker extends EventTarget {
+            public constructor(_url: URL, options: {name: string}) {
+                super();
+                started.push(options.name);
+            }
+
+            public postMessage(message: {id: number; type: string}) {
+                queueMicrotask(() => this.dispatchEvent(new MessageEvent('message', {data: {
+                    id: message.id,
+                    ok: true,
+                    type: message.type,
+                    data: {png: new Uint8Array(1)},
+                }})));
+            }
+
+            public terminate() {}
+        }
+        vi.stubGlobal('Worker', PixelWorker);
+        const {runBrowserScanCleanupWorkerRequest} = await import('@app/platform/browser-api/browserScanCleanupWorkerClient');
+        const signal = new AbortController().signal;
+        // A batch's pages encode their originals at once, one worker each.
+        await Promise.all(Array.from({length: 9}, () => runBrowserScanCleanupWorkerRequest('encode-png', {ppm: new Uint8Array(1)}, signal)));
+        expect(started).toHaveLength(9);
+        expect(started.filter(name => readScanCleanupEngineWorkerThreads(name) !== null)).toEqual([]);
     });
 
     it('does not retry a request that failed for any other reason', async () => {

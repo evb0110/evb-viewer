@@ -19,7 +19,6 @@ import {
     registerScanCleanupEnginePool,
     runWithScanCleanupEngineFailover,
     scanCleanupEngineAdmission,
-    scanCleanupEngineWorkerName,
     threadedScanCleanupEngineBudget,
 } from '@app/platform/browser-api/scanCleanupEngineVariant';
 import {getErrorMessage} from '@app/utils/error';
@@ -51,8 +50,8 @@ function createClient() {
     return new BrowserWorkerClient<IPendingBrowserWorkerRequest>({
         idleTtlMs: BROWSER_SCAN_CLEANUP_WORKER_IDLE_TTL_MS,
         requestTimeoutMs: BROWSER_SCAN_CLEANUP_REQUEST_TIMEOUT_MS,
-        // The worker's name tells it which engine to run, on how many threads.
-        defaultWorkerKey: () => scanCleanupEngineWorkerName(undefined),
+        // The worker's name tells it which engine to run, on how many threads;
+        // one started for a request that runs no engine has no name.
         budget: threadedScanCleanupEngineBudget,
         createWorker: (name) => {
             try {

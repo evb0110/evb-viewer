@@ -12,8 +12,6 @@ interface IBrowserWorkerClientOptions<TPendingRequest> {
      * as an engine's thread count; a worker keeps its key for life.
      */
     createWorker: (key: string | undefined) => Worker;
-    /** The key of a worker started for a request that takes any kind. */
-    defaultWorkerKey?: () => string;
     /** The page-wide budget a worker of a counted key holds a place in while it lives. */
     budget?: BrowserWorkerBudget;
     idleTtlMs: number;
@@ -155,10 +153,10 @@ export class BrowserWorkerClient<
         }
         if (this.worker) this.resetWorker();
 
-        const workerKey = key ?? this.options.defaultWorkerKey?.();
-        const worker = this.options.createWorker(workerKey);
-        this.currentWorkerKey = workerKey;
-        if (this.options.budget?.counts(workerKey)) this.options.budget.hold(this);
+        // A worker started for a request that takes any worker has no key, and counts for nothing.
+        const worker = this.options.createWorker(key);
+        this.currentWorkerKey = key;
+        if (this.options.budget?.counts(key)) this.options.budget.hold(this);
         const generation = this.workerGeneration + 1;
         const workerEventListeners: IWorkerEventListeners = {
             message: event => {
