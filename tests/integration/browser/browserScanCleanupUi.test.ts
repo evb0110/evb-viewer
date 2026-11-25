@@ -712,6 +712,11 @@ describe('browser Scan Cleanup workspace', () => {
             const afterCropPixels = await cropPixels();
             await undoRedo(page, 'crop', cropPixels, beforeCropPixels, afterCropPixels);
             await select(page, 'Page layout', 'Force two-page spreads');
+            // The layout, the cutter and the zones are detection inputs, so each
+            // edit runs detection again. Until it settles the shown frame is
+            // provisional, the refresh that settles it cancels a drag in progress,
+            // and its pixels are not the ones a reload restores.
+            await assertBrowserScope(page);
             await waitForPixels(page, 1);
             await page.getByRole('radio', {
                 name: 'Original',
@@ -732,6 +737,7 @@ describe('browser Scan Cleanup workspace', () => {
                 name: 'Cleaned',
                 exact: true,
             }).click();
+            await assertBrowserScope(page);
             await waitForPixels(page, 1);
             await page.getByRole('button', {
                 name: 'Edit picture and fill zones',
@@ -763,6 +769,7 @@ describe('browser Scan Cleanup workspace', () => {
                 exact: true,
             }).click();
             await select(page, 'Output mode', 'Color');
+            await assertBrowserScope(page);
             await waitForPixels(page, 1);
             await page.screenshot({path: join(evidenceRoot, 'before-reload.png')});
             await writeFile(join(evidenceRoot, 'before-reload-storage.json'), JSON.stringify(await page.evaluate(() => Object.fromEntries(Object.entries(window.localStorage).filter(([key]) => /scan.?cleanup/iu.test(key)))), null, 2));
