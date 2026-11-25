@@ -815,6 +815,7 @@ jobs:
       - name: Verify public release and updater mirror
         if: ${{ steps.mirror_stage.outcome == 'success' && (needs.gate.outputs.drill == 'true' || needs.gate.outputs.public_release == 'true' || steps.promote.outcome == 'success') }}
         env:
+          GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           TAG: ${{ needs.gate.outputs.tag }}
