@@ -188,7 +188,7 @@ async function flushOpeningFrame() {
     await new Promise<void>(resolve => setImmediate(resolve));
 }
 
-/** A 5-page DjVu shown at page 3 in a 900x700 box, its first page painted and placed. */
+/** A 5-page DjVu shown at page 3 in a 900x700 box, every page painted and the reading page placed. */
 async function mountPlacedDjvu(isActive = ref(true), isResizing = ref(false)) {
     layOutLoadedPages();
     mocks.createDjvuPagePreviewSourceFromPath.mockImplementation(async (path: TDocumentRef) => ({path}));
@@ -228,6 +228,10 @@ async function mountPlacedDjvu(isActive = ref(true), isResizing = ref(false)) {
         return rendered!;
     });
     image.dispatchEvent(new Event('load'));
+    // The neighbouring pages paint over later render frames; a test that counts
+    // frames starts only once every page is painted and the last pass has run.
+    await vi.waitFor(() => expect([...root.querySelectorAll<HTMLElement>('[data-testid="document-page-source-page"]')]
+        .map(page => page.dataset.pageSourceVisual)).toEqual(Array(5).fill('fresh')));
     await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
     return {
         isActive,
