@@ -155,9 +155,13 @@ export function switchOffThreadedScanCleanupEngine() {
 }
 
 /** The places of every pool's threaded engines; a pool that runs them passes it to its owner and clients. */
+const isThreadedEngineKey = (key: string | undefined) => (readScanCleanupEngineWorkerThreads(key) ?? 0) > 0;
+
 export const threadedScanCleanupEngineBudget = new BrowserWorkerBudget(
     () => MAX_LIVE_THREADED_SCAN_CLEANUP_ENGINES,
-    key => (readScanCleanupEngineWorkerThreads(key) ?? 0) > 0,
+    isThreadedEngineKey,
+    // Once the page is off the threaded engine, a threaded worker ends when its request settles.
+    key => isThreadedEngineKey(key) && threadedEngine === false,
 );
 
 /** Registers a pool of engine workers: `resetIdleWorkers` runs when the page switches the threaded engine off. */

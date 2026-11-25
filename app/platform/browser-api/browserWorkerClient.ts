@@ -316,6 +316,8 @@ export class BrowserWorkerBudget {
     public constructor(
         private readonly limit: () => number,
         public readonly counts: (key: string | undefined) => boolean,
+        /** Keys the page no longer runs; a worker of one ends as soon as its request settles. */
+        public readonly retired: (key: string | undefined) => boolean = () => false,
     ) {}
 
     public holds(client: object) {
@@ -460,7 +462,10 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
             this.admitWaitingRequests();
         });
         return promise.finally(() => {
-            if (request.client) request.client.leased = false;
+            if (request.client) {
+                request.client.leased = false;
+                if (request.client.idle && this.budget?.retired(request.client.workerKey)) request.client.resetWorker();
+            }
             this.requests.delete(requestId);
             if (this.requests.size === 0) this.lifecycle.clear();
             this.admitWaitingRequests();

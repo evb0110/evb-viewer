@@ -492,10 +492,13 @@ describe('scan cleanup engine threads', () => {
         variant.registerScanCleanupEnginePool(otherPool);
         const events: Array<{kind: 'started' | 'sent' | 'failed' | 'ran'; worker: string; payload?: string}> = [];
         // Every threaded worker fails to start its engine and hands the request back.
+        const threadedWorkers: Array<{terminated: boolean}> = [];
         class EngineWorker extends EventTarget {
+            private readonly record = {terminated: false};
             public constructor(_url: URL, private readonly options: {name: string}) {
                 super();
                 events.push({kind: 'started', worker: options.name});
+                if (readScanCleanupEngineWorkerThreads(options.name) !== null) threadedWorkers.push(this.record);
             }
 
             public postMessage(message: {id: number; type: string; payload: {label: string}}) {
@@ -523,7 +526,9 @@ describe('scan cleanup engine threads', () => {
                 });
             }
 
-            public terminate() {}
+            public terminate() {
+                this.record.terminated = true;
+            }
         }
         vi.stubGlobal('Worker', EngineWorker);
         const {runBrowserScanCleanupWorkerRequest} = await import('@app/platform/browser-api/browserScanCleanupWorkerClient');
@@ -547,9 +552,14 @@ describe('scan cleanup engine threads', () => {
             && readScanCleanupEngineWorkerThreads(event.worker) !== null)).toEqual([]);
         // Requests admitted before the switch ran again with the page they handed back; none ran threaded.
         const ran = events.filter(event => event.kind === 'ran');
-        expect(ran).toHaveLength(12);
         expect(ran.every(event => readScanCleanupEngineWorkerThreads(event.worker) === null)).toBe(true);
-        expect(events.filter(event => event.kind === 'failed').length).toBe(ran.filter(event => event.payload?.endsWith('returned')).length);
+        // Each page ran once, and a page a threaded worker refused ran with the payload it handed back.
+        const labels = Array.from({length: 12}, (_unused, index) => `page ${String(index + 1)}`);
+        const failed = new Set(events.filter(event => event.kind === 'failed').map(event => event.payload));
+        expect(ran.map(event => event.payload).sort()).toEqual(labels.map(label => (failed.has(label) ? `${label} returned` : label)).sort());
+        // No threaded worker outlives the switch, busy or idle when it came.
+        expect(threadedWorkers.length).toBeGreaterThan(0);
+        expect(threadedWorkers.every(worker => worker.terminated)).toBe(true);
         expect(otherPool).toHaveBeenCalledOnce();
         expect(variant.usesThreadedScanCleanupEngine()).toBe(false);
     });
