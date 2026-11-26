@@ -163,6 +163,7 @@ export const WASM_ARTIFACTS = [
         id: 'pdf-search',
         label: 'PDF search WASM',
         manifestPath: 'native/pdf-search/Cargo.toml',
+        packageName: 'evb-pdf-search',
         publicRelativePath: 'public/wasm/evb-pdf-search.wasm',
         requiredExports: getRequiredExports('wasm/evb-pdf-search.wasm'),
         rustTarget: WASM_TARGET,
