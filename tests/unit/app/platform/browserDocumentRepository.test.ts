@@ -19,7 +19,9 @@ import { contentWitness } from '@document-store/contentWitness';
 import { openDocument } from '@document-store/documentDirectory';
 import { createNodeStorePort } from '@document-store/nodeStorePort';
 import { BROWSER_DOCUMENT_CHUNK_SIZE } from '@app/platform/browser/browserDocumentConstants';
-import { createMemoryStorePort } from '@app/platform/browser/browserStorePort';
+import {
+    createMemoryStorePort, storeFileBlob,
+} from '@app/platform/browser/browserStorePort';
 import { createFileSystemFileHandle } from '@tests/unit/app/platform/browserPlatformTestDoubles';
 
 const encode = (text: string) => new TextEncoder().encode(text);
@@ -300,15 +302,15 @@ it('#1609 reports a failed IndexedDB handle write while keeping the current sess
 
 
 it('pairs a readable Blob only with the revision whose bytes it holds, even across an edit undone while it was read', async () => {
-    const {repo} = await repository();
-    const {ref, entry, doc} = await workingDocument(repo, 'revision A');
+    const {repo, store} = await repository();
+    const {ref, entry} = await workingDocument(repo, 'revision A');
     const revisionA = repo.tokenOf(entry);
     const blobText = async (blob: Blob) => decode(new Uint8Array(await blob.arrayBuffer()));
     // An edit lands as the Blob is read, and is undone before the Blob is handed over.
-    const read = doc.read.bind(doc);
-    vi.spyOn(doc, 'read').mockImplementationOnce(async (offset, length) => {
+    const read = store.port.read.bind(store.port);
+    vi.spyOn(store.port, 'read').mockImplementationOnce(async (path) => {
         await repo.write(ref, encode('revision B'), {expectedDocumentRevisionToken: revisionA});
-        const bytes = await read(offset, length);
+        const bytes = await read(path);
         await repo.restoreRevision(ref, revisionA, repo.tokenOf(entry));
         return bytes;
     });
@@ -426,4 +428,41 @@ it('ends the earlier of two streams started together on one document, so the lat
     await second.close();
     expect(decode(await repo.read(ref))).toBe('second');
     expect(doc.state()).toMatchObject({dirty: false});
+});
+
+it('lends the readers of a file in memory one Blob of its current bytes until the file changes, closes or goes', async () => {
+    const port = createMemoryStorePort();
+    const textOf = async (blob: Blob) => decode(new Uint8Array(await blob.arrayBuffer()));
+    const path = 'documents/a/r1.pdf';
+    await port.writeAtomic(path, encode('first'));
+    const lent = await storeFileBlob(port, path);
+    expect(await storeFileBlob(port, path)).toBe(lent);
+    expect(await textOf(lent)).toBe('first');
+
+    const file = await port.open(path);
+    await file.writeAt(5, encode(' second'));
+    const written = await storeFileBlob(port, path);
+    expect(written).not.toBe(lent);
+    expect(await storeFileBlob(port, path)).toBe(written);
+    expect([await textOf(written), await textOf(lent)]).toEqual(['first second', 'first']);
+
+    await file.truncate(5);
+    const truncated = await storeFileBlob(port, path);
+    expect(truncated).not.toBe(written);
+    expect(await storeFileBlob(port, path)).toBe(truncated);
+    expect(await textOf(truncated)).toBe('first');
+
+    // A closed revision, kept for undo, holds no Blob; read again, it lends its bytes anew.
+    await file.close();
+    const reread = await storeFileBlob(port, path);
+    expect(reread).not.toBe(truncated);
+    expect(await textOf(reread)).toBe('first');
+
+    await port.writeAtomic(path, encode('replaced'));
+    const replaced = await storeFileBlob(port, path);
+    expect(replaced).not.toBe(reread);
+    expect(await textOf(replaced)).toBe('replaced');
+
+    await port.remove('documents/a');
+    await expect(storeFileBlob(port, path)).rejects.toMatchObject({name: 'NotFoundError'});
 });

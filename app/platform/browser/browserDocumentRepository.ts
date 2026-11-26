@@ -51,9 +51,9 @@ import {
     createMemoryStorePort,
     isOpfsStorePort,
     openBrowserStorePort,
+    storeFileBlob,
 } from '@app/platform/browser/browserStorePort';
 import { holdBrowserLock } from '@app/platform/browser/runBrowserLock';
-import { opfsFileHandle } from '@app/platform/browser/opfsFileHandle';
 import {
     createMissingRevisionError,
     createStaleRevisionError,
@@ -557,8 +557,7 @@ export class BrowserDocumentStore {
         const entry = await this.requireEntry(ref);
         const current = entry.doc?.state().current;
         if (!entry.doc || !current) return this.fileOf(entry);
-        if (!isOpfsStorePort(entry.store!.port)) return this.externalSource(ref) as Promise<Blob>;
-        return (await (await opfsFileHandle(entry.doc.path(current.file))).getFile()).slice(0, current.length);
+        return (await storeFileBlob(entry.store!.port, entry.doc.path(current.file))).slice(0, current.length);
     }
 
     /**
@@ -818,13 +817,7 @@ export class BrowserDocumentStore {
         const doc = this.requireDoc(entry);
         return doc.run(async () => {
             const {length} = this.requirePendingAppend(entry, lease);
-            const file = doc.currentFile();
-            if (isOpfsStorePort(entry.store!.port)) return (await (await opfsFileHandle(doc.path(doc.state().current!.file))).getFile()).slice(0, length);
-            const parts: Blob[] = [];
-            for (let offset = 0; offset < length; offset += BROWSER_DOCUMENT_CHUNK_SIZE) {
-                parts.push(bytesBlob(await file.readAt(offset, Math.min(BROWSER_DOCUMENT_CHUNK_SIZE, length - offset))));
-            }
-            return new Blob(parts);
+            return (await storeFileBlob(entry.store!.port, doc.path(doc.state().current!.file))).slice(0, length);
         });
     }
 

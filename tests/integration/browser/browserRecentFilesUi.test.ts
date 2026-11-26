@@ -24,7 +24,8 @@ import {
 } from './documentReadingTestHelpers';
 
 describe('browser document lifecycle UI', () => {
-    // T6: Recent follows desktop's ten-document MRU, without a browser byte budget.
+    // T6: Recent follows desktop's ten-document MRU, without a browser byte budget. A store with no room for a
+    // working copy beside the books keeps it in memory, where every reader shares one copy of its bytes.
     it('C07 retains two large books and the ten newest distinct Recent documents', async () => {
         const evidence = resolve(process.env.EVB_C07_EVIDENCE_DIR ?? '.devkit/c07-verify/run');
         mkdirSync(evidence, {recursive: true});
@@ -53,18 +54,19 @@ describe('browser document lifecycle UI', () => {
                 write('%PDF-1.7\n');
                 object(1, '<< /Type /Catalog /Pages 2 0 R /Names << /EmbeddedFiles << /Names [(payload.bin) 6 0 R] >> >> >>');
                 object(2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
-                object(3, '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 600] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>');
+                object(3, '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 600] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R /Annots [8 0 R] >>');
                 const content = `BT /F1 24 Tf 40 500 Td (${label} page 1) Tj ET\n`;
                 object(4, `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}endstream`);
                 object(5, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
                 object(6, '<< /Type /Filespec /F (payload.bin) /EF << /F 7 0 R >> >>');
+                object(8, `<< /Type /Annot /Subtype /Text /Rect [340 540 364 564] /P 3 0 R /Contents (${label} note) >>`);
                 offsets[7] = size;
                 write(`7 0 obj\n<< /Type /EmbeddedFile /Length ${270 * 1024 * 1024} >>\nstream\n`);
                 size += 270 * 1024 * 1024;
                 ftruncateSync(file, size);
                 write('\nendstream\nendobj\n');
                 const xref = size;
-                write(`xref\n0 8\n0000000000 65535 f \n${offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size 8 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+                write(`xref\n0 9\n0000000000 65535 f \n${offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size 9 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
             } finally {
                 closeSync(file);
             }
@@ -79,6 +81,7 @@ describe('browser document lifecycle UI', () => {
         try {
             for (const journey of [
                 'large',
+                'memory',
                 'count',
             ] as const) {
                 const context = await lifecycle.browser.newContext({viewport: {
@@ -86,6 +89,14 @@ describe('browser document lifecycle UI', () => {
                     height: 900,
                 }});
                 const page = await context.newPage();
+                // Storing two books and the open one's working copy takes 810 MiB at most. An incognito context
+                // draws its origin's quota afresh, physical memory × 15-20 % / 3, so on a 16 GB runner it is
+                // sometimes smaller. Each journey sets the room it needs: a normal profile's, or the memory
+                // journey's 700 MiB, which holds both books but no working copy beside them.
+                await (await context.newCDPSession(page)).send('Storage.overrideQuotaForOrigin', {
+                    origin: lifecycle.origin,
+                    quotaSize: journey === 'memory' ? 700 * 1024 ** 2 : 2 * 1024 ** 3,
+                });
                 const problems = collectConsoleProblems(page);
                 const paintings = new Map<string, string>();
                 const recentNames = () => page.locator('.recent-file-name').allTextContents().then(names => names.map(name => name.trim()));
@@ -111,7 +122,10 @@ describe('browser document lifecycle UI', () => {
                     }
                 };
                 // Open each next document in the emptied tab, without rebuilding the app.
+                // The books the store holds beside nothing else once no tab is open.
+                const storedBooks = new Set<unknown>();
                 const open = async (fixture: Parameters<typeof openPdfFromChooser>[1]) => {
+                    if (journey !== 'count') storedBooks.add(fixture);
                     const chooser = page.waitForEvent('filechooser');
                     await page.getByRole('button', {
                         name: 'Open File',
@@ -125,6 +139,9 @@ describe('browser document lifecycle UI', () => {
                         exact: true,
                     }).click();
                     await page.locator('.workspace-host[data-workspace-active="true"] .workspace-host__start').waitFor();
+                    // The start screen returns before the closed tab's working copy has left the store. The next
+                    // book is stored once it has, as a person's next open would find it.
+                    if (journey !== 'count') await expect.poll(async () => (await readBrowserPayloadCounts(page)).documents).toBe(storedBooks.size);
                 };
                 const assertRecent = async (names: string[]) => {
                     await expect.poll(recentNames).toEqual(names);
@@ -154,7 +171,7 @@ describe('browser document lifecycle UI', () => {
                     await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
                     await waitForOpenFileReady(page);
                     keepFileChooserInterceptionEnabled(page);
-                    if (journey === 'large') {
+                    if (journey !== 'count') {
                         for (const book of books) {
                             await open(book.path);
                             await paintedText(book.label);
@@ -165,7 +182,7 @@ describe('browser document lifecycle UI', () => {
                         // Each book keeps its stored copy for Recent Files; nothing else stays stored.
                         const storedFiles = (await readBrowserPayloadCounts(page)).sizes.map(fileSize => ({fileSize}));
                         const recordedBytes = storedFiles.reduce((sum, file) => sum + file.fileSize, 0);
-                        writeFileSync(resolve(evidence, 'storage.json'), JSON.stringify({
+                        writeFileSync(resolve(evidence, `${journey}-storage.json`), JSON.stringify({
                             storedFiles,
                             recordedBytes,
                             estimate: await page.evaluate(() => navigator.storage.estimate()),
@@ -197,9 +214,22 @@ describe('browser document lifecycle UI', () => {
                                 }).click();
                             }
                             await paintedText(book.label);
+                            // The book's own note is listed: its annotations were read from the reopened bytes.
+                            const annotationsTab = page.getByRole('tab', {
+                                name: 'Annotations',
+                                exact: true,
+                            });
+                            if (!await annotationsTab.isVisible()) {
+                                await page.getByRole('button', {
+                                    name: 'Toggle Sidebar',
+                                    exact: true,
+                                }).click();
+                            }
+                            await annotationsTab.click();
+                            await expect.poll(() => page.locator('.notes-list .note-item-text').allTextContents()).toEqual([`${book.label} note`]);
                             await page.screenshot({
                                 animations: 'disabled',
-                                path: resolve(evidence, `${book.label.toLowerCase()}-reopened.png`),
+                                path: resolve(evidence, `${journey}-${book.label.toLowerCase()}-reopened.png`),
                             });
                             await close();
                         }
@@ -239,7 +269,14 @@ describe('browser document lifecycle UI', () => {
                             'c07-small-2.pdf',
                         ]);
                     }
-                    expect(problems).toEqual([]);
+                    // Only the working copies the memory journey's store has no room for stay in memory, as said.
+                    expect(problems.map(problem => /\[browser-storage\] Document remains available only in memory \{fileName: ([^,]+),/u.exec(problem)?.[1] ?? problem)).toEqual(journey === 'memory'
+                        ? [
+                            'c07-cobalt.pdf',
+                            'c07-amber.pdf',
+                            'c07-cobalt.pdf',
+                        ]
+                        : []);
                 } finally {
                     writeFileSync(resolve(evidence, `${journey}-console.json`), JSON.stringify(problems, null, 2));
                     writeFileSync(resolve(evidence, `${journey}-paintings.json`), JSON.stringify(Object.fromEntries(paintings), null, 2));
