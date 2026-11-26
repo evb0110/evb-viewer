@@ -506,8 +506,8 @@ function parseVercelDeployment(output, {expectedProjectName} = {}) {
 function sanitizeVercelFailureText(text) {
     return text
         .replace(/(Bearer\s+)\S+/giu, '$1<redacted>')
-        .replace(/(--token(?:=|\s+))\S+/giu, '$1<redacted>')
-        .replace(/\b((?:VERCEL_)?TOKEN\s*=\s*)\S+/giu, '$1<redacted>')
+        .replace(/(--token(?:=|\s+))(?:"[^"]*"?|'[^']*'?|\S+)/giu, '$1<redacted>')
+        .replace(/\b((?:VERCEL_)?TOKEN\s*=\s*)(?:"[^"]*"?|'[^']*'?|\S+)/giu, '$1<redacted>')
         .replace(/\s+/gu, ' ')
         .trim();
 }
@@ -528,8 +528,10 @@ function formatVercelCommandFailure(result) {
                 : typeof parsed?.error?.code === 'string'
                     ? parsed.error.code.trim()
                     : '';
-            if (message) {
-                const summary = sanitizeVercelFailureText(reason ? `${reason}: ${message}` : message);
+            if (message || reason) {
+                const summary = sanitizeVercelFailureText(
+                    reason && message ? `${reason}: ${message}` : (message || reason),
+                );
                 return summary ? ` (${summary.slice(0, 300)})` : '';
             }
         } catch {
