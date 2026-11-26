@@ -1367,8 +1367,39 @@ describe.skipIf(process.platform === 'win32')('private Vercel deployment source'
                 stdout: '',
                 status: 1,
             },
-            message: 'refusing a production deploy without a rollback target',
+            message: /refusing a production deploy without a rollback target \(inspect unavailable\)/u,
             name: 'a failed inspect command',
+        },
+        {
+            inspectResult: {
+                stderr: '',
+                stdout: JSON.stringify({
+                    status: 'error',
+                    reason: 'network_error',
+                    message: 'Couldn\'t reach api.vercel.com using Bearer secret-tok.sig during inspect. The connection timed out.',
+                }),
+                status: 1,
+            },
+            message: /refusing a production deploy without a rollback target \(network_error: Couldn't reach api\.vercel\.com using Bearer <redacted> during inspect\. The connection timed out\.\)/u,
+            name: 'a failed inspect command with JSON error output',
+        },
+        {
+            inspectResult: {
+                stderr: 'Vercel CLI 65.12.1',
+                stdout: JSON.stringify({reason: 'network_error'}),
+                status: 1,
+            },
+            message: /refusing a production deploy without a rollback target \(network_error\)/u,
+            name: 'a failed inspect command with only a JSON reason',
+        },
+        {
+            inspectResult: {
+                stderr: 'failed with TOKEN="private token value" TOKEN=\'single token value\' --token "flag token" TOKEN=abc123',
+                stdout: '',
+                status: 1,
+            },
+            message: /refusing a production deploy without a rollback target \(failed with TOKEN=<redacted> TOKEN=<redacted> --token <redacted> TOKEN=<redacted>\)/u,
+            name: 'a failed inspect command with quoted and unquoted tokens in stderr',
         },
         {
             inspectResult: {
