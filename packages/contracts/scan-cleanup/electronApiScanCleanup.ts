@@ -14,6 +14,7 @@ export {
 export {
     NATIVE_SCAN_CLEANUP_DOCUMENT_INK_PRIOR_SCHEMA,
     SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,
+    SCAN_CLEANUP_SUB_PAGE_STAGES,
 } from '@contracts/scan-cleanup/nativeProtocolV3';
 export {SCAN_CLEANUP_MARGIN_MAX_MM} from '@contracts/scan-cleanup/geometry';
 export {

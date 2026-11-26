@@ -2,6 +2,7 @@ import type {
     IScanCleanupDetectionRequest,
     IScanCleanupDetectionResult,
     TScanCleanupProgress,
+    TScanCleanupSubPageStage,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {INativeScanCleanupPageMetadataV3} from '@contracts/scan-cleanup/nativeProtocolV3';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
@@ -20,7 +21,10 @@ import {
     resolveScanCleanupDocumentCanvasFromAccumulator,
     scanCleanupDocumentCanvasSignature,
 } from '@evb/scan-cleanup/core/policy/documentCanvas';
-import {createScanCleanupProgressEtaEstimator} from '@evb/scan-cleanup/core/createScanCleanupProgressReporter';
+import {
+    createScanCleanupActivePageTracker,
+    createScanCleanupProgressEtaEstimator,
+} from '@evb/scan-cleanup/core/createScanCleanupProgressReporter';
 import {
     PREVIEW_DPI,
     resolveScanCleanupPagePreviewDpi,
@@ -185,6 +189,7 @@ export function createScanCleanupDetectionRecorder({
     let readOnlyProgressDirty = false;
     let lastReadOnlyPublishAt = Number.NEGATIVE_INFINITY;
     const reportedPageNumbers = new Set<number>();
+    const activePageTracker = createScanCleanupActivePageTracker();
     const etaEstimator = createScanCleanupProgressEtaEstimator();
     // The large-document path deliberately sends no document-sized completion
     // list through progress. A batch-local list still lets the UI identify the
@@ -208,6 +213,7 @@ export function createScanCleanupDetectionRecorder({
             rasterizedUnits: rasterizedPages,
             recheckedUnits: recheckedPages,
             ...(etaSeconds === undefined ? {} : {etaSeconds}),
+            ...activePageTracker.snapshot(),
         };
     };
     // A throttled frame is published when its window ends, so the last change
@@ -364,6 +370,22 @@ export function createScanCleanupDetectionRecorder({
                 get awaitingFirstVerdict() {
                     return (compatibilityResults?.size ?? batchResults.size) === 0;
                 },
+                /** Marks one page as actively executing in a worker. */
+                markPageStarted(pageNumber: number) {
+                    activePageTracker.start(pageNumber);
+                    markProgress();
+                },
+                /** Updates the active sub-page processing stage for an in-flight page. */
+                markPageStage(pageNumber: number, stage: TScanCleanupSubPageStage) {
+                    activePageTracker.setStage(pageNumber, stage);
+                    markProgress();
+                },
+                /** Marks one page as no longer actively executing in a worker. */
+                markPageFinished(pageNumber: number) {
+                    if (activePageTracker.finish(pageNumber)) {
+                        markProgress();
+                    }
+                },
                 /** An engine asked for a page's raster again; once its first pass is over, that is a recheck. */
                 noteInputRequired() {
                     if (firstVerdictsComplete) {
@@ -372,16 +394,19 @@ export function createScanCleanupDetectionRecorder({
                     }
                 },
                 async recordAnalyzed(input: IScanCleanupDetectionVerdictInput) {
+                    const clearedActive = activePageTracker.finish(input.sourcePageNumber);
                     reportPage(input.sourcePageNumber);
                     analyzedPages = Math.max(analyzedPages, batch.startOffset + input.completedPages);
                     if (analyzedPages >= batch.endOffsetExclusive) {
                         firstVerdictsComplete = true;
                     }
                     if (input.verdict.classification === undefined || input.verdict.confidence === undefined) {
+                        if (clearedActive) markProgress();
                         return;
                     }
                     await recordResult(input);
                     if (!shouldPublishLargeProgress(analyzedPages >= totalPages)) {
+                        if (clearedActive) markProgress();
                         return;
                     }
                     readOnlyProgressDirty = false;
@@ -396,8 +421,10 @@ export function createScanCleanupDetectionRecorder({
                     ), documentCanvasSignature());
                 },
                 async recordComplete(input: IScanCleanupDetectionVerdictInput) {
+                    const clearedActive = activePageTracker.finish(input.sourcePageNumber);
                     reportPage(input.sourcePageNumber);
                     if (input.verdict.classification === undefined || input.verdict.confidence === undefined) {
+                        if (clearedActive) markProgress();
                         return;
                     }
                     const previousPlan = batchResults.get(input.sourcePageNumber)?.pagePlanEvidence;
@@ -409,6 +436,7 @@ export function createScanCleanupDetectionRecorder({
                         batch.startOffset + input.completedPages,
                     );
                     if (!planChanged && !shouldPublishLargeProgress(completedUnits >= totalPages)) {
+                        if (clearedActive) markProgress();
                         return;
                     }
                     readOnlyProgressDirty = false;
@@ -440,6 +468,7 @@ export function createScanCleanupDetectionRecorder({
         },
         /** Publishes the last pending frame and summarizes the stored results. */
         async finish(): Promise<IScanCleanupDetectionOutcome> {
+            activePageTracker.clear();
             // The last frame carries the canvas of every page's final layout.
             layoutEvidenceComplete = true;
             if (documentCanvasSignature() !== publishedCanvasSignature) readOnlyProgressDirty = true;

@@ -3,6 +3,7 @@ use crate::{
     mode_select::{OutputModeDiagnostics, OutputModeRecommendationReason},
     protocol::manifest_v3::VERSION,
     split::{DocumentPrior, LayoutClassification},
+    sub_page_progress::SubPageStage,
     OutputMode,
 };
 use serde::Serialize;
@@ -147,6 +148,8 @@ impl AddAssign for PageStageTimings {
 #[serde(rename_all = "kebab-case")]
 pub enum ProgressStage {
     Started,
+    PageStarted,
+    PageStage,
     PageAnalyzed,
     PageComplete,
     /// The sidecar is about to read a staged page input that is not on disk
@@ -166,46 +169,63 @@ pub enum ProgressStage {
 #[serde(rename_all = "camelCase")]
 pub struct Progress {
     pub stage: ProgressStage,
-    /// `page-analyzed` carries the distinct analyzed-page count, so its
-    /// `page_number` can be out of source order. `page-complete` carries the
-    /// source-order completed prefix for render work and final Analyze results.
+    /// Distinct completed (or analyzed) page count, monotone across concurrent
+    /// workers even when `page_number` finishes out of source order.
     pub completed_pages: usize,
     pub total_pages: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub page_number: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub sub_page_stage: Option<SubPageStage>,
     #[serde(
         skip_serializing_if = "Option::is_none",
         serialize_with = "serialize_output_paths"
     )]
-    #[cfg_attr(test, ts(as = "Option<Vec<String>>"))]
+    #[cfg_attr(test, ts(optional, as = "Option<Vec<String>>"))]
     pub output_paths: Option<Vec<PathBuf>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub classification: Option<LayoutClassification>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub confidence: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub cutter_x_px: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub tier1_verdict: Option<LayoutClassification>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub reconciled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub cluster_agreement: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub document_prior: Option<DocumentPrior>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub text_axis: Option<TextAxisHint>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub stage_timings: Option<PageStageTimings>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub recommended_output_mode: Option<OutputMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub recommended_output_mode_confidence: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub recommended_output_mode_reason: Option<OutputModeRecommendationReason>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub soft_alpha_foreground_recommendation: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub output_mode_diagnostics: Option<OutputModeDiagnostics>,
     /// A lease of the page's alternate view raster rather than its input.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
@@ -221,6 +241,7 @@ impl Progress {
             completed_pages,
             total_pages,
             page_number: None,
+            sub_page_stage: None,
             output_paths: None,
             classification: None,
             confidence: None,
@@ -253,6 +274,26 @@ impl Progress {
             page_number: Some(page_number),
             alternate_view,
             ..Self::new(stage, 0, total_pages)
+        }
+    }
+
+    pub fn page_started(page_number: usize, completed_pages: usize, total_pages: usize) -> Self {
+        Self {
+            page_number: Some(page_number),
+            ..Self::new(ProgressStage::PageStarted, completed_pages, total_pages)
+        }
+    }
+
+    pub fn page_stage(
+        page_number: usize,
+        sub_page_stage: SubPageStage,
+        completed_pages: usize,
+        total_pages: usize,
+    ) -> Self {
+        Self {
+            page_number: Some(page_number),
+            sub_page_stage: Some(sub_page_stage),
+            ..Self::new(ProgressStage::PageStage, completed_pages, total_pages)
         }
     }
 }
@@ -396,6 +437,7 @@ mod tests {
             completed_pages: 2,
             total_pages: 4,
             page_number: Some(3),
+            sub_page_stage: None,
             output_paths: None,
             classification: Some(LayoutClassification::SingleUncutPage),
             confidence: Some(0.91),
@@ -462,6 +504,7 @@ mod tests {
             completed_pages: 2,
             total_pages: 4,
             page_number: Some(2),
+            sub_page_stage: None,
             output_paths: Some(vec![
                 PathBuf::from("/fixtures/output/page-2-left.png"),
                 PathBuf::from("/fixtures/output/page-2-right.png"),

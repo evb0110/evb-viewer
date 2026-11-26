@@ -662,6 +662,9 @@ fn prepare_layout_picture_evidence(
         trusted_mrc_background,
         timings,
     } = input;
+    crate::sub_page_progress::report_sub_page_stage(
+        crate::sub_page_progress::SubPageStage::Background,
+    );
     let illumination_preparation_started = Instant::now();
     let illumination_preparation = options.normalize_illumination.then(|| {
         let preparation = prepare_illumination(rotated);
@@ -1850,6 +1853,9 @@ fn build_analysis_artifact(input: ArtifactInput<'_, '_>) -> Arc<AnalysisArtifact
         timings,
     });
     let layout_plane = layout_normalized.as_ref().unwrap_or(&rotated);
+    crate::sub_page_progress::report_sub_page_stage(
+        crate::sub_page_progress::SubPageStage::Analyze,
+    );
     let TextEvidenceOutput {
         analysis_threshold,
         text_axis,

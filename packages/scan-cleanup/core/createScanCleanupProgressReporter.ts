@@ -1,6 +1,7 @@
 import type {
     TScanCleanupProgress,
     TScanCleanupProgressStage,
+    TScanCleanupSubPageStage,
     TScanCleanupSummary,
     TScanCleanupSummaryWarningEvent,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
@@ -10,13 +11,117 @@ import {formatScanCleanupWarningEvent} from '@evb/scan-cleanup/core/policy/scanC
 
 type TStageWeights = ReadonlyArray<readonly [TScanCleanupProgressStage, number]>;
 
+export interface IScanCleanupProgressEmitOptions {
+    /** Monotonic caller-owned version for reusing a materialized `completedPageNumbers` snapshot. */
+    completedPagesVersion?: number;
+    rasterizedUnits?: number;
+    activePageNumbers?: Iterable<number>;
+    activeSubPageStage?: TScanCleanupSubPageStage | undefined;
+}
+
 export type TEmitScanCleanupProgress = (
     stage: TScanCleanupProgressStage,
     completedUnits: number,
     totalUnits: number,
     completedPageNumbers?: Iterable<number>,
-    options?: {rasterizedUnits?: number},
+    options?: IScanCleanupProgressEmitOptions,
 ) => void;
+
+export interface IScanCleanupActivePageSnapshot {
+    activePageNumbers?: number[];
+    activeSubPageStage?: TScanCleanupSubPageStage;
+}
+
+/**
+ * Single owner of in-flight page numbers and their latest sub-page processing
+ * stage across desktop sidecar workers and browser WASM lanes.
+ */
+export function createScanCleanupActivePageTracker() {
+    const activePages = new Set<number>();
+    const stageByPage = new Map<number, TScanCleanupSubPageStage>();
+    let latestStage: TScanCleanupSubPageStage | undefined;
+    let latestStagePage: number | undefined;
+
+    const refreshLatestStage = () => {
+        if (activePages.size === 0) {
+            latestStage = undefined;
+            latestStagePage = undefined;
+            return;
+        }
+        if (latestStagePage !== undefined && activePages.has(latestStagePage)) {
+            return;
+        }
+        latestStage = undefined;
+        latestStagePage = undefined;
+        for (const [
+            pageNumber,
+            stage,
+        ] of stageByPage) {
+            if (activePages.has(pageNumber)) {
+                latestStage = stage;
+                latestStagePage = pageNumber;
+            }
+        }
+    };
+
+    return {
+        start(pageNumber: number) {
+            activePages.add(pageNumber);
+        },
+        setStage(pageNumber: number, stage: TScanCleanupSubPageStage) {
+            activePages.add(pageNumber);
+            stageByPage.delete(pageNumber);
+            stageByPage.set(pageNumber, stage);
+            latestStage = stage;
+            latestStagePage = pageNumber;
+        },
+        clearStage(pageNumber: number) {
+            const removed = stageByPage.delete(pageNumber);
+            if (removed && latestStagePage === pageNumber) {
+                latestStagePage = undefined;
+                refreshLatestStage();
+            }
+            return removed;
+        },
+        finish(pageNumber: number) {
+            const removed = activePages.delete(pageNumber);
+            stageByPage.delete(pageNumber);
+            if (removed) refreshLatestStage();
+            return removed;
+        },
+        clear() {
+            activePages.clear();
+            stageByPage.clear();
+            latestStage = undefined;
+            latestStagePage = undefined;
+        },
+        snapshot(): IScanCleanupActivePageSnapshot {
+            if (activePages.size === 0) {
+                return {};
+            }
+            const pageNumbers = Array.from(activePages)
+                .sort((left, right) => left - right)
+                .slice(0, SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES);
+            return {
+                activePageNumbers: pageNumbers,
+                ...(latestStage === undefined ? {} : {activeSubPageStage: latestStage}),
+            };
+        },
+    };
+}
+
+function materializeUniquePageNumbers(pageNumbers: Iterable<number>) {
+    const unique = new Set<number>();
+    for (const pageNumber of pageNumbers) {
+        if (unique.size >= SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES) {
+            break;
+        }
+        if (Number.isSafeInteger(pageNumber) && pageNumber >= 1) {
+            unique.add(pageNumber);
+        }
+    }
+    return [...unique];
+}
 
 function materializeCompletedPageNumbers(completedPageNumbers: Iterable<number>) {
     const pageNumbers: number[] = [];
@@ -252,6 +357,40 @@ export function createScanCleanupProgressReporter(
     const now = options.now ?? (() => performance.now());
     let lastPercent = 0;
     const etaEstimator = createScanCleanupProgressEtaEstimator();
+    let cachedCompletedPages: {
+        source: Iterable<number>;
+        version: number;
+        snapshot: {
+            pageNumbers: number[];
+            truncated: boolean;
+        };
+    } | null = null;
+    const resolveCompletedPageSnapshot = (
+        completedPageNumbers: Iterable<number> | undefined,
+        completedPagesVersion: number | undefined,
+    ) => {
+        if (completedPageNumbers === undefined) {
+            cachedCompletedPages = null;
+            return undefined;
+        }
+        if (
+            completedPagesVersion !== undefined
+            && cachedCompletedPages !== null
+            && cachedCompletedPages.source === completedPageNumbers
+            && cachedCompletedPages.version === completedPagesVersion
+        ) {
+            return cachedCompletedPages.snapshot;
+        }
+        const snapshot = materializeCompletedPageNumbers(completedPageNumbers);
+        cachedCompletedPages = completedPagesVersion === undefined
+            ? null
+            : {
+                source: completedPageNumbers,
+                version: completedPagesVersion,
+                snapshot,
+            };
+        return snapshot;
+    };
     return (stage, completedUnits, totalUnits, completedPageNumbers, progressOptions) => {
         const reportedAt = now();
         const profile = isLossless()
@@ -275,12 +414,17 @@ export function createScanCleanupProgressReporter(
         const etaSeconds = band === undefined
             ? undefined
             : etaEstimator.update(stage, completedUnits, totalUnits, reportedAt);
-        const completedPageSnapshot = completedPageNumbers === undefined
-            ? undefined
-            : materializeCompletedPageNumbers(completedPageNumbers);
+        const completedPageSnapshot = resolveCompletedPageSnapshot(
+            completedPageNumbers,
+            progressOptions?.completedPagesVersion,
+        );
         const rasterizedUnits = progressOptions?.rasterizedUnits === undefined
             ? undefined
             : Math.min(totalUnits, Math.max(0, Math.trunc(progressOptions.rasterizedUnits)));
+        const activePageNumbers = progressOptions?.activePageNumbers === undefined
+            ? undefined
+            : materializeUniquePageNumbers(progressOptions.activePageNumbers);
+        const activeSubPageStage = progressOptions?.activeSubPageStage;
         callback({
             stage,
             completedUnits,
@@ -298,6 +442,8 @@ export function createScanCleanupProgressReporter(
                     completedPageNumbers: completedPageSnapshot.pageNumbers,
                     ...(completedPageSnapshot.truncated ? {completedPageNumbersTruncated: true} : {}),
                 }),
+            ...(activePageNumbers === undefined || activePageNumbers.length === 0 ? {} : {activePageNumbers}),
+            ...(activeSubPageStage === undefined ? {} : {activeSubPageStage}),
         });
     };
 }

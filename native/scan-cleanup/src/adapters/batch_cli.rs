@@ -34,18 +34,20 @@ use crate::{
         result::ResultEnvelope,
     },
     split::LayoutClassification,
+    sub_page_progress::{with_sub_page_progress_observer, SubPageStage},
 };
 use evb_native_support::{
     bounded_io::deserialize_json_file_bounded, NativeError, NativeErrorCode, NativeErrorEnvelope,
 };
 use serde::Serialize;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
     error::Error,
     fs,
     io::{self, Write},
     path::{Path, PathBuf},
-    sync::{atomic::AtomicBool, Arc, Mutex},
+    sync::{atomic::AtomicBool, Arc, Condvar, Mutex},
+    thread::{self, JoinHandle},
 };
 
 const CANCELLATION_EXIT_CODE: i32 = 130;
@@ -391,11 +393,6 @@ fn run_manifest_inner(
     if is_canceled.load(std::sync::atomic::Ordering::Acquire) {
         return Err(crate::engine::cancellation_error().into());
     }
-    write_progress(Progress::new(
-        ProgressStage::Started,
-        0,
-        manifest.pages.len(),
-    ))?;
     let cache = manifest_cache(
         planning_operation(manifest.operation),
         manifest.host_memory_bytes,
@@ -406,76 +403,35 @@ fn run_manifest_inner(
     let worker_threads = page_worker_threads(manifest)?;
     let processing_threads = processing_worker_threads();
     let total_pages = manifest.pages.len();
-    // Render completion remains a monotone source-order prefix because its
-    // completedPages field is consumed as a render counter. Analyze uses a
-    // separate distinct-page counter below and publishes each provisional
-    // verdict as soon as its page finishes.
-    let pending_progress = Mutex::new((
-        manifest.pages.iter().map(|_| None).collect::<Vec<_>>(),
-        0usize,
-    ));
-    let report_page = |index: usize, progress: Progress| -> Result<(), NativeError> {
-        let mut state = pending_progress.lock().map_err(|_| {
-            NativeError::new(
-                NativeErrorCode::NativeFailure,
-                "Unable to publish scan-cleanup page progress",
-            )
-        })?;
-        state.0[index] = Some(progress);
-        loop {
-            let cursor = state.1;
-            let Some(published) = state.0.get_mut(cursor).and_then(Option::take) else {
-                break;
-            };
-            state.1 = cursor + 1;
-            write_progress(published).map_err(|error| {
-                NativeError::new(
-                    NativeErrorCode::NativeFailure,
-                    format!("Unable to publish scan-cleanup page progress: {error}"),
-                )
-            })?;
-        }
-        Ok(())
+    // Publish all progress off the worker threads so a slow stdout reader
+    // cannot stall unrelated page workers behind JSON serialization or pipe
+    // writes. Reliable lifecycle events preserve arrival order with monotone
+    // `completedPages`, while rapid sub-page stage transitions coalesce per page.
+    let publisher = ProgressPublisher::spawn(total_pages, write_progress);
+    publisher.publish_reliable(Progress::new(ProgressStage::Started, 0, total_pages))?;
+    let report_page_started =
+        |index: usize| -> Result<(), NativeError> { publisher.publish_page_started(index) };
+    let report_page_stage = |index: usize, sub_page_stage: SubPageStage| {
+        publisher.publish_page_stage(index, sub_page_stage);
     };
-    let analyzed_page_count = Mutex::new((vec![false; total_pages], 0usize));
-    let report_analyzed = |index: usize, mut progress: Progress| -> Result<(), NativeError> {
-        let mut state = analyzed_page_count.lock().map_err(|_| {
-            NativeError::new(
-                NativeErrorCode::NativeFailure,
-                "Unable to publish scan-cleanup analyzed-page progress",
-            )
-        })?;
-        let Some(reported) = state.0.get_mut(index) else {
-            return Err(NativeError::new(
-                NativeErrorCode::NativeFailure,
-                "Unable to publish scan-cleanup progress for an unknown page",
-            ));
-        };
-        if !*reported {
-            *reported = true;
-            state.1 += 1;
-        }
-        // Keep the count update and write under one lock so concurrent pages
-        // cannot put a lower count after a higher one on stdout.
-        progress.completed_pages = state.1;
-        write_progress(progress).map_err(|error| {
-            NativeError::new(
-                NativeErrorCode::NativeFailure,
-                format!("Unable to publish scan-cleanup page progress: {error}"),
-            )
-        })
+    let report_page_done = |index: usize, progress: Progress| -> Result<(), NativeError> {
+        publisher.publish_page_done(index, progress)
     };
+    let report_recheck_done =
+        |index: usize| -> Result<(), NativeError> { publisher.publish_recheck_done(index) };
     let announce_lease = |event: LeaseEvent, page_number: usize, total: usize| {
         let stage = match event {
             LeaseEvent::Required => ProgressStage::PageInputRequired,
             LeaseEvent::Released => ProgressStage::PageInputReleased,
         };
-        write_progress(Progress::page_input(stage, page_number, total, false)).map_err(|error| {
-            NativeError::new(
-                NativeErrorCode::NativeFailure,
-                format!("Unable to publish scan-cleanup staged input lease: {error}"),
-            )
-        })
+        publisher.publish_lease(Progress::page_input(stage, page_number, total, false))
+    };
+    let announce_alternate = |event: LeaseEvent, page_number: usize, total: usize| {
+        let stage = match event {
+            LeaseEvent::Required => ProgressStage::PageInputRequired,
+            LeaseEvent::Released => ProgressStage::PageInputReleased,
+        };
+        publisher.publish_lease(Progress::page_input(stage, page_number, total, true))
     };
     let analyzing = manifest.operation == Operation::Analyze;
     let plan_content = manifest.analysis_purpose == AnalysisPurpose::PagePlan;
@@ -486,15 +442,21 @@ fn run_manifest_inner(
                 let lease = staged_lease(manifest, index, page);
                 let result =
                     with_announced_staged_page_input(&lease, &announce_lease, is_canceled, || {
+                        report_page_started(index)?;
                         let page_cache = page_cache_for(descriptor, &cache)?;
-                        run_classification(
-                            page,
-                            manifest.canvas_scope,
-                            page.document_prior,
-                            true,
-                            plan_content,
-                            &page_cache,
-                            is_canceled,
+                        with_sub_page_progress_observer(
+                            &|sub_stage, _, _| report_page_stage(index, sub_stage),
+                            || {
+                                run_classification(
+                                    page,
+                                    manifest.canvas_scope,
+                                    page.document_prior,
+                                    true,
+                                    plan_content,
+                                    &page_cache,
+                                    is_canceled,
+                                )
+                            },
                         )
                         .map_err(|error| map_page_error(error.as_ref()))
                     })?;
@@ -504,18 +466,28 @@ fn run_manifest_inner(
                 let mut progress = page_complete_progress(&result, index, total_pages);
                 progress.stage = ProgressStage::PageAnalyzed;
                 progress.output_paths = None;
-                report_analyzed(index, progress)?;
+                report_page_done(index, progress)?;
                 Ok(result)
             };
-        analyze_document(manifest, is_canceled, &cache, &announce_lease, || {
-            run_page_jobs_with_worker_threads(
-                manifest,
-                is_canceled,
-                run_primary,
-                worker_threads,
-                processing_threads,
-            )
-        })?
+        analyze_document(
+            manifest,
+            is_canceled,
+            &cache,
+            &announce_lease,
+            &announce_alternate,
+            &report_page_started,
+            &report_page_stage,
+            &report_recheck_done,
+            || {
+                run_page_jobs_with_worker_threads(
+                    manifest,
+                    is_canceled,
+                    run_primary,
+                    worker_threads,
+                    processing_threads,
+                )
+            },
+        )?
     } else {
         let page_ink_contexts = {
             let planning_pages = manifest.pages.iter().map(planning_page).collect::<Vec<_>>();
@@ -601,19 +573,25 @@ fn run_manifest_inner(
         let run_one =
             |(index, descriptor): (usize, &PageDescriptor)| -> Result<PageRunResult, NativeError> {
                 let page = &manifest.pages[index];
+                report_page_started(index)?;
                 let page_cache = page_cache_for(descriptor, &cache)?;
-                let result = run_page(
-                    page,
-                    manifest.canvas_scope,
-                    manifest.render_mode == RenderMode::Final,
-                    manifest.document_canvas,
-                    None,
-                    page_ink_contexts[index],
-                    &page_cache,
-                    is_canceled,
+                let result = with_sub_page_progress_observer(
+                    &|sub_stage, _, _| report_page_stage(index, sub_stage),
+                    || {
+                        run_page(
+                            page,
+                            manifest.canvas_scope,
+                            manifest.render_mode == RenderMode::Final,
+                            manifest.document_canvas,
+                            None,
+                            page_ink_contexts[index],
+                            &page_cache,
+                            is_canceled,
+                        )
+                    },
                 )
                 .map_err(|error| map_page_error(error.as_ref()))?;
-                report_page(index, page_complete_progress(&result, index, total_pages))?;
+                report_page_done(index, page_complete_progress(&result, index, total_pages))?;
                 Ok(result)
             };
         let mut page_results = run_page_jobs_with_worker_threads(
@@ -643,7 +621,7 @@ fn run_manifest_inner(
         }
         write_json_atomic(&page_result.page_metadata_path, &page_result.metadata)?;
         if analyzing {
-            write_progress(page_complete_progress(page_result, index, total_pages))?;
+            publisher.publish_reliable(page_complete_progress(page_result, index, total_pages))?;
         }
     }
     let written_outputs = page_results
@@ -661,22 +639,28 @@ fn run_manifest_inner(
             }
         }
     }
-    write_progress(Progress::new(
+    publisher.publish_reliable(Progress::new(
         ProgressStage::Completed,
         manifest.pages.len(),
         manifest.pages.len(),
     ))?;
+    publisher.finish()?;
     Ok(())
 }
 
 /// Runs an analyze manifest's document sequence as the engine plans it: the
 /// primary pass over every page in parallel, then each rerun and alternate
 /// view the plan asks for, one at a time under its own staged lease.
+#[allow(clippy::too_many_arguments)]
 fn analyze_document(
     manifest: &ManifestV3,
     is_canceled: &AtomicBool,
     cache: &Arc<Mutex<ByteLru>>,
     announce_lease: LeaseAnnouncer<'_>,
+    announce_alternate: LeaseAnnouncer<'_>,
+    report_page_started: &(dyn Fn(usize) -> Result<(), NativeError> + Sync),
+    report_page_stage: &(dyn Fn(usize, SubPageStage) + Sync),
+    report_recheck_done: &(dyn Fn(usize) -> Result<(), NativeError> + Sync),
     primary_pass: impl FnOnce() -> Result<Vec<PageRunResult>, Box<dyn Error>>,
 ) -> Result<Vec<PageRunResult>, Box<dyn Error>> {
     let document = AnalysisDocument {
@@ -694,18 +678,6 @@ fn analyze_document(
             .collect(),
         document_canvas: manifest.document_canvas,
         preview: manifest.render_mode == RenderMode::Preview,
-    };
-    let announce_alternate = |event: LeaseEvent, page_number: usize, total: usize| {
-        let stage = match event {
-            LeaseEvent::Required => ProgressStage::PageInputRequired,
-            LeaseEvent::Released => ProgressStage::PageInputReleased,
-        };
-        write_progress(Progress::page_input(stage, page_number, total, true)).map_err(|error| {
-            NativeError::new(
-                NativeErrorCode::NativeFailure,
-                format!("Unable to publish scan-cleanup alternate input lease: {error}"),
-            )
-        })
     };
     let mut timings = vec![PageStageTimings::default(); manifest.pages.len()];
     let mut analyses = Vec::<PageAnalysis>::new();
@@ -759,7 +731,7 @@ fn analyze_document(
                 ..staged_lease(manifest, job.index, &page)
             };
             let announce: LeaseAnnouncer<'_> = if alternate {
-                &announce_alternate
+                announce_alternate
             } else {
                 announce_lease
             };
@@ -781,18 +753,28 @@ fn analyze_document(
                 {
                     return Ok(None);
                 }
+                report_page_started(job.index)?;
                 let page_cache = page_cache_for(&planning_page(&page), cache)?;
-                run_classification(
-                    &page,
-                    manifest.canvas_scope,
-                    job.document_prior,
-                    true,
-                    manifest.analysis_purpose == AnalysisPurpose::PagePlan,
-                    &page_cache,
-                    is_canceled,
+                let result = with_sub_page_progress_observer(
+                    &|sub_stage, _, _| report_page_stage(job.index, sub_stage),
+                    || {
+                        run_classification(
+                            &page,
+                            manifest.canvas_scope,
+                            job.document_prior,
+                            true,
+                            manifest.analysis_purpose == AnalysisPurpose::PagePlan,
+                            &page_cache,
+                            is_canceled,
+                        )
+                    },
                 )
                 .map(Some)
-                .map_err(|error| map_page_error(error.as_ref()))
+                .map_err(|error| map_page_error(error.as_ref()));
+                if result.is_ok() {
+                    report_recheck_done(job.index)?;
+                }
+                result
             })?;
             if let Some(result) = &analyzed {
                 timings[job.index] += result.timings;
@@ -802,6 +784,348 @@ fn analyze_document(
                 metadata: analyzed.map(|result| result.metadata),
             });
         }
+    }
+}
+
+enum ProgressWriteError {
+    BrokenPipe,
+    Other(String),
+}
+
+struct ProgressPublisherState {
+    reported_done: Vec<bool>,
+    completed_pages: usize,
+    total_pages: usize,
+    reliable: VecDeque<(u64, Progress)>,
+    pending_stages: BTreeMap<usize, SubPageStage>,
+    enqueued_seq: u64,
+    flushed_seq: u64,
+    closed: bool,
+    error: Option<ProgressWriteError>,
+}
+
+struct ProgressPublisher {
+    shared: Arc<(Mutex<ProgressPublisherState>, Condvar)>,
+    writer: Option<JoinHandle<()>>,
+}
+
+impl ProgressPublisher {
+    fn spawn<F>(total_pages: usize, write_fn: F) -> Self
+    where
+        F: Fn(Progress) -> Result<(), Box<dyn Error>> + Send + 'static,
+    {
+        let shared = Arc::new((
+            Mutex::new(ProgressPublisherState {
+                reported_done: vec![false; total_pages],
+                completed_pages: 0,
+                total_pages,
+                reliable: VecDeque::new(),
+                pending_stages: BTreeMap::new(),
+                enqueued_seq: 0,
+                flushed_seq: 0,
+                closed: false,
+                error: None,
+            }),
+            Condvar::new(),
+        ));
+        let worker_shared = Arc::clone(&shared);
+        let writer = thread::spawn(move || {
+            let (lock, notify) = &*worker_shared;
+            loop {
+                let (reliable_batch, stage_batch, total_pages, completed_pages) = {
+                    let mut state = match lock.lock() {
+                        Ok(guard) => guard,
+                        Err(_) => return,
+                    };
+                    while state.reliable.is_empty()
+                        && state.pending_stages.is_empty()
+                        && !state.closed
+                        && state.error.is_none()
+                    {
+                        state = match notify.wait(state) {
+                            Ok(guard) => guard,
+                            Err(_) => return,
+                        };
+                    }
+                    if state.error.is_some()
+                        || (state.closed
+                            && state.reliable.is_empty()
+                            && state.pending_stages.is_empty())
+                    {
+                        return;
+                    }
+                    let reliable_batch: Vec<(u64, Progress)> = state.reliable.drain(..).collect();
+                    let stage_batch: Vec<(usize, SubPageStage)> = if state.closed {
+                        state.pending_stages.clear();
+                        Vec::new()
+                    } else {
+                        std::mem::take(&mut state.pending_stages)
+                            .into_iter()
+                            .collect()
+                    };
+                    (
+                        reliable_batch,
+                        stage_batch,
+                        state.total_pages,
+                        state.completed_pages,
+                    )
+                };
+
+                let mut write_failure: Option<ProgressWriteError> = None;
+                let mut highest_flushed_seq: Option<u64> = None;
+                for (seq, frame) in reliable_batch {
+                    if let Err(error) = write_fn(frame) {
+                        write_failure = Some(if error.is::<ClosedOutputPipe>() {
+                            ProgressWriteError::BrokenPipe
+                        } else {
+                            ProgressWriteError::Other(error.to_string())
+                        });
+                        break;
+                    }
+                    highest_flushed_seq = Some(seq);
+                }
+                if write_failure.is_none() {
+                    for (index, stage) in stage_batch {
+                        if let Err(error) = write_fn(Progress::page_stage(
+                            index + 1,
+                            stage,
+                            completed_pages,
+                            total_pages,
+                        )) {
+                            write_failure = Some(if error.is::<ClosedOutputPipe>() {
+                                ProgressWriteError::BrokenPipe
+                            } else {
+                                ProgressWriteError::Other(error.to_string())
+                            });
+                            break;
+                        }
+                    }
+                }
+
+                if let Ok(mut state) = lock.lock() {
+                    if let Some(seq) = highest_flushed_seq {
+                        state.flushed_seq = state.flushed_seq.max(seq);
+                    }
+                    if let Some(failure) = write_failure {
+                        state.error = Some(failure);
+                        state.reliable.clear();
+                        state.pending_stages.clear();
+                        notify.notify_all();
+                        return;
+                    }
+                    notify.notify_all();
+                } else {
+                    return;
+                }
+            }
+        });
+        Self {
+            shared,
+            writer: Some(writer),
+        }
+    }
+
+    fn map_state_error(error: &ProgressWriteError, context: &str) -> NativeError {
+        match error {
+            ProgressWriteError::BrokenPipe => NativeError::new(
+                NativeErrorCode::NativeFailure,
+                format!("{context}: {}", ClosedOutputPipe),
+            ),
+            ProgressWriteError::Other(message) => NativeError::new(
+                NativeErrorCode::NativeFailure,
+                format!("{context}: {message}"),
+            ),
+        }
+    }
+
+    fn publish_reliable(&self, progress: Progress) -> Result<(), NativeError> {
+        let (lock, notify) = &*self.shared;
+        let mut state = lock.lock().map_err(|_| {
+            NativeError::new(
+                NativeErrorCode::NativeFailure,
+                "Unable to publish scan-cleanup progress",
+            )
+        })?;
+        if let Some(error) = &state.error {
+            return Err(Self::map_state_error(
+                error,
+                "Unable to publish scan-cleanup progress",
+            ));
+        }
+        state.enqueued_seq += 1;
+        let seq = state.enqueued_seq;
+        state.reliable.push_back((seq, progress));
+        notify.notify_all();
+        Ok(())
+    }
+
+    fn publish_lease(&self, progress: Progress) -> Result<(), NativeError> {
+        let (lock, notify) = &*self.shared;
+        let mut state = lock.lock().map_err(|_| {
+            NativeError::new(
+                NativeErrorCode::NativeFailure,
+                "Unable to publish scan-cleanup staged input lease",
+            )
+        })?;
+        if let Some(error) = &state.error {
+            return Err(Self::map_state_error(
+                error,
+                "Unable to publish scan-cleanup staged input lease",
+            ));
+        }
+        state.enqueued_seq += 1;
+        let target_seq = state.enqueued_seq;
+        state.reliable.push_back((target_seq, progress));
+        notify.notify_all();
+        while state.flushed_seq < target_seq && state.error.is_none() && !state.closed {
+            state = notify.wait(state).map_err(|_| {
+                NativeError::new(
+                    NativeErrorCode::NativeFailure,
+                    "Unable to flush scan-cleanup staged input lease",
+                )
+            })?;
+        }
+        if state.flushed_seq >= target_seq {
+            return Ok(());
+        }
+        if let Some(error) = &state.error {
+            return Err(Self::map_state_error(
+                error,
+                "Unable to publish scan-cleanup staged input lease",
+            ));
+        }
+        Ok(())
+    }
+
+    fn publish_page_started(&self, index: usize) -> Result<(), NativeError> {
+        let (lock, notify) = &*self.shared;
+        let mut state = lock.lock().map_err(|_| {
+            NativeError::new(
+                NativeErrorCode::NativeFailure,
+                "Unable to publish scan-cleanup page start progress",
+            )
+        })?;
+        if let Some(error) = &state.error {
+            return Err(Self::map_state_error(
+                error,
+                "Unable to publish scan-cleanup page start progress",
+            ));
+        }
+        let completed = state.completed_pages;
+        let total = state.total_pages;
+        state.enqueued_seq += 1;
+        let seq = state.enqueued_seq;
+        state
+            .reliable
+            .push_back((seq, Progress::page_started(index + 1, completed, total)));
+        notify.notify_all();
+        Ok(())
+    }
+
+    fn publish_page_stage(&self, index: usize, sub_page_stage: SubPageStage) {
+        let (lock, notify) = &*self.shared;
+        if let Ok(mut state) = lock.lock() {
+            if state.error.is_none() && !state.closed {
+                state.pending_stages.insert(index, sub_page_stage);
+                notify.notify_all();
+            }
+        }
+    }
+
+    fn publish_page_done(&self, index: usize, mut progress: Progress) -> Result<(), NativeError> {
+        let (lock, notify) = &*self.shared;
+        let mut state = lock.lock().map_err(|_| {
+            NativeError::new(
+                NativeErrorCode::NativeFailure,
+                "Unable to publish scan-cleanup page progress",
+            )
+        })?;
+        if let Some(error) = &state.error {
+            return Err(Self::map_state_error(
+                error,
+                "Unable to publish scan-cleanup page progress",
+            ));
+        }
+        let Some(reported) = state.reported_done.get_mut(index) else {
+            return Err(NativeError::new(
+                NativeErrorCode::NativeFailure,
+                "Unable to publish scan-cleanup progress for an unknown page",
+            ));
+        };
+        if !*reported {
+            *reported = true;
+            state.completed_pages += 1;
+        }
+        state.pending_stages.remove(&index);
+        progress.completed_pages = state.completed_pages;
+        state.enqueued_seq += 1;
+        let seq = state.enqueued_seq;
+        state.reliable.push_back((seq, progress));
+        notify.notify_all();
+        Ok(())
+    }
+
+    fn publish_recheck_done(&self, index: usize) -> Result<(), NativeError> {
+        let (lock, notify) = &*self.shared;
+        let mut state = lock.lock().map_err(|_| {
+            NativeError::new(
+                NativeErrorCode::NativeFailure,
+                "Unable to publish scan-cleanup recheck completion",
+            )
+        })?;
+        if let Some(error) = &state.error {
+            return Err(Self::map_state_error(
+                error,
+                "Unable to publish scan-cleanup recheck completion",
+            ));
+        }
+        state.pending_stages.remove(&index);
+        let mut progress = Progress::new(
+            ProgressStage::PageAnalyzed,
+            state.completed_pages,
+            state.total_pages,
+        );
+        progress.page_number = Some(index + 1);
+        state.enqueued_seq += 1;
+        let seq = state.enqueued_seq;
+        state.reliable.push_back((seq, progress));
+        notify.notify_all();
+        Ok(())
+    }
+
+    fn finish(mut self) -> Result<(), Box<dyn Error>> {
+        self.shutdown();
+        let (lock, _) = &*self.shared;
+        let state = lock.lock().map_err(|_| {
+            NativeError::new(
+                NativeErrorCode::NativeFailure,
+                "Unable to finalize scan-cleanup progress stream",
+            )
+        })?;
+        match &state.error {
+            None => Ok(()),
+            Some(ProgressWriteError::BrokenPipe) => Err(ClosedOutputPipe.into()),
+            Some(ProgressWriteError::Other(message)) => {
+                Err(NativeError::new(NativeErrorCode::NativeFailure, message.clone()).into())
+            }
+        }
+    }
+
+    fn shutdown(&mut self) {
+        let (lock, notify) = &*self.shared;
+        if let Ok(mut state) = lock.lock() {
+            state.closed = true;
+            notify.notify_all();
+        }
+        if let Some(writer) = self.writer.take() {
+            let _ = writer.join();
+        }
+    }
+}
+
+impl Drop for ProgressPublisher {
+    fn drop(&mut self) {
+        self.shutdown();
     }
 }
 
@@ -846,6 +1170,7 @@ fn page_complete_progress(result: &PageRunResult, index: usize, total_pages: usi
         completed_pages: index + 1,
         total_pages,
         page_number: Some(index + 1),
+        sub_page_stage: None,
         output_paths: Some(
             result
                 .outputs
@@ -1183,5 +1508,123 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn progress_publisher_streams_out_of_order_completions_and_coalesces_stages() {
+        use std::sync::{Arc, Condvar, Mutex};
+
+        let gate = Arc::new((Mutex::new((false, false)), Condvar::new()));
+        let recorded = Arc::new((
+            Mutex::new(Vec::<(
+                super::ProgressStage,
+                Option<usize>,
+                usize,
+                Option<super::SubPageStage>,
+            )>::new()),
+            Condvar::new(),
+        ));
+        let gate_for_writer = Arc::clone(&gate);
+        let recorded_for_writer = Arc::clone(&recorded);
+        let publisher = super::ProgressPublisher::spawn(2, move |frame| {
+            let (lock, notify) = &*gate_for_writer;
+            let mut state = lock.lock().expect("lock gate");
+            state.0 = true;
+            notify.notify_all();
+            while !state.1 {
+                state = notify.wait(state).expect("wait gate");
+            }
+            drop(state);
+            let (rec_lock, rec_notify) = &*recorded_for_writer;
+            rec_lock.lock().expect("lock recorded").push((
+                frame.stage,
+                frame.page_number,
+                frame.completed_pages,
+                frame.sub_page_stage,
+            ));
+            rec_notify.notify_all();
+            Ok(())
+        });
+
+        // Queue a sentinel frame first and wait until the writer is blocked
+        // inside the write callback so subsequent queue updates cannot be
+        // drained early.
+        publisher
+            .publish_reliable(super::Progress::new(super::ProgressStage::Started, 0, 2))
+            .expect("publish started sentinel");
+        {
+            let (lock, notify) = &*gate;
+            let mut state = lock.lock().expect("lock gate wait");
+            while !state.0 {
+                state = notify.wait(state).expect("wait writer entry");
+            }
+        }
+
+        // While the writer is blocked behind stdout, workers enqueue rapid
+        // stages and page 2 finishes before page 1 without stalling.
+        publisher.publish_page_started(0).expect("start page 1");
+        publisher.publish_page_started(1).expect("start page 2");
+        publisher.publish_page_stage(0, super::SubPageStage::Decode);
+        publisher.publish_page_stage(0, super::SubPageStage::Deskew);
+        publisher.publish_page_stage(1, super::SubPageStage::Render);
+        publisher
+            .publish_page_done(
+                1,
+                super::Progress {
+                    page_number: Some(2),
+                    ..super::Progress::new(super::ProgressStage::PageComplete, 0, 2)
+                },
+            )
+            .expect("finish page 2 first");
+
+        // Open stdout and wait until page 1's coalesced Deskew stage has been
+        // written before finishing page 1.
+        {
+            let (lock, notify) = &*gate;
+            lock.lock().expect("unlock gate").1 = true;
+            notify.notify_all();
+        }
+        {
+            let (rec_lock, rec_notify) = &*recorded;
+            let mut frames = rec_lock.lock().expect("wait stage frame");
+            while !frames.iter().any(|(stage, page, _, sub)| {
+                *stage == super::ProgressStage::PageStage
+                    && *page == Some(1)
+                    && *sub == Some(super::SubPageStage::Deskew)
+            }) {
+                frames = rec_notify.wait(frames).expect("wait deskew emission");
+            }
+        }
+        publisher
+            .publish_page_done(
+                0,
+                super::Progress {
+                    page_number: Some(1),
+                    ..super::Progress::new(super::ProgressStage::PageComplete, 0, 2)
+                },
+            )
+            .expect("finish page 1 second");
+        publisher.finish().expect("finish publisher");
+
+        let frames = recorded.0.lock().expect("read recorded");
+        let completions: Vec<(Option<usize>, usize)> = frames
+            .iter()
+            .filter(|(stage, _, _, _)| *stage == super::ProgressStage::PageComplete)
+            .map(|(_, page, completed, _)| (*page, *completed))
+            .collect();
+        assert_eq!(completions, vec![(Some(2), 1), (Some(1), 2)]);
+        // Page 1's rapid Decode -> Deskew transitions coalesced to Deskew only.
+        let page1_stages: Vec<Option<super::SubPageStage>> = frames
+            .iter()
+            .filter(|(stage, page, _, _)| {
+                *stage == super::ProgressStage::PageStage && *page == Some(1)
+            })
+            .map(|(_, _, _, sub)| *sub)
+            .collect();
+        assert_eq!(page1_stages, vec![Some(super::SubPageStage::Deskew)]);
+        // Page 2 finished before flush, so its pending Render stage must not emit.
+        assert!(!frames.iter().any(|(stage, page, _, _)| {
+            *stage == super::ProgressStage::PageStage && *page == Some(2)
+        }));
     }
 }

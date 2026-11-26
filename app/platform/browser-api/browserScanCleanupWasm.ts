@@ -17,6 +17,7 @@ import {
     decodeScanCleanupWasmPlanAnalysisResult,
     decodeScanCleanupWasmRenderPageResult,
     decodeScanCleanupWasmRenderPreviewResult,
+    decodeScanCleanupWasmSubPageStage,
     encodeScanCleanupWasmAnalyzeRequest,
     encodeScanCleanupWasmPlanAnalysisRequest,
     encodeScanCleanupWasmRenderPageRequest,
@@ -28,6 +29,7 @@ import {
     type IScanCleanupWasmRenderPageResult,
     type IScanCleanupWasmRenderPreviewRequest,
     type IScanCleanupWasmRenderPreviewResult,
+    type IScanCleanupWasmSubPageProgress,
     type TScanCleanupEncodedRaster,
     type TScanCleanupWasmPlanAnalysisRequest,
     type TScanCleanupWasmPlanAnalysisResult,
@@ -53,6 +55,18 @@ import {
  */
 const workerName: unknown = Reflect.get(globalThis, 'name');
 const engineThreads = readScanCleanupEngineWorkerThreads(typeof workerName === 'string' ? workerName : undefined);
+let activeProgressListener: ((progress: IScanCleanupWasmSubPageProgress) => void) | null = null;
+const handleWasmProgress = (stageCode: number, completed: number, total: number) => {
+    const listener = activeProgressListener;
+    if (listener === null) return;
+    const stage = decodeScanCleanupWasmSubPageStage(stageCode >>> 0);
+    if (stage === null) return;
+    listener({
+        stage,
+        completed: completed >>> 0,
+        total: total >>> 0,
+    });
+};
 const engine = createNativeWasmToolLoader({
     path: BROWSER_SCAN_CLEANUP_WASM_PATH,
     prefix: 'evb_scan_cleanup',
@@ -61,13 +75,17 @@ const engine = createNativeWasmToolLoader({
     maxRequestBytes: SCAN_CLEANUP_WASM_MAX_REQUEST_BYTES,
     maxOutputBytes: SCAN_CLEANUP_WASM_MAX_OUTPUT_BYTES,
     // Rust's clock traps on wasm32-unknown-unknown; stage timings read this one.
-    imports: () => ({env: {evb_now_ms: () => performance.now()}}),
+    imports: () => ({env: {
+        evb_now_ms: () => performance.now(),
+        evb_progress: handleWasmProgress,
+    }}),
     ...(engineThreads === null
         ? {}
         : {threads: {
             path: BROWSER_SCAN_CLEANUP_THREADS_WASM_PATH,
             count: engineThreads,
             maximumMemoryPages: SCAN_CLEANUP_ENGINE_MAXIMUM_MEMORY_PAGES,
+            onProgress: handleWasmProgress,
         }}),
 });
 
@@ -89,14 +107,19 @@ function failed(code: INativeErrorEnvelope['code'], message: string) {
 async function run<TResult>(
     encode: () => Uint8Array,
     decode: (output: Uint8Array) => TResult,
+    onProgress?: (progress: IScanCleanupWasmSubPageProgress) => void,
 ): Promise<TBrowserScanCleanupOutcome<TResult>> {
     let called: TNativeWasmCallResult;
+    const previousListener = activeProgressListener;
+    activeProgressListener = onProgress ?? null;
     try {
         called = await engine.call(encode());
     } catch (error) {
         // The worker hands the request back so the page can run it on today's engine.
         if (error instanceof NativeWasmThreadStartError) throw error;
         return failed('invalid-request', getErrorMessage(error));
+    } finally {
+        activeProgressListener = previousListener;
     }
     if (called.status === 'failed') return called;
     try {
@@ -110,10 +133,14 @@ async function run<TResult>(
 }
 
 /** Renders one page the way the desktop preview does: each output's composite. */
-export function renderBrowserScanCleanupPreview(request: IScanCleanupWasmRenderPreviewRequest) {
+export function renderBrowserScanCleanupPreview(
+    request: IScanCleanupWasmRenderPreviewRequest,
+    onProgress?: (progress: IScanCleanupWasmSubPageProgress) => void,
+) {
     return run(
         () => encodeScanCleanupWasmRenderPreviewRequest(request),
         decodeScanCleanupWasmRenderPreviewResult,
+        onProgress,
     ) satisfies Promise<TBrowserScanCleanupOutcome<IScanCleanupWasmRenderPreviewResult>>;
 }
 
@@ -123,18 +150,26 @@ export function renderBrowserScanCleanupPreview(request: IScanCleanupWasmRenderP
  * for the destinations `page.outputs` lists, and the metadata the manifest run
  * leaves beside them.
  */
-export function renderBrowserScanCleanupPage(request: IScanCleanupWasmRenderPageRequest) {
+export function renderBrowserScanCleanupPage(
+    request: IScanCleanupWasmRenderPageRequest,
+    onProgress?: (progress: IScanCleanupWasmSubPageProgress) => void,
+) {
     return run(
         () => encodeScanCleanupWasmRenderPageRequest(request),
         decodeScanCleanupWasmRenderPageResult,
+        onProgress,
     ) satisfies Promise<TBrowserScanCleanupOutcome<IScanCleanupWasmRenderPageResult>>;
 }
 
 /** Runs one page analysis an analysis plan asked for. */
-export function analyzeBrowserScanCleanupPage(request: IScanCleanupWasmAnalyzeRequest) {
+export function analyzeBrowserScanCleanupPage(
+    request: IScanCleanupWasmAnalyzeRequest,
+    onProgress?: (progress: IScanCleanupWasmSubPageProgress) => void,
+) {
     return run(
         () => encodeScanCleanupWasmAnalyzeRequest(request),
         decodeScanCleanupWasmAnalyzeResult,
+        onProgress,
     ) satisfies Promise<TBrowserScanCleanupOutcome<IScanCleanupWasmAnalyzeResult>>;
 }
 

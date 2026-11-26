@@ -124,6 +124,8 @@ pub(super) fn execute_on_pool(request: &[u8]) -> Option<Outcome> {
         caller: thread::current(),
     });
     let job = Arc::clone(&pending);
+    crate::sub_page_progress::reset_sub_page_progress();
+    let mut last_progress = 0u64;
     pool.spawn(move || {
         let outcome = execute(request);
         // SAFETY: see `PendingRequest`; the caller does not read the slot
@@ -137,6 +139,7 @@ pub(super) fn execute_on_pool(request: &[u8]) -> Option<Outcome> {
             std::mem::forget(pending);
             return None;
         }
+        crate::sub_page_progress::relay_sub_page_progress(&mut last_progress);
         if pending.done.load(Ordering::Acquire) {
             break;
         }
@@ -149,5 +152,6 @@ pub(super) fn execute_on_pool(request: &[u8]) -> Option<Outcome> {
         std::mem::forget(pending);
         return None;
     }
+    crate::sub_page_progress::relay_sub_page_progress(&mut last_progress);
     outcome
 }

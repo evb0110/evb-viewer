@@ -381,6 +381,83 @@ describe('BrowserWorkerRequestOwner admission by worker key', () => {
         }
     });
 
+    it('keeps a warm-cancelled worker draining across progress frames until the terminal reply arrives', async () => {
+        vi.useFakeTimers();
+        try {
+            const started: FakeWorker[] = [];
+            const drainedMessages: unknown[] = [];
+            const owner = new BrowserWorkerRequestOwner(() => new BrowserWorkerClient<IPendingTestRequest>({
+                idleTtlMs: 60_000,
+                createWorker: (key) => {
+                    const worker = new FakeWorker(key);
+                    started.push(worker);
+                    return worker;
+                },
+                createError: event => new Error(event.message),
+                handleMessage: () => {},
+                onDrainedMessage: data => drainedMessages.push(data),
+                isProgressMessage: data => typeof data === 'object'
+                    && data !== null
+                    && Reflect.get(data, 'type') === 'progress',
+            }), 2);
+
+            const first = owner.run(1, (client, _isAdmitted, workerKey) => {
+                client.getWorker(workerKey);
+                return new Promise<string>((_resolve, reject) => {
+                    client.registerPendingRequest(1, {reject}, () => new Error('timeout'));
+                });
+            }, {
+                workerKey: () => 'threads-6',
+                keepWarmOnCancel: true,
+                drainTimeoutMs: 5_000,
+            });
+            await vi.advanceTimersByTimeAsync(0);
+            const warmWorker = started[0]!;
+
+            owner.cancel(1, new Error('superseded'));
+            await expect(first).rejects.toThrow('superseded');
+
+            let secondRan = false;
+            let secondWorker: FakeWorker | null = null;
+            const second = owner.run(2, (client, _isAdmitted, workerKey) => {
+                secondRan = true;
+                secondWorker = client.getWorker(workerKey) as FakeWorker;
+                return Promise.resolve('second-ok');
+            }, {
+                workerKey: () => 'threads-6',
+                waitForDrainingSameKey: true,
+            });
+
+            // A progress frame carrying the cancelled request ID must NOT release the worker.
+            warmWorker.dispatchEvent(new MessageEvent('message', {data: {
+                id: 1,
+                type: 'progress',
+                stage: 4,
+            }}));
+            await vi.advanceTimersByTimeAsync(0);
+            expect(secondRan).toBe(false);
+            expect(drainedMessages).toEqual([]);
+            expect(FakeWorker.terminateCount).toBe(0);
+
+            // Only the terminal reply exits draining and hands the warm worker to request 2.
+            warmWorker.dispatchEvent(new MessageEvent('message', {data: {
+                id: 1,
+                ok: true,
+            }}));
+            await expect(second).resolves.toBe('second-ok');
+            expect(secondRan).toBe(true);
+            expect(secondWorker).toBe(warmWorker);
+            expect(started).toHaveLength(1);
+            expect(drainedMessages).toEqual([{
+                id: 1,
+                ok: true,
+            }]);
+            expect(FakeWorker.terminateCount).toBe(0);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('terminates a draining worker if it fails to settle within drainTimeoutMs', async () => {
         vi.useFakeTimers();
         try {

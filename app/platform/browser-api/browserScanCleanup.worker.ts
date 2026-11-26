@@ -4,9 +4,11 @@ import {encode as encodePng} from 'fast-png';
 import {
     getBrowserScanCleanupWorkerRequestId,
     parseBrowserScanCleanupWorkerRequest,
+    type IBrowserScanCleanupWorkerProgressEvent,
     type IBrowserScanCleanupWorkerResultMap,
     type TBrowserScanCleanupWorkerRequest,
 } from '@contracts/scan-cleanup/browserScanCleanupWorker';
+import type {IScanCleanupWasmSubPageProgress} from '@contracts/scan-cleanup/browserScanCleanupWasm';
 import {assembleBrowserPdfRasterPpm} from '@app/platform/browser-api/assembleBrowserPdfRasterPpm';
 import {
     analyzeBrowserScanCleanupPage,
@@ -41,6 +43,15 @@ function readPpm(ppm: Uint8Array) {
 }
 
 async function handle(request: TBrowserScanCleanupWorkerRequest): Promise<IBrowserScanCleanupWorkerResultMap[TBrowserScanCleanupWorkerRequest['type']]> {
+    const emitProgress = (progress: IScanCleanupWasmSubPageProgress) => {
+        self.postMessage({
+            id: request.id,
+            type: 'progress',
+            stage: progress.stage,
+            completed: progress.completed,
+            total: progress.total,
+        } satisfies IBrowserScanCleanupWorkerProgressEvent);
+    };
     switch (request.type) {
         case 'assemble-raster':
             return {ppm: toTransferableUint8Array(assembleBrowserPdfRasterPpm(request.payload.image))};
@@ -59,11 +70,11 @@ async function handle(request: TBrowserScanCleanupWorkerRequest): Promise<IBrows
             }, {zlib: {level: 1}}))};
         }
         case 'render-preview':
-            return renderBrowserScanCleanupPreview(request.payload);
+            return renderBrowserScanCleanupPreview(request.payload, emitProgress);
         case 'render-page':
-            return renderBrowserScanCleanupPage(request.payload);
+            return renderBrowserScanCleanupPage(request.payload, emitProgress);
         case 'analyze-page':
-            return analyzeBrowserScanCleanupPage(request.payload);
+            return analyzeBrowserScanCleanupPage(request.payload, emitProgress);
         case 'plan-analysis':
             return planBrowserScanCleanupAnalysis(request.payload);
     }

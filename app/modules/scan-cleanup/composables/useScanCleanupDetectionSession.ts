@@ -1460,6 +1460,12 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     });
 
     return {
+        activePages: computed<ReadonlySet<number>>(() => {
+            if (!isDetecting.value) return new Set();
+            const total = resolveDetectionDocumentPageCount();
+            return new Set((jobState.value?.progress.activePageNumbers ?? [])
+                .filter(pageNumber => pageNumber >= 1 && pageNumber <= total));
+        }),
         authoritativeLayoutByPage,
         blankPageCount,
         canDetectAll,

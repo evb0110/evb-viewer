@@ -15,6 +15,10 @@ import {
     SCAN_CLEANUP_MAX_BILEVEL_PIXELS,
     SCAN_CLEANUP_MAX_DIMENSION_PX,
 } from '@contracts/scan-cleanup/inputLimits';
+import {
+    SCAN_CLEANUP_SUB_PAGE_STAGES,
+    type TScanCleanupSubPageStage,
+} from '@contracts/scan-cleanup/nativeProtocolV3';
 import type {
     IScanCleanupWasmAnalyzeRequest,
     IScanCleanupWasmAnalyzeResult,
@@ -131,6 +135,38 @@ const outcomeSchema = v.variant('status', [
  * engine's codecs inside the worker, where the engine's bytes arrive; the
  * structured clone carries that decoded value unchanged.
  */
+export interface IBrowserScanCleanupWorkerProgressEvent {
+    id: number;
+    type: 'progress';
+    stage: TScanCleanupSubPageStage;
+    completed: number;
+    total: number;
+}
+
+export function parseBrowserScanCleanupWorkerProgressEvent(value: unknown): IBrowserScanCleanupWorkerProgressEvent | null {
+    if (
+        !isRecord(value)
+        || !isSafeWorkerRequestId(value.id)
+        || value.type !== 'progress'
+        || !(SCAN_CLEANUP_SUB_PAGE_STAGES as readonly unknown[]).includes(value.stage)
+        || typeof value.completed !== 'number'
+        || !Number.isSafeInteger(value.completed)
+        || value.completed < 0
+        || typeof value.total !== 'number'
+        || !Number.isSafeInteger(value.total)
+        || value.total < 0
+    ) {
+        return null;
+    }
+    return {
+        id: value.id,
+        type: 'progress',
+        stage: value.stage as TScanCleanupSubPageStage,
+        completed: value.completed,
+        total: value.total,
+    };
+}
+
 export function isBrowserScanCleanupWorkerResult<K extends TBrowserScanCleanupWorkerRequestType>(
     type: K,
     value: unknown,

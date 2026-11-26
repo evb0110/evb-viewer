@@ -488,11 +488,10 @@ export type PreviewPlacement = { canvasWidthPx: number, canvasHeightPx: number, 
 
 export type Progress = { stage: ProgressStage, 
 /**
- * `page-analyzed` carries the distinct analyzed-page count, so its
- * `page_number` can be out of source order. `page-complete` carries the
- * source-order completed prefix for render work and final Analyze results.
+ * Distinct completed (or analyzed) page count, monotone across concurrent
+ * workers even when `page_number` finishes out of source order.
  */
-completedPages: number, totalPages: number, pageNumber: number | null, outputPaths: Array<string> | null, classification: LayoutClassification | null, confidence: number | null, cutterXPx: number | null, tier1Verdict: LayoutClassification | null, reconciled: boolean | null, clusterAgreement: number | null, documentPrior: DocumentPrior | null, textAxis: TextAxisHint | null, stageTimings: PageStageTimings | null, recommendedOutputMode: OutputMode | null, recommendedOutputModeConfidence: number | null, recommendedOutputModeReason: OutputModeRecommendationReason | null, softAlphaForegroundRecommendation: boolean | null, outputModeDiagnostics: OutputModeDiagnostics | null, 
+completedPages: number, totalPages: number, pageNumber?: number, subPageStage?: SubPageStage, outputPaths?: Array<string>, classification?: LayoutClassification, confidence?: number, cutterXPx?: number, tier1Verdict?: LayoutClassification, reconciled?: boolean, clusterAgreement?: number, documentPrior?: DocumentPrior, textAxis?: TextAxisHint, stageTimings?: PageStageTimings, recommendedOutputMode?: OutputMode, recommendedOutputModeConfidence?: number, recommendedOutputModeReason?: OutputModeRecommendationReason, softAlphaForegroundRecommendation?: boolean, outputModeDiagnostics?: OutputModeDiagnostics, 
 /**
  * A lease of the page's alternate view raster rather than its input.
  */
@@ -500,7 +499,7 @@ alternateView?: boolean, };
 
 export type ProgressEnvelope = { version: number, type: string, progress: Progress, };
 
-export type ProgressStage = "started" | "page-analyzed" | "page-complete" | "page-input-required" | "page-input-released" | "completed";
+export type ProgressStage = "started" | "page-started" | "page-stage" | "page-analyzed" | "page-complete" | "page-input-required" | "page-input-released" | "completed";
 
 /**
  * What document reconciliation reads from one analyzed page. The browser
@@ -538,6 +537,12 @@ export type SplitSeamPolyline = { points: Array<Point>, };
 export type SpreadBinarizationPlanDecision = "sharedJoint" | "perLeafAnchorDrift" | "perLeafRadiusDrift" | "perLeafFaintInkDrift";
 
 export type SpreadBinarizationPlanDiagnostics = { route: BinarizationMode, thresholdAnchor: number, thresholdRadius: number, strokeWidthAnchorPx: number, xHeightAnchorPx: number, documentAnchor: boolean, jointCandidateRoute: BinarizationMode, leftCandidateRoute: BinarizationMode, rightCandidateRoute: BinarizationMode, decision: SpreadBinarizationPlanDecision, };
+
+/**
+ * Fine-grained processing stage inside a single page's analysis or render.
+ */
+
+export type SubPageStage = "decode" | "background" | "analyze" | "deskew" | "render" | "encode";
 
 export type TextAxisHint = { sideways: boolean, confidence: number, };
 

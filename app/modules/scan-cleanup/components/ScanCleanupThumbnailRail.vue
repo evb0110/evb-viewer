@@ -123,7 +123,14 @@
                                 :aria-label="t('scanCleanup.settings.scope.pageCustomized')"
                             />
                             <UIcon
-                                v-if="processedPages?.has(naturalPage(position))"
+                                v-if="isPageActive(naturalPage(position))"
+                                name="i-ph-circle-notch"
+                                class="scan-thumbnail-active is-spinning"
+                                data-page-active="true"
+                                :aria-label="t('scanCleanup.pages.processing', {page: naturalPage(position)})"
+                            />
+                            <UIcon
+                                v-else-if="processedPages?.has(naturalPage(position))"
                                 name="i-ph-check-circle"
                                 class="scan-thumbnail-processed"
                                 :aria-label="t('scanCleanup.pages.processed')"
@@ -217,6 +224,7 @@ const props = defineProps<{
     disabled: boolean;
     canRedetect?: boolean;
     processedPages?: ReadonlySet<number>;
+    activePages?: ReadonlySet<number>;
     sourcePending?: boolean;
     detectionActive?: boolean;
     settledPages?: ReadonlySet<number>;
@@ -401,6 +409,12 @@ function attentionHints(page: number) {
         override: pageOverride(page),
         textAxis: props.textAxes?.get(page),
     });
+}
+
+function isPageActive(page: number) {
+    return props.activePages?.has(page) === true
+        && props.processedPages?.has(page) !== true
+        && !pageOverride(page).excluded;
 }
 
 // A page keeps its spinner only while its own detection work is outstanding:
@@ -634,6 +648,19 @@ function handleKeydown(event: KeyboardEvent) {
 .scan-thumbnail-page-number.is-excluded {
     color: var(--ui-text-dimmed);
     text-decoration: line-through;
+}
+
+.scan-thumbnail-active {
+    flex: none;
+    color: var(--ui-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .scan-thumbnail-active.is-spinning,
+    .scan-thumbnail-source-state .is-spinning,
+    .scan-thumbnail-detection-pending .is-spinning {
+        animation: none;
+    }
 }
 
 .scan-thumbnail-processed {

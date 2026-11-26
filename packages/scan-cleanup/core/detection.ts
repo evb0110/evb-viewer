@@ -946,6 +946,27 @@ async function runBatchedScanCleanupDetection<TDocument>(
                         return;
                     }
                     if (
+                        nativeProgress.stage === 'page-started'
+                        && nativeProgress.pageNumber !== undefined
+                    ) {
+                        const sourcePageNumber = resolveSourcePageNumber(nativeProgress.pageNumber);
+                        if (sourcePageNumber !== undefined) {
+                            batchRecorder.markPageStarted(sourcePageNumber);
+                        }
+                        return;
+                    }
+                    if (
+                        nativeProgress.stage === 'page-stage'
+                        && nativeProgress.pageNumber !== undefined
+                        && nativeProgress.subPageStage !== undefined
+                    ) {
+                        const sourcePageNumber = resolveSourcePageNumber(nativeProgress.pageNumber);
+                        if (sourcePageNumber !== undefined) {
+                            batchRecorder.markPageStage(sourcePageNumber, nativeProgress.subPageStage);
+                        }
+                        return;
+                    }
+                    if (
                         (nativeProgress.stage === 'page-analyzed' || nativeProgress.stage === 'page-complete')
                         && nativeProgress.pageNumber !== undefined
                     ) {

@@ -2,6 +2,10 @@
 //! CLI writes for the same rasters and options, run in this process.
 use super::*;
 use crate::io::png::{encode_gray, encode_rgb};
+use crate::sub_page_progress::{
+    SUB_PAGE_STAGE_ANALYZE, SUB_PAGE_STAGE_BACKGROUND, SUB_PAGE_STAGE_DECODE,
+    SUB_PAGE_STAGE_DESKEW, SUB_PAGE_STAGE_ENCODE, SUB_PAGE_STAGE_RENDER,
+};
 use scan_primitives::RgbImage;
 use std::{
     fs,
@@ -1267,6 +1271,15 @@ fn generated() -> String {
         ("MAX_REQUEST_BYTES", MAX_REQUEST_BYTES),
         ("MAX_OUTPUT_BYTES", MAX_OUTPUT_BYTES),
         ("MAX_DETAIL_METADATA_BYTES", MAX_DETAIL_METADATA_BYTES),
+        ("SUB_PAGE_STAGE_DECODE", SUB_PAGE_STAGE_DECODE as usize),
+        (
+            "SUB_PAGE_STAGE_BACKGROUND",
+            SUB_PAGE_STAGE_BACKGROUND as usize,
+        ),
+        ("SUB_PAGE_STAGE_ANALYZE", SUB_PAGE_STAGE_ANALYZE as usize),
+        ("SUB_PAGE_STAGE_DESKEW", SUB_PAGE_STAGE_DESKEW as usize),
+        ("SUB_PAGE_STAGE_RENDER", SUB_PAGE_STAGE_RENDER as usize),
+        ("SUB_PAGE_STAGE_ENCODE", SUB_PAGE_STAGE_ENCODE as usize),
     ] {
         writeln!(output, "export const SCAN_CLEANUP_WASM_{name} = {value};").unwrap();
     }

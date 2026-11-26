@@ -2,6 +2,10 @@ export {
     DETECTION_DPI,
     runScanCleanupDetection,
 } from '@evb/scan-cleanup/core/detection';
+export {
+    coordinateScanCleanupConversion,
+} from '@evb/scan-cleanup/core/coordinateScanCleanupConversion';
+export {createScanCleanupActivePageTracker} from '@evb/scan-cleanup/core/createScanCleanupProgressReporter';
 export {runScanCleanupConversion} from '@evb/scan-cleanup/core/runScanCleanupConversion';
 export {
     computeScanCleanupBatchCheckpointSignature,

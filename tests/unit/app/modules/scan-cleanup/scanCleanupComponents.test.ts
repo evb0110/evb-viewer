@@ -179,6 +179,7 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
             updateOverrides: session.updateSelectionOverrides ?? vi.fn(),
         },
         detection: {
+            activePages: computed(() => unref(session.detectionActivePages) ?? new Set()),
             authoritativeLayoutByPage: computed(() => unref(session.authoritativeLayoutByPage)),
             blankPageCount: session.blankPageCount ?? computed(() => 0),
             canDetectAll: session.canDetectAll,
@@ -215,6 +216,7 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
             viewMode: session.previewViewMode,
         },
         run: {
+            activePages: session.runActivePages ?? computed(() => new Set()),
             cancel: session.cancel,
             cancelRequested: session.cancelRequested,
             canRun: session.canRun,
@@ -4139,6 +4141,78 @@ describe('Scan cleanup components', () => {
         expect(harness.host.querySelector('.raw-preview')).toBeNull();
         expect(harness.host.querySelector('.preview-refresh-error')?.textContent)
             .toContain('Preview isn\'t available. You can still run cleanup.');
+    });
+
+    it('shows the active processing sub-stage and ticking elapsed timer in the viewport caption during cleanup', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-01-01T00:00:10.000Z'));
+        try {
+            const activity = shallowRef(resolveScanCleanupActivity({
+                detection: {
+                    pending: false,
+                    progress: null,
+                    analyzedPages: 3,
+                    totalPages: 3,
+                    calibrating: false,
+                },
+                run: {
+                    waitingForDetection: false,
+                    starting: false,
+                    progress: {
+                        stage: 'rendering',
+                        completedUnits: 1,
+                        totalUnits: 3,
+                        percent: 40,
+                        activeSubPageStage: 'deskew',
+                    },
+                    committing: false,
+                },
+            }));
+            const activityTimeline = shallowRef<{
+                startedAtMs: number | null;
+                steps: Partial<Record<'clean', {startedAtMs: number}>>;
+            }>({
+                startedAtMs: Date.parse('2026-01-01T00:00:08.000Z'),
+                steps: {clean: {startedAtMs: Date.parse('2026-01-01T00:00:10.000Z')}},
+            });
+            const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+                result: spreadPreviewResult(1),
+                loading: false,
+                error: '',
+                viewMode: 'cleaned',
+                matchPageSize: true,
+                alignment: 'top-center',
+                pageNumber: 1,
+                totalPages: 3,
+                manualSplit: null,
+                readingOrder: 'ltr',
+                activity: activity.value,
+                activityTimeline: activityTimeline.value,
+            })}));
+            await nextTick();
+
+            const caption = harness.host.querySelector<HTMLElement>('.preview-viewport-caption');
+            expect(caption?.classList.contains('is-cleaning')).toBe(true);
+            expect(caption?.dataset.canvasNotice).toBe('cleaning');
+            expect(caption?.dataset.processingStage).toBe('deskew');
+            expect(caption?.querySelector('.preview-viewport-stage')?.textContent).toBe('Straightening page');
+            expect(caption?.querySelector('.preview-viewport-elapsed')?.textContent).toBe('0:00');
+
+            await vi.advanceTimersByTimeAsync(5_000);
+            await nextTick();
+            expect(caption?.querySelector('.preview-viewport-elapsed')?.textContent).toBe('0:05');
+
+            activity.value = null;
+            activityTimeline.value = {
+                startedAtMs: null,
+                steps: {},
+            };
+            await nextTick();
+            expect(caption?.classList.contains('is-cleaning')).toBe(false);
+            expect(caption?.querySelector('.preview-viewport-stage')).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('removes visual half labels while preserving each output half in image alternatives', () => {

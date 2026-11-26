@@ -10,7 +10,6 @@ import {
 } from 'fs/promises';
 import {join} from 'path';
 import type {
-    INativeScanCleanupAnalysisOutputV3,
     INativeScanCleanupOptionsV3,
     INativeScanCleanupPageMetadataV3,
     IScanCleanupDocumentCanvasPlan,
@@ -20,7 +19,6 @@ import type {
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
-import {getScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     resolveSourceDpi,
     type IRunScanCleanupPipelineDependencies,
@@ -28,7 +26,6 @@ import {
     type IScanCleanupWorkerPaths,
     type IPdfPageSize,
     type IDetectedPageRaster,
-    type IScanCleanupOutputMapping,
     type IScanCleanupRepresentationReport,
     type IScanCleanupPageRasterSource,
     type TScanCleanupLog,
@@ -47,12 +44,6 @@ import {
     serializeScanCleanupPageOpsInstructions,
 } from '@evb/scan-cleanup/core/compactManifest';
 import {buildScanCleanupStampBuildIds} from '@evb/scan-cleanup/core/buildManifest';
-import {
-    buildScanCleanupPagePlanDigest,
-    buildScanCleanupProvenanceStamp,
-    encodeScanCleanupProvenanceStampHex,
-    materializeScanCleanupStampOptions,
-} from '@evb/scan-cleanup/core/provenanceStamp';
 import {sha256ScanCleanupFile} from '@evb/scan-cleanup/core/sha256ScanCleanupFile';
 import {
     addScanCleanupDocumentCanvasPage,
@@ -69,9 +60,16 @@ import {
 import type {TEmitScanCleanupProgress} from '@evb/scan-cleanup/core/createScanCleanupProgressReporter';
 import {
     createEmptyScanCleanupSummary,
+    createScanCleanupActivePageTracker,
     createScanCleanupSummaryWarningReporter,
     reportScanCleanupSummaryWarningEvent,
 } from '@evb/scan-cleanup/core/createScanCleanupProgressReporter';
+import {
+    buildScanCleanupConversionProvenanceStamp,
+    finalizeScanCleanupLosslessOutputs,
+    reduceScanCleanupLosslessPage,
+    type IScanCleanupAnalyzedLosslessPage,
+} from '@evb/scan-cleanup/core/coordinateScanCleanupConversion';
 import {
     ScanCleanupNativeToolUnavailableError,
     ScanCleanupStreamingEvidenceError,
@@ -233,21 +231,13 @@ export async function runLosslessScanCleanup(
             )
             : null
         : context.documentCanvas;
-    const analyzedPages: Array<{
-        sourcePageIndex: number;
-        rotationQuarterTurns: number;
-        outputs: Array<{
-            half: INativeScanCleanupAnalysisOutputV3['half'];
-            placement: NonNullable<INativeScanCleanupAnalysisOutputV3['pdfPlacement']>;
-        }>;
-        sourceDpi: number;
-        sourceRasterDetected: boolean;
-    }> = [];
+    const analyzedPages: IScanCleanupAnalyzedLosslessPage[] = [];
     const pageMetadataBySource = new Map<number, INativeScanCleanupPageMetadataV3>();
     const nativeOptionsBySource = new Map<number, INativeScanCleanupOptionsV3>();
     const rasterizedPageNumbers = new Set<number>();
     const classifiedPageNumbers = new Set<number>();
     const collectedPageNumbers = new Set<number>();
+    const activePages = createScanCleanupActivePageTracker();
     let classifiedCount = 0;
     let collectedCount = 0;
     for (const batch of iterateScanCleanupPageBatches(pageNumbers.length)) {
@@ -373,6 +363,33 @@ export async function runLosslessScanCleanup(
                         + ` for ${String(pages.length)} submitted pages`,
                 );
             }
+            if (nativeProgress.stage === 'page-started' && nativeProgress.pageNumber !== undefined) {
+                const sourcePageNumber = batchPageNumbers[nativeProgress.pageNumber - 1];
+                if (sourcePageNumber !== undefined) {
+                    activePages.start(sourcePageNumber);
+                    emitProgress('classifying', classifiedCount, pageNumbers.length, classifiedPageNumbers, activePages.snapshot());
+                }
+                return;
+            }
+            if (
+                nativeProgress.stage === 'page-stage'
+                && nativeProgress.pageNumber !== undefined
+                && nativeProgress.subPageStage !== undefined
+            ) {
+                const sourcePageNumber = batchPageNumbers[nativeProgress.pageNumber - 1];
+                if (sourcePageNumber !== undefined) {
+                    activePages.setStage(sourcePageNumber, nativeProgress.subPageStage);
+                    emitProgress('classifying', classifiedCount, pageNumbers.length, classifiedPageNumbers, activePages.snapshot());
+                }
+                return;
+            }
+            if (nativeProgress.stage === 'page-analyzed' && nativeProgress.pageNumber !== undefined) {
+                const sourcePageNumber = batchPageNumbers[nativeProgress.pageNumber - 1];
+                if (sourcePageNumber !== undefined && activePages.finish(sourcePageNumber)) {
+                    emitProgress('classifying', classifiedCount, pageNumbers.length, classifiedPageNumbers, activePages.snapshot());
+                }
+                return;
+            }
             if (nativeProgress.stage !== 'page-complete') {
                 return;
             }
@@ -383,16 +400,18 @@ export async function runLosslessScanCleanup(
                         `evb-scan-cleanup analysis reported unknown page index ${String(nativeProgress.pageNumber)}`,
                     );
                 }
+                activePages.finish(sourcePageNumber);
                 if (!classifiedPageNumbers.has(sourcePageNumber)) {
                     classifiedPageNumbers.add(sourcePageNumber);
                     classifiedCount += 1;
                 }
             }
-            emitProgress('classifying', classifiedCount, pageNumbers.length, classifiedPageNumbers);
+            emitProgress('classifying', classifiedCount, pageNumbers.length, classifiedPageNumbers, activePages.snapshot());
         }, {
             allowedPathRoot: scratch,
             ...(context.onRecoveryPending === undefined ? {} : {onRecoveryPending: context.onRecoveryPending}),
         });
+        activePages.clear();
         emitProgress('collecting', collectedCount, pageNumbers.length, collectedPageNumbers);
         // Release successful batches before rendering the next one. A failed
         // sidecar may still read these inputs; the job's recovery callback
@@ -410,48 +429,19 @@ export async function runLosslessScanCleanup(
                 collectedPageNumbers.add(sourcePageNumber);
                 collectedCount += 1;
                 emitProgress('collecting', collectedCount, pageNumbers.length, collectedPageNumbers);
-                // Placement is planned from the canvas rather than observed on
-                // the page, so the provenance evidence stays the analysis alone.
-                pageMetadataBySource.set(sourcePageNumber, metadata.outputs === undefined ? metadata : {
-                    ...metadata,
-                    outputs: metadata.outputs.map(({
-                        pdfPlacement: _pdfPlacement, ...output
-                    }) => output),
-                });
-                const pageOverride = getScanCleanupPageOverride(
-                    request.options.pageOverrides,
-                    requirePageNumber(sourcePageNumber),
-                    request.options.pageOverrideDefaults,
-                    request.options.marginsMm,
-                );
-                if (metadata.excluded) {
-                    summary.excludedPages += 1;
-                    continue;
-                }
-                if (metadata.layoutClassification === 'two-page-spread') summary.spreadsSplit += 1;
-                if (metadata.layoutClassification === 'page-with-offcut') summary.offcutsDiscarded += 1;
-                const outputs = (metadata.outputs ?? []).map(output => {
-                    if (output.pdfPlacement === undefined) {
-                        throw new Error(`evb-scan-cleanup returned no placement for page ${String(sourcePageNumber)}`);
-                    }
-                    return {
-                        half: output.half,
-                        placement: output.pdfPlacement,
-                    };
-                });
-                if (request.options.readingOrder === 'rtl' && metadata.layoutClassification === 'two-page-spread') {
-                    outputs.reverse();
-                }
-                analyzedPages.push({
-                    sourcePageIndex: sourcePageNumber - 1,
-                    rotationQuarterTurns: pageOverride.rotationDegrees / 90,
-                    outputs,
+                const analyzed = reduceScanCleanupLosslessPage({
+                    request,
+                    pageNumber: sourcePageNumber,
+                    metadata,
                     sourceDpi: resolveRasterPlan(
                         sourcePageNumber,
                         batchRasterByNumber.get(sourcePageNumber),
                     ).dpi,
                     sourceRasterDetected: batchRasterByNumber.get(sourcePageNumber) !== undefined,
+                    summary,
+                    pageMetadataBySource,
                 });
+                if (analyzed !== null) analyzedPages.push(analyzed);
             }
         } finally {
             await Promise.all(pages.map(page => rm(page.pageMetadataPath, {force: true})));
@@ -474,102 +464,33 @@ export async function runLosslessScanCleanup(
         );
     }
     pagePlanResolver.report();
-    const allOutputs = analyzedPages.flatMap(page => page.outputs.map(output => ({
-        ...output,
-        sourcePageIndex: page.sourcePageIndex,
-        sourceDpi: page.sourceDpi,
-        sourceRasterDetected: page.sourceRasterDetected,
-    })));
-    if (allOutputs.length === 0 && context.streamingChildSourceText === undefined) {
-        throw new Error('evb-scan-cleanup analysis produced no output pages');
-    }
     if (documentCanvas === null && request.options.matchPageSize) {
         const droppedEvent = resolveScanCleanupDroppedMatchWarningEventFromAccumulator(canvasAccumulator);
         if (droppedEvent) warnEvent(droppedEvent);
     }
-    const scaledRasterPages = new Set<number>();
-    const fittedPageEvents: Parameters<typeof warnEvent>[] = [];
-    for (const page of analyzedPages) {
-        for (const {
-            half, placement,
-        } of page.outputs) {
-            for (const event of placement.warningEvents ?? []) {
-                fittedPageEvents.push([
-                    event,
-                    page.sourcePageIndex + 1,
-                    half,
-                ]);
-            }
-            if (placement.contentScaled && page.sourceRasterDetected) {
-                scaledRasterPages.add(page.sourcePageIndex + 1);
-            }
-        }
-    }
-    if (scaledRasterPages.size > 0) {
-        warnEvent({
-            code: 'matched-canvas-pages-scaled-in-place',
-            pages: [...scaledRasterPages].map(pageNumber => requirePageNumber(pageNumber)),
-        });
-    }
-    for (const fitted of fittedPageEvents) warnEvent(...fitted);
-    summary.outputPages = allOutputs.length;
-    const outputMappings: IScanCleanupOutputMapping[] = allOutputs.map((output, outputIndex) => {
-        const sourcePage = output.sourcePageIndex + 1;
-        const metadata = pageMetadataBySource.get(sourcePage);
-        return {
-            sourcePage,
-            half: output.half,
-            outputOrdinal: outputIndex + 1,
-            rotationDegrees: metadata?.rotationDegrees ?? 0,
-            excluded: false,
-            blank: false,
-        };
-    });
-    for (const pageNumber of pageNumbers) {
-        const metadata = pageMetadataBySource.get(pageNumber);
-        const hasOutput = outputMappings.some(mapping => mapping.sourcePage === pageNumber);
-        if (hasOutput) continue;
-        outputMappings.push({
-            sourcePage: pageNumber,
-            half: 'full',
-            outputOrdinal: null,
-            rotationDegrees: metadata?.rotationDegrees ?? getScanCleanupPageOverride(
-                request.options.pageOverrides,
-                requirePageNumber(pageNumber),
-                request.options.pageOverrideDefaults,
-                request.options.marginsMm,
-            ).rotationDegrees,
-            excluded: metadata?.excluded === true,
-            blank: metadata?.excluded !== true,
-        });
-    }
-    const effectiveOptions: Array<{
-        sourcePage: number;
-        options: ReturnType<typeof materializeScanCleanupStampOptions>;
-    }> = [];
-    for (const sourcePage of pageNumbers) {
-        const nativeOptions = nativeOptionsBySource.get(sourcePage);
-        if (nativeOptions === undefined) {
-            throw new Error(`evb-scan-cleanup returned no options for page ${String(sourcePage)}`);
-        }
-        effectiveOptions.push({
-            sourcePage,
-            options: materializeScanCleanupStampOptions({
-                nativeOptions,
-                options: request.options,
-                qualityPath: 'lossless',
-            }),
-        });
-    }
-    const stamp = buildScanCleanupProvenanceStamp({
-        sourceSha256: request.provenance?.sourceSha256 ?? await sha256ScanCleanupFile(preparedPdfPath),
-        effectiveOptions,
+    const {
+        allOutputs,
         outputMappings,
-        pagePlanDigests: effectiveOptions.map(record => buildScanCleanupPagePlanDigest(
-            record.sourcePage,
-            record.options,
-            pageMetadataBySource.get(record.sourcePage) ?? {excluded: true},
-        )),
+    } = finalizeScanCleanupLosslessOutputs({
+        request,
+        pageNumbers,
+        analyzedPages,
+        pageMetadataBySource,
+        summary,
+        warnEvent,
+        allowEmptyOutputs: context.streamingChildSourceText !== undefined,
+    });
+    const {
+        stamp,
+        stampHex,
+    } = buildScanCleanupConversionProvenanceStamp({
+        options: request.options,
+        pageNumbers,
+        qualityPath: 'lossless',
+        sourceSha256: request.provenance?.sourceSha256 ?? await sha256ScanCleanupFile(preparedPdfPath),
+        nativeOptionsBySource,
+        pageMetadataBySource,
+        outputMappings,
         buildIds: await buildScanCleanupStampBuildIds({
             paths,
             ...(dependencies.hashNativeBinary === undefined
@@ -607,7 +528,7 @@ export async function runLosslessScanCleanup(
                 cropRect: placement.cropRect,
                 ...(placement.contentTransform ? {contentTransform: placement.contentTransform} : {}),
             })),
-        })), encodeScanCleanupProvenanceStampHex(stamp)),
+        })), stampHex),
     ));
     emitProgress('assembling', 0, allOutputs.length, []);
     const pageOps = await dependencies.runCommand(paths.pdfPageOpsBinary, [
