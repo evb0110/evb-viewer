@@ -255,16 +255,12 @@ onMounted(() => emit('ready'));
 // not: toolbar ownership is the shell's existing signal that this workspace is
 // the visible tab.
 const workspaceActive = computed(() => sourcePath !== null && toolbarActive);
-const previewPane = ref<{
-    revealLatestFrame: (signal?: AbortSignal) => Promise<'published' | 'dropped'>;
-    scheduleDetailRequest: () => void;
-} | null>(null);
+const previewPane = ref<{scheduleDetailRequest: () => void;} | null>(null);
 const workspaceSession = useScanCleanupWorkspaceSession({
     // Losing the source ends the session: detection and preview cancel instead
     // of queueing IPC against a working copy the main process has already
     // retired. Switching tabs pauses that work without changing identity.
     active: () => workspaceActive.value,
-    beforeRun: signal => previewPane.value?.revealLatestFrame(signal),
     sourcePath: () => sourcePath,
     documentKey: () => documentKey,
     documentSessionKey: () => documentSessionKey,

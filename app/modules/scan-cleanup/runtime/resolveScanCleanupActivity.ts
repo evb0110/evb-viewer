@@ -177,7 +177,7 @@ function resolveAnalysis(
         ? 'queued'
         : verdictsComplete
             ? detection.calibrating ? 'calibrate' : 'compare'
-            : analyzed === 0 ? 'read' : 'detect';
+            : analyzed === 0 && read < total ? 'read' : 'detect';
     const step: TScanCleanupActivityStep = detail === 'queued' || detail === 'read'
         ? 'read'
         : detail === 'detect' ? 'detect' : 'compare';
@@ -246,12 +246,41 @@ function resolveRun(run: IScanCleanupRunActivityInput): IScanCleanupActivity {
         candidate.id,
         index < stepIndex ? 'done' : index === stepIndex ? 'active' : 'waiting',
     ])) as Record<TScanCleanupActivityStep, TScanCleanupActivityStepState>;
-    // Cleaning is almost all of a run, so the job's weighted percentage is an
-    // honest fill for it; the short finishing tail counts PDF objects rather
-    // than pages and has no fill of its own.
-    const fraction = phase === 'clean' && progress !== null && progress.percent > 0
-        ? Math.min(1, progress.percent / 100)
-        : null;
+    // Each segment bar fills phase-locally (0..1) rather than inheriting the
+    // whole-run weighted percentage, which jumped into Clean at ~26% for 0 of N.
+    let fraction: number | null = null;
+    let bufferFraction = 0;
+    if (phase === 'clean' && step === 'clean' && progress !== null && progress.totalUnits > 0) {
+        const total = progress.totalUnits;
+        const completed = clampUnits(progress.completedUnits, total);
+        if (stage === 'rasterizing') {
+            bufferFraction = completed / total;
+            fraction = completed === 0 ? null : 0;
+        } else {
+            const rasterized = progress.rasterizedUnits === undefined
+                ? 0
+                : clampUnits(progress.rasterizedUnits, total);
+            bufferFraction = rasterized / total;
+            fraction = completed === 0 && rasterized === 0 ? null : completed / total;
+        }
+    } else if (phase === 'finish') {
+        if (run.committing) {
+            fraction = 0.95;
+        } else if (stage === 'handoff') {
+            const unitFraction = progress !== null && progress.totalUnits > 0
+                ? clampUnits(progress.completedUnits, progress.totalUnits) / progress.totalUnits
+                : 0;
+            fraction = 0.75 + 0.2 * unitFraction;
+        } else if (progress !== null && progress.totalUnits > 0) {
+            const completed = clampUnits(progress.completedUnits, progress.totalUnits);
+            if (completed > 0) {
+                const unitFraction = completed / progress.totalUnits;
+                fraction = stage === 'collecting'
+                    ? 0.1 * unitFraction
+                    : 0.1 + 0.65 * unitFraction;
+            }
+        }
+    }
     return {
         run: true,
         phase,
@@ -259,7 +288,7 @@ function resolveRun(run: IScanCleanupRunActivityInput): IScanCleanupActivity {
         detail,
         count: step === 'clean' && count !== undefined ? count : null,
         fraction,
-        bufferFraction: 0,
+        bufferFraction,
         ...(progress?.etaSeconds === undefined || step !== 'clean' ? {} : {etaSeconds: progress.etaSeconds}),
         steps: stepViews(states, {
             ...(PREPARE_STAGES.has(stage) && count !== undefined ? {prepare: count} : {}),

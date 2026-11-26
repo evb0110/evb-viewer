@@ -249,13 +249,17 @@ export async function openDocumentPaths(
 
     if (normalizedPaths.length === 1 && isPdfFileName(firstFileName)) {
         const sourcePath = firstPath;
+        const sourceEntry = await browserDocumentStore.ensureEntry(sourcePath).catch(() => null);
+        const isGenerated = sourceEntry?.kind === 'output';
         // A picked file opens with its present bytes: the working copy's baseline is their witness.
         const workingPath = await browserDocumentStore.cloneAsWorkingCopy(sourcePath);
         let published = false;
         try {
             const decryption = await decryptBrowserWorkingCopy(workingPath, request.password, {fileName: firstFileName});
             if (decryption.outcome === 'needs-password') {
-                await touchRecentFileForOpen(sourcePath, request);
+                if (!isGenerated) {
+                    await touchRecentFileForOpen(sourcePath, request);
+                }
                 return {
                     kind: 'pdf-needs-password',
                     originalPath: sourcePath,
@@ -267,7 +271,9 @@ export async function openDocumentPaths(
                     originalPath: sourcePath,
                 } satisfies TOpenFileResult;
             }
-            await touchRecentFileForOpen(sourcePath, request);
+            if (!isGenerated) {
+                await touchRecentFileForOpen(sourcePath, request);
+            }
             browserDocumentStore.unload(sourcePath);
             emitBatchOpenProgress(progressOptions, 1, 1, startedAt);
             published = true;
@@ -275,6 +281,7 @@ export async function openDocumentPaths(
                 kind: 'pdf',
                 workingPath,
                 originalPath: sourcePath,
+                ...(isGenerated ? {isGenerated: true as const} : {}),
                 ...(decryption.wasEncrypted ? {wasEncrypted: true as const} : {}),
             } satisfies TOpenFileResult;
         } finally {

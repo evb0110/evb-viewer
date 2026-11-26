@@ -606,6 +606,12 @@ export default defineNuxtConfig({
         },
         worker: {
             format: 'es',
+            // Salt worker chunk hashes once after enabling COOP/COEP headers so
+            // returning browsers never reuse immutable-cached pre-COEP worker scripts.
+            plugins: () => [{
+                name: 'evb:worker-coep-hash-salt',
+                augmentChunkHash: () => 'evb-coep-worker-v1',
+            }],
             rolldownOptions: {
                 output: {sourcemapExcludeSources: emitSourceMaps},
             },

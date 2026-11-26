@@ -27,10 +27,7 @@ import {
     type TRequestId,
 } from '@contracts/shared';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import {
-    until,
-    useTimeoutFn,
-} from '@vueuse/core';
+import {useTimeoutFn} from '@vueuse/core';
 import type {TScanCleanupPlacementAnchorsByPage} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {
     attachScanCleanupPageOverrideDefaults,
@@ -359,7 +356,6 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         () => previewRequestDelayMs,
         {immediate: false},
     );
-    const unmounted = ref(false);
     let scheduledPage: number | null = null;
     let scheduledKey: string | null = null;
     // A real source/revision lifecycle change retires this generation. A
@@ -519,11 +515,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         previewSourcePath = options.sourcePath.value,
         resolvedPlacementAnchors: IScanCleanupPreviewRequest['placementAnchors'] | null = null,
     ) {
-        const authoritativeLayout = options.authoritativeLayoutByPage.value.get(pageNumber);
-        const renderedLayout = metadataByPage.get(pageNumber)?.layoutClassification;
-        const unresolvedPageLayout = authoritativeLayout === renderedLayout
-            ? null
-            : authoritativeLayout ?? null;
+        const authoritativeLayout = options.authoritativeLayoutByPage.value.get(pageNumber) ?? null;
         return createScanCleanupPreviewCacheKey(
             pageNumber,
             previewOptions,
@@ -534,7 +526,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             matchedCanvasOverridesSignature.value,
             resolveOutputModeRecommendation(pageNumber) ?? null,
             resolveSoftAlphaForegroundRecommendation(pageNumber) ?? null,
-            unresolvedPageLayout,
+            authoritativeLayout,
             detected(pageNumber)?.pagePlanEvidence ?? null,
             options.layoutDetectionComplete.value,
             resolvedPlacementAnchors ?? placementAnchorsFor(pageNumber) ?? null,
@@ -784,22 +776,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         }).catch(() => undefined);
     }
 
-    async function pauseForRun() {
-        // Detection changes the cache identity from provisional to final. If
-        // that change landed immediately before Clean Up, let its visible
-        // generation finish once before canceling preview work; otherwise the
-        // preserve-displayed-result path would freeze the stale frame for the
-        // whole run.
-        if (
-            options.layoutDetectionComplete.value
-            && !resultCurrent.value
-            && options.active()
-            && options.sourcePath.value
-            && getScanCleanupCapability()
-        ) {
-            schedule(true);
-            await until(() => unmounted.value || resultCurrent.value || !loading.value).toBe(true);
-        }
+    function pauseForRun() {
         cancel(false);
     }
 
@@ -1219,7 +1196,6 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     );
     watch(cacheKey, () => schedule());
     onBeforeUnmount(() => {
-        unmounted.value = true;
         stopRawStream?.();
         cancel();
     });

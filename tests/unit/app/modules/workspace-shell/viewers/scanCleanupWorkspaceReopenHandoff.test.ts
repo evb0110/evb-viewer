@@ -346,4 +346,104 @@ describe('scan-cleanup workspace reopen handoff', () => {
         }
     });
 
+    it('marks scan-cleanup generated PDFs as generated, forwards the handoff signal, and avoids false failure when already open', async () => {
+        const outputRef = requireDocumentRef('/managed/cleaned-scan.pdf');
+        const workingRef = requireDocumentRef('/working/cleaned-scan.pdf');
+        const openDocumentDirectBatch = vi.fn(async () => ({
+            kind: 'pdf' as const,
+            workingPath: workingRef,
+            originalPath: outputRef,
+        }));
+        const cleanupFile = vi.fn(async () => undefined);
+        vi.doMock('@app/utils/platformDocuments', () => ({
+            getDocumentOpenCapability: () => ({openDocumentDirectBatch}),
+            getDocumentWorkingCopyCapability: () => ({cleanupFile}),
+        }));
+        try {
+            const {
+                isWorkingCopyOwnedByAnyTab,
+                openScanCleanupGeneratedPdf,
+            } = await import('@app/modules/workspace-shell/composables/useScanCleanupRunCoordinator');
+            const controller = new AbortController();
+            const handleOpenInNewTab = vi.fn(async () => false);
+
+            const opened = await openScanCleanupGeneratedPdf(
+                outputRef,
+                controller.signal,
+                handleOpenInNewTab,
+                ref => ref === outputRef,
+            );
+
+            expect(opened).toBe(true);
+            expect(handleOpenInNewTab).toHaveBeenCalledWith(
+                {
+                    kind: 'pdf',
+                    workingPath: workingRef,
+                    originalPath: outputRef,
+                    isGenerated: true,
+                },
+                undefined,
+                {
+                    activate: true,
+                    signal: controller.signal,
+                },
+            );
+            expect(cleanupFile).not.toHaveBeenCalled();
+
+            // When handleOpenInNewTab returns false after abort, preserve the working copy if a session
+            // already committed it before reaching `presented` (even while `identity.workingCopyPath` is still null).
+            const openingSession = cast<IWorkspaceDocumentController>({
+                file: shallowRef({
+                    originalPath: outputRef,
+                    workingCopyPath: workingRef,
+                    revisionInfo: null,
+                    revisionToken: null,
+                    isDjvu: false,
+                    sourceSha256: null,
+                }),
+                snapshot: ref({
+                    phase: 'opening',
+                    failure: null,
+                    identity: {
+                        documentInstanceId: 'opening-output',
+                        originalPath: outputRef,
+                        workingCopyPath: null,
+                        documentRef: outputRef,
+                    },
+                }),
+            });
+            expect(isWorkingCopyOwnedByAnyTab(workingRef, {'opening-tab': openingSession})).toBe(true);
+            expect(isWorkingCopyOwnedByAnyTab(workingRef, {})).toBe(false);
+
+            controller.abort();
+            const ownedController = new AbortController();
+            const openedOwned = await openScanCleanupGeneratedPdf(
+                outputRef,
+                ownedController.signal,
+                async () => {
+                    ownedController.abort();
+                    return false;
+                },
+                () => false,
+                ref => isWorkingCopyOwnedByAnyTab(ref, {'opening-tab': openingSession}),
+            );
+            expect(openedOwned).toBe(false);
+            expect(cleanupFile).not.toHaveBeenCalled();
+
+            // When no session owns the working copy, discard it so it does not leak.
+            const unownedController = new AbortController();
+            const openedUnowned = await openScanCleanupGeneratedPdf(
+                outputRef,
+                unownedController.signal,
+                async () => false,
+                () => false,
+                ref => isWorkingCopyOwnedByAnyTab(ref, {}),
+            );
+            expect(openedUnowned).toBe(false);
+            expect(cleanupFile).toHaveBeenCalledWith(workingRef);
+        } finally {
+            vi.doUnmock('@app/utils/platformDocuments');
+        }
+    });
+
 });
