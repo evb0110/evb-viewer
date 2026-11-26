@@ -19,6 +19,7 @@ struct BmpHeader {
     compression: u32,
     pixel_offset: usize,
     dib_size: usize,
+    external_mask_bytes: usize,
     palette_entry_size: usize,
     palette_count: usize,
     dpi: Option<(u32, u32)>,
@@ -79,6 +80,7 @@ fn parse_bmp_header(bytes: &[u8]) -> Result<BmpHeader> {
             compression: BI_RGB,
             pixel_offset,
             dib_size,
+            external_mask_bytes: 0,
             palette_entry_size: 3,
             palette_count,
             dpi: None,
@@ -123,6 +125,7 @@ fn parse_bmp_header(bytes: &[u8]) -> Result<BmpHeader> {
 
     let mut masks = [0u32; 4];
     let mut has_explicit_masks = false;
+    let mut external_mask_bytes = 0usize;
     if dib_size >= 52 {
         masks[0] = read_u32_le(bytes, 54)?;
         masks[1] = read_u32_le(bytes, 58)?;
@@ -139,6 +142,9 @@ fn parse_bmp_header(bytes: &[u8]) -> Result<BmpHeader> {
         masks[2] = read_u32_le(bytes, mask_offset + 8)?;
         if compression == BI_ALPHABITFIELDS {
             masks[3] = read_u32_le(bytes, mask_offset + 12)?;
+            external_mask_bytes = 16;
+        } else {
+            external_mask_bytes = 12;
         }
         has_explicit_masks = true;
     }
@@ -159,6 +165,7 @@ fn parse_bmp_header(bytes: &[u8]) -> Result<BmpHeader> {
         compression,
         pixel_offset,
         dib_size,
+        external_mask_bytes,
         palette_entry_size: 4,
         palette_count,
         dpi,
@@ -194,8 +201,22 @@ fn extract_masked_channel(word: u32, mask: u32) -> u8 {
 pub fn decode_bmp(bytes: &[u8], max_pixels: u64) -> Result<DecodedRaster> {
     let header = parse_bmp_header(bytes)?;
     assert_pixel_limit(header.width, header.height, max_pixels)?;
-    if header.pixel_offset > bytes.len() {
-        return Err("BMP pixel data offset exceeds file size".into());
+    let required_palette_entries = if header.bits_per_pixel <= 8 {
+        header.palette_count.min(256)
+    } else {
+        0
+    };
+    let min_pixel_offset = BMP_FILE_HEADER_LEN
+        .checked_add(header.dib_size)
+        .and_then(|offset| offset.checked_add(header.external_mask_bytes))
+        .and_then(|offset| {
+            required_palette_entries
+                .checked_mul(header.palette_entry_size)
+                .and_then(|palette_bytes| offset.checked_add(palette_bytes))
+        })
+        .ok_or("BMP metadata offset overflow")?;
+    if header.pixel_offset < min_pixel_offset || header.pixel_offset > bytes.len() {
+        return Err("BMP pixel data offset is out of bounds".into());
     }
 
     let width = header.width as usize;
@@ -220,7 +241,13 @@ pub fn decode_bmp(bytes: &[u8], max_pixels: u64) -> Result<DecodedRaster> {
             1 | 4 | 8 => {
                 let palette = read_palette(bytes, &header)?;
                 let bpp = usize::from(header.bits_per_pixel);
-                let row_stride = (width * bpp).div_ceil(8).div_ceil(4) * 4;
+                let row_stride = width
+                    .checked_mul(bpp)
+                    .ok_or("BMP indexed row size overflow")?
+                    .div_ceil(8)
+                    .div_ceil(4)
+                    .checked_mul(4)
+                    .ok_or("BMP indexed row stride overflow")?;
                 let required = row_stride
                     .checked_mul(height)
                     .ok_or("BMP pixel data size overflow")?;
@@ -247,7 +274,12 @@ pub fn decode_bmp(bytes: &[u8], max_pixels: u64) -> Result<DecodedRaster> {
                 }
             }
             16 => {
-                let row_stride = (width * 2).div_ceil(4) * 4;
+                let row_stride = width
+                    .checked_mul(2)
+                    .ok_or("BMP 16-bit row size overflow")?
+                    .div_ceil(4)
+                    .checked_mul(4)
+                    .ok_or("BMP 16-bit row stride overflow")?;
                 let required = row_stride
                     .checked_mul(height)
                     .ok_or("BMP pixel data size overflow")?;
@@ -268,7 +300,12 @@ pub fn decode_bmp(bytes: &[u8], max_pixels: u64) -> Result<DecodedRaster> {
                 }
             }
             24 => {
-                let row_stride = (width * 3).div_ceil(4) * 4;
+                let row_stride = width
+                    .checked_mul(3)
+                    .ok_or("BMP 24-bit row size overflow")?
+                    .div_ceil(4)
+                    .checked_mul(4)
+                    .ok_or("BMP 24-bit row stride overflow")?;
                 let required = row_stride
                     .checked_mul(height)
                     .ok_or("BMP pixel data size overflow")?;
@@ -294,10 +331,9 @@ pub fn decode_bmp(bytes: &[u8], max_pixels: u64) -> Result<DecodedRaster> {
                 if pixel_data.len() < required {
                     return Err("Truncated BMP 32-bit pixel data".into());
                 }
-                // Check whether any pixel has non-zero alpha; legacy 32bpp BI_RGB BMPs
-                // often leave the 4th byte as 0 (XRGB), whereas BGRA BMPs populate alpha.
-                let has_alpha = (header.has_explicit_masks && header.masks[3] != 0)
-                    || pixel_data[..required].chunks_exact(4).any(|p| p[3] != 0);
+                // Treat unmasked 32bpp BI_RGB as opaque XRGB; only composite alpha
+                // when the DIB header declares an explicit alpha mask.
+                let has_alpha = header.has_explicit_masks && header.masks[3] != 0;
                 for src_y in 0..height {
                     let src_row = &pixel_data[src_y * row_stride..(src_y + 1) * row_stride];
                     let dst_y = row_index(src_y);
@@ -331,7 +367,12 @@ pub fn decode_bmp(bytes: &[u8], max_pixels: u64) -> Result<DecodedRaster> {
             }
             let [rm, gm, bm, am] = header.masks;
             let bytes_per_pixel = usize::from(header.bits_per_pixel) / 8;
-            let row_stride = (width * bytes_per_pixel).div_ceil(4) * 4;
+            let row_stride = width
+                .checked_mul(bytes_per_pixel)
+                .ok_or("BMP bitfields row size overflow")?
+                .div_ceil(4)
+                .checked_mul(4)
+                .ok_or("BMP bitfields row stride overflow")?;
             let required = row_stride
                 .checked_mul(height)
                 .ok_or("BMP pixel data size overflow")?;
@@ -469,7 +510,7 @@ fn decode_rle(
                     x = 0;
                     y += 1;
                 }
-                1 => break,
+                1 => return Ok(()),
                 2 => {
                     if pos + 1 >= data.len() {
                         return Err("Truncated BMP RLE delta".into());
@@ -482,7 +523,7 @@ fn decode_rle(
                     let lit = usize::from(literal);
                     let byte_len = if four_bit { lit.div_ceil(2) } else { lit };
                     let padded_len = byte_len + (byte_len & 1);
-                    if pos + byte_len > data.len() {
+                    if pos + padded_len > data.len() {
                         return Err("Truncated BMP RLE literal run".into());
                     }
                     if four_bit {
@@ -498,12 +539,12 @@ fn decode_rle(
                             x += 1;
                         }
                     }
-                    pos = (pos + padded_len).min(data.len());
+                    pos += padded_len;
                 }
             }
         }
     }
-    Ok(())
+    Err("Truncated BMP RLE stream: missing end-of-bitmap marker".into())
 }
 
 #[cfg(test)]

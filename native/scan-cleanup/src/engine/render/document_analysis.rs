@@ -634,12 +634,17 @@ struct LayoutPictureEvidenceOutput {
     content_evidence_complete: bool,
 }
 
-fn needs_picture_mask(options: &CleanupOptions, render_policy: PageRenderPolicy<'_>) -> bool {
+fn needs_picture_mask(
+    options: &CleanupOptions,
+    render_policy: PageRenderPolicy<'_>,
+    content_evidence_complete: bool,
+) -> bool {
     render_policy.analyze_layout
         && (options.output_mode != OutputMode::Bw
             || options.ocr_mode
             || render_policy.recommend_output_mode
-            || !options.manual_zones.picture.is_empty())
+            || !options.manual_zones.picture.is_empty()
+            || (options.crop_content && !content_evidence_complete))
 }
 
 fn prepare_layout_picture_evidence(
@@ -677,8 +682,37 @@ fn prepare_layout_picture_evidence(
         calibration_config,
     );
     timings.calibration_ms += calibration_started.elapsed().as_secs_f64() * 1_000.0;
+    let content_evidence_complete = match options.layout {
+        crate::LayoutMode::Single => options
+            .resolved_content_for(PageHalf::Full, full_width, full_height)
+            .is_some(),
+        crate::LayoutMode::TwoPage => {
+            options
+                .resolved_content_for(PageHalf::Left, full_width, full_height)
+                .is_some()
+                && options
+                    .resolved_content_for(PageHalf::Right, full_width, full_height)
+                    .is_some()
+        }
+        crate::LayoutMode::KeepLeft => options
+            .resolved_content_for(PageHalf::Left, full_width, full_height)
+            .is_some(),
+        crate::LayoutMode::KeepRight => options
+            .resolved_content_for(PageHalf::Right, full_width, full_height)
+            .is_some(),
+        crate::LayoutMode::Auto | crate::LayoutMode::PageWithOffcut => {
+            [PageHalf::Full, PageHalf::Left, PageHalf::Right]
+                .into_iter()
+                .all(|half| {
+                    options
+                        .resolved_content_for(half, full_width, full_height)
+                        .is_some()
+                })
+        }
+    };
     let picture_mask_started = Instant::now();
-    let compute_picture_mask = needs_picture_mask(options, render_policy);
+    let compute_picture_mask =
+        needs_picture_mask(options, render_policy, content_evidence_complete);
     let continuous_tone_mask = compute_picture_mask.then(|| {
         Arc::new(if blank_scan_candidate {
             BinaryImage::new(rotated.width(), rotated.height())
@@ -739,34 +773,6 @@ fn prepare_layout_picture_evidence(
         // letting the lower-resolution background enlarge it changes
         // otherwise-correct photos and can join paper texture to them.
         .filter(|_| corroborated_picture_owner_pixels == 0);
-    let content_evidence_complete = match options.layout {
-        crate::LayoutMode::Single => options
-            .resolved_content_for(PageHalf::Full, full_width, full_height)
-            .is_some(),
-        crate::LayoutMode::TwoPage => {
-            options
-                .resolved_content_for(PageHalf::Left, full_width, full_height)
-                .is_some()
-                && options
-                    .resolved_content_for(PageHalf::Right, full_width, full_height)
-                    .is_some()
-        }
-        crate::LayoutMode::KeepLeft => options
-            .resolved_content_for(PageHalf::Left, full_width, full_height)
-            .is_some(),
-        crate::LayoutMode::KeepRight => options
-            .resolved_content_for(PageHalf::Right, full_width, full_height)
-            .is_some(),
-        crate::LayoutMode::Auto | crate::LayoutMode::PageWithOffcut => {
-            [PageHalf::Full, PageHalf::Left, PageHalf::Right]
-                .into_iter()
-                .all(|half| {
-                    options
-                        .resolved_content_for(half, full_width, full_height)
-                        .is_some()
-                })
-        }
-    };
     timings.picture_mask_ms += picture_mask_started.elapsed().as_secs_f64() * 1_000.0;
 
     LayoutPictureEvidenceOutput {
@@ -1877,7 +1883,8 @@ fn build_analysis_artifact(input: ArtifactInput<'_, '_>) -> Arc<AnalysisArtifact
         effective_dpi,
         calibration,
     });
-    let compute_picture_mask = needs_picture_mask(options, render_policy);
+    let compute_picture_mask =
+        needs_picture_mask(options, render_policy, content_evidence_complete);
     // Final ownership and glyph-topology exclusion consume the same raw-tone pass.
     let permissive_tone_mask = compute_picture_mask
         .then(|| {

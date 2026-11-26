@@ -994,10 +994,11 @@ fn cap_added_ink_to_stroke_budget(
     if !adds_ink {
         return candidate.clone();
     }
-    let stage_budget =
-        LineStrokeBudget::from_binary(candidate, budget.dpi).map(|(budget, _, _)| budget);
+    let (stage_budget, map) = match LineStrokeBudget::from_binary(candidate, budget.dpi) {
+        Some((stage_budget, _, map)) => (Some(stage_budget), map),
+        None => (None, ComponentMap::from_binary(candidate)),
+    };
     let comparison_budget = stage_budget.as_ref().unwrap_or(budget);
-    let map = ComponentMap::from_binary(candidate);
     let mut output = candidate.clone();
     let mut capped_components = 0usize;
     let mut capped_pixels = 0usize;

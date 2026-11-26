@@ -815,6 +815,14 @@ fn decode_raster_by_extension(
     }
 }
 
+fn icc_profile_matches_channels(profile: &[u8], channels: usize) -> bool {
+    match profile.get(16..20) {
+        Some(b"GRAY") => channels == 1,
+        Some(b"RGB ") => channels == 3,
+        _ => false,
+    }
+}
+
 fn read_decoded_raster_page(
     extension: &str,
     bytes: &[u8],
@@ -827,34 +835,42 @@ fn read_decoded_raster_page(
         .or_else(|| default_dpi.map(|dpi| (dpi, dpi)))
         .unwrap_or((DEFAULT_DPI, DEFAULT_DPI));
     let total_pixels = decoded.width as usize * decoded.height as usize;
-    let (colors, color_space, compressed) = if is_rgb_data_grayscale(&decoded.rgb, total_pixels) {
-        (
-            1usize,
-            "DeviceGray",
-            deflate_up_filtered_rgb_grayscale(
-                &decoded.rgb,
-                decoded.width as usize,
-                decoded.height as usize,
-            )?,
-        )
-    } else {
-        (
-            3usize,
-            "DeviceRGB",
-            deflate_up_filtered_slices(
-                &decoded.rgb,
-                decoded.width as usize * 3,
-                decoded.height as usize,
-            )?,
-        )
-    };
+    let has_rgb_icc = decoded
+        .icc_profile
+        .as_deref()
+        .is_some_and(|profile| icc_profile_matches_channels(profile, 3));
+    let (colors, color_space, compressed) =
+        if !has_rgb_icc && is_rgb_data_grayscale(&decoded.rgb, total_pixels) {
+            (
+                1usize,
+                "DeviceGray",
+                deflate_up_filtered_rgb_grayscale(
+                    &decoded.rgb,
+                    decoded.width as usize,
+                    decoded.height as usize,
+                )?,
+            )
+        } else {
+            (
+                3usize,
+                "DeviceRGB",
+                deflate_up_filtered_slices(
+                    &decoded.rgb,
+                    decoded.width as usize * 3,
+                    decoded.height as usize,
+                )?,
+            )
+        };
+    let icc_profile = decoded
+        .icc_profile
+        .filter(|profile| icc_profile_matches_channels(profile, colors));
     Ok(ImagePage {
         width: decoded.width,
         height: decoded.height,
         dpi_x,
         dpi_y,
         color_space,
-        icc_profile: decoded.icc_profile,
+        icc_profile,
         payload: ImagePayload::RawFlate {
             data: compressed,
             decode_params: format!(

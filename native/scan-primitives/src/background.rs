@@ -118,6 +118,14 @@ pub fn normalize_illumination_rgb(luminance: &GrayImage, source: &RgbImage, _dpi
     normalize_illumination_rgb_with_masks(luminance, source, None, None, None)
 }
 
+fn non_empty_binary(mask: Option<&BinaryImage>) -> Option<&BinaryImage> {
+    mask.filter(|mask| mask.width() > 0 && mask.height() > 0)
+}
+
+fn non_empty_gray(image: Option<&GrayImage>) -> Option<&GrayImage> {
+    image.filter(|image| image.width() > 0 && image.height() > 0)
+}
+
 pub fn normalize_illumination_rgb_with_masks(
     luminance: &GrayImage,
     source: &RgbImage,
@@ -125,18 +133,20 @@ pub fn normalize_illumination_rgb_with_masks(
     semantic_preservation_alpha: Option<&GrayImage>,
     photo_preservation_alpha: Option<&GrayImage>,
 ) -> RgbImage {
+    let model_exclusion_mask = non_empty_binary(model_exclusion_mask);
+    let semantic_preservation_alpha = non_empty_gray(semantic_preservation_alpha);
+    let photo_preservation_alpha = non_empty_gray(photo_preservation_alpha);
     let paper_model = paper_background_model(prepare_illumination(luminance), model_exclusion_mask);
     let source_median = median_luminance(luminance);
     let paper_is_plausible = source_median >= MIN_PAPER_BACKGROUND_LUMINANCE as u8
         && paper_background_plausible(luminance, &paper_model);
-    let paper_corrected = if paper_is_plausible {
+    let mut normalized = if paper_is_plausible {
         normalize_rgb_with_model(source, &paper_model)
     } else {
         conservative_luminance_levels(luminance, source)
     };
     let semantic_corrected =
         semantic_preservation_alpha.map(|_| normalize_semantic_color(luminance, source));
-    let mut normalized = paper_corrected.clone();
     let mut normalized_luminance = normalize_with_model(luminance, &paper_model);
     // A full-bleed photograph or colored cover has no paper field to white
     // balance. Treating its spatially dominant color as paper turns dark art
@@ -154,12 +164,10 @@ pub fn normalize_illumination_rgb_with_masks(
             None,
         );
     }
-    if let Some(alpha) = semantic_preservation_alpha {
-        blend_preserved_color(
-            semantic_corrected.as_ref().unwrap_or(&paper_corrected),
-            &mut normalized,
-            alpha,
-        );
+    if let (Some(alpha), Some(semantic)) =
+        (semantic_preservation_alpha, semantic_corrected.as_ref())
+    {
+        blend_preserved_color(semantic, &mut normalized, alpha);
     }
     if let Some(alpha) = photo_preservation_alpha {
         blend_preserved_color(source, &mut normalized, alpha);
@@ -168,11 +176,17 @@ pub fn normalize_illumination_rgb_with_masks(
 }
 
 fn median_luminance(source: &GrayImage) -> u8 {
-    let mut histogram = [0usize; 256];
-    for &value in source.data() {
-        histogram[usize::from(value)] += 1;
+    let visible_pixels = source.width().saturating_mul(source.height());
+    if visible_pixels == 0 {
+        return 255;
     }
-    let target = source.data().len().saturating_sub(1) / 2;
+    let mut histogram = [0usize; 256];
+    for y in 0..source.height() {
+        for &value in source.row(y) {
+            histogram[usize::from(value)] += 1;
+        }
+    }
+    let target = visible_pixels.saturating_sub(1) / 2;
     let mut cumulative = 0usize;
     histogram
         .iter()
@@ -185,8 +199,11 @@ fn median_luminance(source: &GrayImage) -> u8 {
 
 /// Normalize the luminance and RGB views with one fitted paper model. Mixed
 /// cleanup consumes both views of the same source raster; fitting the identical
-/// model twice made full-resolution pages pay twice for preparation without
-/// changing either result.
+/// model once avoids paying twice for preparation.
+///
+/// Calibration follows the color-page paper gate: when no exclusion mask is
+/// given and the source median luminance is below `MIN_PAPER_BACKGROUND_LUMINANCE`
+/// (dark full-bleed cover), paper-field calibration is skipped on both outputs.
 pub fn normalize_illumination_pair_with_masks(
     luminance: &GrayImage,
     source: &RgbImage,
@@ -194,12 +211,15 @@ pub fn normalize_illumination_pair_with_masks(
     semantic_preservation_alpha: Option<&GrayImage>,
     photo_preservation_alpha: Option<&GrayImage>,
 ) -> (GrayImage, RgbImage) {
+    let model_exclusion_mask = non_empty_binary(model_exclusion_mask);
+    let semantic_preservation_alpha = non_empty_gray(semantic_preservation_alpha);
+    let photo_preservation_alpha = non_empty_gray(photo_preservation_alpha);
     let paper_model = paper_background_model(prepare_illumination(luminance), model_exclusion_mask);
     let color_page_has_paper = model_exclusion_mask.is_some()
         || median_luminance(luminance) >= MIN_PAPER_BACKGROUND_LUMINANCE as u8;
     let use_background_for_color =
         color_page_has_paper && paper_background_plausible(luminance, &paper_model);
-    let (paper_corrected_luminance, paper_corrected_color) = rayon::join(
+    let (mut normalized_luminance, mut normalized_color) = rayon::join(
         || normalize_with_model(luminance, &paper_model),
         || {
             if use_background_for_color {
@@ -215,8 +235,6 @@ pub fn normalize_illumination_pair_with_masks(
             || normalize_semantic_color(luminance, source),
         )
     });
-    let mut normalized_luminance = paper_corrected_luminance.clone();
-    let mut normalized_color = paper_corrected_color.clone();
     if color_page_has_paper {
         calibrate_paper_field(
             &mut normalized_luminance,
@@ -225,11 +243,9 @@ pub fn normalize_illumination_pair_with_masks(
             None,
         );
     }
-    if let Some(alpha) = semantic_preservation_alpha {
-        let (semantic_luminance, semantic_color) = semantic_corrected.as_ref().map_or(
-            (&paper_corrected_luminance, &paper_corrected_color),
-            |(luminance, color)| (luminance, color),
-        );
+    if let (Some(alpha), Some((semantic_luminance, semantic_color))) =
+        (semantic_preservation_alpha, semantic_corrected.as_ref())
+    {
         blend_preserved_luminance(semantic_luminance, &mut normalized_luminance, alpha);
         blend_preserved_color(semantic_color, &mut normalized_color, alpha);
     }
@@ -323,6 +339,8 @@ fn paper_background_model(
     preparation: IlluminationPreparation,
     model_exclusion_mask: Option<&BinaryImage>,
 ) -> BackgroundModel {
+    let model_exclusion_mask =
+        model_exclusion_mask.filter(|mask| mask.width() > 0 && mask.height() > 0);
     let protect_content_structure = model_exclusion_mask.is_some_and(|mask| mask.count_black() > 0);
     let surface_model_exclusion = model_exclusion_mask.filter(|mask| {
         mask.count_black() as f64 / (mask.width().saturating_mul(mask.height()).max(1) as f64)
@@ -534,23 +552,24 @@ pub fn normalize_illumination_prepared_with_masks(
     paper_shoulder_protection_mask: Option<&BinaryImage>,
     preparation: IlluminationPreparation,
 ) -> GrayImage {
+    let model_exclusion_mask = non_empty_binary(model_exclusion_mask);
+    let semantic_preservation_alpha = non_empty_gray(semantic_preservation_alpha);
+    let photo_preservation_alpha = non_empty_gray(photo_preservation_alpha);
+    let paper_shoulder_protection_mask = non_empty_binary(paper_shoulder_protection_mask);
     let paper_model = paper_background_model(preparation, model_exclusion_mask);
-    let paper_corrected = normalize_with_model(source, &paper_model);
+    let mut normalized = normalize_with_model(source, &paper_model);
     let semantic_corrected =
         semantic_preservation_alpha.map(|_| normalize_semantic_luminance(source));
-    let mut normalized = paper_corrected.clone();
     calibrate_paper_field(
         &mut normalized,
         None,
         model_exclusion_mask,
         paper_shoulder_protection_mask,
     );
-    if let Some(alpha) = semantic_preservation_alpha {
-        blend_preserved_luminance(
-            semantic_corrected.as_ref().unwrap_or(&paper_corrected),
-            &mut normalized,
-            alpha,
-        );
+    if let (Some(alpha), Some(semantic)) =
+        (semantic_preservation_alpha, semantic_corrected.as_ref())
+    {
+        blend_preserved_luminance(semantic, &mut normalized, alpha);
     }
     if let Some(alpha) = photo_preservation_alpha {
         blend_preserved_luminance(source, &mut normalized, alpha);
@@ -561,6 +580,16 @@ pub fn normalize_illumination_prepared_with_masks(
 #[doc(hidden)]
 pub fn reconstructed_background_for_test(source: &GrayImage) -> (GrayImage, GrayImage) {
     let small = source.downscale_to_fit(300, 300);
+    let small = if small.stride() == small.width() {
+        small
+    } else {
+        let mut packed = Vec::with_capacity(small.width().saturating_mul(small.height()));
+        for y in 0..small.height() {
+            packed.extend_from_slice(small.row(y));
+        }
+        GrayImage::from_vec(small.width(), small.height(), small.width(), packed)
+            .expect("packed grayscale buffer matches dimensions")
+    };
     let radius = ((small.width().min(small.height()) as f64 * 0.025).round() as usize).clamp(2, 12);
     let inverted = invert(&small);
     let marker = gray_erode(&inverted, radius);
@@ -694,15 +723,21 @@ fn normalize_rgb_with_model(source: &RgbImage, model: &BackgroundModel) -> RgbIm
 /// multiplicative transform keeps relative semantic contrast while mapping
 /// the page's light field toward display white.
 fn semantic_paper_anchor(source: &GrayImage) -> f64 {
-    let mut histogram = [0usize; 256];
-    for &value in source.data() {
-        histogram[usize::from(value)] += 1;
+    let visible_pixels = (source.width() as u64).saturating_mul(source.height() as u64);
+    if visible_pixels == 0 {
+        return 255.0;
     }
-    let target = source.data().len().saturating_sub(1) * 95 / 100;
-    let mut cumulative = 0usize;
+    let mut histogram = [0u64; 256];
+    for y in 0..source.height() {
+        for &value in source.row(y) {
+            histogram[usize::from(value)] += 1;
+        }
+    }
+    let target = visible_pixels.saturating_sub(1).saturating_mul(95) / 100;
+    let mut cumulative = 0u64;
     histogram
         .iter()
-        .position(|count| {
+        .position(|&count| {
             cumulative += count;
             cumulative > target
         })
@@ -749,7 +784,8 @@ fn calibrate_paper_field(
 
     let width = normalized_luminance.width();
     let height = normalized_luminance.height();
-    let sampling_exclusion_mask = sampling_exclusion_mask.filter(|mask| {
+    let paper_shoulder_protection_mask = non_empty_binary(paper_shoulder_protection_mask);
+    let sampling_exclusion_mask = non_empty_binary(sampling_exclusion_mask).filter(|mask| {
         // A near-page-sized map/picture mask has no useful "outside" paper
         // sample. Its renderer ownership field will restore true tone later;
         // paper calibration must still find the dominant light field inside
@@ -1068,7 +1104,7 @@ fn gray_erode(source: &GrayImage, radius: usize) -> GrayImage {
         .par_chunks_mut(width)
         .enumerate()
         .for_each(|(y, row)| {
-            let source_row = &source.data()[y * width..(y + 1) * width];
+            let source_row = source.row(y);
             for (x, target) in row.iter_mut().enumerate() {
                 *target = source_row[x.saturating_sub(radius)..=(x + radius).min(width - 1)]
                     .iter()
@@ -1630,13 +1666,18 @@ fn percentile(values: &mut [f64], fraction: f64) -> f64 {
 }
 
 fn robust_image_percentile(image: &GrayImage, fraction: f64) -> f64 {
-    let mut histogram = [0usize; 256];
-    for &value in image.data() {
-        histogram[value as usize] += 1;
+    let visible_pixels = (image.width() as u64).saturating_mul(image.height() as u64);
+    if visible_pixels == 0 {
+        return 255.0;
     }
-    let target =
-        ((image.width() * image.height()).saturating_sub(1) as f64 * fraction).round() as usize;
-    let mut cumulative = 0usize;
+    let mut histogram = [0u64; 256];
+    for y in 0..image.height() {
+        for &value in image.row(y) {
+            histogram[value as usize] += 1;
+        }
+    }
+    let target = (visible_pixels.saturating_sub(1) as f64 * fraction).round() as u64;
+    let mut cumulative = 0u64;
     for (value, count) in histogram.into_iter().enumerate() {
         cumulative += count;
         if cumulative > target {

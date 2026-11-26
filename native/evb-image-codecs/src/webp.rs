@@ -28,10 +28,12 @@ pub fn decode_webp(bytes: &[u8], max_pixels: u64) -> Result<DecodedRaster> {
     let (width, height) = decoder.dimensions();
     assert_pixel_limit(width, height, max_pixels)?;
 
-    let icc_profile = decoder
-        .icc_profile()
-        .map_err(|error| format!("Invalid WebP ICC profile: {error}"))?
-        .filter(|profile| !profile.is_empty() && profile.len() <= MAX_WEBP_ICC_PROFILE_BYTES);
+    decoder.set_memory_limit(MAX_WEBP_ICC_PROFILE_BYTES);
+    let icc_profile = match decoder.icc_profile() {
+        Ok(profile) => profile.filter(|profile| !profile.is_empty()),
+        Err(image_webp::DecodingError::MemoryLimitExceeded) => None,
+        Err(error) => return Err(format!("Invalid WebP ICC profile: {error}").into()),
+    };
 
     let has_alpha = decoder.has_alpha();
     let output_size = decoder
@@ -46,6 +48,12 @@ pub fn decode_webp(bytes: &[u8], max_pixels: u64) -> Result<DecodedRaster> {
         return Err("WebP decoded buffer size does not match image dimensions".into());
     }
 
+    // Restore a decode budget covering internal frame buffers for admitted dimensions.
+    decoder.set_memory_limit(
+        output_size
+            .saturating_mul(2)
+            .max(MAX_WEBP_ICC_PROFILE_BYTES),
+    );
     let mut raw = Vec::new();
     raw.try_reserve_exact(output_size)
         .map_err(|_| "WebP image exceeds available memory")?;
@@ -55,20 +63,33 @@ pub fn decode_webp(bytes: &[u8], max_pixels: u64) -> Result<DecodedRaster> {
         .map_err(|error| format!("WebP image is not decodable: {error}"))?;
 
     let rgb = if has_alpha {
-        let mut composited = Vec::with_capacity((width as usize) * (height as usize) * 3);
-        for pixel in raw.chunks_exact(4) {
-            let a = pixel[3];
+        // Composite RGBA onto white in place (3*i <= 4*i) so peak decode memory
+        // stays at 4 bytes/pixel instead of holding RGBA and RGB buffers at once.
+        let pixel_count = (width as usize) * (height as usize);
+        for i in 0..pixel_count {
+            let src = i * 4;
+            let dst = i * 3;
+            let r = raw[src];
+            let g = raw[src + 1];
+            let b = raw[src + 2];
+            let a = raw[src + 3];
             if a == 255 {
-                composited.extend_from_slice(&pixel[0..3]);
+                raw[dst] = r;
+                raw[dst + 1] = g;
+                raw[dst + 2] = b;
             } else if a == 0 {
-                composited.extend_from_slice(&[255, 255, 255]);
+                raw[dst] = 255;
+                raw[dst + 1] = 255;
+                raw[dst + 2] = 255;
             } else {
-                composited.push(composite_channel_over_white(pixel[0], a));
-                composited.push(composite_channel_over_white(pixel[1], a));
-                composited.push(composite_channel_over_white(pixel[2], a));
+                raw[dst] = composite_channel_over_white(r, a);
+                raw[dst + 1] = composite_channel_over_white(g, a);
+                raw[dst + 2] = composite_channel_over_white(b, a);
             }
         }
-        composited
+        raw.truncate(pixel_count * 3);
+        raw.shrink_to_fit();
+        raw
     } else {
         raw
     };

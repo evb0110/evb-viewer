@@ -25,6 +25,7 @@ pub fn decode_gif(bytes: &[u8], max_pixels: u64) -> Result<DecodedRaster> {
 
     let mut options = gif::DecodeOptions::new();
     options.set_color_output(gif::ColorOutput::RGBA);
+    options.check_frame_consistency(true);
     // Bound internal gif decoder allocations to the admitted canvas size (4 Bpp + overhead).
     let max_bytes = (screen_width as usize)
         .checked_mul(screen_height as usize)

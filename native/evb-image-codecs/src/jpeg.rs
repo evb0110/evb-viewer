@@ -255,11 +255,32 @@ pub fn encode_pixels_as_jpeg(
     channels: u8,
     quality: u8,
 ) -> Result<(Vec<u8>, &'static str)> {
+    if width == 0 || height == 0 {
+        return Err("JPEG dimensions must be non-zero".into());
+    }
+    if !matches!(channels, 1 | 3) {
+        return Err(format!("Unsupported JPEG channel count: {channels}").into());
+    }
     let width_u16 =
         u16::try_from(width).map_err(|_| format!("JPEG width is too large to encode: {width}"))?;
     let height_u16 = u16::try_from(height)
         .map_err(|_| format!("JPEG height is too large to encode: {height}"))?;
-    let total_pixels = width as usize * height as usize;
+    let total_pixels = (width as usize)
+        .checked_mul(height as usize)
+        .ok_or("JPEG pixel count overflow")?;
+    let expected_len = total_pixels
+        .checked_mul(usize::from(channels))
+        .ok_or("JPEG pixel payload size overflow")?;
+    if pixels.len() != expected_len {
+        return Err(format!(
+            "JPEG pixel payload length {} does not match {}x{}x{}",
+            pixels.len(),
+            width,
+            height,
+            channels
+        )
+        .into());
+    }
     let (encoded_pixels, color_type, color_space): (Cow<'_, [u8]>, ColorType, &'static str) =
         if channels == 1 {
             (Cow::Borrowed(pixels), ColorType::Luma, "DeviceGray")
@@ -283,7 +304,7 @@ pub fn encode_pixels_as_jpeg(
 }
 
 /// Resizes interleaved 8-bit gray or RGB pixels using area averaging when
-/// downscaling and point sampling otherwise.
+/// downscaling. Rejects upscaling or malformed source buffers.
 pub fn resize_pixels(
     pixels: &[u8],
     source_width: u32,
@@ -293,15 +314,38 @@ pub fn resize_pixels(
     next_height: u32,
     max_pixels: u64,
 ) -> Result<Vec<u8>> {
+    if source_width == 0 || source_height == 0 {
+        return Err("Source dimensions must be non-zero".into());
+    }
+    if !matches!(channels, 1 | 3) {
+        return Err(format!("Unsupported channel count for resize: {channels}").into());
+    }
+    let sw = source_width as usize;
+    let sh = source_height as usize;
+    let ch = usize::from(channels);
+    let expected_source_len = sw
+        .checked_mul(sh)
+        .and_then(|value| value.checked_mul(ch))
+        .ok_or("Source pixel payload size overflow")?;
+    if pixels.len() != expected_source_len {
+        return Err(format!(
+            "Source pixel payload length {} does not match {}x{}x{}",
+            pixels.len(),
+            source_width,
+            source_height,
+            channels
+        )
+        .into());
+    }
+    assert_pixel_limit(next_width, next_height, max_pixels)?;
+    if next_width > source_width || next_height > source_height {
+        return Err("Resized image dimensions cannot exceed source dimensions".into());
+    }
     if source_width == next_width && source_height == next_height {
         return Ok(pixels.to_vec());
     }
-    assert_pixel_limit(next_width, next_height, max_pixels)?;
-    let sw = source_width as usize;
-    let sh = source_height as usize;
     let nw = next_width as usize;
     let nh = next_height as usize;
-    let ch = channels as usize;
     let output_len = nw
         .checked_mul(nh)
         .and_then(|value| value.checked_mul(ch))
