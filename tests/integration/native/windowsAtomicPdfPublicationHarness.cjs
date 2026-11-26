@@ -85,16 +85,33 @@ fs.watch(${JSON.stringify(runtimeDirectory)}, () => {});
 fs.writeFileSync(${JSON.stringify(`${controlPath}.utility-ready`)}, String(process.pid));
 `);
         const originalSpawn = cp.spawn;
+        let trackedChildExit = null;
         cp.spawn = function(command, args, options) {
             if (Array.isArray(args) && args.includes('--check')) {
-                const child = originalSpawn.call(this, process.execPath, [heldScript], {
+                const separatorIndex = args.indexOf('--');
+                const spawnCommand = separatorIndex >= 0 ? command : process.execPath;
+                const spawnArgs = separatorIndex >= 0
+                    ? [
+                        ...args.slice(0, separatorIndex + 1),
+                        process.execPath,
+                        heldScript,
+                    ]
+                    : [heldScript];
+                const child = originalSpawn.call(this, spawnCommand, spawnArgs, {
                     ...options,
                     env: {
                         ...(options && options.env ? options.env : process.env),
                         ELECTRON_RUN_AS_NODE: '1',
                     },
                 });
-                child.once('close', () => { utilityExited = true; });
+                trackedChildExit = new Promise(resolve => {
+                    const markExited = () => {
+                        utilityExited = true;
+                        resolve();
+                    };
+                    child.once('exit', markExited);
+                    child.once('close', markExited);
+                });
                 return child;
             }
             return originalSpawn.call(this, command, args, options);
@@ -108,6 +125,12 @@ fs.writeFileSync(${JSON.stringify(`${controlPath}.utility-ready`)}, String(proce
             await waitForPath(`${controlPath}.cancel`);
             controller.abort(new Error('Windows integration utility cancellation'));
             const error = await outcome;
+            if (trackedChildExit) {
+                await Promise.race([
+                    trackedChildExit,
+                    new Promise(resolve => setTimeout(resolve, 2_000)),
+                ]);
+            }
             if (!error) throw new Error('Validation completed despite the dispatch barrier');
             throw error;
         } finally {
