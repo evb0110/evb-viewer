@@ -248,10 +248,15 @@ describe('page crop operations', () => {
         await expect(request).rejects.toMatchObject({name: 'AbortError'});
     });
 
-    it('publishes the native crop without parsing the document in JavaScript', async () => {
+    it('appends the native crop in place without parsing the document in JavaScript', async () => {
         await createPdf(pdfPath);
         mocks.nativePageOpsPath = '/native/evb-pdf-page-ops';
+        let capturedArgs: string[] = [];
+        let capturedMutations: unknown = null;
         mocks.runNativeToolCommand.mockImplementation(async (_binaryPath: string, args: string[]) => {
+            capturedArgs = [...args];
+            const mutationsPath = args[args.indexOf('--mutations-file') + 1]!;
+            capturedMutations = JSON.parse(await readFile(mutationsPath, 'utf8'));
             await writeFile(args[args.indexOf('--output') + 1]!, '%PDF-1.7\nnative crop');
             return {
                 exitCode: 0,
@@ -275,6 +280,20 @@ describe('page crop operations', () => {
         }
 
         expect(javaScriptParseCount).toBe(0);
+        expect(capturedArgs[0]).toBe('save-mutations');
+        expect(capturedArgs[capturedArgs.indexOf('--input') + 1]).toBe(pdfPath);
+        expect(capturedArgs[capturedArgs.indexOf('--output') + 1]).toBe(pdfPath);
+        expect(capturedArgs).toContain('--append');
+        expect(capturedArgs).toContain('--append-in-place');
+        expect(capturedMutations).toEqual({
+            pageCrops: [{
+                pageIndex: 0,
+                top: 10,
+                bottom: 10,
+                left: 10,
+                right: 10,
+            }],
+        });
         await expect(readFile(pdfPath, 'utf8')).resolves.toBe('%PDF-1.7\nnative crop');
     });
 

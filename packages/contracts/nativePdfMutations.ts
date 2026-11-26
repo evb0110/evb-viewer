@@ -22,8 +22,10 @@ import type {
     IPdfNativeMarkupMarkerRect,
     IPdfNativeMarkupSubtypeHint,
     IPdfNativeMutationSet,
+    IPdfNativePageCropMutation,
     IPdfNativePageLabelRange,
     IPdfNativePageLabelsMutation,
+    IPdfNativePageRotationMutation,
     IPdfNativePlacedImage,
     IPdfNativePlacedImageGeometryUpdate,
     IPdfNativeShapeAnnotation,
@@ -87,6 +89,9 @@ export type TPdfNativeMutationContinuationFamily =
     | 'textBoxes'
     /** @deprecated Accepted for continuations produced before the text-box rename. */
     | 'freeTextEditors'
+    | 'pageRotations'
+    | 'pageCrops'
+    | 'pageCropRemovals'
     | 'pageLabels'
     | 'bookmarks'
     | 'shapes'
@@ -1189,6 +1194,97 @@ export function normalizePdfNativeNoteTextUpdates(
     });
 }
 
+function normalizePageRotations(
+    value: unknown,
+    label: string,
+    options: IPdfNativeValidationOptions,
+): IPdfNativePageRotationMutation[] {
+    if (value === undefined) return [];
+    if (!Array.isArray(value) || value.length > PDF_NATIVE_MUTATION_LIMITS.collectionItems) {
+        fail(`${label} must be an array with at most ${PDF_NATIVE_MUTATION_LIMITS.collectionItems} rotations`, options);
+    }
+    const seen = new Set<number>();
+    return value.map((item, index) => {
+        if (!isRecord(item)) fail(`${label}[${index}] must be an object`, options);
+        const pageIndex = item.pageIndex;
+        if (typeof pageIndex !== 'number' || !Number.isSafeInteger(pageIndex) || pageIndex < 0) {
+            fail(`${label}[${index}].pageIndex must be a non-negative safe integer`, options);
+        }
+        if (seen.has(pageIndex)) {
+            fail(`${label}[${index}].pageIndex duplicates page index ${pageIndex}`, options);
+        }
+        seen.add(pageIndex);
+        const angle = item.angle;
+        if (angle !== 90 && angle !== 180 && angle !== 270) {
+            fail(`${label}[${index}].angle must be 90, 180, or 270`, options);
+        }
+        return {
+            pageIndex: requirePageIndex(pageIndex),
+            angle,
+        };
+    });
+}
+
+function normalizePageCrops(
+    value: unknown,
+    label: string,
+    options: IPdfNativeValidationOptions,
+): IPdfNativePageCropMutation[] {
+    if (value === undefined) return [];
+    if (!Array.isArray(value) || value.length > PDF_NATIVE_MUTATION_LIMITS.collectionItems) {
+        fail(`${label} must be an array with at most ${PDF_NATIVE_MUTATION_LIMITS.collectionItems} crops`, options);
+    }
+    const seen = new Set<number>();
+    return value.map((item, index) => {
+        if (!isRecord(item)) fail(`${label}[${index}] must be an object`, options);
+        const pageIndex = item.pageIndex;
+        if (typeof pageIndex !== 'number' || !Number.isSafeInteger(pageIndex) || pageIndex < 0) {
+            fail(`${label}[${index}].pageIndex must be a non-negative safe integer`, options);
+        }
+        if (seen.has(pageIndex)) {
+            fail(`${label}[${index}].pageIndex duplicates page index ${pageIndex}`, options);
+        }
+        seen.add(pageIndex);
+        const top = normalizeFiniteNonNegativeNumber(item.top, `${label}[${index}].top`, options);
+        const bottom = normalizeFiniteNonNegativeNumber(item.bottom, `${label}[${index}].bottom`, options);
+        const left = normalizeFiniteNonNegativeNumber(item.left, `${label}[${index}].left`, options);
+        const right = normalizeFiniteNonNegativeNumber(item.right, `${label}[${index}].right`, options);
+        if (item.physical !== undefined && typeof item.physical !== 'boolean') {
+            fail(`${label}[${index}].physical must be a boolean`, options);
+        }
+        return {
+            pageIndex: requirePageIndex(pageIndex),
+            top,
+            bottom,
+            left,
+            right,
+            ...(item.physical === true ? {physical: true} : {}),
+        };
+    });
+}
+
+function normalizePageCropRemovals(
+    value: unknown,
+    label: string,
+    options: IPdfNativeValidationOptions,
+) {
+    if (value === undefined) return [];
+    if (!Array.isArray(value) || value.length > PDF_NATIVE_MUTATION_LIMITS.collectionItems) {
+        fail(`${label} must be an array with at most ${PDF_NATIVE_MUTATION_LIMITS.collectionItems} pages`, options);
+    }
+    const seen = new Set<number>();
+    return value.map((item, index) => {
+        if (typeof item !== 'number' || !Number.isSafeInteger(item) || item < 0) {
+            fail(`${label}[${index}] must be a non-negative safe integer`, options);
+        }
+        if (seen.has(item)) {
+            fail(`${label}[${index}] duplicates page index ${item}`, options);
+        }
+        seen.add(item);
+        return requirePageIndex(item);
+    });
+}
+
 export function normalizePdfNativeMutationSet(
     value: unknown,
     label: string,
@@ -1209,6 +1305,17 @@ export function normalizePdfNativeMutationSet(
         options,
     );
     const deletes = normalizeAnnotationDeletes(value.deletes, `${label}.deletes`, options);
+    const pageRotations = normalizePageRotations(value.pageRotations, `${label}.pageRotations`, options);
+    const pageCrops = normalizePageCrops(value.pageCrops, `${label}.pageCrops`, options);
+    const pageCropRemovals = normalizePageCropRemovals(value.pageCropRemovals, `${label}.pageCropRemovals`, options);
+    if (pageCrops.length > 0 && pageCropRemovals.length > 0) {
+        const croppedPages = new Set<number>(pageCrops.map(crop => crop.pageIndex));
+        for (const pageIndex of pageCropRemovals) {
+            if (croppedPages.has(pageIndex)) {
+                fail(`${label}.pageCropRemovals conflicts with ${label}.pageCrops for page index ${pageIndex}`, options);
+            }
+        }
+    }
     const pageLabels = value.pageLabels === undefined
         ? null
         : normalizePageLabelsMutation(value.pageLabels, `${label}.pageLabels`, options);
@@ -1228,7 +1335,8 @@ export function normalizePdfNativeMutationSet(
         options,
     );
     if (
-        updates.length + geometryUpdates.length + freeTextNotes.length + deletes.length + textBoxes.length === 0
+        updates.length + geometryUpdates.length + freeTextNotes.length + deletes.length + textBoxes.length
+            + pageRotations.length + pageCrops.length + pageCropRemovals.length === 0
         && !pageLabels
         && !bookmarks
         && !shapes
@@ -1247,6 +1355,9 @@ export function normalizePdfNativeMutationSet(
         ...(freeTextNotes.length > 0 ? {freeTextNotes} : {}),
         ...(textBoxes.length > 0 ? {textBoxes} : {}),
         ...(deletes.length > 0 ? {deletes} : {}),
+        ...(pageRotations.length > 0 ? {pageRotations} : {}),
+        ...(pageCrops.length > 0 ? {pageCrops} : {}),
+        ...(pageCropRemovals.length > 0 ? {pageCropRemovals} : {}),
         ...(pageLabels ? {pageLabels} : {}),
         ...(bookmarks ? {bookmarks} : {}),
         ...(shapes ? {shapes} : {}),
@@ -1278,6 +1389,9 @@ function countNativeMutationItems(mutations: IPdfNativeMutationSet): number {
     }
     add((mutations.textBoxes ?? mutations.freeTextEditors)?.length ?? 0);
     add(mutations.deletes?.length ?? 0);
+    add(mutations.pageRotations?.length ?? 0);
+    add(mutations.pageCrops?.length ?? 0);
+    add(mutations.pageCropRemovals?.length ?? 0);
     add(mutations.pageLabels?.ranges.length ?? 0);
     add(mutations.bookmarks ? countNativeBookmarkItems(mutations.bookmarks.items) : 0);
     if (mutations.shapes) {

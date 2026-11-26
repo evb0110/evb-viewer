@@ -1,7 +1,7 @@
 //! EPPO binary frame definitions, shared by the Rust codec and generated TS.
 //! The worker-message envelope is a separate contract.
 
-use crate::{CropMargins, Result};
+use crate::Result;
 use evb_native_support::NativeErrorCode;
 
 pub(crate) const MAX_WASM_PASSWORD_BYTES: usize = 4 * 1024;
@@ -95,9 +95,6 @@ abi! {
         OP_EXTRACT_PAGES = 2 => "extractPages";
         OP_REORDER_PAGES = 3 => "reorderPages";
         OP_INSERT_PAGES = 4 => "insertPages";
-        OP_ROTATE = 5 => "rotate";
-        OP_CROP = 6 => "crop";
-        OP_REMOVE_CROP = 7 => "removeCrop";
         OP_GET_PAGE_GEOMETRY = 8 => "getPageGeometry";
         OP_DECRYPT = 9 => "decrypt";
         // FILE_REQUEST_HEADER framing over source 0. Answers
@@ -148,6 +145,17 @@ abi! {
         // FILE_REQUEST_HEADER framing over source 0. Answers RESPONSE_JSON
         // with `{"verdict": "appendable" | "repairable" | "limited" | "unverified"}`.
         OP_APPEND_ADMISSION = 27 => "appendAdmission";
+        // REQUEST_HEADER framing: `page_number` is the document handle and
+        // `data` is the PDF bytes. Parses once and caches the `Document` in
+        // this WASM instance until closed or replaced. Answers RESPONSE_JSON.
+        OP_OPEN_DOCUMENT = 28 => "openDocument";
+        // REQUEST_HEADER framing: `page_number` is the document handle (0
+        // clears any cached document). Answers RESPONSE_JSON.
+        OP_CLOSE_DOCUMENT = 29 => "closeDocument";
+        // REQUEST_HEADER framing: `page_number` is the cached document handle
+        // and `insertion_data` is the JSON ScanRasterRequest. Answers
+        // RESPONSE_REPORTED_RASTER.
+        OP_RENDER_SCAN_CLEANUP_RASTER_CACHED = 30 => "renderScanCleanupRasterCached";
     }
     layouts {
         REQUEST_HEADER: RequestHeader {
@@ -231,8 +239,6 @@ pub(crate) struct ParsedRequest<'a> {
     pub(crate) operation: u32,
     pub(crate) pages: Vec<u32>,
     pub(crate) page_number: u32,
-    pub(crate) angle: i64,
-    pub(crate) margins: CropMargins,
     pub(crate) data: &'a [u8],
     pub(crate) insertion_data: &'a [u8],
     pub(crate) password: &'a [u8],
@@ -252,14 +258,11 @@ pub(crate) fn parse_request(request: &[u8]) -> Result<ParsedRequest<'_>> {
     let operation = read_u32_at(request, REQUEST_HEADER.operation)?;
     let page_count = read_usize_at(request, REQUEST_HEADER.page_count, "page_count")?;
     let page_number = read_u32_at(request, REQUEST_HEADER.page_number)?;
-    let angle = i64::from(read_u32_at(request, REQUEST_HEADER.angle)?);
-    let margins = CropMargins {
-        physical: operation == OP_CROP && angle == 1,
-        top: read_f64_at(request, REQUEST_HEADER.top)?,
-        bottom: read_f64_at(request, REQUEST_HEADER.bottom)?,
-        left: read_f64_at(request, REQUEST_HEADER.left)?,
-        right: read_f64_at(request, REQUEST_HEADER.right)?,
-    };
+    let _angle = read_u32_at(request, REQUEST_HEADER.angle)?;
+    let _top = read_f64_at(request, REQUEST_HEADER.top)?;
+    let _bottom = read_f64_at(request, REQUEST_HEADER.bottom)?;
+    let _left = read_f64_at(request, REQUEST_HEADER.left)?;
+    let _right = read_f64_at(request, REQUEST_HEADER.right)?;
     let data_len = read_usize_at(request, REQUEST_HEADER.data_length, "data_len")?;
     let insertion_data_len = read_usize_at(
         request,
@@ -315,8 +318,6 @@ pub(crate) fn parse_request(request: &[u8]) -> Result<ParsedRequest<'_>> {
         operation,
         pages,
         page_number,
-        angle,
-        margins,
         data,
         insertion_data,
         password,

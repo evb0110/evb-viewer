@@ -324,7 +324,84 @@ async function runBrowserCatalogPartsAcceptance() {
     }));
 }
 
+async function runBrowserIncrementalGeometryAcceptance() {
+    const fixture = await createFixture();
+    const workingPath = await browserDocumentStore.createStoredDocument(
+        'geometry-working.pdf',
+        fixture.bytes,
+        {
+            mimeType: 'application/pdf',
+            kind: 'working',
+            retention: 'transient',
+            saveKind: 'pdf',
+        },
+    );
+    try {
+        const pageOps = createBrowserPageOpsCapability({
+            clearSearchCaches: async () => undefined,
+            openInputAccept: 'application/pdf',
+            pickFiles: async () => [],
+            buildOpenPdfPickerTypes: () => [],
+            createCombinedPdfFromPaths,
+            pickSaveTarget: async () => ({
+                canceled: true,
+                fileName: '',
+            }),
+            saveBytesToPickerOrDownload: async () => ({
+                canceled: true,
+                fileName: '',
+            }),
+            writeBytesToHandle: async () => undefined,
+            repairWorkingCopy: repairBrowserWorkingCopy,
+        });
+        const rev = async () => ({expectedDocumentRevisionToken: (await browserDocumentStore.getDocumentRevision(workingPath)).token});
+
+        await pageOps.rotate(workingPath, [1], 3, 90, await rev());
+        const afterRotate = await browserDocumentStore.read(workingPath);
+        const rotatePreservesPrefix = afterRotate.length > fixture.bytes.length
+            && afterRotate.subarray(0, fixture.bytes.length).every((byte, index) => byte === fixture.bytes[index]);
+
+        await pageOps.crop(workingPath, [1], 3, {
+            top: 4,
+            bottom: 6,
+            left: 8,
+            right: 10,
+        }, await rev());
+        const afterCrop = await browserDocumentStore.read(workingPath);
+        const cropPreservesPrefix = afterCrop.length > afterRotate.length
+            && afterCrop.subarray(0, afterRotate.length).every((byte, index) => byte === afterRotate[index]);
+
+        const croppedDoc = await PDFDocument.load(afterCrop);
+        const croppedRotation = croppedDoc.getPage(0).getRotation().angle;
+        const croppedBox = croppedDoc.getPage(0).getCropBox();
+
+        await pageOps.removeCrop(workingPath, [1], 3, await rev());
+        browserDocumentStore.unload(workingPath);
+        const afterRemove = await browserDocumentStore.read(workingPath);
+        const removePreservesPrefix = afterRemove.length > afterCrop.length
+            && afterRemove.subarray(0, afterCrop.length).every((byte, index) => byte === afterCrop[index]);
+        const uncroppedDoc = await PDFDocument.load(afterRemove);
+        const uncroppedMedia = uncroppedDoc.getPage(0).getMediaBox();
+        const uncroppedCrop = uncroppedDoc.getPage(0).getCropBox();
+
+        return {
+            rotatePreservesPrefix,
+            cropPreservesPrefix,
+            removePreservesPrefix,
+            croppedRotation,
+            croppedBox,
+            cropRemovedMatchesMedia: uncroppedCrop.x === uncroppedMedia.x
+                && uncroppedCrop.y === uncroppedMedia.y
+                && uncroppedCrop.width === uncroppedMedia.width
+                && uncroppedCrop.height === uncroppedMedia.height,
+        };
+    } finally {
+        await browserDocumentStore.cleanupDetachedDocument(workingPath);
+    }
+}
+
 Reflect.set(globalThis, '__evbRunBrowserPageOpsAcceptance', runBrowserPageOpsAcceptance);
+Reflect.set(globalThis, '__evbRunBrowserIncrementalGeometryAcceptance', runBrowserIncrementalGeometryAcceptance);
 Reflect.set(globalThis, '__evbRunBrowserCatalogPartsAcceptance', runBrowserCatalogPartsAcceptance);
 
 // Read the writer's saved bytes independently, including every unchanged title.

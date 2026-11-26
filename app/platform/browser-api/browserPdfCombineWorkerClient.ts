@@ -18,6 +18,7 @@ import {
     canUseBrowserWorker,
     resolveBrowserPageLanes,
 } from '@app/platform/browser-api/browserWorkerClient';
+import {PDF_IMAGE_COMBINE_WASM_PATH} from '@app/platform/browser-api/tryCombineImageInputsWithWasm';
 import { getErrorMessage } from '@app/utils/error';
 import { captureRendererFailure } from '@app/utils/failureReporter';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
@@ -144,6 +145,7 @@ export function canUseBrowserPdfCombineWorker() {
 function createBrowserPdfCombineWorkerClient() {
     return new BrowserWorkerClient<IPendingBrowserWorkerRequest>({
         idleTtlMs: BROWSER_PDF_COMBINE_WORKER_IDLE_TTL_MS,
+        preloadWasmPaths: () => [PDF_IMAGE_COMBINE_WASM_PATH],
         createWorker: () => {
             try {
                 return new Worker(

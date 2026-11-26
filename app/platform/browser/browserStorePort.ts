@@ -3,11 +3,16 @@ import type {
     IStoreFile,
     IStorePort,
 } from '@document-store/storePort';
-import type {
-    IOcrTextLayerAppendRequest,
-    IPdfAppendFile,
-    IPdfAppendRequest,
-    IPdfAppendResult,
+import {
+    handlePrecompiledWasmModuleMessage,
+    postPrecompiledWasmModules,
+} from '@app/platform/browser/loadWasmWithDeadline';
+import {
+    PDF_PAGE_OPS_WASM_PATH,
+    type IOcrTextLayerAppendRequest,
+    type IPdfAppendFile,
+    type IPdfAppendRequest,
+    type IPdfAppendResult,
 } from '@app/platform/browser/pdfPageEngine';
 import { opfsFileHandle } from '@app/platform/browser/opfsFileHandle';
 
@@ -76,11 +81,13 @@ export function blobContentWitness(blob: Blob) {
 export function createWorkerStorePort(worker: Worker): IStorePort & {probe(): Promise<boolean>; witnessBlob(blob: Blob): Promise<string>} {
     const pending = new Map<number, {resolve(value: unknown): void; reject(error: Error): void}>();
     let nextId = 1;
+    postPrecompiledWasmModules(worker, [PDF_PAGE_OPS_WASM_PATH]);
     const fail = (error: Error) => {
         for (const request of pending.values()) request.reject(error);
         pending.clear();
     };
     worker.addEventListener('message', (event: MessageEvent<IResponse>) => {
+        if (handlePrecompiledWasmModuleMessage(event.data)) return;
         const request = pending.get(event.data.id);
         if (!request) return;
         pending.delete(event.data.id);

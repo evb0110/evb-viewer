@@ -2,8 +2,8 @@ import { getErrorMessage } from '@app/utils/error';
 import {
     createNativeWasmToolLoader,
     type TNativeWasmCallResult,
-} from '@app/platform/browser-api/nativeWasmTool';
-import {NativeWasmThreadStartError} from '@app/platform/browser-api/nativeWasmThreadedTool';
+} from '@app/platform/browser/nativeWasmTool';
+import {NativeWasmThreadStartError} from '@app/platform/browser/nativeWasmThreadedTool';
 import {
     readScanCleanupEngineWorkerThreads,
     SCAN_CLEANUP_ENGINE_MAXIMUM_MEMORY_PAGES,

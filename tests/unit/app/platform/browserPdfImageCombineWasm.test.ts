@@ -959,7 +959,7 @@ describe('tryCombineImageInputsWithWasm', () => {
             'PDF image combine WASM failed',
             {
                 error: 'wasm failed',
-                resultCode: -1,
+                code: 'corrupt-xref',
             },
         );
     });
@@ -1098,7 +1098,7 @@ describe('tryCombineImageInputsWithWasm', () => {
             data: new Uint8Array([1]),
         }])).resolves.toMatchObject({
             status: 'fatal',
-            error: {code: 'native-failure'},
+            error: {code: 'invalid-request'},
         });
         expect(wasmMock.exports.evb_pdf_image_combine_build_pdf).not.toHaveBeenCalled();
         expect(wasmMock.free).toHaveBeenCalledOnce();
@@ -1126,7 +1126,7 @@ describe('tryCombineImageInputsWithWasm', () => {
             data: new Uint8Array([1]),
         }])).resolves.toMatchObject({
             status: 'fatal',
-            error: {code: 'native-failure'},
+            error: {code: 'invalid-request'},
         });
         expect(wasmMock.exports.evb_pdf_image_combine_build_pdf).toHaveBeenCalledOnce();
         expect(wasmMock.free).toHaveBeenCalledOnce();

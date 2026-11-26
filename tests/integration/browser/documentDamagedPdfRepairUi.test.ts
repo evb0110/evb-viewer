@@ -48,22 +48,34 @@ describe('browser PDF open recovery', () => {
         page.on('console', message => messages.push(`${message.type()}: ${message.text()}`));
         page.on('pageerror', error => messages.push(error.message));
         try {
-            // Fail inside the real qpdf worker after compilation succeeds.
+            // Fail inside the real page-ops worker where append admission now runs.
             // Other workers, including PDF.js, keep their native WebAssembly.
-            await page.route('**/browserQpdfEngine.worker.ts*', async route => {
+            await page.route('**/browserPageOps.worker.ts*', async route => {
                 const response = await route.fetch();
                 injected = true;
                 await route.fulfill({
                     response,
                     body: `
+                        const hasAppendAdmission = module => module instanceof WebAssembly.Module
+                            && WebAssembly.Module.exports(module)
+                                .some(entry => entry.name === 'evb_pdf_page_ops_append_admission');
                         const instantiate = WebAssembly.instantiate.bind(WebAssembly);
                         WebAssembly.instantiate = (module, imports) => {
-                            if (module instanceof WebAssembly.Module && WebAssembly.Module.exports(module)
-                                .some(entry => entry.name === 'evb_pdf_page_ops_append_admission')) {
+                            if (hasAppendAdmission(module)) {
                                 return Promise.reject(new WebAssembly.LinkError('append admission unavailable'));
                             }
                             return instantiate(module, imports);
                         };
+                        if (typeof WebAssembly.instantiateStreaming === 'function') {
+                            const instantiateStreaming = WebAssembly.instantiateStreaming.bind(WebAssembly);
+                            WebAssembly.instantiateStreaming = async (source, imports) => {
+                                const result = await instantiateStreaming(source, imports);
+                                if (hasAppendAdmission(result.module)) {
+                                    throw new WebAssembly.LinkError('append admission unavailable');
+                                }
+                                return result;
+                            };
+                        }
                         ${await response.text()}`,
                 });
             });

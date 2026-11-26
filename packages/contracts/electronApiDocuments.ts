@@ -474,11 +474,28 @@ export interface IPdfNativePlacedImageGeometryUpdate extends IPdfBox {
     rotationDegrees?: number | null;
 }
 
+export interface IPdfNativePageRotationMutation {
+    pageIndex: TPageIndex;
+    angle: 90 | 180 | 270;
+}
+
+export interface IPdfNativePageCropMutation {
+    pageIndex: TPageIndex;
+    top: number;
+    bottom: number;
+    left: number;
+    right: number;
+    physical?: boolean;
+}
+
 export interface IPdfNativeMutationSet extends IPdfNativeNoteChanges {
     /** Immutable managed source, leased by the platform for original appearance restoration. */
     originalAppearanceSource?: TDocumentRef;
     textBoxes?: IPdfNativeTextBoxMutation[];
     freeTextEditors?: IPdfNativeFreeTextEditor[];
+    pageRotations?: IPdfNativePageRotationMutation[];
+    pageCrops?: IPdfNativePageCropMutation[];
+    pageCropRemovals?: TPageIndex[];
     pageLabels?: IPdfNativePageLabelsMutation;
     bookmarks?: IPdfNativeBookmarksMutation;
     shapes?: IPdfNativeShapesMutation;

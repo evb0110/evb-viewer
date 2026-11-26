@@ -11,6 +11,7 @@ import {
     normalizePdfNativeAnnotationIdentityBindings,
     normalizePdfNativeMutationSet,
 } from '@contracts/nativePdfMutations';
+import {requirePageIndex} from '@contracts/pageNumbers';
 import {
     collectExpectedNativeIdentityIds, splitPdfNativeMutationSetIntoBoundedChunks,
 } from '@pdf-core/nativePdfMutationPolicy';
@@ -1404,5 +1405,75 @@ describe('native deletion reports', () => {
                     '10 0 R',
                 ],
             });
+    });
+
+    it('splits 10,001 geometry mutations into valid continuation chunks and rejects duplicate or conflicting page indices', () => {
+        const rotations = Array.from({length: 10_001}, (_, index) => ({
+            pageIndex: requirePageIndex(index),
+            angle: 90 as const,
+        }));
+        const rotationChunks = splitPdfNativeMutationSetIntoBoundedChunks({pageRotations: rotations});
+        expect(rotationChunks).toHaveLength(2);
+        expect(rotationChunks[0]?.pageRotations).toHaveLength(10_000);
+        expect(rotationChunks[1]).toMatchObject({
+            continuation: {
+                family: 'pageRotations',
+                chunkIndex: 1,
+                chunkCount: 2,
+            },
+            pageRotations: [{
+                pageIndex: 10_000,
+                angle: 90,
+            }],
+        });
+
+        const crops = Array.from({length: 10_001}, (_, index) => ({
+            pageIndex: requirePageIndex(index),
+            top: 1,
+            bottom: 2,
+            left: 3,
+            right: 4,
+        }));
+        const cropChunks = splitPdfNativeMutationSetIntoBoundedChunks({pageCrops: crops});
+        expect(cropChunks).toHaveLength(2);
+        expect(cropChunks[0]?.pageCrops).toHaveLength(10_000);
+        expect(cropChunks[1]).toMatchObject({
+            continuation: {
+                family: 'pageCrops',
+                chunkIndex: 1,
+                chunkCount: 2,
+            },
+            pageCrops: [{
+                pageIndex: 10_000,
+                top: 1,
+                bottom: 2,
+                left: 3,
+                right: 4,
+            }],
+        });
+
+        const removals = Array.from({length: 10_001}, (_, index) => requirePageIndex(index));
+        const removalChunks = splitPdfNativeMutationSetIntoBoundedChunks({pageCropRemovals: removals});
+        expect(removalChunks).toHaveLength(2);
+        expect(removalChunks[0]?.pageCropRemovals).toHaveLength(10_000);
+        expect(removalChunks[1]).toMatchObject({
+            continuation: {
+                family: 'pageCropRemovals',
+                chunkIndex: 1,
+                chunkCount: 2,
+            },
+            pageCropRemovals: [10_000],
+        });
+
+        expect(() => normalizePdfNativeMutationSet({
+            pageRotations: [
+                {pageIndex: 0, angle: 90},
+                {pageIndex: 0, angle: 180},
+            ],
+        }, 'mutations')).toThrow('duplicates page index 0');
+        expect(() => normalizePdfNativeMutationSet({
+            pageCrops: [{pageIndex: 2, top: 1, bottom: 1, left: 1, right: 1}],
+            pageCropRemovals: [2],
+        }, 'mutations')).toThrow('conflicts');
     });
 });

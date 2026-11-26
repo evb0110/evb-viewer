@@ -1,6 +1,3 @@
-import {
-    BROWSER_PAGE_OPS_MAX_REQUEST_BYTES, BROWSER_PAGE_OPS_MAX_OUTPUT_BYTES,
-} from '@contracts/browserPageOpsLimits';
 import { getErrorMessage } from '@app/utils/error';
 import {
     BYTES_HEADER,
@@ -31,16 +28,13 @@ import {
     isBrowserPageOpsWasmFailure,
 } from '@contracts/browserPageOpsWorker';
 import {decodeBrowserPdfCatalog} from '@contracts/browserPdfCatalog';
-import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
-import type {ICropMargins} from '@contracts/shared';
+import { toTransferableUint8Array } from '@app/platform/browser/toTransferableUint8Array';
 import {
     blobSource,
-    copyWasmBytes,
+    callPdfPageOpsWasm,
     createWasmFailure,
     createWasmLoadFailure,
-    discardPdfPageOpsWasm,
     loadPdfPageOpsWasm,
-    readWasmFailure,
     releasePdfPageOpsWasmAboveHighWater,
     runFileRequest,
     toWasmU32,
@@ -50,15 +44,10 @@ import {
     type IPageStructureFiles,
     type IPdfPageOpsWasmExports,
 } from '@app/platform/browser/pdfPageEngine';
-import {getCheckedWasmMemoryView} from '@contracts/getCheckedWasmMemoryView';
 import * as v from 'valibot';
 export {
     isBrowserPageOpsWasmFailure, type IBrowserPageOpsWasmFailure,
 } from '@contracts/browserPageOpsWorker';
-
-
-
-
 
 // Page-structure edits read and write files through the engine's host imports, not a request buffer.
 type IBrowserPageOpsWasmRequestMap = Omit<IBrowserPageOpsWorkerRequestMap, 'pageStructure'>;
@@ -83,7 +72,14 @@ type IBrowserPageOpsWasmResultMap = {
 type TBrowserPageOpsWasmRequestType = keyof IBrowserPageOpsWasmRequestMap;
 
 /** Reads that take their document as a Blob, through file framing. */
-type TFileReadType = 'getPageGeometry' | 'readPageSizes' | 'parseAnnotations' | 'readCatalog' | 'conformance' | 'ocrTextVisibility';
+type TFileReadType =
+    | 'getPageGeometry'
+    | 'readPageSizes'
+    | 'appendAdmission'
+    | 'parseAnnotations'
+    | 'readCatalog'
+    | 'conformance'
+    | 'ocrTextVisibility';
 /** Requests that carry their document in the request buffer. */
 type TByteRequestType = Exclude<TBrowserPageOpsWasmRequestType, TFileReadType>;
 
@@ -94,21 +90,99 @@ type TBrowserPageOpsWasmRequest = {
     };
 }[TByteRequestType];
 
-function toWasmF64(value: number) {
-    if (!Number.isFinite(value)) {
-        throw new Error('Invalid page-op WASM number field');
-    }
-
-    return value;
+interface ICachedDocumentSlot {
+    key: string;
+    handle: number;
+    tool: IPdfPageOpsWasmExports;
 }
 
+// One parsed PDF Document kept warm in this thread's page-ops WASM instance,
+// keyed by document ref + revision so sequential page rasters avoid copying
+// and re-parsing the entire PDF.
+let cachedDocument: ICachedDocumentSlot | null = null;
+let nextCachedDocumentHandle = 1;
+
+function buildStandardFrame(options: {
+    operation: number;
+    pages?: readonly number[];
+    pageNumber?: number;
+    data?: Uint8Array;
+    insertionData?: Uint8Array;
+    password?: Uint8Array;
+}) {
+    const pages = (options.pages ?? []).map(toWasmU32);
+    const pageNumber = toWasmU32(options.pageNumber ?? 0);
+    const data = options.data ?? new Uint8Array();
+    const insertionData = options.insertionData ?? new Uint8Array();
+    const password = options.password ?? new Uint8Array();
+    const headerBytes = REQUEST_HEADER.bytes;
+    const dataLength = toWasmU32(data.byteLength);
+    const insertionDataLength = toWasmU32(insertionData.byteLength);
+    const passwordLength = toWasmU32(password.byteLength);
+    const output: Uint8Array<ArrayBuffer> = new Uint8Array(
+        headerBytes
+        + (pages.length * U32_BYTES)
+        + dataLength
+        + insertionDataLength
+        + passwordLength,
+    );
+    const view = new DataView(output.buffer);
+    writeMagic(output, REQUEST_HEADER.magic);
+    writeU32(view, REQUEST_HEADER.version, REQUEST_VERSION);
+    writeU32(view, REQUEST_HEADER.operation, options.operation);
+    writeU32(view, REQUEST_HEADER.pageCount, pages.length);
+    writeU32(view, REQUEST_HEADER.pageNumber, pageNumber);
+    writeU32(view, REQUEST_HEADER.angle, 0);
+    view.setFloat64(REQUEST_HEADER.top, 0, true);
+    view.setFloat64(REQUEST_HEADER.bottom, 0, true);
+    view.setFloat64(REQUEST_HEADER.left, 0, true);
+    view.setFloat64(REQUEST_HEADER.right, 0, true);
+    writeU32(view, REQUEST_HEADER.dataLength, dataLength);
+    writeU32(view, REQUEST_HEADER.insertionDataLength, insertionDataLength);
+    writeU32(view, REQUEST_HEADER.passwordLength, passwordLength);
+    let offset: number = headerBytes;
+    for (const page of pages) {
+        offset = writeU32(view, offset, page);
+    }
+    output.set(data, offset);
+    offset += dataLength;
+    output.set(insertionData, offset);
+    offset += insertionDataLength;
+    output.set(password, offset);
+    const passwordOffset = offset;
+    password.fill(0);
+    return {
+        data: output,
+        passwordOffset,
+        passwordLength,
+    };
+}
+
+/**
+ * Closes any parsed PDF `Document` cached in this thread's WASM instance whose
+ * key matches `keyPrefix` (or any cached document when `keyPrefix` is omitted),
+ * and releases the WASM instance if its memory grew past the high-water mark.
+ */
+export function evictCachedBrowserPageOpsDocument(keyPrefix?: string) {
+    const slot = cachedDocument;
+    if (!slot) return;
+    if (keyPrefix !== undefined && !slot.key.startsWith(keyPrefix)) return;
+    cachedDocument = null;
+    try {
+        const frame = buildStandardFrame({
+            operation: OPERATION_CODES.closeDocument,
+            pageNumber: slot.handle,
+        });
+        callPdfPageOpsWasm(slot.tool, frame.data);
+    } catch {
+        // Instance may already have been discarded after a trap.
+    } finally {
+        releasePdfPageOpsWasmAboveHighWater(slot.tool);
+    }
+}
 
 function getRequestPages(request: TBrowserPageOpsWasmRequest): number[] {
     switch (request.type) {
-        case 'rotate':
-        case 'crop':
-        case 'removeCrop':
-            return request.payload.pages;
         case 'printLayout':
             return request.payload.pageNumbers;
         case 'inspectScanCleanupPdf':
@@ -126,18 +200,16 @@ function getRequestPages(request: TBrowserPageOpsWasmRequest): number[] {
 
 function getRequestData(request: TBrowserPageOpsWasmRequest): Uint8Array {
     switch (request.type) {
-        case 'rotate':
-        case 'crop':
-        case 'removeCrop':
         case 'decrypt':
         case 'printLayout':
         case 'inspectScanCleanupPdf':
         case 'splitPages':
-        case 'renderScanCleanupRaster':
         case 'overlayText':
         case 'recompressImages':
         case 'replacePageImages':
             return request.payload.data;
+        case 'renderScanCleanupRaster':
+            return request.payload.data ?? new Uint8Array();
         case 'textBoxAppearance':
             return new Uint8Array();
     }
@@ -159,25 +231,6 @@ function getPassword(request: TBrowserPageOpsWasmRequest) {
         : new Uint8Array();
 }
 
-function getAngle(request: TBrowserPageOpsWasmRequest): number {
-    return request.type === 'rotate'
-        ? request.payload.angle
-        : Number(request.type === 'crop' && request.payload.margins.physical === true);
-}
-
-function getMargins(request: TBrowserPageOpsWasmRequest): ICropMargins {
-    if (request.type !== 'crop') {
-        return {
-            top: 0,
-            bottom: 0,
-            left: 0,
-            right: 0,
-        };
-    }
-
-    return request.payload.margins;
-}
-
 interface IInstructedWasmRequest {
     data: Uint8Array;
     instructions: unknown;
@@ -196,7 +249,7 @@ function getInstructedRequest(request: TBrowserPageOpsWasmRequest): IInstructedW
             };
         case 'renderScanCleanupRaster':
             return {
-                data: request.payload.data,
+                data: request.payload.data ?? new Uint8Array(),
                 instructions: request.payload.request,
                 attachments: [],
             };
@@ -213,9 +266,6 @@ function getInstructedRequest(request: TBrowserPageOpsWasmRequest): IInstructedW
                 attachments: request.payload.replacementPdfs,
             };
         case 'textBoxAppearance':
-        case 'rotate':
-        case 'crop':
-        case 'removeCrop':
         case 'decrypt':
         case 'printLayout':
         case 'inspectScanCleanupPdf':
@@ -263,56 +313,13 @@ function buildWasmRequest(request: TBrowserPageOpsWasmRequest) {
     if (instructed !== null) {
         return buildInstructedWasmRequest(OPERATION_CODES[request.type], instructed);
     }
-    const data = getRequestData(request);
-    const insertionData = getInsertionData(request);
-    const password = getPassword(request);
-    const headerBytes = REQUEST_HEADER.bytes;
-    const pages = getRequestPages(request).map(toWasmU32);
-    const angle = toWasmU32(getAngle(request));
-    const dataLength = toWasmU32(data.byteLength);
-    const insertionDataLength = toWasmU32(insertionData.byteLength);
-    const passwordLength = toWasmU32(password.byteLength);
-    const output: Uint8Array<ArrayBuffer> = new Uint8Array(
-        headerBytes
-        + (pages.length * U32_BYTES)
-        + dataLength
-        + insertionDataLength
-        + passwordLength,
-    );
-    const view = new DataView(output.buffer);
-    const margins = getMargins(request);
-    writeMagic(output, REQUEST_HEADER.magic);
-    writeU32(view, REQUEST_HEADER.version, REQUEST_VERSION);
-    writeU32(view, REQUEST_HEADER.operation, OPERATION_CODES[request.type]);
-    writeU32(view, REQUEST_HEADER.pageCount, pages.length);
-    writeU32(view, REQUEST_HEADER.pageNumber, 0);
-    writeU32(view, REQUEST_HEADER.angle, angle);
-    view.setFloat64(REQUEST_HEADER.top, toWasmF64(margins.top), true);
-    view.setFloat64(REQUEST_HEADER.bottom, toWasmF64(margins.bottom), true);
-    view.setFloat64(REQUEST_HEADER.left, toWasmF64(margins.left), true);
-    view.setFloat64(REQUEST_HEADER.right, toWasmF64(margins.right), true);
-    writeU32(view, REQUEST_HEADER.dataLength, dataLength);
-    writeU32(view, REQUEST_HEADER.insertionDataLength, insertionDataLength);
-    writeU32(view, REQUEST_HEADER.passwordLength, passwordLength);
-    let offset: number = headerBytes;
-
-    for (const page of pages) {
-        offset = writeU32(view, offset, page);
-    }
-
-    output.set(data, offset);
-    offset += dataLength;
-    output.set(insertionData, offset);
-    offset += insertionDataLength;
-    output.set(password, offset);
-    const passwordOffset = offset;
-    password.fill(0);
-
-    return {
-        data: output,
-        passwordOffset,
-        passwordLength,
-    };
+    return buildStandardFrame({
+        operation: OPERATION_CODES[request.type],
+        pages: getRequestPages(request),
+        data: getRequestData(request),
+        insertionData: getInsertionData(request),
+        password: getPassword(request),
+    });
 }
 
 function readMutationResult(output: Uint8Array) {
@@ -434,7 +441,13 @@ function parseWasmOutput<K extends TBrowserPageOpsWasmRequestType>(
         return parsed.success ? parsed.output as IBrowserPageOpsWasmResultMap[K] : null;
     }
 
-    if (type === 'getPageGeometry' || type === 'readPageSizes' || type === 'ocrTextVisibility' || type === 'inspectScanCleanupPdf') {
+    if (
+        type === 'getPageGeometry'
+        || type === 'readPageSizes'
+        || type === 'appendAdmission'
+        || type === 'ocrTextVisibility'
+        || type === 'inspectScanCleanupPdf'
+    ) {
         const parsed = kind === RESPONSE_JSON
             ? v.safeParse(BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS[type], readJsonResult(output), {abortEarly: true})
             : null;
@@ -467,93 +480,124 @@ function parseWasmOutput<K extends TBrowserPageOpsWasmRequestType>(
 }
 
 function runWasmRequest<K extends TByteRequestType>(
-    exports: IPdfPageOpsWasmExports,
+    tool: IPdfPageOpsWasmExports,
     type: K,
     payload: IBrowserPageOpsWasmRequestMap[K],
 ): IBrowserPageOpsWasmResultMap[K] | IBrowserPageOpsWasmFailure {
-    let pointer: number | null = null;
-    let requestByteLength = 0;
-    let request: Uint8Array<ArrayBuffer> | null = null;
-    let passwordOffset = 0;
-    let passwordLength = 0;
-    let trapped = false;
-
+    let builtRequest: ReturnType<typeof buildWasmRequest>;
     try {
-        const builtRequest = buildWasmRequest({
+        builtRequest = buildWasmRequest({
             type,
             payload,
         } as TBrowserPageOpsWasmRequest);
-        request = builtRequest.data;
-        passwordOffset = builtRequest.passwordOffset;
-        passwordLength = builtRequest.passwordLength;
-        requestByteLength = request.byteLength;
-        if (requestByteLength === 0 || requestByteLength > BROWSER_PAGE_OPS_MAX_REQUEST_BYTES) {
-            return createWasmFailure('too-large', 'Page operation WASM request exceeds the admission ceiling');
-        }
-        const allocatedPointer = exports.evb_pdf_page_ops_alloc(requestByteLength);
-        if (allocatedPointer === 0) {
-            return createWasmFailure('too-large', 'Page operation WASM could not allocate request memory');
-        }
-        pointer = allocatedPointer;
-        const requestMemory = getCheckedWasmMemoryView(
-            exports.memory,
-            pointer,
-            requestByteLength,
-            'Page operation WASM allocation',
-        );
-        requestMemory.set(request);
-        const resultCode = exports.evb_pdf_page_ops_run(pointer, request.byteLength);
-        if (resultCode !== 0) {
-            return readWasmFailure(resultCode, exports);
-        }
-
-        const outputPointer = exports.evb_pdf_page_ops_output_ptr();
-        const outputLen = exports.evb_pdf_page_ops_output_len();
-        if (outputLen === 0 || outputLen > BROWSER_PAGE_OPS_MAX_OUTPUT_BYTES) {
-            return createWasmFailure(
-                outputLen > BROWSER_PAGE_OPS_MAX_OUTPUT_BYTES ? 'too-large' : 'invalid-request',
-                'Page operation WASM returned an invalid output envelope',
-            );
-        }
-
-        return parseWasmOutput(type, copyWasmBytes(exports, outputPointer, outputLen))
-            ?? createWasmFailure('invalid-request', 'Page operation WASM returned malformed output');
     } catch (error) {
-        if (error instanceof Error && error.name === 'RuntimeError') {
-            // Rust panics unwind into an error envelope; a trap is an abort,
-            // which on wasm32 is an allocation the 4 GiB address space could
-            // not satisfy. The aborted request's memory is never freed, so the
-            // next request loads a fresh engine.
-            trapped = true;
-            discardPdfPageOpsWasm(exports);
-            return createWasmFailure('too-large', `The browser page tool ran out of memory: ${getErrorMessage(error)}`);
-        }
         return createWasmFailure(
             'invalid-request',
             error instanceof Error ? getErrorMessage(error) : 'Page operation WASM request failed',
         );
-    } finally {
-        if (request !== null && passwordLength > 0) {
-            request.fill(0, passwordOffset, passwordOffset + passwordLength);
-        }
-        if (pointer !== null) {
-            try {
-                if (passwordLength > 0) {
-                    getCheckedWasmMemoryView(
-                        exports.memory,
-                        pointer,
-                        requestByteLength,
-                        'Page operation WASM allocation',
-                    ).fill(0, passwordOffset, passwordOffset + passwordLength);
-                }
-            } finally {
-                if (!trapped) {
-                    exports.evb_pdf_page_ops_free(pointer, requestByteLength);
-                    releasePdfPageOpsWasmAboveHighWater(exports);
-                }
+    }
+
+    const called = callPdfPageOpsWasm(tool, builtRequest.data, {
+        ...(builtRequest.passwordLength > 0
+            ? {
+                scrubRange: {
+                    offset: builtRequest.passwordOffset,
+                    length: builtRequest.passwordLength,
+                },
             }
+            : {}),
+        // Preserve an active cached Document instance while unrelated requests run.
+        ...(cachedDocument?.tool === tool ? {skipHighWaterRelease: true} : {}),
+    });
+    if (called.status === 'failed') {
+        if (cachedDocument?.tool === tool && called.error.code === 'too-large') {
+            evictCachedBrowserPageOpsDocument();
+        }
+        return called;
+    }
+
+    return parseWasmOutput(type, called.output)
+        ?? createWasmFailure('invalid-request', 'Page operation WASM returned malformed output');
+}
+
+async function runCachedScanCleanupRaster(
+    initialTool: IPdfPageOpsWasmExports,
+    payload: IBrowserPageOpsWasmRequestMap['renderScanCleanupRaster'],
+): Promise<IBrowserPageOpsWasmResultMap['renderScanCleanupRaster'] | IBrowserPageOpsWasmFailure> {
+    let tool = initialTool;
+    const cacheKey = payload.cacheKey;
+    if (cacheKey === undefined) {
+        const data = payload.data ?? new Uint8Array(await payload.source!.arrayBuffer());
+        return runWasmRequest(tool, 'renderScanCleanupRaster', {
+            ...payload,
+            data,
+        });
+    }
+
+    const requestJson = new TextEncoder().encode(JSON.stringify(payload.request));
+    const renderWithHandle = (activeTool: IPdfPageOpsWasmExports, handle: number) => {
+        const frame = buildStandardFrame({
+            operation: OPERATION_CODES.renderScanCleanupRasterCached,
+            pageNumber: handle,
+            insertionData: requestJson,
+        });
+        return callPdfPageOpsWasm(activeTool, frame.data, {skipHighWaterRelease: true});
+    };
+
+    if (cachedDocument !== null && cachedDocument.key === cacheKey && cachedDocument.tool === tool) {
+        const hit = renderWithHandle(tool, cachedDocument.handle);
+        if (hit.status === 'succeeded') {
+            return parseWasmOutput('renderScanCleanupRaster', hit.output)
+                ?? createWasmFailure('invalid-request', 'Page operation WASM returned malformed output');
+        }
+        if (hit.error.code !== 'invalid-request' || !hit.error.message.includes('Cached PDF document handle is not open')) {
+            if (hit.error.code === 'too-large') {
+                evictCachedBrowserPageOpsDocument();
+            }
+            return hit;
+        }
+        cachedDocument = null;
+    }
+
+    // Evict any prior document before loading the instance for the new revision
+    // so a retired above-high-water instance is never reused to open document B.
+    if (cachedDocument !== null) {
+        evictCachedBrowserPageOpsDocument();
+        try {
+            tool = await loadPdfPageOpsWasm();
+        } catch (error) {
+            return createWasmLoadFailure(error);
         }
     }
+
+    const bytes = payload.data ?? new Uint8Array(await payload.source!.arrayBuffer());
+    const handle = nextCachedDocumentHandle;
+    nextCachedDocumentHandle = nextCachedDocumentHandle >= 0xffff_ffff ? 1 : nextCachedDocumentHandle + 1;
+    const openFrame = buildStandardFrame({
+        operation: OPERATION_CODES.openDocument,
+        pageNumber: handle,
+        data: bytes,
+    });
+    const opened = callPdfPageOpsWasm(tool, openFrame.data, {skipHighWaterRelease: true});
+    if (opened.status === 'failed') {
+        releasePdfPageOpsWasmAboveHighWater(tool);
+        return opened;
+    }
+    cachedDocument = {
+        key: cacheKey,
+        handle,
+        tool,
+    };
+
+    const rendered = renderWithHandle(tool, handle);
+    if (rendered.status === 'failed') {
+        if (rendered.error.code === 'too-large') {
+            evictCachedBrowserPageOpsDocument();
+        }
+        return rendered;
+    }
+    return parseWasmOutput('renderScanCleanupRaster', rendered.output)
+        ?? createWasmFailure('invalid-request', 'Page operation WASM returned malformed output');
 }
 
 const NO_SINK = {
@@ -567,7 +611,7 @@ const NO_SINK = {
 
 /** A read of one document the engine takes by range from `payload.source`, answered as the byte request was. */
 async function runFileRead<K extends TFileReadType>(
-    exports: IPdfPageOpsWasmExports,
+    tool: IPdfPageOpsWasmExports,
     type: K,
     payload: IBrowserPageOpsWasmRequestMap[K],
 ) {
@@ -576,13 +620,13 @@ async function runFileRead<K extends TFileReadType>(
         sink: NO_SINK,
         copy: () => Promise.reject(new Error('A read copies nothing')),
     };
-    const output = await withOpenFiles(files, async () => runFileRequest(exports, {
+    const output = await withOpenFiles(files, async () => runFileRequest(tool, {
         operation: OPERATION_CODES[type],
         sourceCount: 1,
         ...('pages' in payload ? {pages: payload.pages} : {}),
         ...('pageNumber' in payload ? {pages: [payload.pageNumber]} : {}),
         ...('withEvbOcrText' in payload && payload.withEvbOcrText ? {payload: new TextEncoder().encode('with-evb-ocr-text')} : {}),
-    }));
+    }, cachedDocument?.tool === tool ? {skipHighWaterRelease: true} : undefined));
     if (isBrowserPageOpsWasmFailure(output)) return output;
     return parseWasmOutput(type, output) ?? createWasmFailure('invalid-request', 'Page operation WASM returned malformed output');
 }
@@ -597,9 +641,9 @@ export async function tryRunBrowserPageOpsWithWasm<K extends TBrowserPageOpsWasm
     payload: IBrowserPageOpsWasmRequestMap[K],
     beforeRun?: () => Promise<void>,
 ): Promise<IBrowserPageOpsWasmResultMap[K] | IBrowserPageOpsWasmFailure> {
-    let exports: IPdfPageOpsWasmExports;
+    let tool: IPdfPageOpsWasmExports;
     try {
-        exports = await loadPdfPageOpsWasm();
+        tool = await loadPdfPageOpsWasm();
     } catch (error) {
         return createWasmLoadFailure(error);
     }
@@ -608,12 +652,19 @@ export async function tryRunBrowserPageOpsWithWasm<K extends TBrowserPageOpsWasm
     if (
         type === 'getPageGeometry'
         || type === 'readPageSizes'
+        || type === 'appendAdmission'
         || type === 'parseAnnotations'
         || type === 'readCatalog'
         || type === 'conformance'
         || type === 'ocrTextVisibility'
     ) {
-        return runFileRead(exports, type as TFileReadType, payload as IBrowserPageOpsWasmRequestMap[TFileReadType]) as Promise<IBrowserPageOpsWasmResultMap[K] | IBrowserPageOpsWasmFailure>;
+        return runFileRead(tool, type as TFileReadType, payload as IBrowserPageOpsWasmRequestMap[TFileReadType]) as Promise<IBrowserPageOpsWasmResultMap[K] | IBrowserPageOpsWasmFailure>;
     }
-    return runWasmRequest(exports, type as TByteRequestType, payload as IBrowserPageOpsWasmRequestMap[TByteRequestType]) as IBrowserPageOpsWasmResultMap[K] | IBrowserPageOpsWasmFailure;
+    if (type === 'renderScanCleanupRaster') {
+        return runCachedScanCleanupRaster(
+            tool,
+            payload as IBrowserPageOpsWasmRequestMap['renderScanCleanupRaster'],
+        ) as Promise<IBrowserPageOpsWasmResultMap[K] | IBrowserPageOpsWasmFailure>;
+    }
+    return runWasmRequest(tool, type as TByteRequestType, payload as IBrowserPageOpsWasmRequestMap[TByteRequestType]) as IBrowserPageOpsWasmResultMap[K] | IBrowserPageOpsWasmFailure;
 }

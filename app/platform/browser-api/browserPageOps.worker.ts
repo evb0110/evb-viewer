@@ -1,9 +1,6 @@
 import {
-    cropPdfBytes,
     getPageGeometryFromPdfBytes,
     parsePdfAnnotations,
-    removeCropPdfBytes,
-    rotatePdfBytes,
     readPdfCatalog,
     readPdfConformance,
 } from '@app/platform/browser-api/browserPageOpsCore';
@@ -14,31 +11,28 @@ import type {
     TBrowserPageOpsWorkerResponse,
 } from '@contracts/browserPageOpsWorker';
 import {
+    EVICT_BROWSER_PAGE_OPS_DOCUMENT_MESSAGE_TYPE,
     getBrowserPageOpsWorkerRequestId,
     parseBrowserPageOpsWorkerRequest,
 } from '@contracts/browserPageOpsWorker';
 import {
+    evictCachedBrowserPageOpsDocument,
     tryRunBrowserPageOpsWithWasm,
     isBrowserPageOpsWasmFailure,
 } from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
 import {
     createSyncBlobSource,
+    PDF_PAGE_OPS_WASM_PATH,
     runPageStructureEdit,
     type IPageStructureFiles,
 } from '@app/platform/browser/pdfPageEngine';
 import {opfsFileHandle} from '@app/platform/browser/opfsFileHandle';
-import {readLoadedWasmDigest} from '@app/platform/browser/loadWasmWithDeadline';
+import {
+    handlePrecompiledWasmModuleMessage,
+    readLoadedWasmDigest,
+} from '@app/platform/browser/loadWasmWithDeadline';
+import {toTransferableUint8Array} from '@app/platform/browser/toTransferableUint8Array';
 import { getErrorMessage } from '@app/utils/error';
-function toTransferableUint8Array(data: Uint8Array) {
-    if (
-        data.byteOffset === 0
-        && data.byteLength === data.buffer.byteLength
-    ) {
-        return data;
-    }
-
-    return data.slice();
-}
 
 const COPY_CHUNK_BYTES = 4 * 1024 * 1024;
 
@@ -134,35 +128,6 @@ async function handlePageStructureRequest(
     }
 }
 
-async function handleRotateRequest(
-    request: IBrowserPageOpsWorkerRequest<'rotate'>,
-) {
-    return rotatePdfBytes(
-        request.payload.data,
-        request.payload.pages,
-        request.payload.angle,
-    );
-}
-
-async function handleCropRequest(
-    request: IBrowserPageOpsWorkerRequest<'crop'>,
-) {
-    return cropPdfBytes(
-        request.payload.data,
-        request.payload.pages,
-        request.payload.margins,
-    );
-}
-
-async function handleRemoveCropRequest(
-    request: IBrowserPageOpsWorkerRequest<'removeCrop'>,
-) {
-    return removeCropPdfBytes(
-        request.payload.data,
-        request.payload.pages,
-    );
-}
-
 async function handleGetPageGeometryRequest(
     request: IBrowserPageOpsWorkerRequest<'getPageGeometry'>,
 ) {
@@ -215,6 +180,7 @@ async function handleRequest(
         case 'decrypt':
         case 'printLayout':
         case 'readPageSizes':
+        case 'appendAdmission':
         case 'ocrTextVisibility':
         case 'inspectScanCleanupPdf':
         case 'splitPages':
@@ -225,12 +191,6 @@ async function handleRequest(
             return tryRunBrowserPageOpsWithWasm(request.type, request.payload);
         case 'pageStructure':
             return handlePageStructureRequest(request);
-        case 'rotate':
-            return handleRotateRequest(request);
-        case 'crop':
-            return handleCropRequest(request);
-        case 'removeCrop':
-            return handleRemoveCropRequest(request);
         case 'getPageGeometry':
             return handleGetPageGeometryRequest(request);
         case 'parseAnnotations':
@@ -244,14 +204,24 @@ async function handleRequest(
 
 /** Posts a response; a success names the engine module that produced it. */
 async function postResponse(message: Record<string, unknown> & {ok: boolean}, transfer: Transferable[] = []) {
-    const engineSha256 = message.ok ? await readLoadedWasmDigest('/wasm/evb-pdf-page-ops.wasm')?.catch(() => null) : null;
+    const engineSha256 = message.ok ? await readLoadedWasmDigest(PDF_PAGE_OPS_WASM_PATH)?.catch(() => null) : null;
     self.postMessage(typeof engineSha256 === 'string' ? {
         ...message,
         engineSha256,
     } : message, transfer);
 }
 
+function handleEvictDocumentMessage(data: unknown): boolean {
+    if (typeof data !== 'object' || data === null) return false;
+    const record = data as Record<string, unknown>;
+    if (record.type !== EVICT_BROWSER_PAGE_OPS_DOCUMENT_MESSAGE_TYPE) return false;
+    evictCachedBrowserPageOpsDocument(typeof record.keyPrefix === 'string' ? record.keyPrefix : undefined);
+    return true;
+}
+
 self.addEventListener('message', async (event: MessageEvent<unknown>) => {
+    if (handlePrecompiledWasmModuleMessage(event.data)) return;
+    if (handleEvictDocumentMessage(event.data)) return;
     const request = parseBrowserPageOpsWorkerRequest(event.data);
     if (request === null) {
         const id = getBrowserPageOpsWorkerRequestId(event.data);
@@ -269,6 +239,7 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
         const data = await handleRequest(request);
         if (
             request.type === 'readPageSizes'
+            || request.type === 'appendAdmission'
             || request.type === 'ocrTextVisibility'
             || request.type === 'inspectScanCleanupPdf'
         ) {
@@ -348,29 +319,13 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
             return;
         }
 
-        if (request.type === 'conformance') {
-            const response = {
-                id: request.id,
-                type: 'conformance',
-                ok: true,
-                data: data as IBrowserPageOpsWorkerResultMap['conformance'],
-            } satisfies TBrowserPageOpsWorkerResponse;
-            await postResponse(response);
-            return;
-        }
-
-        const mutationResult = data as IBrowserPageOpsWorkerResultMap['rotate'];
-        const transferableData = toTransferableUint8Array(mutationResult.data);
         const response = {
             id: request.id,
-            type: request.type,
+            type: 'conformance',
             ok: true,
-            data: {
-                ...mutationResult,
-                data: transferableData,
-            },
+            data: data as IBrowserPageOpsWorkerResultMap['conformance'],
         } satisfies TBrowserPageOpsWorkerResponse;
-        await postResponse(response, [transferableData.buffer]);
+        await postResponse(response);
     } catch (error) {
         const response = {
             id: request.id,

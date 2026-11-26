@@ -3,6 +3,10 @@
 // page-structure edits and reads, and adds the requests that carry their document in a buffer.
 import { getErrorMessage } from '@app/utils/error';
 import {
+    BROWSER_PAGE_OPS_MAX_OUTPUT_BYTES,
+    BROWSER_PAGE_OPS_MAX_REQUEST_BYTES,
+} from '@contracts/browserPageOpsLimits';
+import {
     FILE_REQUEST_HEADER,
     MAX_U32,
     OPERATION_CODES,
@@ -19,43 +23,21 @@ import {
     type IOcrTextLayerInstructions,
 } from '@contracts/browserPageOpsWorker';
 import {
-    exceedsWasmMemoryHighWater,
-    loadWasmWithDeadline,
-} from '@app/platform/browser/loadWasmWithDeadline';
-import {
-    NATIVE_ERROR_ENVELOPE_SCHEMA,
-    type TNativeErrorCode,
-} from '@contracts/nativeErrors';
-import {decodeSerializableErrorEnvelope} from '@contracts/serializableError';
+    createNativeWasmToolLoader,
+    type INativeWasmTool,
+} from '@app/platform/browser/nativeWasmTool';
+import type {TNativeErrorCode} from '@contracts/nativeErrors';
 import {splitPdfNativeMutationSetIntoBoundedChunks} from '@pdf-core/nativePdfMutationPolicy';
 import type {IPdfNativeMutationSet} from '@contracts/electronApiDocuments';
-import {
-    getCheckedWasmMemoryView,
-    WASM_REQUEST_ALLOCATION_ABI_VERSION,
-} from '@contracts/getCheckedWasmMemoryView';
 import * as v from 'valibot';
 
-export interface IPdfPageOpsWasmExports {
-    memory: WebAssembly.Memory;
-    evb_wasm_request_allocation_abi_version(): number;
-    evb_pdf_page_ops_alloc(len: number): number;
-    evb_pdf_page_ops_free(pointer: number, byteLength: number): void;
-    evb_pdf_page_ops_run(requestPointer: number, requestLen: number): number;
-    evb_pdf_page_ops_output_ptr(): number;
-    evb_pdf_page_ops_output_len(): number;
-    evb_pdf_page_ops_error_ptr(): number;
-    evb_pdf_page_ops_error_len(): number;
-}
+export type IPdfPageOpsWasmExports = INativeWasmTool;
 
 const wasmIdentityBindingsSchema = v.array(v.object({
     annotationId: v.string(),
     pdfRef: v.string(),
 }));
-const WASM_PATH = '/wasm/evb-pdf-page-ops.wasm';
-
-let wasmExportsPromise: Promise<IPdfPageOpsWasmExports> | null = null;
-/** The engine `wasmExportsPromise` resolved to, while it is still this thread's engine. */
-let loadedExports: IPdfPageOpsWasmExports | null = null;
+export const PDF_PAGE_OPS_WASM_PATH = '/wasm/evb-pdf-page-ops.wasm';
 
 export function createWasmFailure(
     code: TNativeErrorCode,
@@ -68,55 +50,6 @@ export function createWasmFailure(
             message,
         },
     };
-}
-
-function isWasmNumberFunction(value: WebAssembly.ExportValue | undefined): value is (...args: number[]) => number {
-    return typeof value === 'function';
-}
-
-function getPdfPageOpsWasmExports(exports: WebAssembly.Exports): IPdfPageOpsWasmExports {
-    const {
-        memory,
-        evb_wasm_request_allocation_abi_version: allocationAbiVersion,
-        evb_pdf_page_ops_alloc: alloc,
-        evb_pdf_page_ops_free: free,
-        evb_pdf_page_ops_run: run,
-        evb_pdf_page_ops_output_ptr: outputPtr,
-        evb_pdf_page_ops_output_len: outputLen,
-        evb_pdf_page_ops_error_ptr: errorPtr,
-        evb_pdf_page_ops_error_len: errorLen,
-    } = exports;
-
-    if (
-        !(memory instanceof WebAssembly.Memory)
-        || !isWasmNumberFunction(allocationAbiVersion)
-        || allocationAbiVersion() !== WASM_REQUEST_ALLOCATION_ABI_VERSION
-        || !isWasmNumberFunction(alloc)
-        || !isWasmNumberFunction(free)
-        || !isWasmNumberFunction(run)
-        || !isWasmNumberFunction(outputPtr)
-        || !isWasmNumberFunction(outputLen)
-        || !isWasmNumberFunction(errorPtr)
-        || !isWasmNumberFunction(errorLen)
-    ) {
-        throw new Error('The page tool does not match this version of the app');
-    }
-
-    return {
-        memory,
-        evb_wasm_request_allocation_abi_version: allocationAbiVersion,
-        evb_pdf_page_ops_alloc: alloc,
-        evb_pdf_page_ops_free: free,
-        evb_pdf_page_ops_run: run,
-        evb_pdf_page_ops_output_ptr: outputPtr,
-        evb_pdf_page_ops_output_len: outputLen,
-        evb_pdf_page_ops_error_ptr: errorPtr,
-        evb_pdf_page_ops_error_len: errorLen,
-    };
-}
-
-function resolveWasmUrl() {
-    return new URL(WASM_PATH, globalThis.location.href).toString();
 }
 
 /** Stream data the engine leaves to the host: `length` bytes of source `source` at `from`, to the sink at `at`. */
@@ -162,49 +95,41 @@ export function createPageOpsHostImports(memory: () => WebAssembly.Memory) {
     }};
 }
 
+const pageOpsWasm = createNativeWasmToolLoader({
+    path: PDF_PAGE_OPS_WASM_PATH,
+    prefix: 'evb_pdf_page_ops',
+    runExport: 'run',
+    label: 'browser page tool',
+    maxRequestBytes: BROWSER_PAGE_OPS_MAX_REQUEST_BYTES,
+    maxOutputBytes: BROWSER_PAGE_OPS_MAX_OUTPUT_BYTES,
+    imports: getMemory => createPageOpsHostImports(getMemory),
+    trapErrorCode: 'too-large',
+});
+
 /**
- * Lets the next request load a fresh engine: a trap leaves `exports` unusable. An engine that already stopped
+ * Lets the next request load a fresh engine: a trap leaves `tool` unusable. An engine that already stopped
  * being this thread's, such as one a request held past its retirement, leaves its replacement alone.
  */
-export function discardPdfPageOpsWasm(exports: IPdfPageOpsWasmExports) {
-    if (loadedExports !== exports) return;
-    wasmExportsPromise = null;
-    loadedExports = null;
+export function discardPdfPageOpsWasm(tool: IPdfPageOpsWasmExports) {
+    pageOpsWasm.discard(tool);
 }
 
 /**
- * Called when a request on `exports` has ended: an engine whose memory grew past the high-water mark stops being
+ * Called when a request on `tool` has ended: an engine whose memory grew past the high-water mark stops being
  * this thread's engine, so its memory goes once nothing holds it. A request still holding it, such as a
  * page-structure edit between its write and its verification, finishes on it; the next request loads a fresh one.
  */
-export function releasePdfPageOpsWasmAboveHighWater(exports: IPdfPageOpsWasmExports) {
-    if (exceedsWasmMemoryHighWater(exports.memory)) discardPdfPageOpsWasm(exports);
+export function releasePdfPageOpsWasmAboveHighWater(tool: IPdfPageOpsWasmExports) {
+    pageOpsWasm.releaseIfAboveHighWater(tool);
 }
 
 export function loadPdfPageOpsWasm() {
-    const pending = wasmExportsPromise ??= (async () => {
-        if (typeof WebAssembly === 'undefined' || typeof fetch !== 'function') {
-            throw new Error('This browser cannot run WebAssembly');
-        }
-        let memory: WebAssembly.Memory | null = null;
-        const instantiated = await loadWasmWithDeadline(resolveWasmUrl(), createPageOpsHostImports(() => memory!));
-        const instance = 'instance' in instantiated
-            ? instantiated.instance
-            : instantiated;
-        const exports = getPdfPageOpsWasmExports(instance.exports);
-        memory = exports.memory;
-        return exports;
-    })();
-    // Registered before any caller awaits the load, so the engine is known as this thread's before it runs a request.
-    // A failed load must not disable the page tool for the rest of the
-    // session: the next operation loads it again.
-    pending.then(exports => {
-        if (wasmExportsPromise === pending) loadedExports = exports;
-    }, () => {
-        if (wasmExportsPromise === pending) wasmExportsPromise = null;
-    });
-    return pending;
+    return pageOpsWasm.load();
 }
+
+export const callPdfPageOpsWasm = pageOpsWasm.callLoaded;
+
+export const readPdfPageOpsWasmDigest = () => pageOpsWasm.readDigest();
 
 export function createWasmLoadFailure(error: unknown) {
     return createWasmFailure(
@@ -228,40 +153,6 @@ export function toWasmU32(value: number) {
 export function writeU32(view: DataView, offset: number, value: number) {
     view.setUint32(offset, value, true);
     return offset + U32_BYTES;
-}
-
-export function copyWasmBytes(
-    exports: IPdfPageOpsWasmExports,
-    pointer: number,
-    len: number,
-) {
-    return getCheckedWasmMemoryView(exports.memory, pointer, len, 'Page operation WASM').slice();
-}
-
-function readWasmError(exports: IPdfPageOpsWasmExports) {
-    const pointer = exports.evb_pdf_page_ops_error_ptr();
-    const len = exports.evb_pdf_page_ops_error_len();
-    if (len === 0) {
-        return null;
-    }
-
-    return new TextDecoder().decode(copyWasmBytes(exports, pointer, len));
-}
-
-export function readWasmFailure(
-    resultCode: number,
-    exports: IPdfPageOpsWasmExports,
-) {
-    const encodedError = readWasmError(exports);
-    const error = decodeSerializableErrorEnvelope(
-        encodedError,
-        NATIVE_ERROR_ENVELOPE_SCHEMA,
-        {allowBareJsonString: true},
-    ) ?? {
-        code: 'native-failure' as const,
-        message: encodedError ?? `Page operation WASM failed with result code ${resultCode}`,
-    };
-    return createWasmFailure(error.code, error.message);
 }
 
 export type TPageStructureEdit = IBrowserPageOpsWorkerRequestMap['pageStructure']['edit'];
@@ -305,7 +196,11 @@ export interface IFileRequest {
     payload?: Uint8Array;
 }
 
-export function runFileRequest(exports: IPdfPageOpsWasmExports, file: IFileRequest) {
+export function runFileRequest(
+    tool: IPdfPageOpsWasmExports,
+    file: IFileRequest,
+    options?: {skipHighWaterRelease?: boolean},
+) {
     const pages = file.pages ?? [];
     const payload = file.payload ?? new Uint8Array();
     const request = new Uint8Array(FILE_REQUEST_HEADER.bytes + pages.length * U32_BYTES + payload.byteLength);
@@ -318,27 +213,14 @@ export function runFileRequest(exports: IPdfPageOpsWasmExports, file: IFileReque
     let offset = writeU32(view, FILE_REQUEST_HEADER.pageCount, pages.length);
     for (const page of pages) offset = writeU32(view, offset, toWasmU32(page));
     request.set(payload, offset);
-    const pointer = exports.evb_pdf_page_ops_alloc(request.byteLength);
-    if (pointer === 0) return createWasmFailure('too-large', 'Page operation WASM could not allocate request memory');
-    let trapped = false;
-    try {
-        getCheckedWasmMemoryView(exports.memory, pointer, request.byteLength, 'Page operation WASM allocation').set(request);
-        const resultCode = exports.evb_pdf_page_ops_run(pointer, request.byteLength);
-        if (openFiles?.error !== undefined) throw openFiles.error;
-        if (resultCode !== 0) return readWasmFailure(resultCode, exports);
-        return copyWasmBytes(exports, exports.evb_pdf_page_ops_output_ptr(), exports.evb_pdf_page_ops_output_len());
-    } catch (error) {
-        if (!(error instanceof Error && error.name === 'RuntimeError')) throw error;
-        // As in `runWasmRequest`: a trap leaves the engine unusable, so the next request loads a fresh one.
-        trapped = true;
-        discardPdfPageOpsWasm(exports);
-        return createWasmFailure('too-large', `The browser page tool ran out of memory: ${getErrorMessage(error)}`);
-    } finally {
-        if (!trapped) {
-            exports.evb_pdf_page_ops_free(pointer, request.byteLength);
-            releasePdfPageOpsWasmAboveHighWater(exports);
-        }
-    }
+    const result = pageOpsWasm.callLoaded(tool, request, {
+        afterRun: () => {
+            if (openFiles?.error !== undefined) throw openFiles.error;
+        },
+        rethrowNonTrapErrors: true,
+        ...(options?.skipHighWaterRelease ? {skipHighWaterRelease: true} : {}),
+    });
+    return result.status === 'succeeded' ? result.output : result;
 }
 
 /** A WRITTEN_HEADER answer: what the engine wrote, and a save's identity bindings as JSON after it. */

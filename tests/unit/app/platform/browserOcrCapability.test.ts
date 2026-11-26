@@ -172,25 +172,33 @@ function mockScanCleanupPreviewSource() {
                 2,
                 3,
             ])),
+            readableBlob: vi.fn(async () => new Blob([new Uint8Array([
+                1,
+                2,
+                3,
+            ])])),
         },
     }));
-    vi.doMock('@app/platform/browser-api/browserPageOpsWorkerClient', () => ({runBrowserPageOpsWorkerRequest: vi.fn(async () => ({
-        pageCount: 2,
-        pages: [
-            1,
-            2,
-        ].map(pageNumber => ({
-            pageNumber,
-            xPoints: 0,
-            yPoints: 0,
-            widthPoints: 612,
-            heightPoints: 792,
-            rotation: 0,
-            rasterUses: [],
-            rasterInventoryComplete: true,
-            hasAnnotations: false,
+    vi.doMock('@app/platform/browser-api/browserPageOpsWorkerClient', () => ({
+        evictBrowserPageOpsDocumentCache: vi.fn(),
+        runBrowserPageOpsWorkerRequest: vi.fn(async () => ({
+            pageCount: 2,
+            pages: [
+                1,
+                2,
+            ].map(pageNumber => ({
+                pageNumber,
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: 612,
+                heightPoints: 792,
+                rotation: 0,
+                rasterUses: [],
+                rasterInventoryComplete: true,
+                hasAnnotations: false,
+            })),
         })),
-    }))}));
+    }));
     vi.doMock('@app/platform/browser-api/loadBrowserPdfjsDocument', () => ({loadBrowserPdfjsDocument: vi.fn(async () => ({
         numPages: 2,
         loadingTask: {destroy: vi.fn(async () => {

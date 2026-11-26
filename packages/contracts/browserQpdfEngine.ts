@@ -55,21 +55,14 @@ const inputSchema = v.pipe(
 );
 const diagnosticSchema = v.pipe(v.string(), v.maxLength(BROWSER_QPDF_MAX_DIAGNOSTIC_CHARACTERS));
 
-const requestSchema = v.variant('type', [
-    v.object({
-        id: requestIdSchema,
-        type: v.literal('run'),
-        payload: v.object({
-            command: v.picklist(BROWSER_QPDF_COMMANDS),
-            input: inputSchema,
-        }),
+const requestSchema = v.object({
+    id: requestIdSchema,
+    type: v.literal('run'),
+    payload: v.object({
+        command: v.picklist(BROWSER_QPDF_COMMANDS),
+        input: inputSchema,
     }),
-    v.object({
-        id: requestIdSchema,
-        type: v.literal('normalize-append-base'),
-        payload: v.object({input: inputSchema}),
-    }),
-]);
+});
 
 export const BROWSER_QPDF_RUN_RESULT_SCHEMA = v.object({
     exitCode: v.pipe(v.number(), v.safeInteger()),

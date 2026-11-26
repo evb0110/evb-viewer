@@ -195,6 +195,7 @@ export function canUseBrowserSearchWorker() {
 function createBrowserSearchWorkerClient() {
     const client = new BrowserWorkerClient<IPendingWorkerRequest>({
         idleTtlMs: BROWSER_SEARCH_WORKER_IDLE_TTL_MS,
+        preloadWasmPaths: () => ['/wasm/evb-pdf-search.wasm'],
         createWorker: () => {
             try {
                 return new Worker(

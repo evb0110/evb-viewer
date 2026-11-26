@@ -5,6 +5,7 @@ import {
 } from '@contracts/nativePdfMutations';
 import {PDF_DECRYPT_PASSWORD_SCHEMA} from '@contracts/pdfDecryptSchemas';
 import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
+import {BROWSER_APPEND_ADMISSION_VERDICTS} from '@contracts/browserQpdfEngine';
 import type {ICropMargins} from '@contracts/shared';
 import {PAGE_GEOMETRY_SCHEMA} from '@contracts/decodePageGeometry';
 import {PDF_NATIVE_PAGE_GEOMETRY_PAGE_SCHEMA} from '@contracts/documentsPlatformFeatureNativePageSchemas';
@@ -60,13 +61,7 @@ export function isBrowserWorkerResponseEnvelope(value: unknown): value is TBrows
             || (value.ok === false && typeof value.error === 'string'));
 }
 
-const cropMarginsSchema = v.object({
-    physical: v.optional(v.boolean()),
-    top: finiteNonNegativeSchema,
-    bottom: finiteNonNegativeSchema,
-    left: finiteNonNegativeSchema,
-    right: finiteNonNegativeSchema,
-});
+export const EVICT_BROWSER_PAGE_OPS_DOCUMENT_MESSAGE_TYPE = 'evb:evict-page-ops-document';
 
 /** Each word Tesseract's PDF shows, on its ink rectangle in the raster Tesseract read. */
 export const OCR_WORD_GEOMETRY_SCHEMA = v.object({
@@ -163,30 +158,13 @@ const workerRequestPayloadSchemas = {
         sources: v.pipe(v.array(v.instance(Blob)), v.minLength(1)),
         output: v.nullable(v.string()),
     }),
-    rotate: v.object({
-        data: pdfBytesSchema,
-        pages: v.array(positiveIntegerSchema),
-        angle: v.picklist([
-            90,
-            180,
-            270,
-        ]),
-    }),
-    crop: v.object({
-        data: pdfBytesSchema,
-        pages: v.array(positiveIntegerSchema),
-        margins: cropMarginsSchema,
-    }),
-    removeCrop: v.object({
-        data: pdfBytesSchema,
-        pages: v.array(positiveIntegerSchema),
-    }),
     getPageGeometry: v.object({
         source: v.instance(Blob),
         pageNumber: positiveIntegerSchema,
     }),
     /** Reads take their document as a Blob the engine reads by range. */
     readPageSizes: v.object({source: v.instance(Blob)}),
+    appendAdmission: v.object({source: v.instance(Blob)}),
     parseAnnotations: v.object({source: v.instance(Blob)}),
     readCatalog: v.object({source: v.instance(Blob)}),
     conformance: v.object({source: v.instance(Blob)}),
@@ -218,10 +196,15 @@ const workerRequestPayloadSchemas = {
         data: pdfBytesSchema,
         pages: v.array(positiveIntegerSchema),
     }),
-    renderScanCleanupRaster: v.object({
-        data: pdfBytesSchema,
-        request: SCAN_CLEANUP_RASTER_REQUEST_SCHEMA,
-    }),
+    renderScanCleanupRaster: v.pipe(
+        v.object({
+            source: v.optional(v.instance(Blob)),
+            data: v.optional(pdfBytesSchema),
+            cacheKey: v.optional(v.pipe(v.string(), v.minLength(1))),
+            request: SCAN_CLEANUP_RASTER_REQUEST_SCHEMA,
+        }),
+        v.check(value => value.source !== undefined || value.data !== undefined),
+    ),
     splitPages: v.object({
         data: pdfBytesSchema,
         instructions: SPLIT_PAGES_INSTRUCTIONS_SCHEMA,
@@ -266,21 +249,6 @@ const workerRequestSchema = v.union([
     }),
     v.object({
         id: workerRequestIdSchema,
-        type: v.literal('rotate'),
-        payload: workerRequestPayloadSchemas.rotate,
-    }),
-    v.object({
-        id: workerRequestIdSchema,
-        type: v.literal('crop'),
-        payload: workerRequestPayloadSchemas.crop,
-    }),
-    v.object({
-        id: workerRequestIdSchema,
-        type: v.literal('removeCrop'),
-        payload: workerRequestPayloadSchemas.removeCrop,
-    }),
-    v.object({
-        id: workerRequestIdSchema,
         type: v.literal('getPageGeometry'),
         payload: workerRequestPayloadSchemas.getPageGeometry,
     }),
@@ -288,6 +256,11 @@ const workerRequestSchema = v.union([
         id: workerRequestIdSchema,
         type: v.literal('readPageSizes'),
         payload: workerRequestPayloadSchemas.readPageSizes,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('appendAdmission'),
+        payload: workerRequestPayloadSchemas.appendAdmission,
     }),
     v.object({
         id: workerRequestIdSchema,
@@ -425,12 +398,13 @@ const workerResultSchemas = {
         v.object({status: v.literal('storage-full')}),
         BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
     ]),
-    rotate: pageMutationResultSchema,
-    crop: pageMutationResultSchema,
-    removeCrop: pageMutationResultSchema,
     getPageGeometry: PAGE_GEOMETRY_SCHEMA,
     readPageSizes: v.union([
         pageSizesTableSchema,
+        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
+    ]),
+    appendAdmission: v.union([
+        v.object({verdict: v.picklist(BROWSER_APPEND_ADMISSION_VERDICTS)}),
         BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
     ]),
     parseAnnotations: annotationParseResultSchema,
@@ -501,24 +475,6 @@ const workerSuccessResponseSchema = v.union([
     }),
     v.object({
         id: workerRequestIdSchema,
-        type: v.literal('rotate'),
-        ok: v.literal(true),
-        data: workerResultSchemas.rotate,
-    }),
-    v.object({
-        id: workerRequestIdSchema,
-        type: v.literal('crop'),
-        ok: v.literal(true),
-        data: workerResultSchemas.crop,
-    }),
-    v.object({
-        id: workerRequestIdSchema,
-        type: v.literal('removeCrop'),
-        ok: v.literal(true),
-        data: workerResultSchemas.removeCrop,
-    }),
-    v.object({
-        id: workerRequestIdSchema,
         type: v.literal('getPageGeometry'),
         ok: v.literal(true),
         data: workerResultSchemas.getPageGeometry,
@@ -528,6 +484,12 @@ const workerSuccessResponseSchema = v.union([
         type: v.literal('readPageSizes'),
         ok: v.literal(true),
         data: workerResultSchemas.readPageSizes,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('appendAdmission'),
+        ok: v.literal(true),
+        data: workerResultSchemas.appendAdmission,
     }),
     v.object({
         id: workerRequestIdSchema,

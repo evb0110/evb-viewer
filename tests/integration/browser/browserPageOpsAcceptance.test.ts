@@ -173,6 +173,24 @@ describe('browser page-ops capability acceptance in Chromium', () => {
                 renamedTitle: 'Large web saved',
                 unchangedTitles: true,
             })));
+            const geometry = await page.evaluate(async () => {
+                const run = Reflect.get(globalThis, '__evbRunBrowserIncrementalGeometryAcceptance');
+                if (typeof run !== 'function') throw new Error('Browser incremental geometry entry point was not installed');
+                return run();
+            });
+            expect(geometry).toEqual({
+                rotatePreservesPrefix: true,
+                cropPreservesPrefix: true,
+                removePreservesPrefix: true,
+                croppedRotation: 90,
+                croppedBox: {
+                    x: 8,
+                    y: 6,
+                    width: 182,
+                    height: 90,
+                },
+                cropRemovedMatchesMedia: true,
+            });
         } finally {
             await browser.close();
         }

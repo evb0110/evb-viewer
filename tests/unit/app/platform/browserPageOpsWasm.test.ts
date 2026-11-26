@@ -402,25 +402,27 @@ describe('browser page-ops WASM fast path', () => {
         const data = new Uint8Array(await readFile(join(process.cwd(), 'tests/fixtures/electron/pdf-preservation/signed.pdf')));
         const wasm = await loadWasmRunner();
         const result = operation === 'rotate'
-            ? await wasm.run('rotate', {
-                data,
-                pages: [1],
-                angle: 90,
+            ? await wasm.append(data, {
+                mutations: {pageRotations: [{
+                    pageIndex: requirePageIndex(0),
+                    angle: 90,
+                }]},
+                modifiedAt: 'D:20261012000000Z',
             })
             : operation === 'crop'
-                ? await wasm.run('crop', {
-                    data,
-                    pages: [1],
-                    margins: {
+                ? await wasm.append(data, {
+                    mutations: {pageCrops: [{
+                        pageIndex: requirePageIndex(0),
                         top: 4,
                         bottom: 6,
                         left: 8,
                         right: 10,
-                    },
+                    }]},
+                    modifiedAt: 'D:20261012000000Z',
                 })
-                : await wasm.run('removeCrop', {
-                    data,
-                    pages: [1],
+                : await wasm.append(data, {
+                    mutations: {pageCropRemovals: [requirePageIndex(0)]},
+                    modifiedAt: 'D:20261012000000Z',
                 });
         assertSuccessfulWasmMutation(result);
         expect(result.data.subarray(0, data.length)).toEqual(data);
@@ -1239,27 +1241,32 @@ describe('browser page-ops WASM fast path', () => {
                 2,
             ]}, [basePdf]);
         const wasmInsert = await wasm.structure({kind: 'insert', afterPage: 1}, [basePdf, insertionPdf]);
-        const wasmRotate = await wasm.run('rotate', {
-            data: basePdf,
-            pages: [
-                1,
-                3,
-            ],
-            angle: 90,
+        const wasmRotate = await wasm.append(basePdf, {
+            mutations: {pageRotations: [
+                {
+                    pageIndex: requirePageIndex(0),
+                    angle: 90,
+                },
+                {
+                    pageIndex: requirePageIndex(2),
+                    angle: 90,
+                },
+            ]},
+            modifiedAt: 'D:20261012000000Z',
         });
-        const wasmCrop = await wasm.run('crop', {
-            data: basePdf,
-            pages: [1],
-            margins: {
+        const wasmCrop = await wasm.append(basePdf, {
+            mutations: {pageCrops: [{
+                pageIndex: requirePageIndex(0),
                 top: 4,
                 bottom: 6,
                 left: 8,
                 right: 10,
-            },
+            }]},
+            modifiedAt: 'D:20261012000000Z',
         });
-        const wasmRemoveCrop = await wasm.run('removeCrop', {
-            data: basePdf,
-            pages: [2],
+        const wasmRemoveCrop = await wasm.append(basePdf, {
+            mutations: {pageCropRemovals: [requirePageIndex(1)]},
+            modifiedAt: 'D:20261012000000Z',
         });
         const wasmGeometry = await wasm.run('getPageGeometry', {
             source: new Blob([basePdf]),
@@ -1354,19 +1361,26 @@ describe('browser page-ops WASM fast path', () => {
         }
         const data = new Uint8Array(await pdf.save());
         const wasm = await loadWasmRunner();
-        const result = await wasm.run('crop', {
-            data,
-            pages: [
-                1,
-                2,
-            ],
-            margins: {
-                top: 0,
-                bottom: 0,
-                left: 72,
-                right: 0,
-                physical: true,
-            },
+        const result = await wasm.append(data, {
+            mutations: {pageCrops: [
+                {
+                    pageIndex: requirePageIndex(0),
+                    top: 0,
+                    bottom: 0,
+                    left: 72,
+                    right: 0,
+                    physical: true,
+                },
+                {
+                    pageIndex: requirePageIndex(1),
+                    top: 0,
+                    bottom: 0,
+                    left: 72,
+                    right: 0,
+                    physical: true,
+                },
+            ]},
+            modifiedAt: 'D:20261012000000Z',
         });
         assertSuccessfulWasmMutation(result);
         const reopened = await PDFDocument.load(result.data);
@@ -1387,15 +1401,15 @@ describe('browser page-ops WASM fast path', () => {
                 userUnit: 2,
                 cropBox: reopened.getPage(1).getCropBox(),
             });
-        const raw = await wasm.run('crop', {
-            data,
-            pages: [2],
-            margins: {
+        const raw = await wasm.append(data, {
+            mutations: {pageCrops: [{
+                pageIndex: requirePageIndex(1),
                 top: 0,
                 bottom: 0,
                 left: 72,
                 right: 0,
-            },
+            }]},
+            modifiedAt: 'D:20261012000000Z',
         });
         assertSuccessfulWasmMutation(raw);
         expect((await PDFDocument.load(raw.data)).getPage(1).getCropBox().x).toBe(72);
@@ -1774,8 +1788,6 @@ describe('browser page-ops WASM fast path', () => {
         const basePdf = await createPdf({pageWidths: [200]});
         const core = await loadCoreWithWasm();
 
-        await expect(core.rotatePdfBytes(basePdf, [1.5], 90))
-            .rejects.toThrow('Invalid page-op WASM integer field');
         await expect(core.getPageGeometryFromPdfBytes(basePdf, 1.5))
             .rejects.toThrow('Invalid page-op WASM integer field');
         expect(core.fetchMock).toHaveBeenCalledWith(
@@ -2237,10 +2249,9 @@ describe('browser page-ops WASM fast path', () => {
         const { tryRunBrowserPageOpsWithWasm } = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
         const basePdf = await createPdf({pageWidths: [200]});
 
-        await expect(tryRunBrowserPageOpsWithWasm('rotate', {
+        await expect(tryRunBrowserPageOpsWithWasm('decrypt', {
             data: basePdf,
-            pages: [1],
-            angle: 90,
+            password: '',
         })).resolves.toEqual({
             status: 'failed',
             error: {
@@ -2263,15 +2274,14 @@ describe('browser page-ops WASM fast path', () => {
         const {tryRunBrowserPageOpsWithWasm} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
         const basePdf = await createPdf({pageWidths: [200]});
 
-        await expect(tryRunBrowserPageOpsWithWasm('rotate', {
+        await expect(tryRunBrowserPageOpsWithWasm('decrypt', {
             data: basePdf,
-            pages: [1],
-            angle: 90,
+            password: '',
         })).resolves.toEqual({
             status: 'failed',
             error: {
                 code: 'io',
-                message: 'The browser page tool could not be loaded: The page tool does not match this version of the app',
+                message: 'The browser page tool could not be loaded: The browser page tool does not match this version of the app',
             },
         });
         expect(wasmMock.exports.evb_pdf_page_ops_alloc).not.toHaveBeenCalled();
@@ -2292,10 +2302,9 @@ describe('browser page-ops WASM fast path', () => {
         const { tryRunBrowserPageOpsWithWasm } = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
         const basePdf = await createPdf({pageWidths: [200]});
 
-        await expect(tryRunBrowserPageOpsWithWasm('rotate', {
+        await expect(tryRunBrowserPageOpsWithWasm('decrypt', {
             data: basePdf,
-            pages: [1],
-            angle: 90,
+            password: '',
         })).resolves.toEqual({
             status: 'failed',
             error: {
@@ -2321,10 +2330,9 @@ describe('browser page-ops WASM fast path', () => {
         const {tryRunBrowserPageOpsWithWasm} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
         const basePdf = await createPdf({pageWidths: [200]});
 
-        await expect(tryRunBrowserPageOpsWithWasm('rotate', {
+        await expect(tryRunBrowserPageOpsWithWasm('decrypt', {
             data: basePdf,
-            pages: [1],
-            angle: 90,
+            password: '',
         })).resolves.toMatchObject({
             status: 'failed',
             error: {code: 'too-large'},
@@ -2355,10 +2363,9 @@ describe('browser page-ops WASM fast path', () => {
         const {tryRunBrowserPageOpsWithWasm} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
         const basePdf = await createPdf({pageWidths: [200]});
 
-        await expect(tryRunBrowserPageOpsWithWasm('rotate', {
+        await expect(tryRunBrowserPageOpsWithWasm('decrypt', {
             data: basePdf,
-            pages: [1],
-            angle: 90,
+            password: '',
         })).resolves.toMatchObject({
             status: 'failed',
             error: {code: 'invalid-request'},
@@ -2366,10 +2373,9 @@ describe('browser page-ops WASM fast path', () => {
         expect(wasmMock.run).not.toHaveBeenCalled();
         expect(wasmMock.free).toHaveBeenCalledOnce();
 
-        await expect(tryRunBrowserPageOpsWithWasm('rotate', {
+        await expect(tryRunBrowserPageOpsWithWasm('decrypt', {
             data: basePdf,
-            pages: [1],
-            angle: 90,
+            password: '',
         })).resolves.toMatchObject({status: 'failed'});
         expect(wasmMock.run).toHaveBeenCalledOnce();
         expect(wasmMock.free).toHaveBeenCalledTimes(2);
@@ -2399,10 +2405,9 @@ describe('browser page-ops WASM fast path', () => {
         const {tryRunBrowserPageOpsWithWasm} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
         const basePdf = await createPdf({pageWidths: [200]});
 
-        await expect(tryRunBrowserPageOpsWithWasm('rotate', {
+        await expect(tryRunBrowserPageOpsWithWasm('decrypt', {
             data: basePdf,
-            pages: [1],
-            angle: 90,
+            password: '',
         })).resolves.toMatchObject({
             status: 'failed',
             error: {code: 'invalid-request'},
@@ -2410,10 +2415,9 @@ describe('browser page-ops WASM fast path', () => {
         expect(wasmMock.run).toHaveBeenCalledOnce();
         expect(wasmMock.free).toHaveBeenCalledOnce();
 
-        await expect(tryRunBrowserPageOpsWithWasm('rotate', {
+        await expect(tryRunBrowserPageOpsWithWasm('decrypt', {
             data: basePdf,
-            pages: [1],
-            angle: 90,
+            password: '',
         })).resolves.toMatchObject({
             status: 'failed',
             error: {code: 'invalid-request'},
@@ -2442,10 +2446,9 @@ describe('browser page-ops WASM fast path', () => {
         );
         const basePdf = await createPdf({pageWidths: [200]});
 
-        await expect(tryRunBrowserPageOpsWithWasm('rotate', {
+        await expect(tryRunBrowserPageOpsWithWasm('decrypt', {
             data: basePdf,
-            pages: [1],
-            angle: 90,
+            password: '',
         })).resolves.toMatchObject({
             status: 'failed',
             error: {code: 'native-failure'},
@@ -2668,6 +2671,69 @@ describe('browser page-ops WASM fast path', () => {
         expect(() => source.read(into, 1.5)).toThrow('cross-reference');
         expect(() => source.read(into, -1)).toThrow('cross-reference');
         expect(readAsArrayBuffer).not.toHaveBeenCalled();
+    });
+
+    it('judges appendAdmission and caches parsed documents across scan-cleanup raster renders', async () => {
+        const pdf = new Uint8Array(await readFile(join(process.cwd(), 'tests/fixtures/optimize-typeset-photo.pdf')));
+        const wasm = await loadWasmRunner();
+        const {evictCachedBrowserPageOpsDocument} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
+
+        const verdict = await wasm.run('appendAdmission', {source: new Blob([pdf.slice()])});
+        expect(verdict).toEqual({verdict: 'appendable'});
+
+        const latin1 = Buffer.from(pdf).toString('latin1');
+        const damaged = new Uint8Array(Buffer.from(
+            `${latin1.slice(0, latin1.lastIndexOf('startxref'))}startxref\n9\n%%EOF\n`,
+            'latin1',
+        ));
+        expect(await wasm.run('appendAdmission', {source: new Blob([damaged])})).toEqual({verdict: 'repairable'});
+
+        const scanPdf = new Uint8Array(await readFile(join(process.cwd(), 'native/scan-cleanup/tests/fixtures/source-raster/jpeg-rgb/input.pdf')));
+        const uncached = await wasm.run('renderScanCleanupRaster', {
+            data: scanPdf.slice(),
+            request: {
+                pageNumber: 1,
+                dpi: 72,
+                renderBox: 'cropBox',
+                maxPixels: 4_000_000,
+            },
+        });
+        const cachedFirst = await wasm.run('renderScanCleanupRaster', {
+            data: scanPdf.slice(),
+            cacheKey: 'doc-1:rev-1',
+            request: {
+                pageNumber: 1,
+                dpi: 72,
+                renderBox: 'cropBox',
+                maxPixels: 4_000_000,
+            },
+        });
+        const cachedSecond = await wasm.run('renderScanCleanupRaster', {
+            data: scanPdf.slice(),
+            cacheKey: 'doc-1:rev-1',
+            request: {
+                pageNumber: 1,
+                dpi: 72,
+                renderBox: 'cropBox',
+                maxPixels: 4_000_000,
+            },
+        });
+        expect(isBrowserPageOpsWasmFailure(uncached)).toBe(false);
+        expect(isBrowserPageOpsWasmFailure(cachedFirst)).toBe(false);
+        expect(isBrowserPageOpsWasmFailure(cachedSecond)).toBe(false);
+        if (
+            !uncached
+            || isBrowserPageOpsWasmFailure(uncached)
+            || !('width' in uncached.report)
+        ) {
+            throw new Error('Expected successful uncached scan-cleanup raster');
+        }
+        expect(uncached.report.width).toBeGreaterThan(0);
+        expect(uncached.report.height).toBeGreaterThan(0);
+        expect(uncached.data.byteLength).toBe(uncached.report.width * uncached.report.height * 3);
+        expect(cachedFirst).toEqual(uncached);
+        expect(cachedSecond).toEqual(uncached);
+        await evictCachedBrowserPageOpsDocument('doc-1:rev-1');
     });
 
 });

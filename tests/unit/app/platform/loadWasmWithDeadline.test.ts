@@ -7,7 +7,11 @@ import {
 } from 'vitest';
 import {createHash} from 'node:crypto';
 import {
+    compileWasmModuleOnce,
+    handlePrecompiledWasmModuleMessage,
     loadWasmWithDeadline,
+    postPrecompiledWasmModules,
+    PRECOMPILED_WASM_MODULE_MESSAGE_TYPE,
     readLoadedWasmDigest,
     wasmMemoryHighWaterBytes,
 } from '@app/platform/browser/loadWasmWithDeadline';
@@ -185,6 +189,53 @@ describe('loadWasmWithDeadline', () => {
         await expect(rejection).resolves.toMatchObject({name: 'TimeoutError'});
         expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
     });
+
+    it('compiles a real WebAssembly.Module once and instantiates it without refetching in workers', async () => {
+        // Minimal valid WebAssembly module binary (magic + version 1).
+        const emptyWasm = Uint8Array.of(0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00);
+        const expectedDigest = createHash('sha256').update(emptyWasm).digest('hex');
+        const fetchMock = vi.fn(async () => new Response(emptyWasm, {headers: {'content-type': 'application/wasm'}}));
+        vi.stubGlobal('fetch', fetchMock);
+
+        const first = await compileWasmModuleOnce('/compiled-once-test.wasm');
+        const second = await compileWasmModuleOnce('/compiled-once-test.wasm');
+        expect(first.module).toBeInstanceOf(WebAssembly.Module);
+        expect(second.module).toBe(first.module);
+        expect(first.digest).toBe(expectedDigest);
+        expect(fetchMock).toHaveBeenCalledOnce();
+
+        // Simulate receiving the precompiled module on a worker thread for another path.
+        expect(handlePrecompiledWasmModuleMessage({
+            type: PRECOMPILED_WASM_MODULE_MESSAGE_TYPE,
+            path: '/worker-received-precompiled.wasm',
+            module: first.module,
+            digest: first.digest,
+        })).toBe(true);
+        const instantiated = await loadWasmWithDeadline('/worker-received-precompiled.wasm');
+        expect(instantiated.module).toBe(first.module);
+        expect(instantiated.instance).toBeInstanceOf(WebAssembly.Instance);
+        expect(fetchMock).toHaveBeenCalledOnce();
+        await expect(readLoadedWasmDigest('/worker-received-precompiled.wasm')).resolves.toBe(expectedDigest);
+
+        // Distinct query strings must not share the same cache entry.
+        const rev1 = await compileWasmModuleOnce('/versioned-tool.wasm?rev=1');
+        const rev2 = await compileWasmModuleOnce('/versioned-tool.wasm?rev=2');
+        expect(rev1.module).not.toBe(rev2.module);
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+
+        // Posting precompiled modules to a worker sends cached modules synchronously
+        // without triggering a main-thread fetch/compile for cold paths.
+        const posted: unknown[] = [];
+        const fakeWorker = {postMessage: (message: unknown) => { posted.push(message); }} as unknown as Worker;
+        postPrecompiledWasmModules(fakeWorker, ['/compiled-once-test.wasm', '/never-compiled-cold.wasm']);
+        expect(posted).toHaveLength(1);
+        expect(posted[0]).toMatchObject({
+            type: PRECOMPILED_WASM_MODULE_MESSAGE_TYPE,
+            module: first.module,
+            digest: expectedDigest,
+        });
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
 });
 
 const WASM_PAGE_BYTES = 64 * 1024;
@@ -246,7 +297,7 @@ describe('WASM memory high-water release', () => {
 
     it('loads a fresh native tool after a call grows one past the mark, and finishes the call admitted beside it', async () => {
         const instances = stubInstances(() => memoryGrowingExports('evb_test', (memory, pointer) => new Uint8Array(memory.buffer)[pointer] === 1));
-        const {createNativeWasmToolLoader} = await import('@app/platform/browser-api/nativeWasmTool');
+        const {createNativeWasmToolLoader} = await import('@app/platform/browser/nativeWasmTool');
         const tool = createNativeWasmToolLoader({
             path: '/wasm/evb-test.wasm',
             prefix: 'evb_test',
@@ -409,7 +460,7 @@ describe('a native tool on a threaded build', () => {
             made.push(tool);
             return tool.exports;
         });
-        const {createNativeWasmToolLoader} = await import('@app/platform/browser-api/nativeWasmTool');
+        const {createNativeWasmToolLoader} = await import('@app/platform/browser/nativeWasmTool');
         const tool = createNativeWasmToolLoader(TEST_TOOL);
 
         expect(await tool.call(Uint8Array.of(1))).toMatchObject({status: 'failed', error: {code: 'panic'}});
@@ -423,7 +474,7 @@ describe('a native tool on a threaded build', () => {
     it('reads an error envelope out of shared memory as a browser can', async () => {
         vi.stubGlobal('TextDecoder', BrowserTextDecoder);
         stubInstances(() => sharedMemoryExports('evb_test', -1, '{"code":"too-large","message":"The page is too large"}').exports);
-        const {createNativeWasmToolLoader} = await import('@app/platform/browser-api/nativeWasmTool');
+        const {createNativeWasmToolLoader} = await import('@app/platform/browser/nativeWasmTool');
 
         expect(await createNativeWasmToolLoader(TEST_TOOL).call(Uint8Array.of(1))).toEqual({
             status: 'failed',
@@ -519,7 +570,7 @@ describe('a native tool on its threaded build', () => {
 
     it('starts each thread once with its own id after the threads report ready, and reuses the instance', async () => {
         const build = stubThreadedBuild({runCode: () => 0});
-        const {createNativeWasmToolLoader} = await import('@app/platform/browser-api/nativeWasmTool');
+        const {createNativeWasmToolLoader} = await import('@app/platform/browser/nativeWasmTool');
         const tool = createNativeWasmToolLoader(THREADED_TEST_TOOL);
 
         expect(await tool.call(Uint8Array.of(1))).toMatchObject({status: 'succeeded'});
@@ -531,8 +582,8 @@ describe('a native tool on its threaded build', () => {
 
     it('fails the start when a thread cannot be instantiated, ending every thread', async () => {
         const build = stubThreadedBuild({runCode: () => 0, failThreadStart: true});
-        const {createNativeWasmToolLoader} = await import('@app/platform/browser-api/nativeWasmTool');
-        const {NativeWasmThreadStartError} = await import('@app/platform/browser-api/nativeWasmThreadedTool');
+        const {createNativeWasmToolLoader} = await import('@app/platform/browser/nativeWasmTool');
+        const {NativeWasmThreadStartError} = await import('@app/platform/browser/nativeWasmThreadedTool');
 
         const failed = await createNativeWasmToolLoader(THREADED_TEST_TOOL).call(Uint8Array.of(1)).catch((error: unknown) => error);
         expect(failed).toBeInstanceOf(NativeWasmThreadStartError);
@@ -547,7 +598,7 @@ describe('a native tool on its threaded build', () => {
             build.threadWorkers[1]!.fault('RuntimeError: memory access out of bounds');
             return -2;
         }});
-        const {createNativeWasmToolLoader} = await import('@app/platform/browser-api/nativeWasmTool');
+        const {createNativeWasmToolLoader} = await import('@app/platform/browser/nativeWasmTool');
         const tool = createNativeWasmToolLoader(THREADED_TEST_TOOL);
 
         const result = await tool.call(Uint8Array.of(1));
@@ -565,8 +616,8 @@ describe('a native tool on its threaded build', () => {
     it('treats a module this browser cannot compile as a start failure', async () => {
         stubThreadedBuild({runCode: () => 0});
         vi.spyOn(WebAssembly, 'compile').mockRejectedValue(new WebAssembly.CompileError('invalid opcode: atomics'));
-        const {createNativeWasmToolLoader} = await import('@app/platform/browser-api/nativeWasmTool');
-        const {NativeWasmThreadStartError} = await import('@app/platform/browser-api/nativeWasmThreadedTool');
+        const {createNativeWasmToolLoader} = await import('@app/platform/browser/nativeWasmTool');
+        const {NativeWasmThreadStartError} = await import('@app/platform/browser/nativeWasmThreadedTool');
 
         await expect(createNativeWasmToolLoader(THREADED_TEST_TOOL).call(Uint8Array.of(1))).rejects.toBeInstanceOf(NativeWasmThreadStartError);
     });

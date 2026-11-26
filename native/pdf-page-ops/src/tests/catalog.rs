@@ -19,6 +19,8 @@ fn appends_page_labels_and_bookmarks_as_incremental_revision() {
             text_boxes: Vec::new(),
             deletes: Vec::new(),
             page_rotations: Vec::new(),
+            page_crops: Vec::new(),
+            page_crop_removals: Vec::new(),
             page_labels: Some(PageLabelsMutation {
                 total_pages: 1,
                 ranges: vec![PageLabelRange {
@@ -440,6 +442,8 @@ fn continues_page_labels_after_a_first_page_with_its_own_start_number() {
                 text_boxes: Vec::new(),
                 deletes: Vec::new(),
                 page_rotations: Vec::new(),
+                page_crops: Vec::new(),
+                page_crop_removals: Vec::new(),
                 page_labels: Some(PageLabelsMutation {
                     total_pages: 3,
                     ranges,
@@ -545,6 +549,8 @@ fn appends_metadata_removal_as_incremental_revision() {
             text_boxes: Vec::new(),
             deletes: Vec::new(),
             page_rotations: Vec::new(),
+            page_crops: Vec::new(),
+            page_crop_removals: Vec::new(),
             page_labels: Some(PageLabelsMutation {
                 total_pages: 1,
                 ranges: vec![PageLabelRange {

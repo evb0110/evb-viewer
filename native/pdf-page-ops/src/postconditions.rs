@@ -35,6 +35,12 @@ pub(crate) fn validate_appended_revision_postconditions_with_page_ids(
         &mutations.page_rotations,
         located_pages,
     )?;
+    validate_page_crop_document_postconditions(
+        document,
+        &mutations.page_crops,
+        &mutations.page_crop_removals,
+        located_pages,
+    )?;
     if let Some(page_labels) = &mutations.page_labels {
         if mutations.continuation.as_ref().is_some_and(|continuation| {
             continuation.family == NativeMutationContinuationFamily::PageLabels
@@ -101,6 +107,44 @@ fn validate_page_rotation_document_postconditions(
                 format!("Page rotation postcondition failed for page {page_number}").into(),
             );
         }
+    }
+    Ok(())
+}
+
+fn validate_page_crop_document_postconditions(
+    document: &impl PdfObjectSource,
+    crops: &[PageCropMutation],
+    crop_removals: &[u32],
+    located_pages: Option<&LocatedPages>,
+) -> Result<()> {
+    if crops.is_empty() && crop_removals.is_empty() {
+        return Ok(());
+    }
+    let pages = PageLookup::new(document, located_pages)?;
+    for crop in crops {
+        let page_number = crop
+            .page_index
+            .checked_add(1)
+            .ok_or("Page crop index is outside the supported range")?;
+        let page_id = pages.page_id(document, page_number)?;
+        validate_page_crop_box_postcondition(
+            document,
+            page_number,
+            page_id,
+            CropRevisionExpectation::Margins(crop.margins()),
+        )?;
+    }
+    for &page_index in crop_removals {
+        let page_number = page_index
+            .checked_add(1)
+            .ok_or("Page crop removal index is outside the supported range")?;
+        let page_id = pages.page_id(document, page_number)?;
+        validate_page_crop_box_postcondition(
+            document,
+            page_number,
+            page_id,
+            CropRevisionExpectation::RestoreMediaBox,
+        )?;
     }
     Ok(())
 }

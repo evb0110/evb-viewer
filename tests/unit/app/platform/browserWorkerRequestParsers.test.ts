@@ -219,30 +219,18 @@ describe('browser worker request parsers', () => {
             2,
             3,
         ]);
+        const blobSource = new Blob([data]);
+
+        // Whole-PDF rotate/crop/removeCrop byte-buffer ops were replaced by incremental OPFS mutations.
         expect(parseBrowserPageOpsWorkerRequest({
             id: 6,
             type: 'rotate',
             payload: {
                 data,
-                pages: [
-                    1,
-                    2,
-                ],
+                pages: [1],
                 angle: 90,
             },
-        })).toEqual({
-            id: 6,
-            type: 'rotate',
-            payload: {
-                data,
-                pages: [
-                    1,
-                    2,
-                ],
-                angle: 90,
-            },
-        });
-
+        })).toBeNull();
         expect(parseBrowserPageOpsWorkerRequest({
             id: 7,
             type: 'crop',
@@ -256,28 +244,69 @@ describe('browser worker request parsers', () => {
                     right: 4,
                 },
             },
-        })).toEqual({
-            id: 7,
-            type: 'crop',
-            payload: {
-                data,
-                pages: [1],
-                margins: {
-                    top: 1,
-                    bottom: 2,
-                    left: 3,
-                    right: 4,
-                },
-            },
-        });
-
+        })).toBeNull();
         expect(parseBrowserPageOpsWorkerRequest({
             id: 8,
-            type: 'rotate',
+            type: 'removeCrop',
             payload: {
                 data,
                 pages: [1],
-                angle: 45,
+            },
+        })).toBeNull();
+
+        expect(parseBrowserPageOpsWorkerRequest({
+            id: 19,
+            type: 'appendAdmission',
+            payload: {source: blobSource},
+        })).toEqual({
+            id: 19,
+            type: 'appendAdmission',
+            payload: {source: blobSource},
+        });
+        expect(parseBrowserPageOpsWorkerRequest({
+            id: 20,
+            type: 'appendAdmission',
+            payload: {source: data},
+        })).toBeNull();
+        expect(parseBrowserPageOpsWorkerRequest({
+            id: 21,
+            type: 'renderScanCleanupRaster',
+            payload: {
+                source: blobSource,
+                cacheKey: 'doc-1:rev-2',
+                request: {
+                    pageNumber: 3,
+                    dpi: 150,
+                    renderBox: 'cropBox',
+                    maxPixels: 4_000_000,
+                },
+            },
+        })).toEqual({
+            id: 21,
+            type: 'renderScanCleanupRaster',
+            payload: {
+                source: blobSource,
+                cacheKey: 'doc-1:rev-2',
+                request: {
+                    pageNumber: 3,
+                    dpi: 150,
+                    renderBox: 'cropBox',
+                    maxPixels: 4_000_000,
+                },
+            },
+        });
+        expect(parseBrowserPageOpsWorkerRequest({
+            id: 22,
+            type: 'renderScanCleanupRaster',
+            payload: {
+                source: blobSource,
+                cacheKey: '',
+                request: {
+                    pageNumber: 3,
+                    dpi: 150,
+                    renderBox: 'cropBox',
+                    maxPixels: 4_000_000,
+                },
             },
         })).toBeNull();
 

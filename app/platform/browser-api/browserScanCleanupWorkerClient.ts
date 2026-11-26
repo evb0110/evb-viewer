@@ -15,6 +15,11 @@ import {
     type IPendingBrowserWorkerRequest,
 } from '@app/platform/browser-api/settleBrowserWorkerResult';
 import {
+    BROWSER_SCAN_CLEANUP_THREADS_WASM_PATH,
+    BROWSER_SCAN_CLEANUP_WASM_PATH,
+} from '@contracts/scan-cleanup/browserScanCleanupWasm';
+import {readScanCleanupEngineWorkerThreads} from '@app/platform/browser-api/scanCleanupEngineWorkerName';
+import {
     observeScanCleanupEngineReply,
     registerScanCleanupEnginePool,
     runWithScanCleanupEngineFailover,
@@ -53,6 +58,12 @@ function createClient() {
         // The worker's name tells it which engine to run, on how many threads;
         // one started for a request that runs no engine has no name.
         budget: threadedScanCleanupEngineBudget,
+        preloadWasmPaths: (name) => {
+            if (readScanCleanupEngineWorkerThreads(name) !== null) {
+                return [BROWSER_SCAN_CLEANUP_THREADS_WASM_PATH];
+            }
+            return name !== undefined ? [BROWSER_SCAN_CLEANUP_WASM_PATH] : [];
+        },
         createWorker: (name) => {
             try {
                 return new Worker(new URL('./browserScanCleanup.worker.ts', import.meta.url), {
@@ -66,6 +77,7 @@ function createClient() {
         createError: event => new BrowserScanCleanupWorkerUnavailableError(
             event.error instanceof Error ? getErrorMessage(event.error) : event.message,
         ),
+        onDrainedMessage: observeScanCleanupEngineReply,
         handleMessage: (pendingRequests, response, onSettled) => {
             observeScanCleanupEngineReply(response);
             settleBrowserWorkerResult(pendingRequests, response, onSettled);
@@ -186,5 +198,10 @@ function runOnWorker<K extends TBrowserScanCleanupWorkerRequestType>(
         } catch (error) {
             client.cancelPendingRequest(id, error instanceof Error ? error : new Error(String(error)));
         }
-    }), ENGINELESS_REQUESTS.has(type) ? {} : scanCleanupEngineAdmission(concurrency)).finally(() => signal.removeEventListener('abort', abort));
+    }), {
+        ...(ENGINELESS_REQUESTS.has(type) ? {} : scanCleanupEngineAdmission(concurrency)),
+        // Keep the warm preview/detection worker pool alive across superseding cancels;
+        // only heavy final page renders tear down the worker on cancel.
+        keepWarmOnCancel: type !== 'render-page',
+    }).finally(() => signal.removeEventListener('abort', abort));
 }

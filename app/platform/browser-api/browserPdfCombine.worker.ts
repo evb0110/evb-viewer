@@ -23,6 +23,7 @@ import {
     readPdfImageCombineEngineDigest,
     tryCombineImageInputsWithWasm,
 } from '@app/platform/browser-api/tryCombineImageInputsWithWasm';
+import {handlePrecompiledWasmModuleMessage} from '@app/platform/browser/loadWasmWithDeadline';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 import { getErrorMessage } from '@app/utils/error';
 import { readBrowserRasterImageMetadata } from '@app/platform/browser-api/browserRasterImageMetadata';
@@ -258,6 +259,7 @@ async function postResponse(message: TBrowserPdfCombineWorkerResponse, transfer:
 }
 
 self.addEventListener('message', async (event: MessageEvent<unknown>) => {
+    if (handlePrecompiledWasmModuleMessage(event.data)) return;
     const request = parseBrowserPdfCombineWorkerRequest(event.data);
     if (request === null) {
         const id = getBrowserPdfCombineWorkerRequestId(event.data);

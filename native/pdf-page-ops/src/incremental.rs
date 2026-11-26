@@ -289,6 +289,12 @@ fn apply_native_mutations_internal(
     if !mutations.page_rotations.is_empty() {
         rotate_pages(document, &mutations.page_rotations)?;
     }
+    if !mutations.page_crops.is_empty() {
+        apply_page_crops(document, &mutations.page_crops)?;
+    }
+    if !mutations.page_crop_removals.is_empty() {
+        apply_page_crop_removals(document, &mutations.page_crop_removals)?;
+    }
     if let Some(page_labels) = &mutations.page_labels {
         set_page_labels(document, page_labels, is_page_label_continuation(mutations))?;
     }
@@ -350,7 +356,10 @@ pub(crate) fn open_mutation_base<S: ByteSource>(
     len: u64,
     mutations: &NativeMutationsFile,
 ) -> Result<IncrementalDocument> {
-    if !mutations.page_rotations.is_empty() {
+    if !mutations.page_rotations.is_empty()
+        || !mutations.page_crops.is_empty()
+        || !mutations.page_crop_removals.is_empty()
+    {
         validate_page_tree_source(&source, len)?;
     }
     let restored_images = mutations

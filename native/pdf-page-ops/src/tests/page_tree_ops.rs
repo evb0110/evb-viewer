@@ -1197,7 +1197,9 @@ fn browser_structural_operations_preserve_tagged_page_subsets() {
             }
         }
     }
-    assert!(rotate_browser_pdf_bytes(tagged, &[1], 90).is_ok());
+    let rotate_page_1 =
+        read_native_mutations_bytes(br#"{"pageRotations":[{"pageIndex":0,"angle":90}]}"#).unwrap();
+    assert!(append_native_mutations_to_bytes(tagged, &rotate_page_1, "D:20261122000000Z").is_ok());
 }
 
 #[test]
@@ -2051,12 +2053,14 @@ fn page_edits_refuse_a_damaged_page_tree() {
             page_tree_pdf(2, &["3 0 R", "4 0 R"], &[(3, PAGE), (4, "<< /Parent 2 0 R >>")]),
         ),
     ];
+    let rotate_page_1 =
+        read_native_mutations_bytes(br#"{"pageRotations":[{"pageIndex":0,"angle":90}]}"#).unwrap();
     // A structure edit and a geometry edit refuse alike, so the recovery,
     // which repairs only `CorruptXref`, never edits around the damage.
     for (name, input) in cases {
         for result in [
             delete_browser_pdf_pages(&input, &[1]).map(drop),
-            rotate_browser_pdf_bytes(&input, &[1], 90).map(drop),
+            append_native_mutations_to_bytes(&input, &rotate_page_1, "D:20261122000000Z").map(drop),
             // What a rotation reads of the file before its indexed load.
             validate_page_tree_source(input.as_slice(), input.len() as u64),
         ] {
@@ -2086,7 +2090,12 @@ fn page_edits_refuse_a_damaged_page_tree() {
     }
     let sound = page_tree_pdf(2, &["4 0 R", "3 0 R"], &[(3, PAGE), (4, NODE), (5, PAGE)]);
     assert_eq!(delete_browser_pdf_pages(&sound, &[1]).unwrap().page_count, 1);
-    assert_eq!(rotate_browser_pdf_bytes(&sound, &[1], 90).unwrap().page_count, 2);
+    assert_eq!(
+        append_native_mutations_to_bytes(&sound, &rotate_page_1, "D:20261122000000Z")
+            .unwrap()
+            .page_count,
+        2
+    );
     validate_page_tree_source(sound.as_slice(), sound.len() as u64).unwrap();
 }
 

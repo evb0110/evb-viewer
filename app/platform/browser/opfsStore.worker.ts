@@ -5,6 +5,7 @@
 // appends a revision runs here too, on the handle the document already holds, and so does content hashing:
 // a witness reads its bytes here, so the window neither receives nor hashes them.
 import { contentWitness } from '@document-store/contentWitness';
+import { handlePrecompiledWasmModuleMessage } from '@app/platform/browser/loadWasmWithDeadline';
 import type {
     IOcrTextLayerAppendRequest,
     IPdfAppendRequest,
@@ -208,6 +209,7 @@ const operations: Record<string, (...args: never[]) => unknown> = {
 };
 
 self.addEventListener('message', (event: MessageEvent<IRequest>) => {
+    if (handlePrecompiledWasmModuleMessage(event.data)) return;
     const {id, op, args} = event.data;
     void (async () => {
         try {

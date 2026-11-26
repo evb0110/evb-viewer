@@ -23,6 +23,7 @@ import {
     type TBrowserScanCleanupSourceBorrow,
 } from '@app/platform/browser-api/browserScanCleanupSources';
 import {createBrowserScanCleanupDetectionOwner} from '@app/platform/browser-api/createBrowserScanCleanupDetectionOwner';
+import {browserScanCleanupRasterCache} from '@app/platform/browser-api/browserScanCleanupRasterCache';
 import {onBrowserWorkingCopyClose} from '@app/platform/browser-api/browserWorkingCopyClose';
 import {
     adoptScanCleanupDocumentKey,
@@ -100,6 +101,7 @@ const conversion = createBrowserScanCleanupConversionOwner(detection);
 // A closed document ends its detection and releases what its previews hold:
 // their work, the base a detail would refine, and its source snapshot.
 onBrowserWorkingCopyClose(async ref => {
+    browserScanCleanupRasterCache.invalidateByRef(ref);
     detection.closeSource(ref);
     conversion.closeSource(ref);
     const retiring = await admitPreview(() => {
@@ -313,6 +315,9 @@ export const browserScanCleanupCapability: IScanCleanupCapability = {
             return claimed;
         });
         await Promise.all(retiring.map(retire));
+        if (request.invalidateRawCache === true) {
+            browserScanCleanupRasterCache.invalidateByRef(request.sourcePdfPath);
+        }
         if (request.invalidateRawCache === true && base === null && detail === null) {
             previewSource?.release();
             previewSource = null;

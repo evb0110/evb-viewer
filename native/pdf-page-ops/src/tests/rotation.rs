@@ -59,9 +59,9 @@ fn incremental_rotation_normalizes_inherited_values_and_keeps_other_metadata() {
                 page_index: Some(0),
                 page_y_ratio: None,
                 named_dest: None,
-                    original_destination: None,
-                    original_action: None,
-                    original_named_dest: None,
+                original_destination: None,
+                original_action: None,
+                original_named_dest: None,
                 bold: false,
                 italic: false,
                 color: None,
@@ -131,7 +131,6 @@ fn native_rotation_payload_rejects_non_quarter_turn_angles() {
     assert!(duplicate.to_string().contains("duplicate page index"));
 }
 
-
 #[test]
 fn browser_geometry_preserves_signed_bytes_across_successive_revisions() {
     let input = include_bytes!("../../../../tests/fixtures/electron/pdf-preservation/signed.pdf");
@@ -158,10 +157,32 @@ fn browser_geometry_preserves_signed_bytes_across_successive_revisions() {
         left: 8.0,
         right: 10.0,
     };
+    let rotate = NativeMutationsFile {
+        page_rotations: vec![PageRotationMutation {
+            page_index: 0,
+            angle: 90,
+        }],
+        ..NativeMutationsFile::default()
+    };
+    let crop = NativeMutationsFile {
+        page_crops: vec![PageCropMutation {
+            page_index: 0,
+            top: margins.top,
+            bottom: margins.bottom,
+            left: margins.left,
+            right: margins.right,
+            physical: margins.physical,
+        }],
+        ..NativeMutationsFile::default()
+    };
+    let remove_crop = NativeMutationsFile {
+        page_crop_removals: vec![0],
+        ..NativeMutationsFile::default()
+    };
     let independent = [
-        rotate_browser_pdf_bytes(input, &[1], 90).unwrap(),
-        crop_browser_pdf_bytes(input, &[1], margins).unwrap(),
-        remove_crop_browser_pdf_bytes(input, &[1]).unwrap(),
+        append_native_mutations_to_bytes(input, &rotate, "D:20260923000000Z").unwrap(),
+        append_native_mutations_to_bytes(input, &crop, "D:20260923000000Z").unwrap(),
+        append_native_mutations_to_bytes(input, &remove_crop, "D:20260923000000Z").unwrap(),
     ];
     for result in independent {
         assert!(
@@ -173,9 +194,11 @@ fn browser_geometry_preserves_signed_bytes_across_successive_revisions() {
             signatures
         );
     }
-    let rotated = rotate_browser_pdf_bytes(input, &[1], 90).unwrap();
-    let cropped = crop_browser_pdf_bytes(&rotated.data, &[1], margins).unwrap();
-    let restored = remove_crop_browser_pdf_bytes(&cropped.data, &[1]).unwrap();
+    let rotated = append_native_mutations_to_bytes(input, &rotate, "D:20260923000000Z").unwrap();
+    let cropped =
+        append_native_mutations_to_bytes(&rotated.data, &crop, "D:20260923000000Z").unwrap();
+    let restored =
+        append_native_mutations_to_bytes(&cropped.data, &remove_crop, "D:20260923000000Z").unwrap();
     assert!(cropped.data.starts_with(&rotated.data));
     assert!(restored.data.starts_with(&cropped.data));
     let output = Document::load_mem(&restored.data).unwrap();

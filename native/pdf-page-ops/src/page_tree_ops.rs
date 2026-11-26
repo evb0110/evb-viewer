@@ -148,99 +148,11 @@ pub(crate) fn page_count(document: &Document) -> u32 {
     document.get_pages().len() as u32
 }
 
-pub(crate) fn validate_browser_rotation_angle(angle: i64) -> Result<i64> {
-    match angle {
-        90 | 180 | 270 => Ok(angle),
-        _ => Err("Invalid rotation angle".into()),
-    }
-}
-
 pub(crate) fn get_browser_page_geometry(
     document: &Document,
     page_number: u32,
 ) -> Result<PageGeometry> {
     get_page_geometry(document, page_number)
-}
-
-fn browser_geometry_incremental(
-    data: &[u8],
-    pages: &[u32],
-    label: &str,
-) -> Result<IncrementalDocument> {
-    let (_, incremental) = incremental_from_bytes(data)?;
-    let source = incremental.get_prev_documents();
-    PageTreeResolver::validated(source)?;
-    validate_browser_page_numbers(pages, label, page_count(source), true, false)?;
-    Ok(incremental)
-}
-
-fn browser_geometry_bytes(
-    data: &[u8],
-    mut incremental: IncrementalDocument,
-) -> Result<PageMutationBytes> {
-    incremental.new_document.version = incremental.get_prev_documents().version.clone();
-    let revision = appended_revision_bytes(&mut incremental)?;
-    let too_large = || {
-        domain_error(
-            NativeErrorCode::TooLarge,
-            "Page-op WASM output exceeds the admission ceiling",
-        )
-    };
-    let framed_len = data
-        .len()
-        .checked_add(revision.len())
-        .and_then(|len| len.checked_add(PAGE_OP_WASM_MUTATION_HEADER_BYTES))
-        .filter(|len| *len <= PAGE_OP_WASM_MAX_BUFFER_BYTES)
-        .ok_or_else(too_large)?;
-    let mut output = Vec::new();
-    output
-        .try_reserve_exact(framed_len)
-        .map_err(|_| too_large())?;
-    output.extend_from_slice(data);
-    output.extend_from_slice(&revision);
-    Ok(PageMutationBytes {
-        data: output,
-        page_count: page_count(incremental.get_prev_documents()),
-    })
-}
-
-pub(crate) fn crop_browser_pdf_bytes(
-    data: &[u8],
-    pages: &[u32],
-    margins: CropMargins,
-) -> Result<PageMutationBytes> {
-    let mut incremental = browser_geometry_incremental(data, pages, "cropPages")?;
-    crop_pages_incremental(&mut incremental, pages, margins)?;
-    browser_geometry_bytes(data, incremental)
-}
-
-pub(crate) fn remove_crop_browser_pdf_bytes(
-    data: &[u8],
-    pages: &[u32],
-) -> Result<PageMutationBytes> {
-    let mut incremental = browser_geometry_incremental(data, pages, "removeCrop")?;
-    remove_crop_from_pages_incremental(&mut incremental, pages)?;
-    browser_geometry_bytes(data, incremental)
-}
-
-pub(crate) fn rotate_browser_pdf_bytes(
-    data: &[u8],
-    pages: &[u32],
-    angle: i64,
-) -> Result<PageMutationBytes> {
-    let angle = validate_browser_rotation_angle(angle)?;
-    let mut incremental = browser_geometry_incremental(data, pages, "rotatePages")?;
-    let rotations = pages
-        .iter()
-        .map(|page| {
-            Ok(PageRotationMutation {
-                page_index: page.checked_sub(1).ok_or("Invalid rotation page number")?,
-                angle,
-            })
-        })
-        .collect::<Result<Vec<_>>>()?;
-    rotate_pages(&mut incremental, &rotations)?;
-    browser_geometry_bytes(data, incremental)
 }
 
 pub(crate) fn get_browser_page_geometry_from_bytes(

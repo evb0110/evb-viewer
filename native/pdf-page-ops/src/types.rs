@@ -164,6 +164,9 @@ pub(crate) enum NativeMutationContinuationFamily {
     Notes,
     #[serde(alias = "freeTextEditors")]
     TextBoxes,
+    PageRotations,
+    PageCrops,
+    PageCropRemovals,
     PageLabels,
     Bookmarks,
     Shapes,
@@ -288,6 +291,31 @@ pub(crate) struct PageRotationMutation {
     /// Clockwise quarter-turn increment. The effective inherited rotation is
     /// normalized before this increment is applied.
     pub(crate) angle: i64,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct PageCropMutation {
+    /// Zero-based page index, matching `PageRotationMutation`.
+    pub(crate) page_index: u32,
+    pub(crate) top: f64,
+    pub(crate) bottom: f64,
+    pub(crate) left: f64,
+    pub(crate) right: f64,
+    #[serde(default)]
+    pub(crate) physical: bool,
+}
+
+impl PageCropMutation {
+    pub(crate) fn margins(self) -> CropMargins {
+        CropMargins {
+            top: self.top,
+            bottom: self.bottom,
+            left: self.left,
+            right: self.right,
+            physical: self.physical,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -875,6 +903,12 @@ pub(crate) struct NativeMutationsFile {
     #[serde(default)]
     #[serde(deserialize_with = "deserialize_collection")]
     pub(crate) page_rotations: Vec<PageRotationMutation>,
+    #[serde(default)]
+    #[serde(deserialize_with = "deserialize_collection")]
+    pub(crate) page_crops: Vec<PageCropMutation>,
+    #[serde(default)]
+    #[serde(deserialize_with = "deserialize_collection")]
+    pub(crate) page_crop_removals: Vec<u32>,
     pub(crate) page_labels: Option<PageLabelsMutation>,
     pub(crate) bookmarks: Option<BookmarksMutation>,
     pub(crate) shapes: Option<ShapesMutation>,

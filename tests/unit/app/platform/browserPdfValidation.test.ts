@@ -521,12 +521,14 @@ describe('browser qpdf engine worker', () => {
         });
         const qpdfWasm = await readFile(join(process.cwd(), 'public/wasm/evb-qpdf.wasm'));
         const pageOpsWasm = await readFile(join(process.cwd(), 'public/wasm/evb-pdf-page-ops.wasm'));
+        const fetchedUrls: string[] = [];
         vi.stubGlobal('fetch', async (input: string | URL | Request) => {
             const url = typeof input === 'string'
                 ? input
                 : input instanceof URL
                     ? input.href
                     : input.url;
+            fetchedUrls.push(url);
             const bytes = url.includes('evb-pdf-page-ops.wasm') ? pageOpsWasm : qpdfWasm;
             return new Response(Uint8Array.from(bytes), {headers: {'content-type': 'application/wasm'}});
         });
@@ -539,19 +541,24 @@ describe('browser qpdf engine worker', () => {
             }
         });
         await import('@app/platform/browser-api/browserQpdfEngine.worker');
+        const qpdfListener = listener!;
+        listener = undefined;
+        await import('@app/platform/browser-api/browserPageOps.worker');
+        const pageOpsListener = listener!;
         let nextId = 1;
         const run = async (command: string, input: Uint8Array | Blob) => {
-            await listener!({data: {id: nextId++, type: 'run', payload: {command, input}}} as MessageEvent<unknown>);
+            await qpdfListener({data: {id: nextId++, type: 'run', payload: {command, input}}} as MessageEvent<unknown>);
             return posted.at(-1) as {ok: boolean; data: {exitCode: number; stdout: string; stderr: string; output: Uint8Array | null}};
         };
-        const normalize = async (input: Uint8Array | Blob) => {
-            await listener!({data: {id: nextId++, type: 'normalize-append-base', payload: {input}}} as MessageEvent<unknown>);
-            return posted.at(-1) as {ok: boolean; data: {verdict: string; stderr: string; output: Uint8Array | null}};
+        const judgeAdmission = async (source: Blob) => {
+            await pageOpsListener({data: {id: nextId++, type: 'appendAdmission', payload: {source}}} as MessageEvent<unknown>);
+            return posted.at(-1) as {ok: boolean; data: {verdict: string}};
         };
         return {
             run,
-            normalize,
+            judgeAdmission,
             reads,
+            fetchedUrls,
         };
     }
 
@@ -587,24 +594,24 @@ describe('browser qpdf engine worker', () => {
         expect((await run('page-count', new SyncReadableBlob(pdf))).data).toMatchObject({exitCode: 0, stdout: expect.stringMatching(/^\d+\n?$/u)});
     });
 
-    it('judges append admission on a Blob by bounded ranges without calling Blob.arrayBuffer()', async () => {
+    it('judges append admission in browserPageOps.worker by bounded ranges without loading qpdf or calling Blob.arrayBuffer()', async () => {
         const pdf = new Uint8Array(await readFile(join(process.cwd(), 'tests/fixtures/optimize-typeset-photo.pdf')));
         const {
-            normalize,
+            run,
+            judgeAdmission,
             reads,
+            fetchedUrls,
         } = await startEngine();
 
         const blob = new SyncReadableBlob(pdf);
         const arrayBufferSpy = vi.spyOn(blob, 'arrayBuffer').mockImplementation(() => {
-            throw new Error('normalize-append-base must not copy a Blob whole via arrayBuffer()');
+            throw new Error('appendAdmission must not copy a Blob whole via arrayBuffer()');
         });
-        const admittedBytes = await normalize(pdf.slice());
-        const admittedBlob = await normalize(blob);
+        const admittedBlob = await judgeAdmission(blob);
         expect(arrayBufferSpy).not.toHaveBeenCalled();
-        expect(admittedBytes.ok && admittedBlob.ok).toBe(true);
-        expect(admittedBlob.data).toEqual(admittedBytes.data);
-        expect(admittedBlob.data.verdict).toBe('appendable');
-        expect(admittedBlob.data.output).toBeNull();
+        expect(admittedBlob.ok).toBe(true);
+        expect(admittedBlob.data).toEqual({verdict: 'appendable'});
+        expect(fetchedUrls.some(url => url.includes('evb-qpdf.wasm'))).toBe(false);
         expect(reads.length).toBeGreaterThan(0);
         expect(Math.max(...reads)).toBeLessThanOrEqual(64 * 1024);
         expect(reads.reduce((total, size) => total + size, 0)).toBeLessThanOrEqual(pdf.byteLength);
@@ -617,8 +624,9 @@ describe('browser qpdf engine worker', () => {
         reads.length = 0;
         const damagedBlob = new SyncReadableBlob(damaged);
         vi.spyOn(damagedBlob, 'arrayBuffer').mockImplementation(() => {
-            throw new Error('normalize-append-base must not copy a damaged Blob whole via arrayBuffer()');
+            throw new Error('appendAdmission must not copy a damaged Blob whole via arrayBuffer()');
         });
+        expect((await judgeAdmission(damagedBlob)).data).toEqual({verdict: 'repairable'});
         // qpdf derives a repaired file's identifier from the clock; both repairs read one instant.
         vi.useFakeTimers({
             toFake: ['Date'],
@@ -627,13 +635,14 @@ describe('browser qpdf engine worker', () => {
         let repairedBytes;
         let repairedBlob;
         try {
-            repairedBytes = await normalize(damaged.slice());
-            repairedBlob = await normalize(damagedBlob);
+            repairedBytes = await run('rewrite', damaged.slice());
+            repairedBlob = await run('rewrite', damagedBlob);
         } finally {
             vi.useRealTimers();
         }
         expect(repairedBytes.ok && repairedBlob.ok).toBe(true);
-        expect(repairedBlob.data.verdict).toBe('repairable');
+        // qpdf exits 3 (succeeded with warnings) when repairing a damaged xref table.
+        expect(repairedBlob.data.exitCode).toBe(3);
         expect(repairedBlob.data.output).toEqual(repairedBytes.data.output);
     });
 });

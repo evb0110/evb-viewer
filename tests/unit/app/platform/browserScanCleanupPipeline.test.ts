@@ -9,6 +9,13 @@ import type {IScanCleanupWasmAnalyzeResult} from '@contracts/scan-cleanup/browse
 import type {TScanCleanupProgress} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {WasmAnalysisPageV3} from '@contracts/scan-cleanup/nativeWire.generated';
 import {reduceScanCleanupRasterRows} from '@evb/scan-cleanup/core/sourceRasterFacts';
+import type {IPdfPageSize} from '@evb/scan-cleanup/core/types';
+import {
+    buildScanCleanupRasterCacheKey,
+    createBrowserScanCleanupRasterCache,
+    isCacheableScanCleanupRaster,
+    scanCleanupRasterCacheBudgetBytes,
+} from '@app/platform/browser-api/browserScanCleanupRasterCache';
 import {cast} from '@tests/helpers/cast';
 
 const mocks = vi.hoisted(() => ({
@@ -330,5 +337,99 @@ describe('browser scan cleanup runtime scheduling & progress', () => {
         expect(appended).toEqual([new Uint8Array([11]), new Uint8Array([22])]);
         // Assembling is emitted before output.merge() runs.
         expect(stageAtMerge).toBe('assembling');
+    });
+});
+
+function makeRasterCachePageSize(overrides: Partial<IPdfPageSize> = {}): IPdfPageSize {
+    return {
+        pageNumber: 1,
+        renderBox: 'cropbox',
+        rotation: 0,
+        xPoints: 0,
+        yPoints: 0,
+        widthPoints: 612,
+        heightPoints: 792,
+        userUnit: 1,
+        ...overrides,
+    };
+}
+
+function makeCachedRaster(fill: number, byteLength = 64, dpi = 150) {
+    const ppm = new Uint8Array(byteLength);
+    ppm.fill(fill);
+    return {
+        ppm,
+        width: 10,
+        height: 10,
+        dpi,
+    };
+}
+
+describe('browserScanCleanupRasterCache', () => {
+    it('sizes the byte budget from deviceMemory (64 MiB <=4 GiB, 128 MiB >4 GiB)', () => {
+        expect(scanCleanupRasterCacheBudgetBytes(2)).toBe(64 * 1024 * 1024);
+        expect(scanCleanupRasterCacheBudgetBytes(4)).toBe(64 * 1024 * 1024);
+        expect(scanCleanupRasterCacheBudgetBytes(undefined)).toBe(64 * 1024 * 1024);
+        expect(scanCleanupRasterCacheBudgetBytes(8)).toBe(128 * 1024 * 1024);
+    });
+
+    it('caches full-page rasters at <=150 DPI and skips cropped regions or high-DPI conversion renders', () => {
+        expect(isCacheableScanCleanupRaster(150, undefined)).toBe(true);
+        expect(isCacheableScanCleanupRaster(72, undefined)).toBe(true);
+        expect(isCacheableScanCleanupRaster(300, undefined)).toBe(false);
+        expect(isCacheableScanCleanupRaster(150, {x: 0, y: 0, width: 100, height: 100})).toBe(false);
+    });
+
+    it('clones buffers on put and get, replays pageOpsEngineSha256, and evicts in LRU order', () => {
+        const cache = createBrowserScanCleanupRasterCache(128);
+        const key1 = buildScanCleanupRasterCacheKey({ref: 'browser://doc/1', revision: 'rev-1', pageSize: makeRasterCachePageSize({pageNumber: 1}), dpi: 150});
+        const key2 = buildScanCleanupRasterCacheKey({ref: 'browser://doc/1', revision: 'rev-1', pageSize: makeRasterCachePageSize({pageNumber: 2}), dpi: 150});
+        const key3 = buildScanCleanupRasterCacheKey({ref: 'browser://doc/1', revision: 'rev-1', pageSize: makeRasterCachePageSize({pageNumber: 3}), dpi: 150});
+
+        const input1 = makeCachedRaster(11, 64);
+        cache.set(key1, input1, 'sha-pageops-1');
+        input1.ppm.fill(0);
+
+        cache.set(key2, makeCachedRaster(22, 64), 'sha-pageops-1');
+        expect(cache.stats()).toMatchObject({entries: 2, bytes: 128});
+
+        const hit1 = cache.get(key1);
+        expect(hit1?.pageOpsEngineSha256).toBe('sha-pageops-1');
+        expect(hit1?.raster.ppm[0]).toBe(11);
+        hit1?.raster.ppm.fill(99);
+        expect(cache.get(key1)?.raster.ppm[0]).toBe(11);
+
+        cache.set(key3, makeCachedRaster(33, 64), 'sha-pageops-2');
+        expect(cache.get(key2)).toBeNull();
+        expect(cache.get(key1)?.raster.ppm[0]).toBe(11);
+        expect(cache.get(key3)?.raster.ppm[0]).toBe(33);
+        expect(cache.stats()).toMatchObject({entries: 2, bytes: 128});
+    });
+
+    it('invalidates cleanly on revision, rotation, DPI, or document ref changes', () => {
+        const cache = createBrowserScanCleanupRasterCache(1024);
+        const base = makeRasterCachePageSize({pageNumber: 1, rotation: 0});
+        const rev1Key = buildScanCleanupRasterCacheKey({ref: 'browser://doc/1', revision: 'rev-1', pageSize: base, dpi: 150});
+        const rev2Key = buildScanCleanupRasterCacheKey({ref: 'browser://doc/1', revision: 'rev-2', pageSize: base, dpi: 150});
+        const rotatedKey = buildScanCleanupRasterCacheKey({ref: 'browser://doc/1', revision: 'rev-1', pageSize: makeRasterCachePageSize({pageNumber: 1, rotation: 90}), dpi: 150});
+        const otherDocKey = buildScanCleanupRasterCacheKey({ref: 'browser://doc/2', revision: 'rev-1', pageSize: base, dpi: 150});
+
+        cache.set(rev1Key, makeCachedRaster(1, 32), null);
+        cache.set(rev2Key, makeCachedRaster(2, 32), null);
+        cache.set(rotatedKey, makeCachedRaster(3, 32), null);
+        cache.set(otherDocKey, makeCachedRaster(4, 32), null);
+
+        expect(rev1Key).not.toBe(rotatedKey);
+        expect(rev1Key).not.toBe(rev2Key);
+
+        cache.invalidateByRevision('browser://doc/1', 'rev-1');
+        expect(cache.get(rev1Key)).toBeNull();
+        expect(cache.get(rotatedKey)).toBeNull();
+        expect(cache.get(rev2Key)?.raster.ppm[0]).toBe(2);
+        expect(cache.get(otherDocKey)?.raster.ppm[0]).toBe(4);
+
+        cache.invalidateByRef('browser://doc/1');
+        expect(cache.get(rev2Key)).toBeNull();
+        expect(cache.get(otherDocKey)?.raster.ppm[0]).toBe(4);
     });
 });

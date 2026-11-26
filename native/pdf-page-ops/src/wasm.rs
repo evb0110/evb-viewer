@@ -6,8 +6,7 @@ use std::{cell::RefCell, slice};
 
 use crate::{build_print_layout, save_document_to_bytes, PrintOrientation, PrintViewMode};
 use crate::{
-    crop_browser_pdf_bytes, decrypt_browser_pdf_bytes, get_browser_page_geometry_from_bytes,
-    load_browser_pdf, remove_crop_browser_pdf_bytes, rotate_browser_pdf_bytes,
+    decrypt_browser_pdf_bytes, get_browser_page_geometry_from_bytes, load_browser_pdf,
     validate_native_mutations, PageMutationBytes, Result, PAGE_OP_WASM_MAX_BUFFER_BYTES,
     PAGE_OP_WASM_MUTATION_HEADER_BYTES,
 };
@@ -21,6 +20,7 @@ thread_local! {
     pub(crate) static REQUEST_ALLOCATION: WasmRequestAllocation = const { WasmRequestAllocation::new(MAX_REQUEST_BYTES) };
     static LAST_OUTPUT: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
     static LAST_ERROR: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+    static CACHED_DOCUMENT: RefCell<Option<(u32, lopdf::Document)>> = const { RefCell::new(None) };
 }
 
 #[no_mangle]
@@ -163,19 +163,6 @@ fn run_request(request: &[u8]) -> Result<Vec<u8>> {
             output.extend_from_slice(&metadata);
             Ok(output)
         }
-        OP_ROTATE => encode_mutation(rotate_browser_pdf_bytes(
-            parsed.data,
-            &parsed.pages,
-            parsed.angle,
-        )?),
-        OP_CROP => encode_mutation(crop_browser_pdf_bytes(
-            parsed.data,
-            &parsed.pages,
-            parsed.margins,
-        )?),
-        OP_REMOVE_CROP => {
-            encode_mutation(remove_crop_browser_pdf_bytes(parsed.data, &parsed.pages)?)
-        }
         OP_GET_PAGE_GEOMETRY => encode_bytes(
             RESPONSE_JSON,
             serde_json::to_vec(&get_browser_page_geometry_from_bytes(
@@ -183,6 +170,86 @@ fn run_request(request: &[u8]) -> Result<Vec<u8>> {
                 parsed.page_number,
             )?)?,
         ),
+        OP_OPEN_DOCUMENT => {
+            if parsed.page_number == 0 {
+                return Err(crate::domain_error(
+                    NativeErrorCode::InvalidRequest,
+                    "Cached PDF document handle must be non-zero",
+                ));
+            }
+            let document = load_browser_pdf(parsed.data)?;
+            let page_count = crate::page_count(&document);
+            CACHED_DOCUMENT.with(|slot| {
+                *slot.borrow_mut() = Some((parsed.page_number, document));
+            });
+            encode_bytes(
+                RESPONSE_JSON,
+                serde_json::to_vec(&serde_json::json!({
+                    "handle": parsed.page_number,
+                    "pageCount": page_count,
+                }))?,
+            )
+        }
+        OP_CLOSE_DOCUMENT => {
+            CACHED_DOCUMENT.with(|slot| {
+                let mut guard = slot.borrow_mut();
+                if parsed.page_number == 0
+                    || guard
+                        .as_ref()
+                        .is_some_and(|(handle, _)| *handle == parsed.page_number)
+                {
+                    *guard = None;
+                }
+            });
+            encode_bytes(RESPONSE_JSON, b"{}".to_vec())
+        }
+        OP_RENDER_SCAN_CLEANUP_RASTER_CACHED => {
+            let request: crate::scan_cleanup_pdf::ScanRasterRequest =
+                crate::parse_json_sidecar_bytes(parsed.insertion_data, "scan raster request")?;
+            let reported = CACHED_DOCUMENT.with(|slot| {
+                let guard = slot.borrow();
+                let Some((handle, document)) = guard.as_ref() else {
+                    return Err(crate::domain_error(
+                        NativeErrorCode::InvalidRequest,
+                        "Cached PDF document handle is not open",
+                    ));
+                };
+                if *handle != parsed.page_number {
+                    return Err(crate::domain_error(
+                        NativeErrorCode::InvalidRequest,
+                        "Cached PDF document handle is not open",
+                    ));
+                }
+                Ok(
+                    match crate::scan_cleanup_pdf::render_scan_cleanup_raster(document, request)? {
+                        crate::scan_cleanup_pdf::ScanRaster::Raster {
+                            width,
+                            height,
+                            rgb,
+                            compatibility,
+                        } => crate::ReportedBytes {
+                            data: rgb,
+                            page_count: 1,
+                            report: serde_json::to_vec(&serde_json::json!({
+                                "width": width,
+                                "height": height,
+                                "compatibility": compatibility,
+                            }))?,
+                        },
+                        crate::scan_cleanup_pdf::ScanRaster::Unsupported(reason) => {
+                            crate::ReportedBytes {
+                                data: Vec::new(),
+                                page_count: 0,
+                                report: serde_json::to_vec(
+                                    &serde_json::json!({ "unsupported": reason }),
+                                )?,
+                            }
+                        }
+                    },
+                )
+            })?;
+            encode_reported(RESPONSE_REPORTED_RASTER, reported)
+        }
         OP_DECRYPT => encode_mutation(decrypt_browser_pdf_bytes(parsed.data, parsed.password)?),
         OP_PRINT_LAYOUT => {
             let options = std::str::from_utf8(parsed.insertion_data)
@@ -581,7 +648,13 @@ mod tests {
     };
 
     fn request_header(page_count: u32, data_len: u32, insertion_data_len: u32) -> Vec<u8> {
-        request_header_with_password(OP_ROTATE, page_count, data_len, insertion_data_len, 0)
+        request_header_with_password(
+            OP_GET_PAGE_GEOMETRY,
+            page_count,
+            data_len,
+            insertion_data_len,
+            0,
+        )
     }
 
     fn request_header_with_password(
@@ -832,20 +905,25 @@ mod tests {
         assert_eq!(page["evbOcrLines"][0]["text"], "Visible");
     }
 
-    fn crop_request(data: &[u8], top: f64) -> Vec<u8> {
+    fn cached_doc_request(
+        operation: u32,
+        handle: u32,
+        data: &[u8],
+        insertion_data: &[u8],
+    ) -> Vec<u8> {
         let mut request = Vec::new();
         request.extend_from_slice(REQUEST_MAGIC);
-        for value in [REQUEST_VERSION, OP_CROP, 1, 0, 0] {
+        for value in [REQUEST_VERSION, operation, 0, handle, 0] {
             write_u32_le(&mut request, value);
         }
-        for value in [top, 0.0, 0.0, 0.0] {
-            write_f64_le(&mut request, value);
+        for _ in 0..4 {
+            write_f64_le(&mut request, 0.0);
         }
         write_u32_le(&mut request, data.len() as u32);
+        write_u32_le(&mut request, insertion_data.len() as u32);
         write_u32_le(&mut request, 0);
-        write_u32_le(&mut request, 0);
-        write_u32_le(&mut request, 1);
         request.extend_from_slice(data);
+        request.extend_from_slice(insertion_data);
         request
     }
 
@@ -983,13 +1061,89 @@ mod tests {
     }
 
     #[test]
-    fn wasm_crop_rejects_non_finite_margins_through_shared_validation() {
-        let request = crop_request(&test_pdf_bytes(), f64::NAN);
+    fn wasm_native_mutation_crop_and_remove_crop_append_incrementally() {
+        let input = test_pdf_bytes();
+        let crop_payload = br#"{"modifiedAt":"D:20260831150000Z","mutations":{"pageCrops":[{"pageIndex":0,"top":10,"bottom":5,"left":12,"right":8}]}}"#;
+        let cropped = save(&input, crop_payload, None).unwrap();
+        assert_eq!(cropped.page_count, 1);
+        assert!(cropped.data.starts_with(&input));
+        let geometry = get_browser_page_geometry_from_bytes(&cropped.data, 1).unwrap();
+        let crop_box = geometry.crop_box.expect("crop box should be set");
+        assert_eq!(
+            [crop_box.x1, crop_box.y1, crop_box.x2, crop_box.y2],
+            [12.0, 5.0, 192.0, 90.0]
+        );
 
-        let error = run_request(&request)
-            .expect_err("WASM crop must reject non-finite margins through shared validation");
+        let remove_payload =
+            br#"{"modifiedAt":"D:20260831150001Z","mutations":{"pageCropRemovals":[0]}}"#;
+        let restored = save(&cropped.data, remove_payload, None).unwrap();
+        assert!(restored.data.starts_with(&cropped.data));
+        let restored_geometry = get_browser_page_geometry_from_bytes(&restored.data, 1).unwrap();
+        assert!(restored_geometry.crop_box.is_none());
 
-        assert!(error.to_string().contains("Invalid top crop margin"));
+        let bad_payload = br#"{"modifiedAt":"D:20260831150002Z","mutations":{"pageCrops":[{"pageIndex":0,"top":-1,"bottom":0,"left":0,"right":0}]}}"#;
+        let error = save(&input, bad_payload, None)
+            .err()
+            .expect("negative margin must fail");
+        assert!(
+            error.to_string().contains("Invalid top crop margin"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn cached_document_renders_scan_cleanup_raster_and_evicts_on_close() {
+        let input = test_pdf_bytes();
+        let open_output = run_request(&cached_doc_request(OP_OPEN_DOCUMENT, 42, &input, &[]))
+            .expect("open cached document");
+        assert_eq!(read_u32_at(&open_output, 0).unwrap(), RESPONSE_JSON);
+        let opened: serde_json::Value = serde_json::from_slice(&open_output[8..]).unwrap();
+        assert_eq!(opened["handle"], 42);
+        assert_eq!(opened["pageCount"], 1);
+
+        let raster_request =
+            br#"{"pageNumber":1,"dpi":150,"renderBox":"cropBox","maxPixels":10000000}"#;
+        let render_output = run_request(&cached_doc_request(
+            OP_RENDER_SCAN_CLEANUP_RASTER_CACHED,
+            42,
+            &[],
+            raster_request,
+        ))
+        .expect("render from cached document");
+        assert_eq!(
+            read_u32_at(&render_output, REPORTED_HEADER.kind).unwrap(),
+            RESPONSE_REPORTED_RASTER
+        );
+
+        let mismatch_err = run_request(&cached_doc_request(
+            OP_RENDER_SCAN_CLEANUP_RASTER_CACHED,
+            99,
+            &[],
+            raster_request,
+        ))
+        .expect_err("wrong handle must fail");
+        assert!(
+            mismatch_err
+                .to_string()
+                .contains("Cached PDF document handle is not open"),
+            "{mismatch_err}"
+        );
+
+        run_request(&cached_doc_request(OP_CLOSE_DOCUMENT, 42, &[], &[]))
+            .expect("close cached document");
+        let closed_err = run_request(&cached_doc_request(
+            OP_RENDER_SCAN_CLEANUP_RASTER_CACHED,
+            42,
+            &[],
+            raster_request,
+        ))
+        .expect_err("closed handle must fail");
+        assert!(
+            closed_err
+                .to_string()
+                .contains("Cached PDF document handle is not open"),
+            "{closed_err}"
+        );
     }
 
     #[test]

@@ -1,13 +1,31 @@
 fn crop_pages(document: &mut Document, pages: &[u32], margins: CropMargins) -> Result<()> {
     let source = save_document_to_bytes(document)?;
-    let result = crop_browser_pdf_bytes(&source, pages, margins)?;
+    let mutations = NativeMutationsFile {
+        page_crops: pages
+            .iter()
+            .map(|page| PageCropMutation {
+                page_index: page - 1,
+                top: margins.top,
+                bottom: margins.bottom,
+                left: margins.left,
+                right: margins.right,
+                physical: margins.physical,
+            })
+            .collect(),
+        ..NativeMutationsFile::default()
+    };
+    let result = append_native_mutations_to_bytes(&source, &mutations, "D:20260923000000Z")?;
     *document = Document::load_mem(&result.data)?;
     Ok(())
 }
 
 fn remove_crop_from_pages(document: &mut Document, pages: &[u32]) -> Result<()> {
     let source = save_document_to_bytes(document)?;
-    let result = remove_crop_browser_pdf_bytes(&source, pages)?;
+    let mutations = NativeMutationsFile {
+        page_crop_removals: pages.iter().map(|page| page - 1).collect(),
+        ..NativeMutationsFile::default()
+    };
+    let result = append_native_mutations_to_bytes(&source, &mutations, "D:20260923000000Z")?;
     *document = Document::load_mem(&result.data)?;
     Ok(())
 }
@@ -54,13 +72,18 @@ fn reversed_and_inherited_crop_boxes_preserve_visible_geometry_and_saved_crop() 
                 .unwrap()
                 .set("CropBox", corners.map(Object::Real).to_vec());
             let geometry = get_page_geometry(&document, 1).unwrap();
-            let visible = geometry.crop_box.expect("valid CropBox must remain visible");
-            assert_eq!([visible.x1, visible.y1, visible.x2, visible.y2], [20.0, 10.0, 180.0, 90.0]);
+            let visible = geometry
+                .crop_box
+                .expect("valid CropBox must remain visible");
+            assert_eq!(
+                [visible.x1, visible.y1, visible.x2, visible.y2],
+                [20.0, 10.0, 180.0, 90.0]
+            );
 
             // The renderer selects the middle of the visible CropBox; the
             // mutation protocol expresses that selection as MediaBox margins.
             let margins = CropMargins {
-            physical: false,
+                physical: false,
                 top: geometry.media_box.y2 - (visible.y1 + visible.height() * 0.75),
                 bottom: visible.y1 + visible.height() * 0.25 - geometry.media_box.y1,
                 left: visible.x1 + visible.width() * 0.375 - geometry.media_box.x1,
@@ -76,7 +99,10 @@ fn reversed_and_inherited_crop_boxes_preserve_visible_geometry_and_saved_crop() 
             crop_pages(&mut document, &[1], margins).unwrap();
             crop_pages_incremental(&mut incremental, &[1], margins).unwrap();
             assert_eq!(crop_box(&document, page_id), [80.0, 30.0, 140.0, 70.0]);
-            assert_eq!(crop_box(&incremental.new_document, page_id), [80.0, 30.0, 140.0, 70.0]);
+            assert_eq!(
+                crop_box(&incremental.new_document, page_id),
+                [80.0, 30.0, 140.0, 70.0]
+            );
             let mut rewritten_bytes = Vec::new();
             document.save_to(&mut rewritten_bytes).unwrap();
             let revision = build_incremental_revision(&mut incremental).unwrap();
@@ -115,7 +141,10 @@ fn page_boxes_still_reject_zero_area_and_nonfinite_corners() {
 fn annotation_rectangles_keep_strict_corner_validation() {
     let ascending = Object::Array([20.0_f32, 10.0, 180.0, 90.0].map(Object::Real).to_vec());
     let rect = parse_rect(&ascending).unwrap();
-    assert_eq!([rect.x1, rect.y1, rect.x2, rect.y2], [20.0, 10.0, 180.0, 90.0]);
+    assert_eq!(
+        [rect.x1, rect.y1, rect.x2, rect.y2],
+        [20.0, 10.0, 180.0, 90.0]
+    );
     for corners in [
         [180.0_f32, 90.0, 20.0, 10.0],
         [180.0, 10.0, 20.0, 90.0],
@@ -146,17 +175,28 @@ fn reversed_and_inherited_media_boxes_preserve_visible_geometry_and_saved_crop()
                 .unwrap()
                 .as_reference()
                 .unwrap();
-            document.get_dictionary_mut(page_id).unwrap().remove(b"MediaBox");
+            document
+                .get_dictionary_mut(page_id)
+                .unwrap()
+                .remove(b"MediaBox");
             document
                 .get_dictionary_mut(if inherited { parent_id } else { page_id })
                 .unwrap()
                 .set("MediaBox", corners.map(Object::Real).to_vec());
             let geometry = get_page_geometry(&document, 1).unwrap();
             let media = geometry.media_box;
-            assert_eq!([media.x1, media.y1, media.x2, media.y2], [20.0, 10.0, 180.0, 90.0]);
+            assert_eq!(
+                [media.x1, media.y1, media.x2, media.y2],
+                [20.0, 10.0, 180.0, 90.0]
+            );
             assert!(geometry.crop_box.is_none());
             let margins = CropMargins {
-            physical: false, top: 4.0, bottom: 3.0, left: 2.0, right: 1.0 };
+                physical: false,
+                top: 4.0,
+                bottom: 3.0,
+                left: 2.0,
+                right: 1.0,
+            };
             let mut original_bytes = Vec::new();
             document.save_to(&mut original_bytes).unwrap();
             let mut incremental = IncrementalDocument::from_document(
@@ -199,11 +239,18 @@ fn page_box_validation_covers_both_keys_inheritance_and_every_nonfinite_coordina
         for inherited in [false, true] {
             for corners in &invalid {
                 let (mut document, page_id) = create_test_document();
-                let parent_id = document.get_dictionary(page_id).unwrap()
-                    .get(b"Parent").unwrap().as_reference().unwrap();
+                let parent_id = document
+                    .get_dictionary(page_id)
+                    .unwrap()
+                    .get(b"Parent")
+                    .unwrap()
+                    .as_reference()
+                    .unwrap();
                 document.get_dictionary_mut(page_id).unwrap().remove(key);
-                document.get_dictionary_mut(if inherited { parent_id } else { page_id })
-                    .unwrap().set(key, corners.clone());
+                document
+                    .get_dictionary_mut(if inherited { parent_id } else { page_id })
+                    .unwrap()
+                    .set(key, corners.clone());
                 assert!(resolve_inherited_box(&document, page_id, key).is_err());
                 if key == b"CropBox" {
                     assert!(get_page_geometry(&document, 1).unwrap().crop_box.is_none());
@@ -218,14 +265,22 @@ fn page_box_validation_covers_both_keys_inheritance_and_every_nonfinite_coordina
 #[test]
 fn finite_pdf_number_extremes_keep_finite_rectangle_extents() {
     let object = Object::Array(
-        [f32::MIN, f32::MIN, f32::MAX, f32::MAX].map(Object::Real).to_vec(),
+        [f32::MIN, f32::MIN, f32::MAX, f32::MAX]
+            .map(Object::Real)
+            .to_vec(),
     );
     let rect = parse_rect(&object).unwrap();
     assert!(rect.width().is_finite() && rect.height().is_finite());
     let (mut document, page_id) = create_test_document();
-    document.get_dictionary_mut(page_id).unwrap().set("MediaBox", object);
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("MediaBox", object);
     let media = resolve_inherited_box(&document, page_id, b"MediaBox").unwrap();
-    assert_eq!([media.width(), media.height()], [rect.width(), rect.height()]);
+    assert_eq!(
+        [media.width(), media.height()],
+        [rect.width(), rect.height()]
+    );
 }
 
 #[test]
@@ -246,7 +301,7 @@ fn path_crop_and_remove_crop_append_page_dictionary_revisions() {
         operation: Operation::Crop {
             pages_file: pages_file.clone(),
             margins: CropMargins {
-            physical: false,
+                physical: false,
                 top: 4.1,
                 bottom: 3.2,
                 left: 2.3,
@@ -261,7 +316,10 @@ fn path_crop_and_remove_crop_append_page_dictionary_revisions() {
 
     let cropped = Document::load(&pdf).unwrap();
     let cropped_page = cropped.get_dictionary(page_id).unwrap();
-    assert_eq!(crop_box(&cropped, page_id), [2.3_f32, 3.2, 198.6, 95.9].map(f64::from).to_vec());
+    assert_eq!(
+        crop_box(&cropped, page_id),
+        [2.3_f32, 3.2, 198.6, 95.9].map(f64::from).to_vec()
+    );
     assert_eq!(cropped_page.get(b"Rotate").unwrap().as_i64().unwrap(), 180);
 
     mutate_pdf(Config {
@@ -287,7 +345,10 @@ fn path_crop_and_remove_crop_append_page_dictionary_revisions() {
 fn page_geometry_writes_json() {
     let pdf = temp_pdf_path("page-geometry-input");
     let (mut document, page_id) = create_test_document();
-    document.get_dictionary_mut(page_id).unwrap().set("UserUnit", 2);
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("UserUnit", 2);
     document.save(&pdf).unwrap();
 
     let mut output = Vec::new();
@@ -310,22 +371,39 @@ fn cli_crops_a_physical_inch_on_a_user_unit_two_page() {
     let pdf = temp_pdf_path("physical-crop");
     let pages = temp_pdf_path("physical-crop-pages");
     let (mut document, page_id) = create_test_document();
-    document.get_dictionary_mut(page_id).unwrap().set("UserUnit", 2);
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("UserUnit", 2);
     document.save(&pdf).unwrap();
     std::fs::write(&pages, b"1\n").unwrap();
     run_cli_entry(vec![
-        "crop".into(), "--input".into(), pdf.to_string_lossy().into_owned(),
-        "--output".into(), pdf.to_string_lossy().into_owned(),
-        "--pages-file".into(), pages.to_string_lossy().into_owned(),
-        "--physical".into(), "--left".into(), "72".into(),
-        "--top".into(), "0".into(), "--bottom".into(), "0".into(),
-        "--right".into(), "0".into(),
-    ]).unwrap();
+        "crop".into(),
+        "--input".into(),
+        pdf.to_string_lossy().into_owned(),
+        "--output".into(),
+        pdf.to_string_lossy().into_owned(),
+        "--pages-file".into(),
+        pages.to_string_lossy().into_owned(),
+        "--physical".into(),
+        "--left".into(),
+        "72".into(),
+        "--top".into(),
+        "0".into(),
+        "--bottom".into(),
+        "0".into(),
+        "--right".into(),
+        "0".into(),
+    ])
+    .unwrap();
     let reopened = Document::load(&pdf).unwrap();
     assert_eq!(crop_box(&reopened, page_id), vec![36.0, 0.0, 200.0, 100.0]);
     let geometry = get_page_geometry(&reopened, 1).unwrap();
     assert_eq!(geometry.user_unit, 2.0);
-    assert_eq!(geometry.crop_box.unwrap().x1 * geometry.user_unit / 72.0, 1.0);
+    assert_eq!(
+        geometry.crop_box.unwrap().x1 * geometry.user_unit / 72.0,
+        1.0
+    );
     remove_file(pdf).unwrap();
     remove_file(pages).unwrap();
 }
@@ -492,7 +570,9 @@ fn write_large_sparse_pdf(pdf: &Path, suffix: &str, trailing: &[u8]) {
         source.write_all(object.as_bytes()).unwrap();
     }
     source.seek(SeekFrom::Start(LARGE_SOURCE_OFFSET)).unwrap();
-    source.write_all(b"xref\n0 4\n0000000000 65535 f \n").unwrap();
+    source
+        .write_all(b"xref\n0 4\n0000000000 65535 f \n")
+        .unwrap();
     for offset in offsets {
         writeln!(source, "{offset:010} 00000 n ").unwrap();
     }
@@ -559,8 +639,7 @@ fn large_path_crop_and_remove_crop_read_the_source_by_index() {
         write_page_sizes_path(&pdf, &sizes, metadata_only).expect("large path sizes read by index");
         let lines = std::fs::read_to_string(&sizes).unwrap();
         std::fs::remove_file(&sizes).unwrap();
-        let chunk: serde_json::Value =
-            serde_json::from_str(lines.lines().nth(1).unwrap()).unwrap();
+        let chunk: serde_json::Value = serde_json::from_str(lines.lines().nth(1).unwrap()).unwrap();
         let page = &chunk["pages"][0];
         assert_eq!(page["widthPoints"], 200.0, "{lines}");
         assert_eq!(page["heightPoints"], 100.0, "{lines}");
@@ -572,7 +651,7 @@ fn large_path_crop_and_remove_crop_read_the_source_by_index() {
         operation: Operation::Crop {
             pages_file: pages_file.clone(),
             margins: CropMargins {
-            physical: false,
+                physical: false,
                 top: 4.0,
                 bottom: 3.0,
                 left: 2.0,
@@ -746,7 +825,7 @@ fn rejects_non_finite_or_negative_margins_before_mutation() {
             &mut document,
             &[1],
             CropMargins {
-            physical: false,
+                physical: false,
                 top: invalid_margin,
                 bottom: 0.0,
                 left: 0.0,
@@ -805,9 +884,7 @@ fn printed_form_widths(document: &Document) -> Vec<f64> {
             .unwrap();
         let matrix = form.dict.get(b"Matrix").unwrap().as_array().unwrap();
         let bbox = form.dict.get(b"BBox").unwrap().as_array().unwrap();
-        let [x1, _, x2, _] = [0, 1, 2, 3].map(|slot| {
-            number_value(document, &bbox[slot])
-        });
+        let [x1, _, x2, _] = [0, 1, 2, 3].map(|slot| number_value(document, &bbox[slot]));
         widths.push(placement * number_value(document, &matrix[0]) * (x2 - x1));
     }
     widths
@@ -828,7 +905,10 @@ fn facing_print_keeps_a_user_unit_two_page_at_twice_the_size_of_a_user_unit_one_
     let pages_id = document.new_object_id();
     let mut kids = Vec::new();
     for user_unit in [1, 2] {
-        let content = document.add_object(Stream::new(Dictionary::new(), b"0 0 1 rg 0 0 10 10 re f".to_vec()));
+        let content = document.add_object(Stream::new(
+            Dictionary::new(),
+            b"0 0 1 rg 0 0 10 10 re f".to_vec(),
+        ));
         kids.push(Object::Reference(document.add_object(dictionary! {
             "Type" => "Page",
             "Parent" => pages_id,
@@ -851,8 +931,13 @@ fn facing_print_keeps_a_user_unit_two_page_at_twice_the_size_of_a_user_unit_one_
     });
     document.trailer.set("Root", catalog_id);
 
-    build_print_layout(&mut document, None, PrintViewMode::Facing, PrintOrientation::Portrait)
-        .unwrap();
+    build_print_layout(
+        &mut document,
+        None,
+        PrintViewMode::Facing,
+        PrintOrientation::Portrait,
+    )
+    .unwrap();
     let widths = printed_form_widths(&document);
     assert_eq!(widths.len(), 2);
     assert_approximately(widths[1] / widths[0], 2.0);
@@ -996,7 +1081,10 @@ fn range_read_geometry_table_single_page_and_append_admission_skip_stream_payloa
         .position(|window| window == payload_marker)
         .expect("stream payload must appear verbatim");
     // Leave headroom for the 64 KiB header line scan and the 1 MiB terminal-xref tail window.
-    let forbidden = ((marker_pos + 128 * 1024) as u64, (marker_pos + 900 * 1024) as u64);
+    let forbidden = (
+        (marker_pos + 128 * 1024) as u64,
+        (marker_pos + 900 * 1024) as u64,
+    );
     let guarded = GuardedSlice {
         bytes: &bytes,
         forbidden,
@@ -1029,8 +1117,14 @@ fn range_read_geometry_table_single_page_and_append_admission_skip_stream_payloa
 
     let admission = crate::terminal_xref::append_admission_of_source(&guarded, len).unwrap();
     let byte_admission = crate::terminal_xref::append_admission_of_bytes(&bytes).unwrap();
-    assert!(matches!(admission, crate::terminal_xref::AppendAdmission::Appendable));
-    assert!(matches!(byte_admission, crate::terminal_xref::AppendAdmission::Appendable));
+    assert!(matches!(
+        admission,
+        crate::terminal_xref::AppendAdmission::Appendable
+    ));
+    assert!(matches!(
+        byte_admission,
+        crate::terminal_xref::AppendAdmission::Appendable
+    ));
 
     // Corrupt startxref so append admission reports repairable by range too.
     let mut damaged = bytes.clone();
@@ -1237,11 +1331,9 @@ fn read_page_geometry_table_stops_immediately_on_shared_kids_dag_or_count_mismat
 
     let mut empty_dag_bytes = Vec::new();
     empty_dag_doc.save_to(&mut empty_dag_bytes).unwrap();
-    let empty_dag_error = crate::read_page_geometry_table(
-        empty_dag_bytes.as_slice(),
-        empty_dag_bytes.len() as u64,
-    )
-    .expect_err("empty-subtree shared /Pages DAG must fail immediately");
+    let empty_dag_error =
+        crate::read_page_geometry_table(empty_dag_bytes.as_slice(), empty_dag_bytes.len() as u64)
+            .expect_err("empty-subtree shared /Pages DAG must fail immediately");
     let empty_dag_native = empty_dag_error
         .downcast_ref::<NativeError>()
         .expect("empty-subtree DAG refusal must carry NativeError");
@@ -1284,4 +1376,20 @@ fn read_page_geometry_table_stops_immediately_on_shared_kids_dag_or_count_mismat
         .downcast_ref::<NativeError>()
         .expect("consistent-count DAG refusal must carry NativeError");
     assert_eq!(dup_dag_native.code, NativeErrorCode::CorruptXref);
+}
+
+#[test]
+fn geometry_continuation_chunks_parse_and_validate() {
+    for payload in [
+        br#"{"continuation":{"family":"pageRotations","chunkIndex":1,"chunkCount":2},"pageRotations":[{"pageIndex":0,"angle":90}]}"#.as_slice(),
+        br#"{"continuation":{"family":"pageCrops","chunkIndex":1,"chunkCount":2},"pageCrops":[{"pageIndex":0,"top":1,"bottom":2,"left":3,"right":4}]}"#.as_slice(),
+        br#"{"continuation":{"family":"pageCropRemovals","chunkIndex":1,"chunkCount":2},"pageCropRemovals":[0]}"#.as_slice(),
+    ] {
+        read_native_mutations_bytes(payload)
+            .expect("geometry continuation chunk must parse and validate");
+    }
+    assert!(read_native_mutations_bytes(
+        br#"{"continuation":{"family":"pageCrops","chunkIndex":1,"chunkCount":2},"pageRotations":[{"pageIndex":0,"angle":90}]}"#
+    )
+    .is_err());
 }
