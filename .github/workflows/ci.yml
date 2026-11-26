@@ -397,15 +397,14 @@ jobs:
         uses: ./.github/actions/setup-ci-env
         with:
           node-version: ${{ env.NODE_VERSION }}
+          wasm: 'true'
 
       - name: Restore staged Electron native binaries
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with: *electron-native-binaries
 
       - name: Build native PDF tools
-        run: |
-          pnpm run build:pdf-page-ops
-          node scripts/build-wasm-tool.mjs pdf-search
+        run: pnpm run build:pdf-page-ops
 
       - name: Run native PDF integration gate
         run: pnpm exec vitest run --project native-integration
