@@ -362,6 +362,7 @@ describe('BrowserWorkerRequestOwner admission by worker key', () => {
                 return Promise.resolve('second-ok');
             }, {
                 workerKey: () => 'threads-6',
+                waitForDrainingSameKey: true,
             });
 
             // Worker is draining, NOT terminated, and no duplicate threads-6 worker was spawned.
@@ -419,6 +420,50 @@ describe('BrowserWorkerRequestOwner admission by worker key', () => {
             await expect(second).resolves.toBe('recovered');
             expect(FakeWorker.terminateCount).toBe(1);
             expect(started).toHaveLength(2);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('lets uncounted single-threaded requests use a free lane while another single-threaded worker is draining', async () => {
+        vi.useFakeTimers();
+        try {
+            const started: FakeWorker[] = [];
+            const budget = new BrowserWorkerBudget(() => 2, key => key?.startsWith('threads') === true);
+            const owner = new BrowserWorkerRequestOwner(() => new BrowserWorkerClient<IPendingTestRequest>({
+                idleTtlMs: 60_000,
+                budget,
+                createWorker: (key) => {
+                    const worker = new FakeWorker(key);
+                    started.push(worker);
+                    return worker;
+                },
+                createError: event => new Error(event.message),
+                handleMessage: () => {},
+            }), 2, budget);
+
+            const analysis = owner.run(1, (client, _isAdmitted, workerKey) => {
+                client.getWorker(workerKey);
+                return new Promise<string>((_resolve, reject) => {
+                    client.registerPendingRequest(1, {reject}, () => new Error('timeout'));
+                });
+            }, {
+                workerKey: () => 'single',
+                keepWarmOnCancel: true,
+                drainTimeoutMs: 5_000,
+            });
+            await vi.advanceTimersByTimeAsync(0);
+            owner.cancel(1, new Error('analysis canceled'));
+            await expect(analysis).rejects.toThrow('analysis canceled');
+
+            // Unrelated preview on single-threaded engine must start immediately on the second lane.
+            const preview = owner.run(2, (client, _isAdmitted, workerKey) => {
+                client.getWorker(workerKey);
+                return Promise.resolve('preview-ok');
+            }, {workerKey: () => 'single'});
+            await expect(preview).resolves.toBe('preview-ok');
+            expect(started).toHaveLength(2);
+            expect(FakeWorker.terminateCount).toBe(0);
         } finally {
             vi.useRealTimers();
         }

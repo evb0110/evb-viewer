@@ -164,6 +164,9 @@ pub(crate) enum NativeMutationContinuationFamily {
     Notes,
     #[serde(alias = "freeTextEditors")]
     TextBoxes,
+    PageRotations,
+    PageCrops,
+    PageCropRemovals,
     PageLabels,
     Bookmarks,
     Shapes,

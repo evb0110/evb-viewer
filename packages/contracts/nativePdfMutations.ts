@@ -1203,12 +1203,17 @@ function normalizePageRotations(
     if (!Array.isArray(value) || value.length > PDF_NATIVE_MUTATION_LIMITS.collectionItems) {
         fail(`${label} must be an array with at most ${PDF_NATIVE_MUTATION_LIMITS.collectionItems} rotations`, options);
     }
+    const seen = new Set<number>();
     return value.map((item, index) => {
         if (!isRecord(item)) fail(`${label}[${index}] must be an object`, options);
         const pageIndex = item.pageIndex;
         if (typeof pageIndex !== 'number' || !Number.isSafeInteger(pageIndex) || pageIndex < 0) {
             fail(`${label}[${index}].pageIndex must be a non-negative safe integer`, options);
         }
+        if (seen.has(pageIndex)) {
+            fail(`${label}[${index}].pageIndex duplicates page index ${pageIndex}`, options);
+        }
+        seen.add(pageIndex);
         const angle = item.angle;
         if (angle !== 90 && angle !== 180 && angle !== 270) {
             fail(`${label}[${index}].angle must be 90, 180, or 270`, options);
@@ -1229,12 +1234,17 @@ function normalizePageCrops(
     if (!Array.isArray(value) || value.length > PDF_NATIVE_MUTATION_LIMITS.collectionItems) {
         fail(`${label} must be an array with at most ${PDF_NATIVE_MUTATION_LIMITS.collectionItems} crops`, options);
     }
+    const seen = new Set<number>();
     return value.map((item, index) => {
         if (!isRecord(item)) fail(`${label}[${index}] must be an object`, options);
         const pageIndex = item.pageIndex;
         if (typeof pageIndex !== 'number' || !Number.isSafeInteger(pageIndex) || pageIndex < 0) {
             fail(`${label}[${index}].pageIndex must be a non-negative safe integer`, options);
         }
+        if (seen.has(pageIndex)) {
+            fail(`${label}[${index}].pageIndex duplicates page index ${pageIndex}`, options);
+        }
+        seen.add(pageIndex);
         const top = normalizeFiniteNonNegativeNumber(item.top, `${label}[${index}].top`, options);
         const bottom = normalizeFiniteNonNegativeNumber(item.bottom, `${label}[${index}].bottom`, options);
         const left = normalizeFiniteNonNegativeNumber(item.left, `${label}[${index}].left`, options);
@@ -1262,10 +1272,15 @@ function normalizePageCropRemovals(
     if (!Array.isArray(value) || value.length > PDF_NATIVE_MUTATION_LIMITS.collectionItems) {
         fail(`${label} must be an array with at most ${PDF_NATIVE_MUTATION_LIMITS.collectionItems} pages`, options);
     }
+    const seen = new Set<number>();
     return value.map((item, index) => {
         if (typeof item !== 'number' || !Number.isSafeInteger(item) || item < 0) {
             fail(`${label}[${index}] must be a non-negative safe integer`, options);
         }
+        if (seen.has(item)) {
+            fail(`${label}[${index}] duplicates page index ${item}`, options);
+        }
+        seen.add(item);
         return requirePageIndex(item);
     });
 }
@@ -1293,6 +1308,14 @@ export function normalizePdfNativeMutationSet(
     const pageRotations = normalizePageRotations(value.pageRotations, `${label}.pageRotations`, options);
     const pageCrops = normalizePageCrops(value.pageCrops, `${label}.pageCrops`, options);
     const pageCropRemovals = normalizePageCropRemovals(value.pageCropRemovals, `${label}.pageCropRemovals`, options);
+    if (pageCrops.length > 0 && pageCropRemovals.length > 0) {
+        const croppedPages = new Set<number>(pageCrops.map(crop => crop.pageIndex));
+        for (const pageIndex of pageCropRemovals) {
+            if (croppedPages.has(pageIndex)) {
+                fail(`${label}.pageCropRemovals conflicts with ${label}.pageCrops for page index ${pageIndex}`, options);
+            }
+        }
+    }
     const pageLabels = value.pageLabels === undefined
         ? null
         : normalizePageLabelsMutation(value.pageLabels, `${label}.pageLabels`, options);

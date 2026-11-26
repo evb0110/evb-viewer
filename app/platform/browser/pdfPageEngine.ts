@@ -196,7 +196,11 @@ export interface IFileRequest {
     payload?: Uint8Array;
 }
 
-export function runFileRequest(tool: IPdfPageOpsWasmExports, file: IFileRequest) {
+export function runFileRequest(
+    tool: IPdfPageOpsWasmExports,
+    file: IFileRequest,
+    options?: {skipHighWaterRelease?: boolean},
+) {
     const pages = file.pages ?? [];
     const payload = file.payload ?? new Uint8Array();
     const request = new Uint8Array(FILE_REQUEST_HEADER.bytes + pages.length * U32_BYTES + payload.byteLength);
@@ -214,6 +218,7 @@ export function runFileRequest(tool: IPdfPageOpsWasmExports, file: IFileRequest)
             if (openFiles?.error !== undefined) throw openFiles.error;
         },
         rethrowNonTrapErrors: true,
+        ...(options?.skipHighWaterRelease ? {skipHighWaterRelease: true} : {}),
     });
     return result.status === 'succeeded' ? result.output : result;
 }

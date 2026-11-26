@@ -834,6 +834,7 @@ async function handlePageOpsCrop(
         operation,
         options,
         skipPageMetadataRemap: true,
+        strictStructureCheck: true,
         write: appendToDocument,
         mutate: async (_source, target, pageCount) => {
             const ranges = validatePageOpsSelection(pages, pageCount, 'cropPages');
@@ -874,6 +875,7 @@ async function handlePageOpsRemoveCrop(
         operation,
         options,
         skipPageMetadataRemap: true,
+        strictStructureCheck: true,
         write: appendToDocument,
         mutate: async (_source, target, pageCount) => {
             const ranges = validatePageOpsSelection(pages, pageCount, 'removeCrop');

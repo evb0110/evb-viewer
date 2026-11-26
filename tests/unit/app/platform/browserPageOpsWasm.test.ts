@@ -2688,35 +2688,49 @@ describe('browser page-ops WASM fast path', () => {
         ));
         expect(await wasm.run('appendAdmission', {source: new Blob([damaged])})).toEqual({verdict: 'repairable'});
 
+        const scanPdf = new Uint8Array(await readFile(join(process.cwd(), 'native/scan-cleanup/tests/fixtures/source-raster/jpeg-rgb/input.pdf')));
         const uncached = await wasm.run('renderScanCleanupRaster', {
-            data: pdf.slice(),
+            data: scanPdf.slice(),
             request: {
                 pageNumber: 1,
-                dpi: 150,
+                dpi: 72,
                 renderBox: 'cropBox',
                 maxPixels: 4_000_000,
             },
         });
         const cachedFirst = await wasm.run('renderScanCleanupRaster', {
-            data: pdf.slice(),
+            data: scanPdf.slice(),
             cacheKey: 'doc-1:rev-1',
             request: {
                 pageNumber: 1,
-                dpi: 150,
+                dpi: 72,
                 renderBox: 'cropBox',
                 maxPixels: 4_000_000,
             },
         });
         const cachedSecond = await wasm.run('renderScanCleanupRaster', {
-            data: pdf.slice(),
+            data: scanPdf.slice(),
             cacheKey: 'doc-1:rev-1',
             request: {
                 pageNumber: 1,
-                dpi: 150,
+                dpi: 72,
                 renderBox: 'cropBox',
                 maxPixels: 4_000_000,
             },
         });
+        expect(isBrowserPageOpsWasmFailure(uncached)).toBe(false);
+        expect(isBrowserPageOpsWasmFailure(cachedFirst)).toBe(false);
+        expect(isBrowserPageOpsWasmFailure(cachedSecond)).toBe(false);
+        if (
+            !uncached
+            || isBrowserPageOpsWasmFailure(uncached)
+            || !('width' in uncached.report)
+        ) {
+            throw new Error('Expected successful uncached scan-cleanup raster');
+        }
+        expect(uncached.report.width).toBeGreaterThan(0);
+        expect(uncached.report.height).toBeGreaterThan(0);
+        expect(uncached.data.byteLength).toBe(uncached.report.width * uncached.report.height * 3);
         expect(cachedFirst).toEqual(uncached);
         expect(cachedSecond).toEqual(uncached);
         await evictCachedBrowserPageOpsDocument('doc-1:rev-1');

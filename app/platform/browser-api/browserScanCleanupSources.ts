@@ -109,6 +109,7 @@ async function openSource(ref: string, revision: string, signal: AbortSignal): P
         await pdf.loadingTask.destroy();
         throw error;
     }
+    let currentSource = source;
     return {
         ref,
         revision,
@@ -118,7 +119,14 @@ async function openSource(ref: string, revision: string, signal: AbortSignal): P
         pageOpsEngineSha256,
         rasterFacts: reduceScanCleanupRasterRows(rasterRows),
         annotatedPages,
-        source,
+        get source() {
+            return currentSource;
+        },
+        async refreshSource() {
+            await browserDocumentStore.assertDocumentRevisionCurrent(ref, token);
+            currentSource = await browserDocumentStore.readableBlob(ref);
+            return currentSource;
+        },
         pdf,
     };
 }

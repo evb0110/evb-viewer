@@ -1377,3 +1377,19 @@ fn read_page_geometry_table_stops_immediately_on_shared_kids_dag_or_count_mismat
         .expect("consistent-count DAG refusal must carry NativeError");
     assert_eq!(dup_dag_native.code, NativeErrorCode::CorruptXref);
 }
+
+#[test]
+fn geometry_continuation_chunks_parse_and_validate() {
+    for payload in [
+        br#"{"continuation":{"family":"pageRotations","chunkIndex":1,"chunkCount":2},"pageRotations":[{"pageIndex":0,"angle":90}]}"#.as_slice(),
+        br#"{"continuation":{"family":"pageCrops","chunkIndex":1,"chunkCount":2},"pageCrops":[{"pageIndex":0,"top":1,"bottom":2,"left":3,"right":4}]}"#.as_slice(),
+        br#"{"continuation":{"family":"pageCropRemovals","chunkIndex":1,"chunkCount":2},"pageCropRemovals":[0]}"#.as_slice(),
+    ] {
+        read_native_mutations_bytes(payload)
+            .expect("geometry continuation chunk must parse and validate");
+    }
+    assert!(read_native_mutations_bytes(
+        br#"{"continuation":{"family":"pageCrops","chunkIndex":1,"chunkCount":2},"pageRotations":[{"pageIndex":0,"angle":90}]}"#
+    )
+    .is_err());
+}

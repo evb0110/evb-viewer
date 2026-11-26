@@ -215,6 +215,12 @@ describe('loadWasmWithDeadline', () => {
         expect(instantiated.instance).toBeInstanceOf(WebAssembly.Instance);
         expect(fetchMock).toHaveBeenCalledOnce();
         await expect(readLoadedWasmDigest('/worker-received-precompiled.wasm')).resolves.toBe(expectedDigest);
+
+        // Distinct query strings must not share the same cache entry.
+        const rev1 = await compileWasmModuleOnce('/versioned-tool.wasm?rev=1');
+        const rev2 = await compileWasmModuleOnce('/versioned-tool.wasm?rev=2');
+        expect(rev1.module).not.toBe(rev2.module);
+        expect(fetchMock).toHaveBeenCalledTimes(3);
     });
 });
 

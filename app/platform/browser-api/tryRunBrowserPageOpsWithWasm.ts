@@ -511,7 +511,7 @@ function runWasmRequest<K extends TByteRequestType>(
     });
     if (called.status === 'failed') {
         if (cachedDocument?.tool === tool && called.error.code === 'too-large') {
-            cachedDocument = null;
+            evictCachedBrowserPageOpsDocument();
         }
         return called;
     }
@@ -521,9 +521,10 @@ function runWasmRequest<K extends TByteRequestType>(
 }
 
 async function runCachedScanCleanupRaster(
-    tool: IPdfPageOpsWasmExports,
+    initialTool: IPdfPageOpsWasmExports,
     payload: IBrowserPageOpsWasmRequestMap['renderScanCleanupRaster'],
 ): Promise<IBrowserPageOpsWasmResultMap['renderScanCleanupRaster'] | IBrowserPageOpsWasmFailure> {
+    let tool = initialTool;
     const cacheKey = payload.cacheKey;
     if (cacheKey === undefined) {
         const data = payload.data ?? new Uint8Array(await payload.source!.arrayBuffer());
@@ -534,31 +535,39 @@ async function runCachedScanCleanupRaster(
     }
 
     const requestJson = new TextEncoder().encode(JSON.stringify(payload.request));
-    const renderWithHandle = (handle: number) => {
+    const renderWithHandle = (activeTool: IPdfPageOpsWasmExports, handle: number) => {
         const frame = buildStandardFrame({
             operation: OPERATION_CODES.renderScanCleanupRasterCached,
             pageNumber: handle,
             insertionData: requestJson,
         });
-        return callPdfPageOpsWasm(tool, frame.data, {skipHighWaterRelease: true});
+        return callPdfPageOpsWasm(activeTool, frame.data, {skipHighWaterRelease: true});
     };
 
     if (cachedDocument !== null && cachedDocument.key === cacheKey && cachedDocument.tool === tool) {
-        const hit = renderWithHandle(cachedDocument.handle);
+        const hit = renderWithHandle(tool, cachedDocument.handle);
         if (hit.status === 'succeeded') {
             return parseWasmOutput('renderScanCleanupRaster', hit.output)
                 ?? createWasmFailure('invalid-request', 'Page operation WASM returned malformed output');
         }
         if (hit.error.code !== 'invalid-request' || !hit.error.message.includes('Cached PDF document handle is not open')) {
-            if (hit.error.code === 'too-large') cachedDocument = null;
+            if (hit.error.code === 'too-large') {
+                evictCachedBrowserPageOpsDocument();
+            }
             return hit;
         }
         cachedDocument = null;
     }
 
-    // Evict any prior document before opening the new revision.
+    // Evict any prior document before loading the instance for the new revision
+    // so a retired above-high-water instance is never reused to open document B.
     if (cachedDocument !== null) {
         evictCachedBrowserPageOpsDocument();
+        try {
+            tool = await loadPdfPageOpsWasm();
+        } catch (error) {
+            return createWasmLoadFailure(error);
+        }
     }
 
     const bytes = payload.data ?? new Uint8Array(await payload.source!.arrayBuffer());
@@ -571,6 +580,7 @@ async function runCachedScanCleanupRaster(
     });
     const opened = callPdfPageOpsWasm(tool, openFrame.data, {skipHighWaterRelease: true});
     if (opened.status === 'failed') {
+        releasePdfPageOpsWasmAboveHighWater(tool);
         return opened;
     }
     cachedDocument = {
@@ -579,9 +589,11 @@ async function runCachedScanCleanupRaster(
         tool,
     };
 
-    const rendered = renderWithHandle(handle);
+    const rendered = renderWithHandle(tool, handle);
     if (rendered.status === 'failed') {
-        if (rendered.error.code === 'too-large') cachedDocument = null;
+        if (rendered.error.code === 'too-large') {
+            evictCachedBrowserPageOpsDocument();
+        }
         return rendered;
     }
     return parseWasmOutput('renderScanCleanupRaster', rendered.output)
@@ -614,7 +626,7 @@ async function runFileRead<K extends TFileReadType>(
         ...('pages' in payload ? {pages: payload.pages} : {}),
         ...('pageNumber' in payload ? {pages: [payload.pageNumber]} : {}),
         ...('withEvbOcrText' in payload && payload.withEvbOcrText ? {payload: new TextEncoder().encode('with-evb-ocr-text')} : {}),
-    }));
+    }, cachedDocument?.tool === tool ? {skipHighWaterRelease: true} : undefined));
     if (isBrowserPageOpsWasmFailure(output)) return output;
     return parseWasmOutput(type, output) ?? createWasmFailure('invalid-request', 'Page operation WASM returned malformed output');
 }

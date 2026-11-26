@@ -41,6 +41,7 @@ import {
     browserDocumentStore,
     getBrowserDocumentFileName,
 } from '@app/platform/browserDocumentStore';
+import { BrowserDocumentSourceChangedError } from '@app/platform/browser/browserDocumentRepository';
 import { appendPdfMutationsToStoreFile } from '@app/platform/browser/browserStorePort';
 import type { IPickedBrowserFile } from '@app/platform/browser-api/browserFilePickerAdapter';
 import { buildPdfSaveTypes } from '@app/platform/browser-api/browserFileAccepts';
@@ -537,6 +538,14 @@ export function createBrowserPageOpsCapability(
                 throw new PdfPageOpsCapabilityError('native-failure', `${operationName} was not applied`, {operation: operationName});
             }
             try {
+                // Reject if `stageAppend` had to materialize an externally replaced picked file (`:s` foreign base):
+                // page geometry edits chosen for PDF A must never commit against replacement PDF B.
+                if (expectedToken) {
+                    const stagedRevision = await browserDocumentStore.getDocumentRevision(operation.workingCopyPath);
+                    if (stagedRevision.token !== expectedToken) {
+                        throw new BrowserDocumentSourceChangedError(operation.workingCopyPath);
+                    }
+                }
                 beginPageOperationCommit(operation);
                 await browserDocumentStore.commitAppend(operation.workingCopyPath, expectedToken, lease);
             } catch (error) {

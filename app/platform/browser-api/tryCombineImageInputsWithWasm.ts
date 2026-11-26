@@ -62,13 +62,15 @@ const WASM_LAYER_IMAGE_EXTENSIONS = new Set([
 const WASM_MASK_EXTENSIONS = new Set(['.pbm']);
 const WASM_GRAY_RENDER_EXTENSIONS = new Set(['.pgm']);
 
+const BROWSER_PDF_COMBINE_MAX_OUTPUT_BYTES = 0xffff_ffff;
+
 const imageCombineWasm = createNativeWasmToolLoader({
     path: PDF_IMAGE_COMBINE_WASM_PATH,
     prefix: 'evb_pdf_image_combine',
     runExport: 'build_pdf',
     label: 'browser image combine',
     maxRequestBytes: BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES,
-    maxOutputBytes: BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES,
+    maxOutputBytes: BROWSER_PDF_COMBINE_MAX_OUTPUT_BYTES,
     trapErrorCode: 'too-large',
 });
 

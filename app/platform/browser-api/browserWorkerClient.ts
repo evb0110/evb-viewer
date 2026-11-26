@@ -88,8 +88,8 @@ export class BrowserWorkerClient<
     public readonly pendingRequests = new Map<number, TPendingRequest>();
 
     private worker: Worker | null = null;
-    /** Set by the request owner while it has admitted a request here. */
-    public leased = false;
+    /** Request id that currently owns this client's admission lease, or null when free. */
+    public leasedBy: number | null = null;
     /** Soft affinity hint (e.g. cached document key) kept while the worker lives. */
     public affinityKey: string | null = null;
     private currentWorkerKey: string | undefined = undefined;
@@ -263,7 +263,7 @@ export class BrowserWorkerClient<
 
     /** Whether the client runs nothing and has no admitted request, so its worker may be ended. */
     public get idle() {
-        return !this.leased && !this.draining && this.pendingRequests.size === 0;
+        return this.leasedBy === null && !this.draining && this.pendingRequests.size === 0;
     }
 
     /** The key of the running worker, or undefined when none runs. */
@@ -474,6 +474,13 @@ export interface IBrowserWorkerAdmission {
      */
     keepWarmOnCancel?: boolean;
     drainTimeoutMs?: number;
+    /**
+     * Whether admission should wait for a draining worker with the same key
+     * rather than cold-booting a duplicate. Defaults to true only for
+     * budget-counted (multi-threaded) worker pools so single-threaded lanes
+     * never stall unrelated work behind a draining cancel.
+     */
+    waitForDrainingSameKey?: boolean;
 }
 
 interface IOwnedRequest<TPendingRequest extends {
@@ -549,7 +556,7 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
             request.reject = reject;
             request.start = (client, workerKey) => {
                 request.client = client;
-                client.leased = true;
+                client.leasedBy = requestId;
                 if (admission.affinityKey !== undefined) {
                     client.affinityKey = admission.affinityKey;
                 }
@@ -566,11 +573,13 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
             this.admitWaitingRequests();
         });
         return promise.finally(() => {
-            if (request.client) {
-                request.client.leased = false;
+            if (request.client && request.client.leasedBy === requestId) {
+                request.client.leasedBy = null;
                 if (request.client.idle && this.budget?.retired(request.client.workerKey)) request.client.resetWorker();
             }
-            this.requests.delete(requestId);
+            if (this.requests.get(requestId) === request) {
+                this.requests.delete(requestId);
+            }
             if (this.requests.size === 0) this.lifecycle.clear();
             this.admitWaitingRequests();
             this.budget?.wake();
@@ -589,6 +598,12 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
                         : {drainTimeoutMs: request.admission.drainTimeoutMs}),
                 });
                 if (!canceledPending) {
+                    // Canceled before registering a pending request: stop admission
+                    // immediately and release only our own lease so a successor's
+                    // lease can never be clobbered by our deferred finalizer.
+                    if (request.client.leasedBy === requestId) {
+                        request.client.leasedBy = null;
+                    }
                     this.requests.delete(requestId);
                     request.reject(error);
                 }
@@ -623,7 +638,7 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
     private reset() {
         const requests = [...this.requests.values()];
         for (const request of requests) {
-            if (request.client) request.client.leased = false;
+            if (request.client) request.client.leasedBy = null;
         }
         this.requests.clear();
         this.lifecycle.clear();
@@ -646,6 +661,7 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
                 workerKey,
                 request.admission.budgetReserve ?? 0,
                 request.admission.affinityKey,
+                request.admission.waitForDrainingSameKey,
             );
             // A request waiting for a budget place or draining same-key worker lets later independent ones start.
             if (!client) continue;
@@ -659,6 +675,7 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
         workerKey: string | undefined,
         keepFree: number,
         affinityKey?: string,
+        waitForDrainingSameKey?: boolean,
     ) {
         if (workerKey === undefined) {
             if (affinityKey !== undefined) {
@@ -673,9 +690,11 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
         if (budget && !budget.admits(keepFree)) return null;
         const same = free.find(candidate => candidate.workerKey === workerKey);
         if (same) return same;
-        // Wait for a warm worker of the exact same key that is finishing a
-        // warm-canceled request rather than cold-booting a duplicate worker pool.
-        if (this.clients.some(candidate => candidate.draining && candidate.workerKey === workerKey)) {
+        // Wait for a warm counted/threaded worker of the exact same key that is
+        // finishing a warm-canceled request rather than cold-booting a duplicate
+        // multi-thread pool; uncounted single-threaded lanes can use free capacity.
+        const shouldWaitForDraining = waitForDrainingSameKey ?? (budget !== null);
+        if (shouldWaitForDraining && this.clients.some(candidate => candidate.draining && candidate.workerKey === workerKey)) {
             return null;
         }
         const empty = free.find(candidate => !candidate.hasWorker()) ?? free[0];
