@@ -3293,6 +3293,14 @@ describe('scan cleanup workspace session detection guidance', () => {
             await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
             expect(mounted.session.preview.resultCurrent.value).toBe(false);
 
+            // Wait until the deferred final preview is in flight, then clear
+            // cancelPreview calls made while it was being scheduled.
+            await vi.waitFor(() => expect(harness.value.preview).toHaveBeenCalledWith(expect.objectContaining({
+                visible: true,
+                layoutDetectionComplete: true,
+            })));
+            vi.mocked(harness.value.cancelPreview).mockClear();
+
             // Clean up must not block behind a pending final preview render.
             await mounted.session.run.run();
 
