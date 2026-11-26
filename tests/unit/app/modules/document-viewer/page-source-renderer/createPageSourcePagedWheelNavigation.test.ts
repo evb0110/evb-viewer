@@ -98,4 +98,51 @@ describe('createPageSourcePagedWheelNavigation', () => {
         })).toBe(3);
         vi.restoreAllMocks();
     });
+
+    it('flips by only one page on a single small smooth inertial scroll with diagonal jitter', () => {
+        const navigation = createPageSourcePagedWheelNavigation(20);
+        const container = createContainer();
+        const state = {
+            container,
+            continuousScroll: false,
+            currentPage: 1,
+            pageCount: 20,
+            pageHeights: Array.from({length: 20}, () => 760),
+            viewMode: 'single' as const,
+        };
+        const targets: number[] = [];
+
+        // Decaying smooth burst lasting 360ms (> 180ms cooldown) plus mid-gesture diagonal jitter.
+        const packets = [
+            {timeStamp: 0, deltaX: 0, deltaY: 36},
+            {timeStamp: 20, deltaX: 10, deltaY: 2},
+            {timeStamp: 40, deltaX: 0, deltaY: 28},
+            {timeStamp: 120, deltaX: 0, deltaY: 16},
+            {timeStamp: 200, deltaX: 0, deltaY: 8},
+            {timeStamp: 280, deltaX: 0, deltaY: 4},
+            {timeStamp: 360, deltaX: 0, deltaY: 2},
+        ];
+        for (const packet of packets) {
+            const preventDefault = vi.fn();
+            const target = navigation.handle({
+                ...packet,
+                cancelable: true,
+                preventDefault,
+            }, state);
+            if (target !== null) targets.push(target);
+            expect(preventDefault).toHaveBeenCalledOnce();
+        }
+        expect(targets).toEqual([2]);
+
+        // After a quiet gap (>= 200ms), another small scroll flips to page 3.
+        const nextPreventDefault = vi.fn();
+        expect(navigation.handle({
+            timeStamp: 600,
+            deltaX: 0,
+            deltaY: 36,
+            cancelable: true,
+            preventDefault: nextPreventDefault,
+        }, state)).toBe(3);
+        expect(nextPreventDefault).toHaveBeenCalledOnce();
+    });
 });

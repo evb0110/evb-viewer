@@ -21,7 +21,7 @@ interface IUsePdfViewerWheelZoomOptions {
     isReady: () => boolean;
     effectiveScale: Readonly<Ref<number>>;
     readZoom: () => IZoomStateAccess;
-    handlePagedWheel: (event: IDocumentWheelSourceEvent) => boolean;
+    handlePagedWheel: (event: IDocumentWheelSourceEvent, deltaPx?: number) => boolean;
     cancelPendingSearchScroll: () => void;
     markUserViewportInteraction: () => void;
     captureRelayoutAnchor: (point: {
@@ -103,7 +103,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
                 return;
             }
             pdfViewportScrollActivity.markMotion(options.viewerContainer.value);
-            if (options.handlePagedWheel(event)) {
+            if (options.handlePagedWheel(event, interaction.deltaPx)) {
                 return;
             }
         }

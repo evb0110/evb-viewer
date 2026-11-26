@@ -6,8 +6,8 @@ import {
 
 // The redirect rule lands here with the document URL as the raw query. The
 // viewer page takes it as its last parameter, with only its fragment mark
-// escaped, so the URL's own query and fragment survive the workspace's
-// fragment routing.
+// escaped, so the URL's own query and fragment stay inside the `file`
+// parameter instead of becoming the viewer page's own fragment.
 const documentUrl = readBrowserExtensionOpenPageDocumentUrl(location.href);
 location.replace(documentUrl
     ? createBrowserExtensionViewerUrl(location.href, documentUrl)

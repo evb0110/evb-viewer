@@ -1117,6 +1117,133 @@ describe('Electron E2E - paged fit-height backward wheel regression', () => {
         await jumpToPageAndWaitForCanvas(session, 1);
     }, 90_000);
 
+    it('flips by exactly one page on a small mouse wheel scroll in non-continuous fit-height mode', async () => {
+        const session = sessionFixture.getSession();
+        if (!pdfPath) {
+            throw new Error('Page-jump suite setup did not complete');
+        }
+        const readRenderedPage = () => session.page.evaluate(() => {
+            const viewport = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
+            );
+            const toolbarInput = document.querySelector<HTMLInputElement>(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] input[aria-label="Page number"], .toolbar-page-input input, input[data-testid="page-number-input"]',
+            );
+            const toolbar = (window as IRapidNavigationProbeWindow).__evbTestApi
+                ?.getActiveToolbarSnapshot?.() ?? null;
+            const viewportRect = viewport?.getBoundingClientRect() ?? null;
+            const visiblePages = Array.from(
+                viewport?.querySelectorAll<HTMLElement>('.page_container:not(.page_container--buffered)') ?? [],
+            )
+                .filter((page) => {
+                    if (!viewportRect) {
+                        return false;
+                    }
+                    const rect = page.getBoundingClientRect();
+                    return rect.bottom > viewportRect.top && rect.top < viewportRect.bottom;
+                })
+                .map(page => Number(page.dataset.page));
+            return {
+                toolbarPage: toolbar?.currentPage ?? null,
+                toolbarInputValue: toolbarInput?.value ?? null,
+                visiblePages,
+            };
+        });
+
+        await jumpToPageAndWaitForCanvas(session, 1);
+        const initialToolbar = await getWorkspaceToolbarSnapshot(session.page);
+        if (initialToolbar?.zoomMode !== 'fit-height') {
+            await requireWorkspaceCommand(session.page, 'handleFitHeight');
+        }
+        await waitForWorkspaceToolbarSnapshot(session.page, {zoomMode: 'fit-height'});
+        if ((await getWorkspaceToolbarSnapshot(session.page))?.continuousScroll !== false) {
+            await requireWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
+        }
+        await waitForWorkspaceToolbarSnapshot(session.page, {continuousScroll: false});
+        await waitForToolbarCurrentPage(session, 1);
+        expect(await waitForVisiblePageCanvas(session, 1, 20_000)).toBe(true);
+
+        const viewportPoint = await session.page.evaluate(() => {
+            const viewport = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
+            );
+            if (!viewport) {
+                return null;
+            }
+            const rect = viewport.getBoundingClientRect();
+            return {
+                x: Math.round(rect.left + rect.width / 2),
+                y: Math.round(rect.top + rect.height / 2),
+            };
+        });
+        expect(viewportPoint).not.toBeNull();
+        if (!viewportPoint) {
+            return;
+        }
+        await session.page.mouse.move(viewportPoint.x, viewportPoint.y);
+
+        try {
+            // 1. Single small smooth/inertial mouse scroll (decaying tail > 180 ms) must flip +1, not +2.
+            const smoothForward = await startTrustedWheelFling(session.page, {
+                x: viewportPoint.x,
+                y: viewportPoint.y,
+                initialDeltaY: 36,
+                finalDeltaY: 2,
+                durationMs: 360,
+                intervalMs: 16,
+            });
+            await smoothForward.finished;
+            await delay(400);
+            await waitForViewportQuiet(session.page, 500, 10_000);
+            const afterSmoothForward = await readRenderedPage();
+            expect(afterSmoothForward, JSON.stringify(afterSmoothForward)).toMatchObject({
+                toolbarPage: 2,
+                visiblePages: [2],
+            });
+            expect(await waitForVisiblePageCanvas(session, 2, 15_000)).toBe(true);
+
+            // 2. Single vertical wheel gesture with mid-gesture horizontal/diagonal jitter must flip +1, not +2.
+            await session.page.mouse.wheel({deltaY: 80});
+            await delay(20);
+            await session.page.mouse.wheel({
+                deltaX: 12,
+                deltaY: 2,
+            });
+            await delay(20);
+            await session.page.mouse.wheel({deltaY: 20});
+            await delay(400);
+            await waitForViewportQuiet(session.page, 500, 10_000);
+            const afterDiagonalJitter = await readRenderedPage();
+            expect(afterDiagonalJitter, JSON.stringify(afterDiagonalJitter)).toMatchObject({
+                toolbarPage: 3,
+                visiblePages: [3],
+            });
+            expect(await waitForVisiblePageCanvas(session, 3, 15_000)).toBe(true);
+
+            // 3. Separate reverse small smooth mouse scroll after idle must flip -1 cleanly, not -2.
+            const smoothBackward = await startTrustedWheelFling(session.page, {
+                x: viewportPoint.x,
+                y: viewportPoint.y,
+                initialDeltaY: -36,
+                finalDeltaY: -2,
+                durationMs: 360,
+                intervalMs: 16,
+            });
+            await smoothBackward.finished;
+            await delay(400);
+            await waitForViewportQuiet(session.page, 500, 10_000);
+            const afterSmoothBackward = await readRenderedPage();
+            expect(afterSmoothBackward, JSON.stringify(afterSmoothBackward)).toMatchObject({
+                toolbarPage: 2,
+                visiblePages: [2],
+            });
+            expect(await waitForVisiblePageCanvas(session, 2, 15_000)).toBe(true);
+        } finally {
+            // Restore page 1 for the following test in this suite even on failure.
+            await jumpToPageAndWaitForCanvas(session, 1);
+        }
+    }, 90_000);
+
     it('returns from page 6 to page 1 and closes cleanly using mouse wheel navigation', async () => {
         const session = sessionFixture.getSession();
         if (!pdfPath) {

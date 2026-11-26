@@ -279,7 +279,6 @@ export default defineNuxtConfig({
     ssr: !isBrowserExtensionBuild,
     // An extension page runs no inline script, and an inline import map counts as one.
     ...(isBrowserExtensionBuild ? {
-        router: {options: {hashMode: true}},
         experimental: {entryImportMap: false},
     } : {}),
 

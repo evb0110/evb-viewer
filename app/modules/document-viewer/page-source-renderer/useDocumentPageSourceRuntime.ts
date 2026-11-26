@@ -911,10 +911,10 @@ export const useDocumentPageSourceRuntime = (options: {
             pageCount: source.value?.pageCount ?? 0,
             pageHeights: pageHeights.value,
             viewMode: props.value.viewMode,
-        });
+        }, interaction.deltaPx);
         if (target !== null) scrollToPage(target, {
             navigationSource: 'wheel',
-            alignPageBottom: interaction.event.deltaY < 0,
+            alignPageBottom: interaction.deltaPx < 0,
         });
     }
     function scrollToPage(

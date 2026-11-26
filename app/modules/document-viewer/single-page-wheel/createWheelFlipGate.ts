@@ -1,18 +1,16 @@
 import type { TWheelDirection } from '@app/modules/document-viewer/single-page-wheel/singlePageWheelTypes';
-import { WHEEL_GESTURE_IDLE_MS } from '@app/modules/document-viewer/input/createWheelGestureStream';
+import { createWheelGestureStream } from '@app/modules/document-viewer/input/createWheelGestureStream';
 
 const SAME_DIRECTION_FLIP_COOLDOWN_MS = 180;
-const SAME_DIRECTION_GESTURE_MAX_BLOCK_MS = 420;
-const SAME_DIRECTION_GESTURE_HARD_RELEASE_MS = 700;
-const SAME_DIRECTION_TRACKPAD_DELTA_MAX_PX = 40;
-const SAME_DIRECTION_TRACKPAD_MAX_BLOCK_MS = 220;
+const SAME_DIRECTION_RENEWED_FLIP_INTERVAL_MS = 260;
 const SAME_DIRECTION_RENEWED_DELTA_MIN_PX = 40;
 const SAME_DIRECTION_RENEWED_DELTA_RATIO = 0.75;
-const SAME_DIRECTION_RENEWED_PREVIOUS_DELTA_RATIO = 0.9;
+const SAME_DIRECTION_RENEWED_STEADY_PEAK_RATIO = 0.9;
 
-interface IShouldBlockFlipOptions {
-    delta?: number;
-    requireGestureIdle?: boolean;
+interface IWheelFlipGatePacket {
+    readonly timeStamp: number;
+    readonly deltaY: number;
+    readonly cancelable?: boolean | undefined;
 }
 
 function isInSameDirectionFlipCooldown(
@@ -32,145 +30,148 @@ function isInSameDirectionFlipCooldown(
     );
 }
 
-function isTrackpadScaleFlipDelta(deltaMagnitude: number) {
-    return deltaMagnitude > 0
-        && deltaMagnitude < SAME_DIRECTION_TRACKPAD_DELTA_MAX_PX;
-}
-
-function resolveSameDirectionGestureMaxBlockMs(lastFlipDeltaMagnitude: number) {
-    return isTrackpadScaleFlipDelta(lastFlipDeltaMagnitude)
-        ? SAME_DIRECTION_TRACKPAD_MAX_BLOCK_MS
-        : SAME_DIRECTION_GESTURE_MAX_BLOCK_MS;
-}
-
-function resolveRenewedDeltaFloor(lastFlipDeltaMagnitude: number) {
-    if (isTrackpadScaleFlipDelta(lastFlipDeltaMagnitude)) {
-        return Math.max(
-            1,
-            lastFlipDeltaMagnitude * SAME_DIRECTION_RENEWED_DELTA_RATIO,
-        );
-    }
-
-    return Math.max(
-        SAME_DIRECTION_RENEWED_DELTA_MIN_PX,
-        lastFlipDeltaMagnitude * SAME_DIRECTION_RENEWED_DELTA_RATIO,
-    );
-}
-
-function isInSameDirectionGesture(
-    eventTimeMs: number,
-    direction: TWheelDirection,
-    deltaMagnitude: number,
-    lastFlipAtMs: number,
-    lastFlipDirection: TWheelDirection | 0,
-    lastFlipDeltaMagnitude: number,
-    lastWheelPacketAtMs: number,
-    lastWheelPacketDeltaMagnitude: number,
-    hasInteriorScrollSinceLastFlip: boolean,
-) {
-    const sinceLastWheelPacketMs = eventTimeMs - lastWheelPacketAtMs;
-    const sinceLastFlipMs = eventTimeMs - lastFlipAtMs;
-    const isSameGesture = (
-        lastFlipAtMs > 0
-        && lastWheelPacketAtMs > 0
-        && lastFlipDirection === direction
-        && !hasInteriorScrollSinceLastFlip
-        && sinceLastWheelPacketMs >= 0
-        && sinceLastWheelPacketMs < WHEEL_GESTURE_IDLE_MS
-        && sinceLastFlipMs >= 0
-    );
-    if (!isSameGesture) {
-        return false;
-    }
-
-    const isTrackpadScaleFlip = isTrackpadScaleFlipDelta(lastFlipDeltaMagnitude);
-    if (sinceLastFlipMs < resolveSameDirectionGestureMaxBlockMs(lastFlipDeltaMagnitude)) {
-        return true;
-    }
-    if (isTrackpadScaleFlip) {
-        return false;
-    }
-    if (sinceLastFlipMs >= SAME_DIRECTION_GESTURE_HARD_RELEASE_MS) {
-        return false;
-    }
-
-    const renewedDeltaFloor = resolveRenewedDeltaFloor(lastFlipDeltaMagnitude);
-    const isRenewedInput = deltaMagnitude >= renewedDeltaFloor
-        && (
-            lastWheelPacketDeltaMagnitude <= 0
-            || deltaMagnitude >= lastWheelPacketDeltaMagnitude * SAME_DIRECTION_RENEWED_PREVIOUS_DELTA_RATIO
-        );
-    return !isRenewedInput;
-}
-
+/**
+ * Prevents one wheel gesture's inertial tail or mid-gesture jitter from
+ * flipping more than one page in non-continuous mode, while still allowing
+ * distinct gestures, immediate direction reversals, and sustained full-strength
+ * notched-wheel spinning.
+ */
 export function createWheelFlipGate() {
-    let lastWheelFlipAtMs = 0;
-    let lastWheelFlipDirection: TWheelDirection | 0 = 0;
-    let lastWheelFlipDeltaMagnitude = 0;
-    let lastWheelPacketAtMs = 0;
-    let lastWheelPacketDeltaMagnitude = 0;
+    let wheelGestures = createWheelGestureStream();
+    let lastObservedPacket: IWheelFlipGatePacket | null = null;
+    let lastFlippedGestureId: number | null = null;
+    let lastFlipAtMs = 0;
+    let lastFlipDirection: TWheelDirection | 0 = 0;
+    let gesturePeakDeltaMagnitude = 0;
+    let lastVerticalDeltaMagnitude = 0;
     let interiorScrollSinceLastFlip = false;
+
+    function observeVerticalGesture(packet: IWheelFlipGatePacket, deltaY = packet.deltaY) {
+        const observation = wheelGestures.observe({
+            timeStamp: packet.timeStamp,
+            deltaX: 0,
+            deltaY,
+            cancelable: packet.cancelable ?? true,
+        });
+        lastObservedPacket = packet;
+        if (observation.gestureId !== lastFlippedGestureId) {
+            lastFlippedGestureId = null;
+            gesturePeakDeltaMagnitude = 0;
+            lastVerticalDeltaMagnitude = 0;
+        }
+        return observation;
+    }
+
+    /**
+     * Records a horizontal-dominant or zero-delta packet so mid-gesture jitter
+     * keeps the active flip gesture alive without causing a false reversal or
+     * wiping the gate. Returns true while the packet belongs to an active
+     * flipped gesture.
+     */
+    function consumeGestureJitter(packet: IWheelFlipGatePacket) {
+        const observation = observeVerticalGesture(packet, 0);
+        return lastFlippedGestureId !== null && observation.gestureId === lastFlippedGestureId;
+    }
 
     function shouldBlockFlip(
         direction: TWheelDirection,
-        nowMs: number,
-        options?: IShouldBlockFlipOptions,
+        packet: IWheelFlipGatePacket,
     ) {
-        if (isInSameDirectionFlipCooldown(
+        const nowMs = packet.timeStamp;
+        const deltaMagnitude = Math.abs(packet.deltaY);
+        const previousVerticalDeltaMagnitude = lastVerticalDeltaMagnitude;
+        const observation = observeVerticalGesture(packet);
+        const isSameDirectionCooldown = isInSameDirectionFlipCooldown(
             nowMs,
             direction,
-            lastWheelFlipAtMs,
-            lastWheelFlipDirection,
+            lastFlipAtMs,
+            lastFlipDirection,
             interiorScrollSinceLastFlip,
-        )) {
+        );
+        const isSameFlippedGesture = (
+            lastFlippedGestureId !== null
+            && observation.gestureId === lastFlippedGestureId
+            && lastFlipDirection === direction
+            && !interiorScrollSinceLastFlip
+        );
+
+        if (isSameFlippedGesture) {
+            gesturePeakDeltaMagnitude = Math.max(gesturePeakDeltaMagnitude, deltaMagnitude);
+            lastVerticalDeltaMagnitude = deltaMagnitude;
+        }
+
+        if (isSameDirectionCooldown) {
             return true;
         }
 
-        return options?.requireGestureIdle === true
-            && isInSameDirectionGesture(
-                nowMs,
-                direction,
-                Math.abs(options.delta ?? 0),
-                lastWheelFlipAtMs,
-                lastWheelFlipDirection,
-                lastWheelFlipDeltaMagnitude,
-                lastWheelPacketAtMs,
-                lastWheelPacketDeltaMagnitude,
-                interiorScrollSinceLastFlip,
+        if (!isSameFlippedGesture) {
+            return false;
+        }
+
+        // A non-cancelable packet belongs to a browser-streamed native scroll
+        // sequence (such as inertia after an unprevented packet) and is never a
+        // renewed discrete wheel notch.
+        if (packet.cancelable === false) {
+            return true;
+        }
+
+        const sinceLastFlipMs = nowMs - lastFlipAtMs;
+        if (sinceLastFlipMs < SAME_DIRECTION_RENEWED_FLIP_INTERVAL_MS) {
+            return true;
+        }
+
+        // Allow rapid sustained notched-wheel spinning (repeated full-strength
+        // cancelable impulses that are not decaying) to advance steadily, while
+        // keeping decaying inertia tails of any duration bounded to one page.
+        const renewedDeltaFloor = Math.max(
+            SAME_DIRECTION_RENEWED_DELTA_MIN_PX,
+            gesturePeakDeltaMagnitude * SAME_DIRECTION_RENEWED_DELTA_RATIO,
+        );
+        const isRenewedImpulse = deltaMagnitude >= renewedDeltaFloor
+            && (
+                previousVerticalDeltaMagnitude <= 0
+                || deltaMagnitude > previousVerticalDeltaMagnitude
+                || deltaMagnitude >= gesturePeakDeltaMagnitude * SAME_DIRECTION_RENEWED_STEADY_PEAK_RATIO
             );
+        return !isRenewedImpulse;
     }
 
-    function recordFlip(direction: TWheelDirection, nowMs: number, delta?: number) {
-        lastWheelFlipAtMs = nowMs;
-        lastWheelFlipDirection = direction;
-        lastWheelFlipDeltaMagnitude = Math.abs(delta ?? 0);
-        lastWheelPacketAtMs = nowMs;
-        lastWheelPacketDeltaMagnitude = lastWheelFlipDeltaMagnitude;
+    function recordFlip(direction: TWheelDirection, packet: IWheelFlipGatePacket) {
+        const observation = lastObservedPacket === packet && wheelGestures.hasPackets()
+            ? { gestureId: wheelGestures.getGestureId() }
+            : observeVerticalGesture(packet);
+        const deltaMagnitude = Math.abs(packet.deltaY);
+        lastFlippedGestureId = observation.gestureId;
+        lastFlipAtMs = packet.timeStamp;
+        lastFlipDirection = direction;
+        gesturePeakDeltaMagnitude = deltaMagnitude;
+        lastVerticalDeltaMagnitude = deltaMagnitude;
         interiorScrollSinceLastFlip = false;
     }
 
-    function recordWheelPacket(nowMs: number, delta?: number) {
-        lastWheelPacketAtMs = nowMs;
-        lastWheelPacketDeltaMagnitude = Math.abs(delta ?? 0);
-    }
-
-    function recordInteriorScroll() {
+    function recordInteriorScroll(packet?: IWheelFlipGatePacket) {
+        if (packet) {
+            observeVerticalGesture(packet);
+        }
         interiorScrollSinceLastFlip = true;
+        lastFlippedGestureId = null;
     }
 
     function reset() {
-        lastWheelFlipAtMs = 0;
-        lastWheelFlipDirection = 0;
-        lastWheelFlipDeltaMagnitude = 0;
-        lastWheelPacketAtMs = 0;
-        lastWheelPacketDeltaMagnitude = 0;
+        wheelGestures = createWheelGestureStream();
+        lastObservedPacket = null;
+        lastFlippedGestureId = null;
+        lastFlipAtMs = 0;
+        lastFlipDirection = 0;
+        gesturePeakDeltaMagnitude = 0;
+        lastVerticalDeltaMagnitude = 0;
         interiorScrollSinceLastFlip = false;
     }
 
     return {
+        consumeGestureJitter,
         shouldBlockFlip,
         recordFlip,
-        recordWheelPacket,
         recordInteriorScroll,
         reset,
     };
