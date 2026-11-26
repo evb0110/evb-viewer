@@ -227,7 +227,7 @@ function createMetadataRejectingPageOps(barrierPath?: string) {
         '        fi',
         '    done',
         'fi',
-        `exec '${process.execPath}' --import tsx '${cliPath}' "$@"`,
+        `cd '${process.cwd()}' && exec '${process.execPath}' --import tsx '${cliPath}' "$@"`,
         '',
     ].join('\n'));
     chmodSync(wrapperPath, 0o700);

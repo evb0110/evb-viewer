@@ -293,7 +293,10 @@ describe.skipIf(process.platform !== 'win32')('Windows atomic PDF replacement', 
                 resolvePromise(out);
             });
         });
-        expect(JSON.parse(stdout.trim())).toEqual({outcome: 'platform-has-no-exchange'});
+        expect(JSON.parse(stdout.trim())).toEqual({
+            status: 'unsupported',
+            reason: 'platform-has-no-exchange',
+        });
 
         const badExit = await new Promise<number>((resolvePromise, reject) => {
             execFile(launcherPath, [

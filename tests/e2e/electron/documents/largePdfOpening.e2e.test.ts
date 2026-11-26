@@ -456,7 +456,7 @@ describe('Electron E2E - large object-dense PDF opening', () => {
             '    while [ -e "$gate.arm" ]; do sleep 0.05; done',
             '  fi;;',
             'esac',
-            `exec ${quote(process.execPath)} --import tsx ${quote(cliPath)} "$@"`,
+            `cd ${quote(process.cwd())} && exec ${quote(process.execPath)} --import tsx ${quote(cliPath)} "$@"`,
             '',
         ].join('\n'));
         chmodSync(toolPath, 0o700);

@@ -361,7 +361,7 @@ function createHeldPageOpsTool(name: string) {
         `    : > ${JSON.stringify(heldPath)}`,
         `    while [ -e ${JSON.stringify(armPath)} ]; do sleep 0.05; done`,
         'fi',
-        `exec ${JSON.stringify(process.execPath)} --import tsx ${JSON.stringify(PAGE_OPS_WASM_CLI_PATH)} "$@"`,
+        `cd ${JSON.stringify(process.cwd())} && exec ${JSON.stringify(process.execPath)} --import tsx ${JSON.stringify(PAGE_OPS_WASM_CLI_PATH)} "$@"`,
         '',
     ].join('\n'));
     chmodSync(toolPath, 0o755);
