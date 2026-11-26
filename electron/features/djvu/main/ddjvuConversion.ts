@@ -21,8 +21,10 @@ import {
     PDF_COMBINE_OUTPUT_POLICY,
 } from '@contracts/pdfCombineOutputPolicy';
 import type { TDjvuRenderMode } from '@djvu-core/djvuLibreTypes';
+import { createDjvuDiskQuotaMonitor } from '@electron/features/djvu/main/djvuArtifactManifest';
 import { runDjvuEngine } from '@electron/features/djvu/main/djvuEnginePool';
 import type { TDjvuNetpbmFormat } from '@electron/features/djvu/main/djvuEngineProtocol';
+import { runPageStructureCommand } from '@electron/features/page-ops/publicNative';
 import { PdfCombineCapabilityError } from '@electron/image/pdfCombineErrors';
 import {
     cancelNativeCommandGroup,
@@ -79,6 +81,7 @@ export interface IDjvuImageRenderOptions {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MAX_RANGE_WORKERS = 12;
 const DJVU_DIRECT_PDF_JPEG_QUALITY = 92;
+const DJVU_DIRECT_PDF_PAGE_BATCH_SIZE = 24;
 const DJVU_PROCESS_TIMEOUT_MS = 4 * 60 * 1000;
 const DJVU_IMAGE_PROCESS_TIMEOUT_MS = 2 * 60 * 1000;
 const DJVU_KILL_GRACE_MS = 2_000;
@@ -312,147 +315,230 @@ export async function convertDjvuToPdfFile(
         const workerConcurrency = getHostResourceProfileSnapshot().tier === 'low' ? 1 : 2;
 
         return await usingManagedScratchScope('djvu-export-', getAppTempDir(), async (scratchDir) => {
-            const manifestPath = join(scratchDir, 'direct-manifest.jsonl');
-            const manifestLines: string[] = [JSON.stringify({
-                format: COMPACT_MANIFEST_JSONL_FORMAT,
-                schemaVersion: COMPACT_MANIFEST_JSONL_SCHEMA_VERSION,
-                pageCount: selectedPages.length,
-            })];
-            const renderedEntries = new Array<{
-                ppmPath: string;
-                widthPoints: number;
-                heightPoints: number;
-            }>(selectedPages.length);
-            let completed = 0;
-            const renderAbortController = new AbortController();
-            const onOuterAbort = () => {
-                renderAbortController.abort(signal.reason ?? abortErrorFromSignal(signal));
-            };
-            signal.addEventListener('abort', onOuterAbort, { once: true });
-            const renderSignal = renderAbortController.signal;
-
-            const renderWithLimit = limitAsync(async (index: number) => {
-                if (renderSignal.aborted) {
-                    throw abortErrorFromSignal(renderSignal);
-                }
-                const pageNumber = selectedPages[index]!;
-                const size = pageSizes[index];
-                const ppmPath = join(scratchDir, `page-${String(pageNumber).padStart(6, '0')}.ppm`);
-                const rendered = await runDjvuEngine<'renderPageToFile'>({
-                    type: 'renderPageToFile',
-                    djvuPath: inputPath,
-                    pageNumber,
-                    outputPath: ppmPath,
-                    options: {
-                        format: 'ppm',
-                        mode: 'color',
-                        ...(subsample > 1 ? { subsample } : {}),
-                    },
-                }, {
-                    signal: renderSignal,
-                    timeoutMs: DJVU_IMAGE_PROCESS_TIMEOUT_MS,
-                });
-                const dpi = size?.dpi && size.dpi > 0 ? size.dpi : docInfo.sourceDpi || 300;
-                const nativeW = size?.width && size.width > 0 ? size.width : rendered.width * subsample;
-                const nativeH = size?.height && size.height > 0 ? size.height : rendered.height * subsample;
-                renderedEntries[index] = {
-                    ppmPath,
-                    widthPoints: Math.max(1, (nativeW / dpi) * 72),
-                    heightPoints: Math.max(1, (nativeH / dpi) * 72),
-                };
-                if (!renderSignal.aborted) {
-                    completed += 1;
-                    options.onProgress?.(Math.min(85, Math.round((completed / selectedPages.length) * 85)));
-                }
-            }, workerConcurrency);
-
-            const renderTasks = selectedPages.map((_, index) => renderWithLimit(index));
+            if (signal.aborted) {
+                throw abortErrorFromSignal(signal);
+            }
+            const quotaMonitor = await createDjvuDiskQuotaMonitor({
+                paths: [
+                    scratchDir,
+                    outputPath,
+                ],
+                fileSystemPath: scratchDir,
+                signal,
+            });
+            const effectiveSignal = quotaMonitor.signal;
             try {
-                await Promise.all(renderTasks);
+                const batchCount = Math.ceil(selectedPages.length / DJVU_DIRECT_PDF_PAGE_BATCH_SIZE);
+                const chunkPaths: string[] = [];
+                let completedPages = 0;
+
+                for (let batchIndex = 0; batchIndex < batchCount; batchIndex += 1) {
+                    if (effectiveSignal.aborted) {
+                        throw abortErrorFromSignal(effectiveSignal);
+                    }
+                    const batchStart = batchIndex * DJVU_DIRECT_PDF_PAGE_BATCH_SIZE;
+                    const batchEnd = Math.min(selectedPages.length, batchStart + DJVU_DIRECT_PDF_PAGE_BATCH_SIZE);
+                    const batchLength = batchEnd - batchStart;
+                    const renderedEntries = new Array<{
+                        ppmPath: string;
+                        widthPoints: number;
+                        heightPoints: number;
+                    }>(batchLength);
+                    const renderAbortController = new AbortController();
+                    const renderSignal = AbortSignal.any([
+                        effectiveSignal,
+                        renderAbortController.signal,
+                    ]);
+
+                    const renderWithLimit = limitAsync(async (offset: number) => {
+                        if (renderSignal.aborted) {
+                            throw abortErrorFromSignal(renderSignal);
+                        }
+                        const index = batchStart + offset;
+                        const pageNumber = selectedPages[index]!;
+                        const size = pageSizes[index];
+                        const ppmPath = join(scratchDir, `page-${String(pageNumber).padStart(6, '0')}.ppm`);
+                        const rendered = await runDjvuEngine<'renderPageToFile'>({
+                            type: 'renderPageToFile',
+                            djvuPath: inputPath,
+                            pageNumber,
+                            outputPath: ppmPath,
+                            options: {
+                                format: 'ppm',
+                                mode: 'color',
+                                ...(subsample > 1 ? { subsample } : {}),
+                            },
+                        }, {
+                            signal: renderSignal,
+                            timeoutMs: DJVU_IMAGE_PROCESS_TIMEOUT_MS,
+                        });
+                        await quotaMonitor.checkNow();
+                        const dpi = size?.dpi && size.dpi > 0 ? size.dpi : docInfo.sourceDpi || 300;
+                        const nativeW = size?.width && size.width > 0 ? size.width : rendered.width * subsample;
+                        const nativeH = size?.height && size.height > 0 ? size.height : rendered.height * subsample;
+                        renderedEntries[offset] = {
+                            ppmPath,
+                            widthPoints: Math.max(1, (nativeW / dpi) * 72),
+                            heightPoints: Math.max(1, (nativeH / dpi) * 72),
+                        };
+                        if (!renderSignal.aborted) {
+                            completedPages += 1;
+                            const renderProgressCap = batchCount > 1 ? 84 : 85;
+                            options.onProgress?.(
+                                Math.min(renderProgressCap, Math.round((completedPages / selectedPages.length) * renderProgressCap)),
+                            );
+                        }
+                    }, workerConcurrency);
+
+                    const renderTasks = Array.from({ length: batchLength }, (_, offset) => renderWithLimit(offset));
+                    try {
+                        await Promise.all(renderTasks);
+                    } catch (error) {
+                        renderAbortController.abort(error);
+                        await Promise.allSettled(renderTasks);
+                        throw error;
+                    }
+                    if (effectiveSignal.aborted) {
+                        throw abortErrorFromSignal(effectiveSignal);
+                    }
+
+                    const manifestPath = join(scratchDir, `direct-manifest-${String(batchIndex + 1).padStart(4, '0')}.jsonl`);
+                    const manifestLines: string[] = [JSON.stringify({
+                        format: COMPACT_MANIFEST_JSONL_FORMAT,
+                        schemaVersion: COMPACT_MANIFEST_JSONL_SCHEMA_VERSION,
+                        pageCount: batchLength,
+                    })];
+                    for (const entry of renderedEntries) {
+                        manifestLines.push(
+                            subsample === 1
+                                ? [
+                                    'image',
+                                    entry.widthPoints.toFixed(4),
+                                    entry.heightPoints.toFixed(4),
+                                    entry.ppmPath,
+                                ].join('\t')
+                                : [
+                                    'image-jpeg',
+                                    entry.widthPoints.toFixed(4),
+                                    entry.heightPoints.toFixed(4),
+                                    String(DJVU_DIRECT_PDF_JPEG_QUALITY),
+                                    entry.ppmPath,
+                                ].join('\t'),
+                        );
+                    }
+                    await writeFile(manifestPath, `${manifestLines.join('\n')}\n`, 'utf8');
+
+                    const batchOutputPath = batchCount === 1
+                        ? outputPath
+                        : join(scratchDir, `direct-chunk-${String(batchIndex + 1).padStart(4, '0')}.pdf`);
+                    const onCombineStdout = createPdfCombineProgressHandler(
+                        batchLength,
+                        (processed, total) => {
+                            if (total > 0 && batchCount === 1) {
+                                options.onProgress?.(Math.min(94, 85 + Math.round((processed / total) * 9)));
+                            }
+                        },
+                    );
+                    const combineResult = await runRegisteredDjvuProcess(
+                        batchCount === 1 ? `${jobId}-combine` : `${jobId}-combine-${batchIndex + 1}`,
+                        nativeCombinePath,
+                        [
+                            '--output',
+                            batchOutputPath,
+                            '--json-progress',
+                            '--compact-manifest',
+                            manifestPath,
+                        ],
+                        {
+                            env: {
+                                ...process.env,
+                                ...createFileBackedPdfCombineEnv({ maxPages: batchLength }),
+                            },
+                            timeoutResetsOnStdout: true,
+                            onStdout: onCombineStdout,
+                            signal: effectiveSignal,
+                            timeoutMs: DJVU_PROCESS_TIMEOUT_MS,
+                        },
+                    );
+                    if (!combineResult.success) {
+                        const combineError = combineResult.error;
+                        const nativeCode = typeof combineResult.cause === 'object'
+                            && combineResult.cause !== null
+                            && 'code' in combineResult.cause
+                            ? combineResult.cause.code
+                            : undefined;
+                        if (
+                            nativeCode === PDF_COMBINE_OUTPUT_POLICY.tooLargeCode
+                            || isPdfCombineOutputTooLargeError(combineResult.cause)
+                            || isPdfCombineOutputTooLargeError(combineError)
+                        ) {
+                            throw createPdfCombineOutputTooLargeError(combineError);
+                        }
+                        if (quotaMonitor.failure) {
+                            throw new Error(quotaMonitor.failure.message, { cause: combineResult.cause ?? combineError });
+                        }
+                        await cleanupPartialOutput(outputPath);
+                        return {
+                            success: false,
+                            outputPath,
+                            fileSize: 0,
+                            error: combineError,
+                            cause: combineResult.cause,
+                        };
+                    }
+
+                    if (batchCount > 1) {
+                        chunkPaths.push(batchOutputPath);
+                        // Release uncompressed PPM rasters before starting the next batch
+                        // so multi-hundred-page exports never stage an entire book as raw PPMs.
+                        await Promise.allSettled([
+                            unlink(manifestPath),
+                            ...renderedEntries.map(entry => unlink(entry.ppmPath)),
+                        ]);
+                        await quotaMonitor.checkNow();
+                        options.onProgress?.(Math.min(88, 84 + Math.round(((batchIndex + 1) / batchCount) * 4)));
+                    }
+                }
+
+                if (chunkPaths.length > 1) {
+                    if (effectiveSignal.aborted) {
+                        throw abortErrorFromSignal(effectiveSignal);
+                    }
+                    const [
+                        firstChunk,
+                        ...restChunks
+                    ] = chunkPaths;
+                    await runPageStructureCommand(
+                        'merge-pages',
+                        firstChunk!,
+                        outputPath,
+                        { sources: restChunks },
+                        {
+                            signal: effectiveSignal,
+                            cancelGroup: `${jobId}-merge`,
+                        },
+                    );
+                    await quotaMonitor.checkNow();
+                    options.onProgress?.(94);
+                }
+
+                const outputStat = await stat(outputPath);
+                if (effectiveSignal.aborted) {
+                    throw abortErrorFromSignal(effectiveSignal);
+                }
+                return {
+                    success: true,
+                    outputPath,
+                    fileSize: outputStat.size,
+                };
             } catch (error) {
-                renderAbortController.abort(error);
-                await Promise.allSettled(renderTasks);
+                if (quotaMonitor.failure && !signal.aborted) {
+                    throw new Error(quotaMonitor.failure.message, { cause: error });
+                }
                 throw error;
             } finally {
-                signal.removeEventListener('abort', onOuterAbort);
+                await quotaMonitor.stop();
             }
-            if (signal.aborted) {
-                throw abortErrorFromSignal(signal);
-            }
-
-            for (const entry of renderedEntries) {
-                manifestLines.push([
-                    'image-jpeg',
-                    entry.widthPoints.toFixed(4),
-                    entry.heightPoints.toFixed(4),
-                    String(DJVU_DIRECT_PDF_JPEG_QUALITY),
-                    entry.ppmPath,
-                ].join('\t'));
-            }
-            await writeFile(manifestPath, `${manifestLines.join('\n')}\n`, 'utf8');
-
-            const onCombineStdout = createPdfCombineProgressHandler(
-                selectedPages.length,
-                (processed, total) => {
-                    if (total > 0) {
-                        options.onProgress?.(Math.min(94, 85 + Math.round((processed / total) * 9)));
-                    }
-                },
-            );
-            const combineResult = await runRegisteredDjvuProcess(
-                `${jobId}-combine`,
-                nativeCombinePath,
-                [
-                    '--output',
-                    outputPath,
-                    '--json-progress',
-                    '--compact-manifest',
-                    manifestPath,
-                ],
-                {
-                    env: {
-                        ...process.env,
-                        ...createFileBackedPdfCombineEnv({ maxPages: selectedPages.length }),
-                    },
-                    timeoutResetsOnStdout: true,
-                    onStdout: onCombineStdout,
-                    signal,
-                    timeoutMs: DJVU_PROCESS_TIMEOUT_MS,
-                },
-            );
-            if (!combineResult.success) {
-                const combineError = combineResult.error;
-                const nativeCode = typeof combineResult.cause === 'object'
-                    && combineResult.cause !== null
-                    && 'code' in combineResult.cause
-                    ? combineResult.cause.code
-                    : undefined;
-                if (
-                    nativeCode === PDF_COMBINE_OUTPUT_POLICY.tooLargeCode
-                    || isPdfCombineOutputTooLargeError(combineResult.cause)
-                    || isPdfCombineOutputTooLargeError(combineError)
-                ) {
-                    throw createPdfCombineOutputTooLargeError(combineError);
-                }
-                await cleanupPartialOutput(outputPath);
-                return {
-                    success: false,
-                    outputPath,
-                    fileSize: 0,
-                    error: combineError,
-                    cause: combineResult.cause,
-                };
-            }
-
-            const outputStat = await stat(outputPath);
-            if (signal.aborted) {
-                throw abortErrorFromSignal(signal);
-            }
-            return {
-                success: true,
-                outputPath,
-                fileSize: outputStat.size,
-            };
         });
     } catch (error) {
         await cleanupPartialOutput(outputPath);

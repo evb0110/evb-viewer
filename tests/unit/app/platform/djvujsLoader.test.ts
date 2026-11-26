@@ -372,7 +372,7 @@ describe('DjVu document components (DjVuLibre WASM worker source)', () => {
         view.setUint32(8, totalSize - 12);
         writeAscii(12, 'DJVMDIRM');
         view.setUint32(20, dirmDataLength);
-        headerBytes[24] = 0x80;
+        headerBytes[24] = 0x81;
         view.setUint16(25, components.length);
         for (const [
             index,

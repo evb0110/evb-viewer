@@ -14,6 +14,7 @@
 #include <new>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "BSByteStream.h"
@@ -163,10 +164,12 @@ void append_json_escaped(std::string &out, const GUTF8String &s) {
 }
 
 int orientation_to_degrees(int orientation) {
-  switch (orientation & 7) {
-    case 5: return 90;
+  // DjVuInfo::decode normalizes raw IFF orientation flags (6 -> 1, 2 -> 2,
+  // 5 -> 3, default -> 0) into 90-degree CCW quarter-turn steps.
+  switch (orientation & 3) {
+    case 1: return 90;
     case 2: return 180;
-    case 6: return 270;
+    case 3: return 270;
     default: return 0;
   }
 }
@@ -223,8 +226,10 @@ class EvbDjVuPort;
 
 struct EvbDjVuDocumentState {
   int32_t docId = 0;
+  bool initDone = false;
   std::vector<uint8_t> initBytes;
   std::unordered_map<std::string, std::vector<uint8_t>> providedComponents;
+  std::unordered_set<std::string> pinnedComponents;
   std::vector<std::string> providedOrder;
   size_t providedBytes = 0;
   std::string needComponent;
@@ -243,7 +248,10 @@ class EvbDjVuPort : public DjVuPort {
     if (!state_) {
       return nullptr;
     }
-    if (url == state_->initUrl) {
+    if (url == state_->initUrl
+        && (!state_->initDone
+            || !state_->doc
+            || state_->doc->get_doc_type() != DjVuDocument::INDIRECT)) {
       GP<ByteStream> bs = ByteStream::create(
           state_->initBytes.data(),
           static_cast<int>(state_->initBytes.size()));
@@ -350,6 +358,10 @@ void evict_non_dict_components(EvbDjVuDocumentState *state) {
   while (idx < state->providedOrder.size()
          && state->providedBytes > MAX_PROVIDED_COMPONENT_CACHE_BYTES) {
     const std::string &name = state->providedOrder[idx];
+    if (state->pinnedComponents.count(name) > 0) {
+      ++idx;
+      continue;
+    }
     bool isInclude = false;
     if (dir) {
       GP<DjVmDir::File> f = dir->name_to_file(GUTF8String(name.c_str()));
@@ -372,6 +384,18 @@ void evict_non_dict_components(EvbDjVuDocumentState *state) {
     state->providedOrder.erase(state->providedOrder.begin() + static_cast<ptrdiff_t>(idx));
   }
 }
+
+struct PinnedComponentsGuard {
+  EvbDjVuDocumentState *state;
+  bool keepPinned = false;
+  explicit PinnedComponentsGuard(EvbDjVuDocumentState *s) : state(s) {}
+  ~PinnedComponentsGuard() {
+    if (state && !keepPinned && !state->pinnedComponents.empty()) {
+      state->pinnedComponents.clear();
+      evict_non_dict_components(state);
+    }
+  }
+};
 
 GP<DjVuFile> get_page_file_raw(EvbDjVuDocumentState *state, int32_t pageIndex0) {
   if (!state->doc) {
@@ -735,10 +759,18 @@ int32_t evb_djvu_open(int32_t docId, const uint8_t *initPtr, int32_t initLen, ui
     return 0;
   }
   try {
+    int32_t handle = g_next_handle++;
     auto state = std::make_unique<EvbDjVuDocumentState>();
     state->docId = docId;
     state->initBytes.assign(initPtr, initPtr + initLen);
-    state->initUrl = GURL::UTF8("evb://doc/index.djvu");
+    char initUrlBuf[96];
+    std::snprintf(
+        initUrlBuf,
+        sizeof(initUrlBuf),
+        "evb://doc-%d/__evb_djvulibre_index_%d__",
+        handle,
+        handle);
+    state->initUrl = GURL::UTF8(initUrlBuf);
 
     uint32_t clampedCache = std::max(MIN_CACHE_BYTES, std::min(cacheBytes, MAX_CACHE_BYTES));
     state->cache = DjVuFileCache::create(static_cast<int>(clampedCache));
@@ -746,6 +778,7 @@ int32_t evb_djvu_open(int32_t docId, const uint8_t *initPtr, int32_t initLen, ui
     state->port = new EvbDjVuPort(state.get());
     state->doc = DjVuDocument::create_noinit();
     state->doc->init(state->initUrl, state->port, state->cache);
+    state->initDone = true;
 
     if (!state->doc->is_init_ok()) {
       set_error("DjVu document failed to initialize");
@@ -756,7 +789,6 @@ int32_t evb_djvu_open(int32_t docId, const uint8_t *initPtr, int32_t initLen, ui
       return 0;
     }
 
-    int32_t handle = g_next_handle++;
     g_docs.emplace(handle, std::move(state));
     return handle;
   } catch (const GException &ex) {
@@ -791,6 +823,7 @@ void evb_djvu_clear_cache(int32_t handle) {
     state->cache->clear();
   }
   state->providedComponents.clear();
+  state->pinnedComponents.clear();
   state->providedOrder.clear();
   state->providedBytes = 0;
 }
@@ -816,12 +849,18 @@ int32_t evb_djvu_provide_component(
       state->providedBytes -= existing->second.size();
       existing->second.assign(dataPtr, dataPtr + dataLen);
       state->providedBytes += existing->second.size();
+      auto orderIt = std::find(state->providedOrder.begin(), state->providedOrder.end(), name);
+      if (orderIt != state->providedOrder.end()) {
+        state->providedOrder.erase(orderIt);
+      }
+      state->providedOrder.push_back(name);
     } else {
       std::vector<uint8_t> buf(dataPtr, dataPtr + dataLen);
       state->providedBytes += buf.size();
       state->providedComponents.emplace(name, std::move(buf));
       state->providedOrder.push_back(name);
     }
+    state->pinnedComponents.insert(name);
     evict_non_dict_components(state);
     return EVB_DJVU_OK;
   } catch (const std::bad_alloc &) {
@@ -920,6 +959,7 @@ int32_t evb_djvu_get_page_info(int32_t handle, int32_t pageIndex0) {
   clear_call_state();
   auto *state = get_doc(handle);
   if (!state) return EVB_DJVU_ERR_INVALID;
+  PinnedComponentsGuard pinGuard(state);
   state->needComponent.clear();
   state->oomTriggered = false;
   try {
@@ -930,7 +970,10 @@ int32_t evb_djvu_get_page_info(int32_t handle, int32_t pageIndex0) {
     }
     GP<DjVuFile> file = get_page_file_raw(state, pageIndex0);
     int32_t pending = check_pending_state(state);
-    if (pending != EVB_DJVU_OK) return pending;
+    if (pending != EVB_DJVU_OK) {
+      pinGuard.keepPinned = (pending == EVB_DJVU_NEED_COMPONENT);
+      return pending;
+    }
     if (!file) {
       set_error("Failed to open DjVu page file");
       return EVB_DJVU_ERR_INVALID;
@@ -997,7 +1040,10 @@ int32_t evb_djvu_get_page_info(int32_t handle, int32_t pageIndex0) {
     return EVB_DJVU_OK;
   } catch (const GException &ex) {
     int32_t pending = check_pending_state(state);
-    if (pending != EVB_DJVU_OK) return pending;
+    if (pending != EVB_DJVU_OK) {
+      pinGuard.keepPinned = (pending == EVB_DJVU_NEED_COMPONENT);
+      return pending;
+    }
     set_error(ex.get_cause() ? ex.get_cause() : "Failed to inspect DjVu page");
     return EVB_DJVU_ERR_INVALID;
   } catch (const std::bad_alloc &) {
@@ -1014,6 +1060,7 @@ int32_t evb_djvu_get_page_structure(int32_t handle, int32_t pageIndex0) {
   clear_call_state();
   auto *state = get_doc(handle);
   if (!state) return EVB_DJVU_ERR_INVALID;
+  PinnedComponentsGuard pinGuard(state);
   state->needComponent.clear();
   state->oomTriggered = false;
   try {
@@ -1024,7 +1071,10 @@ int32_t evb_djvu_get_page_structure(int32_t handle, int32_t pageIndex0) {
     }
     GP<DjVuFile> file = get_page_file_raw(state, pageIndex0);
     int32_t pending = check_pending_state(state);
-    if (pending != EVB_DJVU_OK) return pending;
+    if (pending != EVB_DJVU_OK) {
+      pinGuard.keepPinned = (pending == EVB_DJVU_NEED_COMPONENT);
+      return pending;
+    }
     if (!file) {
       set_error("Failed to open DjVu page file");
       return EVB_DJVU_ERR_INVALID;
@@ -1171,7 +1221,10 @@ int32_t evb_djvu_get_page_structure(int32_t handle, int32_t pageIndex0) {
     return EVB_DJVU_OK;
   } catch (const GException &ex) {
     int32_t pending = check_pending_state(state);
-    if (pending != EVB_DJVU_OK) return pending;
+    if (pending != EVB_DJVU_OK) {
+      pinGuard.keepPinned = (pending == EVB_DJVU_NEED_COMPONENT);
+      return pending;
+    }
     set_error(ex.get_cause() ? ex.get_cause() : "Failed to inspect DjVu page structure");
     return EVB_DJVU_ERR_INVALID;
   } catch (const std::bad_alloc &) {
@@ -1198,6 +1251,7 @@ int32_t evb_djvu_render_page(
   clear_call_state();
   auto *state = get_doc(handle);
   if (!state) return EVB_DJVU_ERR_INVALID;
+  PinnedComponentsGuard pinGuard(state);
   state->needComponent.clear();
   state->oomTriggered = false;
   try {
@@ -1212,6 +1266,7 @@ int32_t evb_djvu_render_page(
     if (pending != EVB_DJVU_OK) {
       // Clear any half-decoded file from cache before retrying with the fetched component.
       if (state->cache) state->cache->clear();
+      pinGuard.keepPinned = (pending == EVB_DJVU_NEED_COMPONENT);
       return pending;
     }
     if (!img) {
@@ -1294,6 +1349,7 @@ int32_t evb_djvu_render_page(
     int32_t pending = check_pending_state(state);
     if (pending != EVB_DJVU_OK) {
       if (state->cache) state->cache->clear();
+      pinGuard.keepPinned = (pending == EVB_DJVU_NEED_COMPONENT);
       return pending;
     }
     set_error(ex.get_cause() ? ex.get_cause() : "DjVu render failed");
@@ -1339,6 +1395,7 @@ int32_t evb_djvu_get_page_text(int32_t handle, int32_t pageIndex0, int32_t inclu
   clear_call_state();
   auto *state = get_doc(handle);
   if (!state) return EVB_DJVU_ERR_INVALID;
+  PinnedComponentsGuard pinGuard(state);
   state->needComponent.clear();
   state->oomTriggered = false;
   try {
@@ -1349,7 +1406,10 @@ int32_t evb_djvu_get_page_text(int32_t handle, int32_t pageIndex0, int32_t inclu
     }
     GP<DjVuFile> file = get_page_file_raw(state, pageIndex0);
     int32_t pending = check_pending_state(state);
-    if (pending != EVB_DJVU_OK) return pending;
+    if (pending != EVB_DJVU_OK) {
+      pinGuard.keepPinned = (pending == EVB_DJVU_NEED_COMPONENT);
+      return pending;
+    }
     if (!file) {
       set_error("Failed to open DjVu page file");
       return EVB_DJVU_ERR_INVALID;
@@ -1391,7 +1451,10 @@ int32_t evb_djvu_get_page_text(int32_t handle, int32_t pageIndex0, int32_t inclu
     return EVB_DJVU_OK;
   } catch (const GException &ex) {
     int32_t pending = check_pending_state(state);
-    if (pending != EVB_DJVU_OK) return pending;
+    if (pending != EVB_DJVU_OK) {
+      pinGuard.keepPinned = (pending == EVB_DJVU_NEED_COMPONENT);
+      return pending;
+    }
     set_error(ex.get_cause() ? ex.get_cause() : "Failed to extract DjVu page text");
     return EVB_DJVU_ERR_INVALID;
   } catch (const std::bad_alloc &) {
@@ -1405,6 +1468,7 @@ int32_t evb_djvu_page_has_text(int32_t handle, int32_t pageIndex0) {
   clear_call_state();
   auto *state = get_doc(handle);
   if (!state) return EVB_DJVU_ERR_INVALID;
+  PinnedComponentsGuard pinGuard(state);
   state->needComponent.clear();
   state->oomTriggered = false;
   try {
@@ -1414,7 +1478,10 @@ int32_t evb_djvu_page_has_text(int32_t handle, int32_t pageIndex0) {
     }
     GP<DjVuFile> file = get_page_file_raw(state, pageIndex0);
     int32_t pending = check_pending_state(state);
-    if (pending != EVB_DJVU_OK) return pending;
+    if (pending != EVB_DJVU_OK) {
+      pinGuard.keepPinned = (pending == EVB_DJVU_NEED_COMPONENT);
+      return pending;
+    }
     if (!file) return EVB_DJVU_ERR_INVALID;
 
     GP<DjVuTXT> txt = extract_text_from_pool_fast(file->get_init_data_pool());
@@ -1422,7 +1489,10 @@ int32_t evb_djvu_page_has_text(int32_t handle, int32_t pageIndex0) {
     return EVB_DJVU_OK;
   } catch (const GException &ex) {
     int32_t pending = check_pending_state(state);
-    if (pending != EVB_DJVU_OK) return pending;
+    if (pending != EVB_DJVU_OK) {
+      pinGuard.keepPinned = (pending == EVB_DJVU_NEED_COMPONENT);
+      return pending;
+    }
     set_error(ex.get_cause() ? ex.get_cause() : "Failed to probe DjVu page text");
     return EVB_DJVU_ERR_INVALID;
   }
@@ -1433,6 +1503,7 @@ int32_t evb_djvu_get_metadata(int32_t handle) {
   clear_call_state();
   auto *state = get_doc(handle);
   if (!state) return EVB_DJVU_ERR_INVALID;
+  PinnedComponentsGuard pinGuard(state);
   state->needComponent.clear();
   state->oomTriggered = false;
   try {
@@ -1456,7 +1527,10 @@ int32_t evb_djvu_get_metadata(int32_t handle) {
       if (sharedAnno) {
         GP<DjVuFile> f = state->doc->get_djvu_file(sharedAnno->get_load_name());
         int32_t pending = check_pending_state(state);
-        if (pending != EVB_DJVU_OK) return pending;
+        if (pending != EVB_DJVU_OK) {
+          pinGuard.keepPinned = (pending == EVB_DJVU_NEED_COMPONENT);
+          return pending;
+        }
         if (f) {
           mergeFromStream(f->get_anno());
         }
@@ -1465,7 +1539,10 @@ int32_t evb_djvu_get_metadata(int32_t handle) {
     if (state->doc->get_pages_num() > 0) {
       GP<DjVuFile> page0 = get_page_file_raw(state, 0);
       int32_t pending = check_pending_state(state);
-      if (pending != EVB_DJVU_OK) return pending;
+      if (pending != EVB_DJVU_OK) {
+        pinGuard.keepPinned = (pending == EVB_DJVU_NEED_COMPONENT);
+        return pending;
+      }
       if (page0) {
         mergeFromStream(page0->get_merged_anno());
       }
@@ -1485,7 +1562,10 @@ int32_t evb_djvu_get_metadata(int32_t handle) {
     return EVB_DJVU_OK;
   } catch (const GException &ex) {
     int32_t pending = check_pending_state(state);
-    if (pending != EVB_DJVU_OK) return pending;
+    if (pending != EVB_DJVU_OK) {
+      pinGuard.keepPinned = (pending == EVB_DJVU_NEED_COMPONENT);
+      return pending;
+    }
     set_error(ex.get_cause() ? ex.get_cause() : "Failed to read DjVu metadata");
     return EVB_DJVU_ERR_INVALID;
   }

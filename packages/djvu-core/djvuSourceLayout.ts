@@ -354,11 +354,14 @@ export async function readDjvuSourceLayout(options: {
         };
     }
 
-    const offsetTableBytes = fileCount * 4;
+    const dirmVersion = dflags & 0x7f;
+    // DIRM v0 stores a 4-byte offset + 3-byte size per bundled file; v1 stores 4-byte offsets only.
+    const recordBytes = dirmVersion === 0 ? 7 : 4;
+    const offsetTableBytes = fileCount * recordBytes;
     if (3 + offsetTableBytes > dirmData.byteLength) {
         invalidDjvu('The DjVu DIRM offset table is truncated');
     }
-    const offsets = Array.from({length: fileCount}, (_, index) => readUint32(dirmData, 3 + (index * 4)));
+    const offsets = Array.from({length: fileCount}, (_, index) => readUint32(dirmData, 3 + (index * recordBytes)));
     const indirectDirm = new Uint8Array(dirmData.byteLength - offsetTableBytes);
     indirectDirm[0] = dflags & ~DIRM_BUNDLED_FLAG;
     indirectDirm.set(dirmData.subarray(1, 3), 1);

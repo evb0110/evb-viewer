@@ -14,6 +14,7 @@ import {
     type TDjvuLibreModuleFactory,
 } from '@djvu-core/djvuLibreEngine';
 import { encodePpmP6 } from '@djvu-core/djvuPnm';
+import { readDjvuSourceLayout } from '@djvu-core/djvuSourceLayout';
 
 const expectedClasses = [
     'bitonal-faint-pencil',
@@ -198,5 +199,182 @@ describe('generated DjVu fidelity goldens (DjVuLibre WASM)', () => {
                 doc.close();
             }
         })()).rejects.toThrow();
+    }, DJVU_TEST_TIMEOUT_MS);
+
+    it('reports upright dimensions and quarter-turn degrees for rotated INFO flags', async () => {
+        const baseBytes = new Uint8Array(await readFile(resolve(corpusDirectory, 'sources/photo-art.djvu')));
+        // Locate the INFO chunk payload inside FORM:DJVU (byte 9 holds raw orientation flags).
+        const infoTagOffset = Buffer.from(baseBytes).indexOf('INFO', 12, 'ascii');
+        expect(infoTagOffset).toBeGreaterThanOrEqual(16);
+        const flagByteOffset = infoTagOffset + 8 + 9;
+
+        for (const [
+            rawFlag,
+            expectedRotation,
+            expectedWidth,
+            expectedHeight,
+        ] of [
+            [
+                6,
+                90,
+                480,
+                640,
+            ],
+            [
+                2,
+                180,
+                640,
+                480,
+            ],
+            [
+                5,
+                270,
+                480,
+                640,
+            ],
+        ] as const) {
+            const mutated = new Uint8Array(baseBytes);
+            mutated[flagByteOffset] = rawFlag;
+            const doc = await engine.openDocument({ initBytes: mutated });
+            try {
+                const info = await doc.getPageInfo(1);
+                const structure = await doc.getPageStructure(1);
+                const rendered = await doc.renderPage(1, {
+                    mode: 'color',
+                    pixelFormat: 'rgb',
+                });
+                expect(info.rotation).toBe(expectedRotation);
+                expect(info.width).toBe(expectedWidth);
+                expect(info.height).toBe(expectedHeight);
+                expect(structure.rotation).toBe(expectedRotation);
+                expect(structure.info?.width).toBe(expectedWidth);
+                expect(structure.info?.height).toBe(expectedHeight);
+                expect(rendered.width).toBe(expectedWidth);
+                expect(rendered.height).toBe(expectedHeight);
+            } finally {
+                doc.close();
+            }
+        }
+    }, DJVU_TEST_TIMEOUT_MS);
+
+    it('renders an indirect page component named index.djvu without colliding with the document index', async () => {
+        const pageBytes = new Uint8Array(await readFile(resolve(corpusDirectory, 'sources/indirect/low-dpi.djvu')));
+        // Pre-encoded 1-page indirect FORM:DJVM (DIRM v1) whose sole page component ID is "index.djvu".
+        const indirectIndex = new Uint8Array(Buffer.from(
+            'QVQmVEZPUk0AAAAkREpWTURJUk0AAAAXAQAB///vv4of0WXVdBnixB02vqU3QRcA',
+            'base64',
+        ));
+        const fetched: string[] = [];
+        const doc = await engine.openDocument({
+            initBytes: indirectIndex,
+            readComponentAsync: async (name) => {
+                fetched.push(name);
+                expect(name).toBe('index.djvu');
+                return pageBytes;
+            },
+        });
+        try {
+            const info = await doc.getPageInfo(1);
+            const rendered = await doc.renderPage(1, {
+                mode: 'color',
+                pixelFormat: 'rgb',
+                targetWidth: 64,
+                targetHeight: 48,
+            });
+            expect(info.width).toBe(640);
+            expect(info.height).toBe(480);
+            expect(rendered.width).toBe(64);
+            expect(rendered.height).toBe(48);
+            expect(fetched).toEqual(['index.djvu']);
+        } finally {
+            doc.close();
+        }
+    }, DJVU_TEST_TIMEOUT_MS);
+
+    it('renders an async component larger than the 32 MiB cache limit in a single fetch', async () => {
+        const indirectIndex = new Uint8Array(await readFile(resolve(corpusDirectory, 'sources/indirect/index.djvu')));
+        const basePage = new Uint8Array(await readFile(resolve(corpusDirectory, 'sources/indirect/low-dpi.djvu')));
+        // Append a valid unknown IFF chunk ('EVBP') inside FORM:DJVU to grow the component past 32 MiB.
+        const padPayloadBytes = 33 * 1024 * 1024;
+        const origFormSize = new DataView(basePage.buffer, basePage.byteOffset, basePage.byteLength).getUint32(8);
+        const padChunkTotal = 8 + padPayloadBytes;
+        const paddedStart = basePage.byteLength + (basePage.byteLength & 1);
+        const hugeComponent = new Uint8Array(paddedStart + padChunkTotal);
+        hugeComponent.set(basePage, 0);
+        const dv = new DataView(hugeComponent.buffer);
+        dv.setUint32(8, origFormSize + (paddedStart - basePage.byteLength) + padChunkTotal);
+        hugeComponent.set(Buffer.from('EVBP', 'ascii'), paddedStart);
+        dv.setUint32(paddedStart + 4, padPayloadBytes);
+
+        let fetchCount = 0;
+        const doc = await engine.openDocument({
+            initBytes: indirectIndex,
+            readComponentAsync: async (name) => {
+                expect(name).toBe('low-dpi.djvu');
+                fetchCount += 1;
+                return hugeComponent;
+            },
+        });
+        try {
+            const rendered = await doc.renderPage(1, {
+                mode: 'color',
+                pixelFormat: 'rgb',
+                targetWidth: 64,
+                targetHeight: 48,
+            });
+            expect(rendered.width).toBe(64);
+            expect(rendered.height).toBe(48);
+            expect(fetchCount).toBe(1);
+        } finally {
+            doc.close();
+        }
+    }, DJVU_TEST_TIMEOUT_MS);
+
+    it('rewrites bundled DIRM v0 (7-byte offset+size records) into a valid indirect index', async () => {
+        const v1Bundled = new Uint8Array(await readFile(resolve(corpusDirectory, 'sources/searchable-mixed-dpi.djvu')));
+        // Read the existing v1 DIRM payload and construct a synthetic bundled DIRM v0 payload
+        // with 7-byte (4-byte offset + 3-byte size) records before the BZZ stream.
+        const dirmLen = new DataView(v1Bundled.buffer, v1Bundled.byteOffset, v1Bundled.byteLength).getUint32(20);
+        const dirmV1 = v1Bundled.subarray(24, 24 + dirmLen);
+        const fileCount = (dirmV1[1]! << 8) | dirmV1[2]!;
+        const v0Dirm = new Uint8Array(3 + (fileCount * 7) + (dirmV1.byteLength - (3 + (fileCount * 4))));
+        v0Dirm[0] = 0x80; // bundled + version 0
+        v0Dirm[1] = dirmV1[1]!;
+        v0Dirm[2] = dirmV1[2]!;
+        const v0View = new DataView(v0Dirm.buffer);
+        const v1View = new DataView(dirmV1.buffer, dirmV1.byteOffset, dirmV1.byteLength);
+        const deltaBytes = fileCount * 3;
+        const paddedDelta = (deltaBytes + (dirmLen & 1)) & ~1;
+        for (let i = 0; i < fileCount; i += 1) {
+            const origOffset = v1View.getUint32(3 + (i * 4));
+            v0View.setUint32(3 + (i * 7), origOffset + paddedDelta);
+            // 3-byte big-endian size placeholder (100 bytes).
+            v0Dirm[3 + (i * 7) + 4] = 0;
+            v0Dirm[3 + (i * 7) + 5] = 0;
+            v0Dirm[3 + (i * 7) + 6] = 100;
+        }
+        v0Dirm.set(dirmV1.subarray(3 + (fileCount * 4)), 3 + (fileCount * 7));
+
+        const v1DirmPaddedLen = 8 + dirmLen + (dirmLen & 1);
+        const v0DirmPaddedLen = 8 + v0Dirm.byteLength + (v0Dirm.byteLength & 1);
+        const restAfterDirm = v1Bundled.subarray(16 + v1DirmPaddedLen);
+        const v0Bundled = new Uint8Array(16 + v0DirmPaddedLen + restAfterDirm.byteLength);
+        v0Bundled.set(v1Bundled.subarray(0, 16), 0);
+        new DataView(v0Bundled.buffer).setUint32(8, 4 + v0DirmPaddedLen + restAfterDirm.byteLength);
+        v0Bundled.set(Buffer.from('DIRM', 'ascii'), 16);
+        new DataView(v0Bundled.buffer).setUint32(20, v0Dirm.byteLength);
+        v0Bundled.set(v0Dirm, 24);
+        v0Bundled.set(restAfterDirm, 16 + v0DirmPaddedLen);
+
+        const layout = await readDjvuSourceLayout({
+            fileSize: v0Bundled.byteLength,
+            readRange: async (offset, length) => v0Bundled.subarray(offset, offset + length),
+        });
+        expect(layout.hasComponents).toBe(true);
+        expect(layout.bundledOffsets).toHaveLength(fileCount);
+        expect(layout.documentBytes[24]).toBe(0x00); // indirect + version 0
+        // The rewritten indirect DIRM must strip all 7-byte bundled records (3 + tail bytes only).
+        const rewrittenDirmLen = new DataView(layout.documentBytes.buffer).getUint32(20);
+        expect(rewrittenDirmLen).toBe(3 + (dirmV1.byteLength - (3 + (fileCount * 4))));
     }, DJVU_TEST_TIMEOUT_MS);
 });

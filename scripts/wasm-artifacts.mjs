@@ -247,17 +247,17 @@ export const PREBUILT_WASM_FILES = [
     },
     // scripts/build-djvulibre-wasm.sh, the unified DjVuLibre engine for web and desktop.
     {
-        bytes: 988223,
+        bytes: 991767,
         label: 'DjVuLibre engine WASM',
         publicRelativePath: 'public/wasm/evb-djvulibre.wasm',
-        sha256: '2238f869d37994f9a233a48f671f40f8f7c9f4cb8b161f16a1f7f578d336d9a9',
+        sha256: '00062edad0b74ef8b84c7d8b1103c45dbb2bf48238af4b127355422d35c4374c',
         url: `${PREBUILT_WASM_BASE_URL}/evb-djvulibre-3.5.30-r1.wasm`,
     },
     {
         bytes: 25350,
         label: 'DjVuLibre engine module',
         publicRelativePath: 'public/wasm/evb-djvulibre.mjs',
-        sha256: '478623af7f9da90a9b6c07c68418efeda54c93a35d538d473db4e336ac9a2d7d',
+        sha256: '33ecc6df4253452617f4169cb39168f3a75e3a9220a971fe1910fafeb15c005a',
         url: `${PREBUILT_WASM_BASE_URL}/evb-djvulibre-3.5.30-r1.mjs`,
     },
 ];

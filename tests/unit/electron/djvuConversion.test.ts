@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
     runNativeCommand: vi.fn(),
     cancelNativeCommandGroup: vi.fn(),
     resolveNativeToolPath: vi.fn(),
+    runPageStructureCommand: vi.fn(),
     hostTier: 'high' as 'low' | 'medium' | 'high',
     logicalCpus: 8,
 }));
@@ -34,6 +35,7 @@ vi.mock('@electron/native-tools/runNativeCommand', () => ({
     cancelNativeCommandGroup: mocks.cancelNativeCommandGroup,
 }));
 vi.mock('@electron/native-tools/resolveNativeToolPath', () => ({resolveNativeToolPath: mocks.resolveNativeToolPath}));
+vi.mock('@electron/features/page-ops/publicNative', () => ({runPageStructureCommand: mocks.runPageStructureCommand}));
 vi.mock('@electron/resources/hostResourceProfile', () => ({getHostResourceProfileSnapshot: () => ({
     tier: mocks.hostTier,
     logicalCpus: mocks.logicalCpus,
@@ -195,9 +197,99 @@ describe('ddjvuConversion (DjVuLibre WASM + evb-pdf-image-combine)', () => {
         const lines = capturedManifest.trim().split('\n');
         expect(lines).toHaveLength(3);
         expect(JSON.parse(lines[0]!)).toMatchObject({ pageCount: 2 });
-        expect(lines[1]).toContain('image-jpeg\t144.0000\t216.0000');
-        expect(lines[2]).toContain('image-jpeg\t576.0000\t768.0000');
+        expect(lines[1]).toContain('image-jpeg\t144.0000\t216.0000\t92\t');
+        expect(lines[2]).toContain('image-jpeg\t576.0000\t768.0000\t92\t');
         expect(progressValues.at(-1)).toBe(94);
+    });
+
+    it('uses lossless image manifest entries for Full Quality (subsample 1) and batches large exports to release scratch PPMs', async () => {
+        const outputPath = join(tempDir, 'batched-full.pdf');
+        const capturedManifests: string[] = [];
+        const batchPpmPaths: string[][] = [];
+
+        mocks.runDjvuEngine.mockImplementation(async (request: {
+            type: string;
+            pageNumber?: number;
+            outputPath?: string;
+        }) => {
+            if (request.type === 'getDocInfo') {
+                return {
+                    pageCount: 26,
+                    sourceDpi: 300,
+                    isIndirect: false,
+                    files: [],
+                };
+            }
+            if (request.type === 'getPageSizes') {
+                return Array.from({ length: 26 }, () => ({
+                    width: 600,
+                    height: 900,
+                    dpi: 300,
+                }));
+            }
+            if (request.type === 'renderPageToFile') {
+                await writeFile(request.outputPath!, Buffer.from('P6\n2 2\n255\n0123456789ab', 'binary'));
+                return {
+                    width: 2,
+                    height: 2,
+                    present: true,
+                };
+            }
+            throw new Error(`Unexpected request: ${request.type}`);
+        });
+
+        mocks.runNativeCommand.mockImplementation(async (_command: string, args: string[]) => {
+            const manifestPath = args[args.indexOf('--compact-manifest') + 1]!;
+            const manifest = await readFile(manifestPath, 'utf8');
+            capturedManifests.push(manifest);
+            const ppmPaths = manifest
+                .trim()
+                .split('\n')
+                .slice(1)
+                .map(line => line.split('\t').at(-1)!);
+            batchPpmPaths.push(ppmPaths);
+            if (batchPpmPaths.length === 2) {
+                // Batch 1 PPMs must already be unlinked before batch 2 combines.
+                const { existsSync } = await import('node:fs');
+                expect(batchPpmPaths[0]!.every(ppm => !existsSync(ppm))).toBe(true);
+            }
+            await writeFile(args[args.indexOf('--output') + 1]!, '%PDF-1.4\n%%EOF\n', 'utf8');
+            return {
+                stdout: '',
+                stderr: '',
+                exitCode: 0,
+            };
+        });
+
+        mocks.runPageStructureCommand.mockImplementationOnce(async (
+            command: string,
+            firstChunk: string,
+            finalOutput: string,
+            args: { sources?: string[] },
+        ) => {
+            expect(command).toBe('merge-pages');
+            expect(firstChunk).toContain('direct-chunk-0001.pdf');
+            expect(args.sources).toHaveLength(1);
+            expect(args.sources?.[0]).toContain('direct-chunk-0002.pdf');
+            await writeFile(finalOutput, '%PDF-1.4\n%merged\n%%EOF\n', 'utf8');
+        });
+
+        const result = await convertDjvuToPdfFile('/tmp/book.djvu', outputPath, 'job-batched', {
+            subsample: 1,
+        });
+
+        expect(result).toMatchObject({
+            success: true,
+            outputPath,
+        });
+        expect(capturedManifests).toHaveLength(2);
+        const batch1Lines = capturedManifests[0]!.trim().split('\n');
+        const batch2Lines = capturedManifests[1]!.trim().split('\n');
+        expect(JSON.parse(batch1Lines[0]!)).toMatchObject({ pageCount: 24 });
+        expect(JSON.parse(batch2Lines[0]!)).toMatchObject({ pageCount: 2 });
+        expect(batch1Lines[1]).toMatch(/^image\t144\.0000\t216\.0000\t/);
+        expect(batch2Lines[1]).toMatch(/^image\t144\.0000\t216\.0000\t/);
+        expect(mocks.runPageStructureCommand).toHaveBeenCalledTimes(1);
     });
 
     it('cancels active WASM conversion jobs and registered child processes by parent job prefix', async () => {
