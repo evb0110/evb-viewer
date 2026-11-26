@@ -26,13 +26,28 @@ fn padded(bytes: impl Iterator<Item = io::Result<u8>>) -> impl Iterator<Item = i
     bytes.chain(std::iter::repeat_n(0, STRIP_PADDING_BYTES).map(Ok))
 }
 
+fn validate_destination_layout(width: u32, row_stride: usize, bitmap: &[u8]) -> Result<()> {
+    let min_stride = (width as usize).div_ceil(8);
+    if row_stride == 0 || row_stride < min_stride {
+        return Err("Invalid CCITT destination row stride".into());
+    }
+    if bitmap.len() % row_stride != 0 {
+        return Err("Invalid CCITT destination bitmap length".into());
+    }
+    Ok(())
+}
+
 /// Decodes `rows` Group 4 rows into `bitmap`, `row_stride` bytes per row.
-pub(crate) fn decode_g4_rows(
+///
+/// `bitmap` must start zero-initialized; returning an error may leave earlier
+/// rows partially written.
+pub fn decode_g4_rows(
     bytes: impl Iterator<Item = io::Result<u8>>,
     width: u32,
     row_stride: usize,
     bitmap: &mut [u8],
 ) -> Result<()> {
+    validate_destination_layout(width, row_stride, bitmap)?;
     let mut decoder = Group4Decoder::new(padded(bytes), width)?;
     for row in bitmap.chunks_exact_mut(row_stride) {
         match decoder
@@ -50,13 +65,17 @@ pub(crate) fn decode_g4_rows(
 /// Decodes `rows` Group 3 rows into `bitmap`. With `two_dimensional`, each
 /// row's EOL is followed by a tag bit that selects one-dimensional (1) or
 /// two-dimensional (0) coding against the previous row.
-pub(crate) fn decode_g3_rows(
+///
+/// `bitmap` must start zero-initialized; returning an error may leave earlier
+/// rows partially written.
+pub fn decode_g3_rows(
     bytes: impl Iterator<Item = io::Result<u8>>,
     width: u32,
     two_dimensional: bool,
     row_stride: usize,
     bitmap: &mut [u8],
 ) -> Result<()> {
+    validate_destination_layout(width, row_stride, bitmap)?;
     let mut reader = ByteReader::new(padded(bytes))?;
     let mut reference = Vec::new();
     let mut current = Vec::new();
@@ -81,12 +100,16 @@ pub(crate) fn decode_g3_rows(
 
 /// Decodes Modified Huffman rows (TIFF Compression 2): one-dimensional Group
 /// 3 rows without EOL codes, each starting on a byte boundary.
-pub(crate) fn decode_modified_huffman_rows(
+///
+/// `bitmap` must start zero-initialized; returning an error may leave earlier
+/// rows partially written.
+pub fn decode_modified_huffman_rows(
     bytes: impl Iterator<Item = io::Result<u8>>,
     width: u32,
     row_stride: usize,
     bitmap: &mut [u8],
 ) -> Result<()> {
+    validate_destination_layout(width, row_stride, bitmap)?;
     let mut reader = ByteReader::new(padded(bytes))?;
     let mut changes = Vec::new();
     for row in bitmap.chunks_exact_mut(row_stride) {

@@ -86,12 +86,13 @@ impl Encoder {
             ct: 12,
             buffered_byte: 0,
             has_buffered_byte: false,
-            output: Vec::new(),
+            output: Vec::with_capacity(4096),
             #[cfg(test)]
             carried_fe: false,
         }
     }
 
+    #[inline(always)]
     pub(crate) fn encode(&mut self, contexts: &mut [u8], context: usize, bit: u8) {
         let packed = contexts[context];
         let mut index = packed >> 1;
@@ -128,6 +129,32 @@ impl Encoder {
         }
     }
 
+    /// Encodes `count` consecutive zero bits in context 0, collapsing runs that
+    /// stay above the 0x8000 renormalization threshold into a single subtraction
+    /// and producing bit-for-bit identical output to `count` calls to `encode`.
+    #[inline]
+    pub(crate) fn encode_zero_run_ctx0(&mut self, contexts: &mut [u8], mut count: usize) {
+        while count > 0 {
+            let packed = contexts[0];
+            if packed & 1 == 0 {
+                let qe = STATE_TABLE[usize::from(packed >> 1)].qe;
+                let max_fast = ((self.a - 0x8000) / qe) as usize;
+                if max_fast > 0 {
+                    let step = count.min(max_fast);
+                    let delta = (step as u32) * qe;
+                    self.a -= delta;
+                    self.c += delta;
+                    count -= step;
+                    if count == 0 {
+                        return;
+                    }
+                }
+            }
+            self.encode(contexts, 0, 0);
+            count -= 1;
+        }
+    }
+
     pub(crate) fn finish(mut self) -> Vec<u8> {
         let limit = self.c + self.a;
         self.c |= 0xffff;
@@ -146,6 +173,8 @@ impl Encoder {
         self.output
     }
 
+    #[cold]
+    #[inline(never)]
     fn renormalize(&mut self) {
         loop {
             self.a <<= 1;
@@ -160,6 +189,8 @@ impl Encoder {
         }
     }
 
+    #[cold]
+    #[inline(never)]
     fn byte_out(&mut self) {
         if self.buffered_byte == 0xff {
             self.emit_buffered();
@@ -228,6 +259,7 @@ impl<'a> Decoder<'a> {
         Some(decoder)
     }
 
+    #[inline(always)]
     pub(crate) fn decode(&mut self, contexts: &mut [u8], context: usize) -> u8 {
         let packed = contexts[context];
         let mut index = packed >> 1;
@@ -288,6 +320,8 @@ impl<'a> Decoder<'a> {
         self.stuffed
     }
 
+    #[cold]
+    #[inline(never)]
     fn byte_in(&mut self) {
         let current = self.data[self.byte_position];
         if current == 0xff {

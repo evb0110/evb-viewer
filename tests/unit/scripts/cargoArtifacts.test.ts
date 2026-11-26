@@ -255,6 +255,8 @@ describe('Cargo artifact staging', () => {
             ...remaps,
             '--cfg',
             'getrandom_backend="custom"',
+            '-C',
+            'target-feature=+simd128',
         ]);
     });
 
@@ -891,13 +893,46 @@ describe('browser WASM bulk memory lowering', () => {
         expect(() => lowerWasmBulkMemory(fillSecond)).toThrow(/targets memory 1/u);
     });
 
-    it('refuses instructions it does not decode', () => {
-        const simd = wasmModule(
+    it('passes WebAssembly SIMD128 instructions through unchanged and refuses unknown opcodes', () => {
+        // v128.const containing bytes that mimic memory.copy (0xfc 0x0a 0x00 0x00),
+        // i8x16.shuffle, i8x16.extract_lane_u, v128.load, v128.load8_lane, and memory.fill.
+        const simdModule = wasmModule(
+            wasmSection(1, wasmVector([[0x60, 0, 1, I32]])),
+            wasmSection(2, wasmVector([memoryImport('memory', false)])),
+            wasmSection(3, wasmVector([[0]])),
+            wasmSection(7, wasmVector([[...wasmName('run'), 0, 0]])),
+            wasmSection(10, wasmVector([wasmBody([
+                ...i32(0), ...i32(0x11), ...i32(16), ...MEMORY_FILL,
+                // v128.const with fake memory.copy bytes inside immediate
+                0xfd, 0x0c, 0xfc, 0x0a, 0x00, 0x00, 0xfc, 0x0b, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09,
+                // v128.load align=0 offset=0
+                ...i32(0), 0xfd, 0x00, 0x00, 0x00,
+                // i8x16.add (0x6e, no immediate)
+                0xfd, 0x6e,
+                // i8x16.extract_lane_u lane 7 (0x16, 1-byte laneidx) -> 0x01 + 0x11 = 0x12
+                0xfd, 0x16, 0x07,
+            ])])),
+        );
+        expect(countWasmBulkMemory(simdModule)).toEqual({copy: 0, fill: 1});
+        const {bytes, lowered} = lowerWasmBulkMemory(simdModule);
+        expect(lowered).toEqual({copy: 0, fill: 1});
+        expect(countWasmBulkMemory(bytes)).toEqual({copy: 0, fill: 0});
+        const memory = new WebAssembly.Memory({initial: 1});
+        expect(instantiate(bytes, {env: {memory}}).run!()).toBe(0x12);
+
+        const unknownGc = wasmModule(
             wasmSection(1, wasmVector([[0x60, 0, 0]])),
             wasmSection(3, wasmVector([[0]])),
-            wasmSection(10, wasmVector([wasmBody([0xfd, 0x0c, ...new Array(16).fill(0), 0x1a])])),
+            wasmSection(10, wasmVector([wasmBody([0xfb, 0x00])])),
         );
-        expect(() => lowerWasmBulkMemory(simd)).toThrow(/Unknown WebAssembly instruction 0xfd/u);
+        expect(() => lowerWasmBulkMemory(unknownGc)).toThrow(/Unknown WebAssembly instruction 0xfb/u);
+
+        const unknownSimd = wasmModule(
+            wasmSection(1, wasmVector([[0x60, 0, 0]])),
+            wasmSection(3, wasmVector([[0]])),
+            wasmSection(10, wasmVector([wasmBody([0xfd, ...leb(0x100)])])),
+        );
+        expect(() => lowerWasmBulkMemory(unknownSimd)).toThrow(/Unknown WebAssembly 0xfd instruction 256/u);
     });
 
     it('reads five- and ten-byte LEB128 immediates', () => {

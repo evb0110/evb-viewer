@@ -653,6 +653,7 @@ pub(crate) fn render_page(
             // render has no reason to run mode recommendation again. Automatic
             // pages without reusable evidence still compute it here.
             options.output_mode == OutputMode::Auto,
+            !final_render,
             &mut timings,
             is_canceled,
         )

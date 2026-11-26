@@ -56,7 +56,7 @@ fn main() {
     evb_native_support::run_native_cli(
         "evb-pdf-image-combine",
         env!("CARGO_PKG_VERSION"),
-        option_env!("EVB_NATIVE_BUILD_ID"),
+        option_env!("EVB_NATIVE_BUILD_ID_PDF_IMAGE_COMBINE").or(option_env!("EVB_NATIVE_BUILD_ID")),
         env::args().skip(1),
         run,
     );

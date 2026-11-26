@@ -9,14 +9,18 @@ use tiff::{
     ColorType as TiffColorType,
 };
 
+use evb_image_codecs::{
+    ccitt::{decode_g3_rows, decode_g4_rows, decode_modified_huffman_rows},
+    CM_PER_INCH,
+};
+
 use crate::{
     bilevel_image_page,
-    ccitt::{decode_g3_rows, decode_g4_rows, decode_modified_huffman_rows},
     flate::deflate_up_filtered_slices,
     image::assert_pixel_limit,
     netpbm::PbmP4Image,
     pdf::{ImagePage, ImagePayload},
-    Result, CM_PER_INCH, DEFAULT_DPI,
+    Result, DEFAULT_DPI,
 };
 
 /// T4Options, which says whether Group 3 rows may be two-dimensional.

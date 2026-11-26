@@ -7,16 +7,12 @@
 //! page order once more than one encoder runs. `EVB_PDF_COMBINE_THREADS` caps
 //! that fan-out; the written PDF is byte-identical at every setting.
 
-mod binary;
-mod ccitt;
 pub mod compact_manifest_line;
 mod flate;
 mod image;
-mod jpeg;
 mod jpx;
 mod netpbm;
 mod pdf;
-pub mod pdf_image_samples;
 mod tiff_io;
 
 #[cfg(any(
@@ -84,13 +80,15 @@ use crate::{
 };
 
 pub use crate::{
-    image::{recompress_jpeg, JpegSizeGuardrail, RecompressedJpeg},
+    image::JpegSizeGuardrail,
     netpbm::{probe_netpbm_path, NetpbmProbe},
     pdf::{PdfImagePlacement, PdfPageSize},
 };
+pub use evb_image_codecs::{
+    pdf_image_samples, recompress_jpeg, RecompressedJpeg, DEFAULT_MAX_IMAGE_PIXELS,
+};
 
 pub const DEFAULT_DPI: u32 = 72;
-pub const DEFAULT_MAX_IMAGE_PIXELS: u64 = 80_000_000;
 pub const DEFAULT_MAX_BILEVEL_PIXELS: u64 = 160_000_000;
 /// Output cap for byte-returning native IPC adapters.
 pub const PDF_COMBINE_MAX_OUTPUT_BYTES: u64 = 16 * 1024 * 1024;
@@ -101,7 +99,6 @@ pub const DEFAULT_MAX_OPEN_INPUT_FDS: usize = 32;
 /// Default cap on in-flight decoded and buffered page bytes across concurrent
 /// workers and the ordered PDF write queue.
 pub const DEFAULT_MAX_IN_FLIGHT_BYTES: u64 = 256 * 1024 * 1024;
-pub(crate) const CM_PER_INCH: f64 = 2.54;
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
 fn too_large_error(message: impl Into<String>) -> Box<dyn Error> {
@@ -110,7 +107,7 @@ fn too_large_error(message: impl Into<String>) -> Box<dyn Error> {
 
 #[doc(hidden)]
 pub fn fuzz_parse_jpeg(data: &[u8]) {
-    let _ = jpeg::parse_jpeg_metadata(data);
+    let _ = evb_image_codecs::jpeg::parse_jpeg_metadata(data);
 }
 #[doc(hidden)]
 pub fn fuzz_parse_tiff(data: &[u8]) {
@@ -2915,7 +2912,7 @@ fn read_loaded_black_and_white_page(
     // its uncalibrated window. Its full black-and-white pass tunes stroke
     // weight from document-wide evidence; run on one page without it, it
     // thickened some words and not others.
-    let normalized = evb_scan_cleanup::background::normalize_illumination(&gray, dpi);
+    let normalized = scan_primitives::background::normalize_illumination(&gray, dpi);
     let radius = ((dpi * 25.5 / 300.0).round() as usize).clamp(8, 64);
     let binary = scan_primitives::threshold::threshold_local(
         &normalized,

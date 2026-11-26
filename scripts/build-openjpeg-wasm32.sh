@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Builds the OpenJPEG decoder the browser engines link for PDF JPXDecode
 # images: OpenJPEG 2.5.4, the release the desktop's bundled Poppler links,
-# with native/pdf-image-combine/src/jpx_wasm/openjpeg-2.5.4-dwt-fma.patch and
+# with native/evb-image-codecs/src/jpx_wasm/openjpeg-2.5.4-dwt-fma.patch and
 # the adapter evb_jpx.c beside it, compiled for wasm32 into one static archive
-# with the few wasi-libc members OpenJPEG references. pdf-image-combine's build
+# with the few wasi-libc members OpenJPEG references. evb-image-codecs's build
 # script links it when the target is wasm32; native builds keep their Rust
 # decoder and need no C.
 #
-# Output: native/pdf-image-combine/src/jpx_wasm/libevb_jpx.a and SOURCE.json.
+# Output: native/evb-image-codecs/src/jpx_wasm/libevb_jpx.a and SOURCE.json.
 # Needs wasi-sdk $WASI_SDK_VERSION for this host at $WASI_SDK
 # (https://github.com/WebAssembly/wasi-sdk/releases/tag/wasi-sdk-27).
 # Rebuilding from the same inputs gives the same archive bytes.
@@ -18,7 +18,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 WASI_SDK_VERSION="27.0"
 OPENJPEG_VERSION="2.5.4"
 OPENJPEG_SHA256="a695fbe19c0165f295a8531b1e4e855cd94d0875d2f88ec4b61080677e27188a"
-OUT_DIR="$PROJECT_ROOT/native/pdf-image-combine/src/jpx_wasm"
+OUT_DIR="$PROJECT_ROOT/native/evb-image-codecs/src/jpx_wasm"
 TMP_ROOT="${TMPDIR:-$PROJECT_ROOT/.devkit/tmp}"
 mkdir -p "$TMP_ROOT"
 BUILD_DIR="$(mktemp -d "$TMP_ROOT/openjpeg-wasm32-XXXXXX")"
@@ -51,10 +51,10 @@ units=(
   tcd tgt function_list sparse_array
 )
 
-# No SIMD, threads or stack protector; diagnostics and environment reads go
-# to the adapter's no-op shims. The module stays import-free.
+# SIMD128 enabled; no threads or stack protector; diagnostics and environment
+# reads go to the adapter's no-op shims. The module stays import-free.
 flags=(
-  --target=wasm32-wasi -O3 -DNDEBUG -DOPJ_STATIC -DMUTEX_stub -mno-simd128
+  --target=wasm32-wasi -O3 -DNDEBUG -DOPJ_STATIC -DMUTEX_stub -msimd128
   -ffunction-sections -fdata-sections -fno-stack-protector
   -Dfprintf=evb_jpx_fprintf -Dprintf=evb_jpx_printf
   -Dvsnprintf=evb_jpx_vsnprintf -Dgetenv=evb_jpx_getenv

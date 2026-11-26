@@ -22,11 +22,11 @@
  * same. `memory.init`, which initializes the shared memory's passive segments
  * once, is left as it is.
  *
- * The decoder reads WebAssembly 2.0 with threads and multiple memories, and
- * throws on anything else rather than guess, so a module it cannot read is
- * never half rewritten: SIMD (`0xfd`), which the threads target does not
- * enable, exception handling, memory64, GC types, and a `memory.copy` or
- * `memory.fill` on any memory but the first.
+ * The decoder reads WebAssembly 2.0 with SIMD128 (`0xfd`), threads, and
+ * multiple memories, and throws on anything else rather than guess, so a
+ * module it cannot read is never half rewritten: exception handling,
+ * memory64, GC types, and a `memory.copy` or `memory.fill` on any memory but
+ * the first.
  */
 
 const SECTION_TYPE = 1;
@@ -212,6 +212,26 @@ function walkInstructions(bytes, offset, end, visit) {
                     break;
                 default:
                     throw new Error(`Unknown WebAssembly 0xfc instruction ${sub.value} at byte ${start}`);
+            }
+        } else if (opcode === 0xfd) {
+            const sub = readU32(bytes, offset);
+            offset = sub.offset;
+            if (sub.value <= 0x0b || sub.value === 0x5c || sub.value === 0x5d) {
+                offset = skipMemarg(bytes, offset);
+            } else if (sub.value === 0x0c || sub.value === 0x0d) {
+                if (offset + 16 > end) throw new Error(`Truncated WebAssembly SIMD128 immediate at byte ${start}`);
+                offset += 16;
+            } else if (sub.value >= 0x15 && sub.value <= 0x22) {
+                if (offset + 1 > end) throw new Error(`Truncated WebAssembly SIMD128 lane index at byte ${start}`);
+                offset += 1;
+            } else if (sub.value >= 0x54 && sub.value <= 0x5b) {
+                offset = skipMemarg(bytes, offset);
+                if (offset + 1 > end) throw new Error(`Truncated WebAssembly SIMD128 lane index at byte ${start}`);
+                offset += 1;
+            } else if (sub.value <= 0xff) {
+                // Remaining WebAssembly 2.0 fixed-width SIMD128 instructions take no immediates.
+            } else {
+                throw new Error(`Unknown WebAssembly 0xfd instruction ${sub.value} at byte ${start}`);
             }
         } else if (opcode === 0xfe) {
             const sub = readU32(bytes, offset);

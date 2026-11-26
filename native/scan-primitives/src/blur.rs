@@ -1,5 +1,9 @@
 //! Small deterministic separable Gaussian blur helpers.
 
+use rayon::prelude::*;
+
+const PARALLEL_BLUR_MIN_PIXELS: usize = 4_096;
+
 /// Blurs a tightly-packed floating-point raster with a normalized Gaussian
 /// kernel truncated at three standard deviations. Edges are extended by
 /// clamping, which keeps a constant raster constant and avoids dark frames.
@@ -17,31 +21,55 @@ pub fn gaussian_blur_f32(source: &[f32], width: usize, height: usize, sigma: f64
         *value /= normalization;
     }
 
-    let mut horizontal = vec![0.0f32; source.len()];
-    for y in 0..height {
-        for x in 0..width {
-            let mut sum = f64::from(source[y * width + x]) * kernel[0];
+    let blur_horizontal_row = |y: usize, row_out: &mut [f32]| {
+        let row_in = &source[y * width..(y + 1) * width];
+        for (x, pixel) in row_out.iter_mut().enumerate() {
+            let mut sum = f64::from(row_in[x]) * kernel[0];
             for (offset, &weight) in kernel.iter().enumerate().skip(1) {
                 let left = x.saturating_sub(offset);
                 let right = x.saturating_add(offset).min(width - 1);
-                sum += f64::from(source[y * width + left]) * weight;
-                sum += f64::from(source[y * width + right]) * weight;
+                sum += f64::from(row_in[left]) * weight;
+                sum += f64::from(row_in[right]) * weight;
             }
-            horizontal[y * width + x] = sum as f32;
+            *pixel = sum as f32;
+        }
+    };
+
+    let mut horizontal = vec![0.0f32; source.len()];
+    if source.len() >= PARALLEL_BLUR_MIN_PIXELS {
+        horizontal
+            .par_chunks_mut(width)
+            .enumerate()
+            .for_each(|(y, row_out)| blur_horizontal_row(y, row_out));
+    } else {
+        for (y, row_out) in horizontal.chunks_mut(width).enumerate() {
+            blur_horizontal_row(y, row_out);
         }
     }
 
-    let mut output = vec![0.0f32; source.len()];
-    for y in 0..height {
-        for x in 0..width {
-            let mut sum = f64::from(horizontal[y * width + x]) * kernel[0];
+    let blur_vertical_row = |y: usize, row_out: &mut [f32]| {
+        let center_row = &horizontal[y * width..(y + 1) * width];
+        for (x, pixel) in row_out.iter_mut().enumerate() {
+            let mut sum = f64::from(center_row[x]) * kernel[0];
             for (offset, &weight) in kernel.iter().enumerate().skip(1) {
                 let top = y.saturating_sub(offset);
                 let bottom = y.saturating_add(offset).min(height - 1);
                 sum += f64::from(horizontal[top * width + x]) * weight;
                 sum += f64::from(horizontal[bottom * width + x]) * weight;
             }
-            output[y * width + x] = sum as f32;
+            *pixel = sum as f32;
+        }
+    };
+
+    let mut output = vec![0.0f32; source.len()];
+    if source.len() >= PARALLEL_BLUR_MIN_PIXELS {
+        output
+            .par_chunks_mut(width)
+            .enumerate()
+            .for_each(|(y, row_out)| blur_vertical_row(y, row_out));
+    } else {
+        for (y, row_out) in output.chunks_mut(width).enumerate() {
+            blur_vertical_row(y, row_out);
         }
     }
     output

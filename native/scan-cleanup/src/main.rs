@@ -25,7 +25,7 @@ fn main() {
     evb_native_support::run_native_cli(
         "evb-scan-cleanup",
         env!("CARGO_PKG_VERSION"),
-        option_env!("EVB_NATIVE_BUILD_ID"),
+        option_env!("EVB_NATIVE_BUILD_ID_SCAN_CLEANUP").or(option_env!("EVB_NATIVE_BUILD_ID")),
         std::env::args().skip(1),
         |args| {
             evb_scan_cleanup::adapters::batch_cli::run_with_cancellation(args, &SIGTERM_CANCELED)

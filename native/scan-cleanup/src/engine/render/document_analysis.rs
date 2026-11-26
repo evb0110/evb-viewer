@@ -66,6 +66,7 @@ pub(crate) fn analyze_page(
             create_mixed_composite: false,
             recommend_output_mode,
             analyze_layout: true,
+            encode_faint_stroke_masks: false,
             cancellation,
         },
         document_prior,
@@ -633,6 +634,19 @@ struct LayoutPictureEvidenceOutput {
     content_evidence_complete: bool,
 }
 
+fn needs_picture_mask(
+    options: &CleanupOptions,
+    render_policy: PageRenderPolicy<'_>,
+    content_evidence_complete: bool,
+) -> bool {
+    render_policy.analyze_layout
+        && (options.output_mode != OutputMode::Bw
+            || options.ocr_mode
+            || render_policy.recommend_output_mode
+            || !options.manual_zones.picture.is_empty()
+            || (options.crop_content && !content_evidence_complete))
+}
+
 fn prepare_layout_picture_evidence(
     input: LayoutPictureEvidenceInput<'_, '_>,
 ) -> LayoutPictureEvidenceOutput {
@@ -668,8 +682,38 @@ fn prepare_layout_picture_evidence(
         calibration_config,
     );
     timings.calibration_ms += calibration_started.elapsed().as_secs_f64() * 1_000.0;
+    let content_evidence_complete = match options.layout {
+        crate::LayoutMode::Single => options
+            .resolved_content_for(PageHalf::Full, full_width, full_height)
+            .is_some(),
+        crate::LayoutMode::TwoPage => {
+            options
+                .resolved_content_for(PageHalf::Left, full_width, full_height)
+                .is_some()
+                && options
+                    .resolved_content_for(PageHalf::Right, full_width, full_height)
+                    .is_some()
+        }
+        crate::LayoutMode::KeepLeft => options
+            .resolved_content_for(PageHalf::Left, full_width, full_height)
+            .is_some(),
+        crate::LayoutMode::KeepRight => options
+            .resolved_content_for(PageHalf::Right, full_width, full_height)
+            .is_some(),
+        crate::LayoutMode::Auto | crate::LayoutMode::PageWithOffcut => {
+            [PageHalf::Full, PageHalf::Left, PageHalf::Right]
+                .into_iter()
+                .all(|half| {
+                    options
+                        .resolved_content_for(half, full_width, full_height)
+                        .is_some()
+                })
+        }
+    };
     let picture_mask_started = Instant::now();
-    let continuous_tone_mask = render_policy.analyze_layout.then(|| {
+    let compute_picture_mask =
+        needs_picture_mask(options, render_policy, content_evidence_complete);
+    let continuous_tone_mask = compute_picture_mask.then(|| {
         Arc::new(if blank_scan_candidate {
             BinaryImage::new(rotated.width(), rotated.height())
         } else {
@@ -679,7 +723,7 @@ fn prepare_layout_picture_evidence(
     // The detector returns an owner that has already passed the
     // artifact/size vetoes, so every downstream consumer sees exactly the
     // same vetted owner. Tone evidence only corroborates its candidates.
-    let detected_picture_mask = render_policy.analyze_layout.then(|| {
+    let detected_picture_mask = compute_picture_mask.then(|| {
         Arc::new(if blank_scan_candidate {
             BinaryImage::new(rotated.width(), rotated.height())
         } else {
@@ -712,7 +756,7 @@ fn prepare_layout_picture_evidence(
         .as_deref()
         .map_or(0, BinaryImage::count_black);
     let trusted_mrc_tone_mask = trusted_mrc_background
-        .filter(|_| options.trusted_mrc_source_available)
+        .filter(|_| compute_picture_mask && options.trusted_mrc_source_available)
         .map(|background| {
             let native_tone =
                 detect_continuous_tone_mask(background, options.source_background_dpi());
@@ -729,34 +773,6 @@ fn prepare_layout_picture_evidence(
         // letting the lower-resolution background enlarge it changes
         // otherwise-correct photos and can join paper texture to them.
         .filter(|_| corroborated_picture_owner_pixels == 0);
-    let content_evidence_complete = match options.layout {
-        crate::LayoutMode::Single => options
-            .resolved_content_for(PageHalf::Full, full_width, full_height)
-            .is_some(),
-        crate::LayoutMode::TwoPage => {
-            options
-                .resolved_content_for(PageHalf::Left, full_width, full_height)
-                .is_some()
-                && options
-                    .resolved_content_for(PageHalf::Right, full_width, full_height)
-                    .is_some()
-        }
-        crate::LayoutMode::KeepLeft => options
-            .resolved_content_for(PageHalf::Left, full_width, full_height)
-            .is_some(),
-        crate::LayoutMode::KeepRight => options
-            .resolved_content_for(PageHalf::Right, full_width, full_height)
-            .is_some(),
-        crate::LayoutMode::Auto | crate::LayoutMode::PageWithOffcut => {
-            [PageHalf::Full, PageHalf::Left, PageHalf::Right]
-                .into_iter()
-                .all(|half| {
-                    options
-                        .resolved_content_for(half, full_width, full_height)
-                        .is_some()
-                })
-        }
-    };
     timings.picture_mask_ms += picture_mask_started.elapsed().as_secs_f64() * 1_000.0;
 
     LayoutPictureEvidenceOutput {
@@ -837,23 +853,15 @@ fn prepare_content_text_evidence(
         effective_dpi,
         calibration,
     } = input;
-    let content_evidence = picture_mask.and_then(|picture_mask| {
-        if render_policy.recommend_output_mode
+    let should_analyze_content = render_policy.analyze_layout
+        && (render_policy.recommend_output_mode
             || (prepare_quality_raster && options.crop_content && options.normalize_illumination)
             || matches!(
                 options.output_mode,
                 OutputMode::Grayscale | OutputMode::Mixed
-            )
-        {
-            Some(analyze_content_evidence_calibrated(
-                layout_normalized,
-                Some(picture_mask),
-                calibration,
-            ))
-        } else {
-            None
-        }
-    });
+            ));
+    let content_evidence = should_analyze_content
+        .then(|| analyze_content_evidence_calibrated(layout_normalized, picture_mask, calibration));
     let (text_line_count, protected_text_blocks, text_mask, text_vicinity_mask) = content_evidence
         .map_or((0, Vec::new(), None, None), |evidence| {
             (
@@ -996,6 +1004,7 @@ struct TonalEvidenceInput<'a> {
     blank_scan_candidate: bool,
     content_evidence_complete: bool,
     content_picture_mask: Option<Arc<BinaryImage>>,
+    compute_picture_mask: bool,
 }
 
 struct TonalEvidenceOutput {
@@ -1026,6 +1035,7 @@ struct TonalCandidateInput<'a> {
     calibration: PageCalibration,
     content_evidence_complete: bool,
     content_picture_mask: Option<Arc<BinaryImage>>,
+    compute_picture_mask: bool,
 }
 
 struct TonalCandidateOutput {
@@ -1047,7 +1057,19 @@ fn prepare_tonal_candidates(input: TonalCandidateInput<'_>) -> TonalCandidateOut
         calibration,
         content_evidence_complete,
         mut content_picture_mask,
+        compute_picture_mask,
     } = input;
+    if !compute_picture_mask && (!options.crop_content || content_evidence_complete) {
+        return TonalCandidateOutput {
+            outside_tone: OutsideTonalEvidence::default(),
+            tonal_seed_mask: BinaryImage::new(rotated.width(), rotated.height()),
+            flat_graphic_preservation_alpha: None,
+            destructive_tone_mask: None,
+            structural_tone_mask: None,
+            spatial_tone_mask: None,
+            content_picture_mask,
+        };
+    }
     let (outside_tone, tonal_seed_mask) = text_vicinity_mask
         .map(|mask| outside_tonal_evidence_with_mask(layout_normalized, mask))
         .unwrap_or_else(|| {
@@ -1060,8 +1082,9 @@ fn prepare_tonal_candidates(input: TonalCandidateInput<'_>) -> TonalCandidateOut
     // the halftone classifier rejects their low-spread line-art texture.
     // Keep this narrow graphic geometry as a representation channel; it
     // is not the broad tonal-protection field used by normalization.
-    let flat_graphic_preservation_alpha =
-        flat_graphic_tone_preservation_alpha(layout_normalized).map(Arc::new);
+    let flat_graphic_preservation_alpha = compute_picture_mask
+        .then(|| flat_graphic_tone_preservation_alpha(layout_normalized).map(Arc::new))
+        .flatten();
     let flat_graphic_picture_mask = flat_graphic_preservation_alpha
         .as_deref()
         .and_then(|alpha| {
@@ -1142,6 +1165,7 @@ fn prepare_tonal_evidence(input: TonalEvidenceInput<'_>) -> TonalEvidenceOutput 
         blank_scan_candidate,
         content_evidence_complete,
         content_picture_mask,
+        compute_picture_mask,
     } = input;
     let TonalCandidateOutput {
         outside_tone,
@@ -1159,6 +1183,7 @@ fn prepare_tonal_evidence(input: TonalEvidenceInput<'_>) -> TonalEvidenceOutput 
         calibration,
         content_evidence_complete,
         content_picture_mask,
+        compute_picture_mask,
     });
     let continuous_tone_mask =
         continuous_tone_mask.and_then(|mask| (mask.count_black() > 0).then_some(mask));
@@ -1586,7 +1611,20 @@ fn resolve_mode_and_preservation(input: ModePreservationInput<'_, '_>) -> ModePr
         options.output_mode
     }
     .into();
-    let [preserved, rejected] = faint_strokes.unwrap_or_default();
+    let [preserved, rejected] = faint_strokes.unwrap_or_else(|| {
+        if render_policy.analyze_layout
+            && resolved_output_mode == ResolvedOutputMode::Bw
+            && !source_effectively_blank
+        {
+            let [preserved, _] = crate::mode_select::faint_stroke_masks(
+                layout_normalized,
+                crate::mode_select::luminance_evidence(layout_normalized),
+            );
+            [preserved, None]
+        } else {
+            [None, None]
+        }
+    });
     let bw = resolved_output_mode == ResolvedOutputMode::Bw;
     let faint_stroke_masks = [
         preserved.filter(|_| bw),
@@ -1845,10 +1883,16 @@ fn build_analysis_artifact(input: ArtifactInput<'_, '_>) -> Arc<AnalysisArtifact
         effective_dpi,
         calibration,
     });
+    let compute_picture_mask =
+        needs_picture_mask(options, render_policy, content_evidence_complete);
     // Final ownership and glyph-topology exclusion consume the same raw-tone pass.
-    let permissive_tone_mask = text_vicinity_mask
-        .as_deref()
-        .map(|_| detect_continuous_tone_mask(&rotated, effective_dpi));
+    let permissive_tone_mask = compute_picture_mask
+        .then(|| {
+            text_vicinity_mask
+                .as_deref()
+                .map(|_| detect_continuous_tone_mask(&rotated, effective_dpi))
+        })
+        .flatten();
     let FinalPictureOwnershipOutput {
         picture_mask,
         content_picture_mask,
@@ -1898,6 +1942,7 @@ fn build_analysis_artifact(input: ArtifactInput<'_, '_>) -> Arc<AnalysisArtifact
         blank_scan_candidate,
         content_evidence_complete,
         content_picture_mask,
+        compute_picture_mask,
     });
     let mode = resolve_mode_and_preservation(ModePreservationInput {
         rotated: &rotated,
