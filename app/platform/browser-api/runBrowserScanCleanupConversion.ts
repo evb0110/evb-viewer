@@ -246,6 +246,7 @@ export async function runBrowserScanCleanupConversion({
     signal,
     onProgress,
 }: IRunBrowserScanCleanupConversionInput): Promise<IBrowserScanCleanupConversionResult> {
+    const geometryRecords: IPdfPageSize[] = [];
     return coordinateScanCleanupConversion<
         IBrowserScanCleanupConversionResult,
         Uint8Array,
@@ -312,10 +313,19 @@ export async function runBrowserScanCleanupConversion({
                     pageSizeStore,
                     rasterSource,
                     rasterDetectionAvailable: true,
+                    ...(largeStreamingRun
+                        ? {
+                            onGeometryPage: page => {
+                                geometryRecords.push(page);
+                            },
+                        }
+                        : {}),
                 };
             },
             async executeConversion(coordinated) {
-                const finalPageSizeStore = coordinated.pageSizeStore;
+                const finalPageSizeStore = coordinated.largeStreamingRun
+                    ? createArrayBackedPdfPageSizeStore(geometryRecords)
+                    : coordinated.pageSizeStore;
                 const engines = createEngineIdentities();
                 if (source.pageOpsEngineSha256 !== null) engines.observe('pdfPageOps')(source.pageOpsEngineSha256);
                 const sourceBytes = await readSource();
@@ -904,9 +914,11 @@ async function runLosslessConversion(
     const nativeOptionsBySource = new Map<number, ReturnType<typeof buildShapeOnlyNativeScanCleanupManifest>['pages'][number]['options']>();
     const rasterized = new Set<number>();
     const completed = new Set<number>();
+    let completedVersion = 0;
     const activePages = createScanCleanupActivePageTracker();
     const publishClassifying = () => {
         emitProgress('classifying', completed.size, pageCount, completed, {
+            completedPagesVersion: completedVersion,
             rasterizedUnits: rasterized.size,
             ...activePages.snapshot(),
         });
@@ -1007,7 +1019,9 @@ async function runLosslessConversion(
                 const pageNumber = facts[job.index]!.pageNumber;
                 activePages.finish(pageNumber);
                 if (job.view === 'primary' && !job.rerun) {
+                    const previousSize = completed.size;
                     completed.add(pageNumber);
+                    if (completed.size !== previousSize) completedVersion += 1;
                 }
                 publishClassifying();
             },
@@ -1020,6 +1034,7 @@ async function runLosslessConversion(
             const page = facts[index]!;
             if (!completed.has(page.pageNumber)) {
                 completed.add(page.pageNumber);
+                completedVersion += 1;
                 publishClassifying();
             }
             const analyzed = reduceScanCleanupLosslessPage({

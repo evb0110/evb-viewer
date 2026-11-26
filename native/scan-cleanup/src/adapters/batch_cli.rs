@@ -1513,8 +1513,21 @@ mod tests {
     #[test]
     fn progress_publisher_streams_out_of_order_completions_and_coalesces_stages() {
         use std::sync::{Arc, Condvar, Mutex};
+        use std::time::{Duration, Instant};
+
+        struct GateUnlockGuard(Arc<(Mutex<(bool, bool)>, Condvar)>);
+        impl Drop for GateUnlockGuard {
+            fn drop(&mut self) {
+                let (lock, notify) = &*self.0;
+                if let Ok(mut state) = lock.lock() {
+                    state.1 = true;
+                    notify.notify_all();
+                }
+            }
+        }
 
         let gate = Arc::new((Mutex::new((false, false)), Condvar::new()));
+        let _unlock_guard = GateUnlockGuard(Arc::clone(&gate));
         let recorded = Arc::new((
             Mutex::new(Vec::<(
                 super::ProgressStage,
@@ -1554,9 +1567,15 @@ mod tests {
             .expect("publish started sentinel");
         {
             let (lock, notify) = &*gate;
+            let deadline = Instant::now() + Duration::from_secs(5);
             let mut state = lock.lock().expect("lock gate wait");
             while !state.0 {
-                state = notify.wait(state).expect("wait writer entry");
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                assert!(!remaining.is_zero(), "timed out waiting for writer entry");
+                let (next, _) = notify
+                    .wait_timeout(state, remaining)
+                    .expect("wait writer entry");
+                state = next;
             }
         }
 
@@ -1586,13 +1605,23 @@ mod tests {
         }
         {
             let (rec_lock, rec_notify) = &*recorded;
+            let deadline = Instant::now() + Duration::from_secs(5);
             let mut frames = rec_lock.lock().expect("wait stage frame");
             while !frames.iter().any(|(stage, page, _, sub)| {
                 *stage == super::ProgressStage::PageStage
                     && *page == Some(1)
                     && *sub == Some(super::SubPageStage::Deskew)
             }) {
-                frames = rec_notify.wait(frames).expect("wait deskew emission");
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                assert!(
+                    !remaining.is_zero(),
+                    "timed out waiting for page 1 Deskew stage; recorded frames: {:?}",
+                    *frames
+                );
+                let (next, _) = rec_notify
+                    .wait_timeout(frames, remaining)
+                    .expect("wait deskew emission");
+                frames = next;
             }
         }
         publisher

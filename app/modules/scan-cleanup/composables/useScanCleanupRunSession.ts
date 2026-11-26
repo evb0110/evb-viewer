@@ -308,7 +308,9 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
     const activePages = computed(() => resolveScanCleanupActivePages(
         scanCleanupRun.jobState,
         scanCleanupRun.ownerDocumentRef,
+        scanCleanupRun.ownerDocumentRevision,
         options.sourcePath.value,
+        options.documentRevision.value,
         options.previewTotalPages(),
     ));
     const canRun = computed(() => Boolean(options.sourcePath.value)

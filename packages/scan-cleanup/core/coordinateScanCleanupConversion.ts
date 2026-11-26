@@ -255,7 +255,7 @@ export async function coordinateScanCleanupConversion<
         let qualityPlan: IScanCleanupCoordinatedQualityPlan;
         try {
             qualityPlan = await planScanCleanupRunQuality({
-                request,
+                request: inputRequest,
                 documentPageCount,
                 pageSizeStore: probed.pageSizeStore,
                 rasterSource: probed.rasterSource,

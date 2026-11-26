@@ -284,13 +284,16 @@ export function resolveScanCleanupProcessedPages(
 export function resolveScanCleanupActivePages(
     state: TScanCleanupJobState | null,
     ownerDocumentRef: string | null,
+    ownerDocumentRevision: string | null,
     sourceDocumentRef: string | null,
+    sourceDocumentRevision: string | null,
     totalPages: number,
 ): ReadonlySet<number> {
     if (
         !state
         || !sourceDocumentRef
         || ownerDocumentRef !== sourceDocumentRef
+        || ownerDocumentRevision !== sourceDocumentRevision
         || !isLiveScanCleanupJobState(state)
     ) {
         return new Set();
