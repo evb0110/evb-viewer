@@ -122,7 +122,10 @@ describe('browser document lifecycle UI', () => {
                     }
                 };
                 // Open each next document in the emptied tab, without rebuilding the app.
+                // The books the store holds beside nothing else once no tab is open.
+                const storedBooks = new Set<unknown>();
                 const open = async (fixture: Parameters<typeof openPdfFromChooser>[1]) => {
+                    if (journey !== 'count') storedBooks.add(fixture);
                     const chooser = page.waitForEvent('filechooser');
                     await page.getByRole('button', {
                         name: 'Open File',
@@ -136,6 +139,9 @@ describe('browser document lifecycle UI', () => {
                         exact: true,
                     }).click();
                     await page.locator('.workspace-host[data-workspace-active="true"] .workspace-host__start').waitFor();
+                    // The start screen returns before the closed tab's working copy has left the store. The next
+                    // book is stored once it has, as a person's next open would find it.
+                    if (journey !== 'count') await expect.poll(async () => (await readBrowserPayloadCounts(page)).documents).toBe(storedBooks.size);
                 };
                 const assertRecent = async (names: string[]) => {
                     await expect.poll(recentNames).toEqual(names);
