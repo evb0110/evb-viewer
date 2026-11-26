@@ -199,6 +199,47 @@ describe('createWheelFlipGate', () => {
         }
     });
 
+    it('keeps blocking a rounded decaying plateau below peak while allowing steady full-strength line-mode notches', () => {
+        const decayingGate = createWheelFlipGate();
+        decayingGate.recordFlip(1, {
+            timeStamp: 0,
+            deltaY: 120,
+            cancelable: true,
+        });
+        for (const [
+            timeStamp,
+            deltaY,
+        ] of [
+            [90, 112],
+            [180, 100],
+            [270, 100],
+        ] as const) {
+            expect(decayingGate.shouldBlockFlip(1, {
+                timeStamp,
+                deltaY,
+                cancelable: true,
+            })).toBe(true);
+        }
+
+        // Normalized 3-line wheel notches (3 * 16 = 48 px) renew cleanly at steady cadence.
+        const lineModeGate = createWheelFlipGate();
+        lineModeGate.recordFlip(1, {
+            timeStamp: 0,
+            deltaY: 48,
+            cancelable: true,
+        });
+        expect(lineModeGate.shouldBlockFlip(1, {
+            timeStamp: 140,
+            deltaY: 48,
+            cancelable: true,
+        })).toBe(true);
+        expect(lineModeGate.shouldBlockFlip(1, {
+            timeStamp: 280,
+            deltaY: 48,
+            cancelable: true,
+        })).toBe(false);
+    });
+
     it('allows the next edge flip after interior page scrolling', () => {
         const gate = createWheelFlipGate();
 

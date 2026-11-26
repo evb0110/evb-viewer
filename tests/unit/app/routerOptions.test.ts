@@ -7,6 +7,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { createRouter } from 'vue-router';
 import { resolveAppRouterOptions } from '@app/router.options';
 
 describe('resolveAppRouterOptions', () => {
@@ -19,35 +20,54 @@ describe('resolveAppRouterOptions', () => {
         expect(resolveAppRouterOptions()).toEqual({});
     });
 
-    it('uses memory history and redirects /index.html to / on Chrome extension pages without mutating location', () => {
-        const extensionUrl = 'chrome-extension://emheppcmboellngecbpoclbkhoonkaem/index.html?file=https://math.phys.msu.ru/data/28/Lecture_1.pdf';
+    it('uses memory history and redirects /index.html to / on Chrome extension pages without mutating location or history state', async () => {
+        const extensionUrl = 'chrome-extension://emheppcmboellngecbpoclbkhoonkaem/index.html?file=https://math.phys.msu.ru/data/28/Lecture_1.pdf?token=abc%23page=7';
         vi.stubGlobal('location', new URL(extensionUrl));
+        const replaceStateSpy = vi.spyOn(history, 'replaceState');
+        const pushStateSpy = vi.spyOn(history, 'pushState');
         const options = resolveAppRouterOptions();
         expect(typeof options.history).toBe('function');
         expect(typeof options.routes).toBe('function');
 
-        const history = options.history?.('/');
-        expect(history?.location).toBe('');
-        history?.push('/about');
-        expect(history?.location).toBe('/about');
+        const memoryHistory = options.history?.('/');
+        if (!memoryHistory) {
+            throw new Error('Expected memory history on Chrome extension page');
+        }
+        const router = createRouter({
+            history: memoryHistory,
+            routes: await options.routes!([
+                {
+                    name: 'index',
+                    path: '/',
+                    component: { template: '<div />' },
+                },
+                {
+                    name: 'about',
+                    path: '/about',
+                    component: { template: '<div />' },
+                },
+                {
+                    name: 'privacy',
+                    path: '/privacy',
+                    component: { template: '<div />' },
+                },
+            ]),
+        });
+
+        await router.replace('/index.html?file=https://math.phys.msu.ru/data/28/Lecture_1.pdf?token=abc%23page=7');
+        expect(router.currentRoute.value.path).toBe('/');
+        await router.push('/about');
+        expect(router.currentRoute.value.path).toBe('/about');
+        await router.push('/privacy');
+        expect(router.currentRoute.value.path).toBe('/privacy');
+        await router.push('/');
+        expect(router.currentRoute.value.path).toBe('/');
+
         expect(location.href).toBe(extensionUrl);
         expect(location.hash).toBe('');
-
-        const routes = options.routes?.([{
-            name: 'index',
-            path: '/',
-            children: [],
-        }]);
-        expect(routes).toEqual([
-            {
-                name: 'index',
-                path: '/',
-                children: [],
-            },
-            {
-                path: '/index.html',
-                redirect: '/',
-            },
-        ]);
+        expect(replaceStateSpy).not.toHaveBeenCalled();
+        expect(pushStateSpy).not.toHaveBeenCalled();
+        replaceStateSpy.mockRestore();
+        pushStateSpy.mockRestore();
     });
 });

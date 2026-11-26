@@ -5,6 +5,7 @@ const SAME_DIRECTION_FLIP_COOLDOWN_MS = 180;
 const SAME_DIRECTION_RENEWED_FLIP_INTERVAL_MS = 260;
 const SAME_DIRECTION_RENEWED_DELTA_MIN_PX = 40;
 const SAME_DIRECTION_RENEWED_DELTA_RATIO = 0.75;
+const SAME_DIRECTION_RENEWED_STEADY_PEAK_RATIO = 0.9;
 
 interface IWheelFlipGatePacket {
     readonly timeStamp: number;
@@ -129,7 +130,8 @@ export function createWheelFlipGate() {
         const isRenewedImpulse = deltaMagnitude >= renewedDeltaFloor
             && (
                 previousVerticalDeltaMagnitude <= 0
-                || deltaMagnitude >= previousVerticalDeltaMagnitude
+                || deltaMagnitude > previousVerticalDeltaMagnitude
+                || deltaMagnitude >= gesturePeakDeltaMagnitude * SAME_DIRECTION_RENEWED_STEADY_PEAK_RATIO
             );
         return !isRenewedImpulse;
     }

@@ -32,16 +32,16 @@ export function createPageSourcePagedWheelNavigation(pageGutterPx: number) {
         wheelFlipGate.reset();
     }
 
-    function handle(event: IPageSourceWheelEvent, state: IPageSourcePagedWheelState) {
+    function handle(event: IPageSourceWheelEvent, state: IPageSourcePagedWheelState, deltaPx = event.deltaY) {
         if (state.continuousScroll || !state.container) {
             return null;
         }
         const packet = {
             cancelable: event.cancelable ?? true,
-            deltaY: event.deltaY,
+            deltaY: deltaPx,
             timeStamp: event.timeStamp ?? performance.now(),
         };
-        if (Math.abs(event.deltaY) < Math.abs(event.deltaX) || event.deltaY === 0) {
+        if (Math.abs(deltaPx) < Math.abs(event.deltaX) || deltaPx === 0) {
             if (wheelFlipGate.consumeGestureJitter(packet)) {
                 event.preventDefault();
             }
@@ -52,7 +52,7 @@ export function createPageSourcePagedWheelNavigation(pageGutterPx: number) {
         if (pageHeight === undefined) {
             return null;
         }
-        const direction = resolveWheelDirection(event.deltaY);
+        const direction = resolveWheelDirection(deltaPx);
         const bounds = {
             min: 0,
             max: Math.max(0, pageHeight + pageGutterPx * 2 - state.container.clientHeight),
