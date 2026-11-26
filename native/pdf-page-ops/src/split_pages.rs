@@ -404,6 +404,87 @@ pub(crate) fn split_pages_bytes(data: &[u8], instructions: &[u8]) -> Result<Repo
     })
 }
 
+/// Host-file `split-pages`: below `MAX_ENCODED_PDF_BYTES` writes the pruned
+/// full rewrite to `sink`; above the budget appends an incremental page-tree
+/// revision to `sink` starting at `len` (reporting `incrementalRevision: true`).
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+pub(crate) fn split_pages_to_sink<S: ByteSource, W: Write>(
+    source: S,
+    len: u64,
+    instructions: &[u8],
+    sink: &mut W,
+    append: impl FnOnce(&[u8]) -> Result<Vec<u8>>,
+) -> Result<(u32, Vec<u8>)> {
+    let instructions = validate_split_pages(parse_json_sidecar_bytes(
+        instructions,
+        "split-pages instructions",
+    )?)?;
+    if len <= MAX_ENCODED_PDF_BYTES as u64 {
+        let len_usize = usize::try_from(len)?;
+        let mut data = Vec::new();
+        data.try_reserve_exact(len_usize).map_err(|_| {
+            domain_error(
+                NativeErrorCode::TooLarge,
+                "PDF input exceeds available memory",
+            )
+        })?;
+        data.resize(len_usize, 0);
+        source.read_at(0, &mut data).map_err(io_domain_error)?;
+        let doc = load_pdf_bytes(&data)
+            .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+        drop(data);
+        assert_plaintext_base(&doc, "Encrypted PDFs are not supported by native page ops")?;
+        let has_tags = |document: &Document| {
+            document
+                .catalog()
+                .is_ok_and(|catalog| catalog.has(b"StructTreeRoot"))
+        };
+        let source_tagged = matches!(instructions.catalog, SplitCatalog::Source) && has_tags(&doc);
+        let mut document = split_pages_document(doc, &instructions)?;
+        let accessibility_tags_removed = source_tagged && !has_tags(&document);
+        let pages = page_count(&document);
+        document
+            .save_to(sink)
+            .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
+        sink.flush()
+            .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
+        return Ok((
+            pages,
+            scan_cleanup_page_ops_report(accessibility_tags_removed, &[])?,
+        ));
+    }
+
+    let mut pdf = SourcePdf::open_append_base(source, len)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    let mut incremental = pdf
+        .take_append_base()
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    split_pages_incremental(&mut incremental, &instructions)?;
+    incremental.new_document.version = incremental.get_prev_documents().version.clone();
+    let revision = build_incremental_revision(&mut incremental)?;
+    let expected_object_ids = collect_incremental_append_object_ids(&incremental);
+    validate_incremental_append_bytes(
+        &revision,
+        len,
+        incremental.previous_xref_start(),
+        &expected_object_ids,
+    )?;
+    validate_incremental_append_bytes(
+        &append(&revision)?,
+        len,
+        incremental.previous_xref_start(),
+        &expected_object_ids,
+    )?;
+    let output_page_count: usize = instructions
+        .pages
+        .iter()
+        .map(|page| page.outputs.len())
+        .sum();
+    let pages = u32::try_from(output_page_count)?;
+    let report = serde_json::to_vec(&serde_json::json!({ "incrementalRevision": true }))?;
+    Ok((pages, report))
+}
+
 /// What `split-pages` and `overlay-text` report: whether the tag tree was
 /// dropped, and the one-based source pages whose text some output page left off.
 pub(crate) fn scan_cleanup_page_ops_report(

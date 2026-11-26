@@ -127,6 +127,10 @@ enum OpenMode {
     Decrypting,
     /// Any terminal revision; encryption refused from the index.
     Plaintext,
+    /// Any terminal revision for conformance inspection: preserves `/Encrypt`
+    /// in the trailer even when empty-password decryption succeeds, and tolerates
+    /// unreadable encrypted object streams when a user password is required.
+    Conformance,
     /// The base of an append: qpdf's terminal revision, no bytes before the
     /// header, encryption refused from the index.
     AppendBase,
@@ -164,6 +168,12 @@ impl SourcePdf<File> {
         Ok(pdf)
     }
 
+    /// The PDF in the file at `path` for conformance inspection.
+    pub(crate) fn open_conformance_path(path: &Path) -> Result<Self> {
+        let (file, len) = open_source_file(path)?;
+        Self::open_conformance(file, len)
+    }
+
     /// The PDF in the file at `path` as the base of an incremental append,
     /// with the source that reads the streams the base leaves unread.
     pub(crate) fn open_append_base_path(path: &Path) -> Result<(Self, IncrementalDocument)> {
@@ -199,6 +209,12 @@ impl<S: ByteSource> SourcePdf<S> {
         Self::open_indexed(bytes, len, OpenMode::Plaintext, &[])
     }
 
+    /// Reads trailer, catalog, form and signature structure for conformance
+    /// inspection without requiring a user password or loading stream bytes.
+    pub(crate) fn open_conformance(bytes: S, len: u64) -> Result<Self> {
+        Self::open_indexed(bytes, len, OpenMode::Conformance, &[])
+    }
+
     /// The base of an incremental append. Plaintext objects appended to an
     /// encrypted file would be unreadable, so encryption, which the index
     /// shows, is refused before any object is read: the unlock flow rewrites
@@ -229,20 +245,48 @@ impl<S: ByteSource> SourcePdf<S> {
                 }
                 reader.index_at(reader.qpdf_start()?)?
             }
-            OpenMode::Decrypting | OpenMode::Plaintext => reader.index()?,
+            OpenMode::Decrypting | OpenMode::Plaintext | OpenMode::Conformance => reader.index()?,
         };
-        if index.trailer.has(b"Encrypt") {
-            return Err(match mode {
+        let trailer_encrypted = index.trailer.has(b"Encrypt");
+        if trailer_encrypted {
+            match mode {
                 OpenMode::Decrypting => return Self::open_decrypted(bytes, len, index.start),
-                OpenMode::Plaintext => domain_error(
-                    NativeErrorCode::Encrypted,
-                    "Encrypted PDFs are not supported by native page ops",
-                ),
-                OpenMode::AppendBase => domain_error(
-                    NativeErrorCode::Encrypted,
-                    "Unlock the encrypted PDF before editing it",
-                ),
-            });
+                OpenMode::Conformance => {
+                    if let Some(encrypt_entry) = index.trailer.get(b"Encrypt").ok().cloned() {
+                        if let Ok(len_usize) = usize::try_from(len) {
+                            if len_usize <= MAX_ENCODED_PDF_BYTES {
+                                let mut data = vec![0; len_usize];
+                                bytes.read_at(0, &mut data).map_err(io_domain_error)?;
+                                if let Ok(mut document) = load_pdf_bytes_bounded(&data, Some("")) {
+                                    if !document.is_encrypted() {
+                                        document.trailer.set(b"Encrypt", encrypt_entry);
+                                        return Ok(Self {
+                                            document,
+                                            streams: HashMap::new(),
+                                            reals: HashMap::new(),
+                                            bytes,
+                                            len,
+                                            xref_start: index.start,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                OpenMode::Plaintext => {
+                    return Err(domain_error(
+                        NativeErrorCode::Encrypted,
+                        "Encrypted PDFs are not supported by native page ops",
+                    ));
+                }
+                OpenMode::AppendBase => {
+                    return Err(domain_error(
+                        NativeErrorCode::Encrypted,
+                        "Unlock the encrypted PDF before editing it",
+                    ));
+                }
+            }
         }
         let mut document = Document::with_version(reader.version.clone());
         document.max_id = index.max_number;
@@ -260,6 +304,15 @@ impl<S: ByteSource> SourcePdf<S> {
             })
             .copied()
             .collect::<Vec<_>>();
+        if matches!(mode, OpenMode::Conformance) {
+            for (&number, entry) in &index.entries {
+                match entry {
+                    XrefEntry::Offset { generation, .. } => named.push((number, *generation)),
+                    XrefEntry::InStream { .. } => named.push((number, 0)),
+                    XrefEntry::Free => {}
+                }
+            }
+        }
         while let Some(id) = pending.pop().or_else(|| named.pop()) {
             if document.objects.contains_key(&id) {
                 continue;
@@ -270,29 +323,45 @@ impl<S: ByteSource> SourcePdf<S> {
                     format!("PDF exceeds the {MAX_PDF_OBJECTS}-object admission ceiling"),
                 ));
             }
-            let object = loader.load(id)?;
+            let object = match loader.load(id) {
+                Ok(object) => object,
+                Err(error) if matches!(mode, OpenMode::Conformance) && trailer_encrypted => {
+                    // Fail closed on resource-limit or I/O errors so partial scans
+                    // never masquerade as complete conformance facts.
+                    let fatal = error.downcast_ref::<NativeError>().is_some_and(|native| {
+                        matches!(native.code, NativeErrorCode::TooLarge | NativeErrorCode::Io)
+                    });
+                    if fatal {
+                        return Err(error);
+                    }
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
             collect_object_references(&object, &mut pending);
             document.objects.insert(id, object);
         }
-        let pages = document.get_pages().len();
-        if pages == 0 {
-            // A page tree that lists no page is damaged; a catalog or tree
-            // root the index cannot find is the index's damage.
-            let tree = document
-                .catalog()
-                .and_then(|catalog| catalog.get(b"Pages"))
-                .and_then(Object::as_reference)
-                .and_then(|pages| document.get_dictionary(pages));
-            return Err(match tree {
-                Ok(_) => page_tree_damaged("it lists no pages".into()),
-                Err(_) => corrupt("PDF has no pages"),
-            });
-        }
-        if pages > MAX_PATH_INPUT_PDF_PAGES {
-            return Err(domain_error(
-                NativeErrorCode::TooLarge,
-                format!("PDF page count exceeds the {MAX_PATH_INPUT_PDF_PAGES}-page ceiling"),
-            ));
+        if !(matches!(mode, OpenMode::Conformance) && trailer_encrypted) {
+            let pages = document.get_pages().len();
+            if pages == 0 {
+                // A page tree that lists no page is damaged; a catalog or tree
+                // root the index cannot find is the index's damage.
+                let tree = document
+                    .catalog()
+                    .and_then(|catalog| catalog.get(b"Pages"))
+                    .and_then(Object::as_reference)
+                    .and_then(|pages| document.get_dictionary(pages));
+                return Err(match tree {
+                    Ok(_) => page_tree_damaged("it lists no pages".into()),
+                    Err(_) => corrupt("PDF has no pages"),
+                });
+            }
+            if pages > MAX_PATH_INPUT_PDF_PAGES {
+                return Err(domain_error(
+                    NativeErrorCode::TooLarge,
+                    format!("PDF page count exceeds the {MAX_PATH_INPUT_PDF_PAGES}-page ceiling"),
+                ));
+            }
         }
         Ok(Self {
             document,

@@ -1,6 +1,7 @@
 export type TWorkerBundleId =
     | 'pdf-search'
     | 'pdf-text'
+    | 'pdf-page-ops'
     | 'image-export-tiff'
     | 'djvu-engine'
     | 'ocr-engine-host'

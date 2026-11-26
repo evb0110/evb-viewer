@@ -1,9 +1,10 @@
 # PDF page operations
 
-The Rust PDF writer used by desktop as a sidecar and by the browser as
-WebAssembly. PDF.js renders; this crate writes document changes, as
+The Rust PDF writer shipped as `evb-pdf-page-ops.wasm` for both desktop (in a
+Node/Electron worker thread streaming host files by position via `evb_host`) and
+the browser Web Worker. PDF.js renders; this crate writes document changes, as
 [ADR 0002](../../docs/architecture/adr/0002-pdfjs-renders-rust-writes-evb-edits.md)
-defines.
+defines. The Cargo binary target remains available for Rust integration tests.
 
 ## Page structure
 

@@ -210,7 +210,7 @@ pub(crate) fn load_pdf_path(path: &Path) -> Result<Document> {
 
 /// Print layout keeps only the objects the selected pages reach, so a source
 /// above the full-rewrite budget still fits one eager load.
-const PRINT_LAYOUT_LOAD_POLICY: PdfLoadPolicy = PdfLoadPolicy {
+pub(crate) const PRINT_LAYOUT_LOAD_POLICY: PdfLoadPolicy = PdfLoadPolicy {
     max_encoded_bytes: 768 * 1024 * 1024,
     ..PDF_PATH_LOAD_POLICY
 };

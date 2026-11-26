@@ -4,6 +4,8 @@ use super::*;
 mod print_annotations;
 use evb_native_support::output::AtomicOutput;
 use lopdf::{DecompressError, Error as LopdfError};
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+pub(crate) use print_annotations::write_print_appearances_to_source;
 use print_annotations::*;
 
 /// Print layout places each selected page, with its printable annotations

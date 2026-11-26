@@ -441,7 +441,7 @@ describe('Electron E2E - large object-dense PDF opening', () => {
         }));
         const fixturePath = createStructureDensePdf(scratch, true);
         const toolPath = join(scratch, 'page-ops.sh');
-        const realTool = join(process.cwd(), '.tmp/pdf-page-ops', `${process.platform}-${process.arch}`, 'bin/evb-pdf-page-ops');
+        const cliPath = join(process.cwd(), 'scripts', 'runPdfPageOpsWasmCli.ts');
         const quote = (value: string) => `'${value.replaceAll('\'', '\'\\\'\'')}'`;
         const gates = [
             'page-sizes',
@@ -456,7 +456,7 @@ describe('Electron E2E - large object-dense PDF opening', () => {
             '    while [ -e "$gate.arm" ]; do sleep 0.05; done',
             '  fi;;',
             'esac',
-            `exec ${quote(realTool)} "$@"`,
+            `exec ${quote(process.execPath)} --import tsx ${quote(cliPath)} "$@"`,
             '',
         ].join('\n'));
         chmodSync(toolPath, 0o700);

@@ -98,6 +98,71 @@ pub(crate) fn get_page_geometry_from_source<S: ByteSource>(
     get_page_geometry(&document, page_number)
 }
 
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+pub(crate) fn crop_pages_to_source<S: ByteSource>(
+    source: S,
+    len: u64,
+    pages: &[u32],
+    margins: CropMargins,
+    write: impl FnOnce(&[u8]) -> Result<Vec<u8>>,
+) -> Result<u32> {
+    let mut source_pdf = SourcePdf::open_append_base(source, len)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    let mut incremental = source_pdf.take_append_base()?;
+    PageTreeResolver::validated(incremental.get_prev_documents())?;
+    let page_count = u32::try_from(incremental.get_prev_documents().get_pages().len())
+        .map_err(|_| "PDF page count exceeds the response range")?;
+    crop_pages_incremental(&mut incremental, pages, margins)?;
+    incremental.new_document.version = incremental.get_prev_documents().version.clone();
+    let revision = appended_revision_bytes(&mut incremental)?;
+    let expected_object_ids = collect_incremental_append_object_ids(&incremental);
+    let written = write(&revision)?;
+    validate_incremental_append_bytes(
+        &written,
+        len,
+        incremental.previous_xref_start(),
+        &expected_object_ids,
+    )?;
+    validate_crop_revision_postconditions(
+        &incremental,
+        pages,
+        CropRevisionExpectation::Margins(margins),
+    )?;
+    Ok(page_count)
+}
+
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+pub(crate) fn remove_crop_from_pages_to_source<S: ByteSource>(
+    source: S,
+    len: u64,
+    pages: &[u32],
+    write: impl FnOnce(&[u8]) -> Result<Vec<u8>>,
+) -> Result<u32> {
+    let mut source_pdf = SourcePdf::open_append_base(source, len)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    let mut incremental = source_pdf.take_append_base()?;
+    PageTreeResolver::validated(incremental.get_prev_documents())?;
+    let page_count = u32::try_from(incremental.get_prev_documents().get_pages().len())
+        .map_err(|_| "PDF page count exceeds the response range")?;
+    remove_crop_from_pages_incremental(&mut incremental, pages)?;
+    incremental.new_document.version = incremental.get_prev_documents().version.clone();
+    let revision = appended_revision_bytes(&mut incremental)?;
+    let expected_object_ids = collect_incremental_append_object_ids(&incremental);
+    let written = write(&revision)?;
+    validate_incremental_append_bytes(
+        &written,
+        len,
+        incremental.previous_xref_start(),
+        &expected_object_ids,
+    )?;
+    validate_crop_revision_postconditions(
+        &incremental,
+        pages,
+        CropRevisionExpectation::RestoreMediaBox,
+    )?;
+    Ok(page_count)
+}
+
 pub(crate) fn write_crop_pages_path(
     input_path: &Path,
     output_path: &Path,

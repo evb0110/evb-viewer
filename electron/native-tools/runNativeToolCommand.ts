@@ -1,5 +1,7 @@
 import { basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isPdfPageOpsWasmPath } from '@node-runtime/pdfPageOpsWasmRunner';
+import { runDesktopPageOpsWasm } from '@electron/native-tools/pdfPageOpsWorkerClient';
 import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
 import { withDefinedCommandOptions } from '@electron/native-tools/withDefinedCommandOptions';
 import type { IProcessResult } from '@electron/native-tools/processResult';
@@ -71,6 +73,25 @@ export async function runNativeToolCommand(
     args: string[],
     options: IRunNativeToolCommandOptions = {},
 ): Promise<IProcessResult> {
+    if (isPdfPageOpsWasmPath(command)) {
+        try {
+            return await runDesktopPageOpsWasm(command, args, {
+                ...(options.signal === undefined ? {} : {signal: options.signal}),
+                ...(options.timeoutMs === undefined ? {} : {timeoutMs: options.timeoutMs}),
+                ...(options.cancelGroup === undefined ? {} : {cancelGroup: options.cancelGroup}),
+                ...(options.commandLabel === undefined ? {} : {commandLabel: options.commandLabel}),
+                ...(options.maxStdoutBytes === undefined ? {} : {maxStdoutBytes: options.maxStdoutBytes}),
+                ...(options.rejectOnStdoutTruncation === undefined
+                    ? {}
+                    : {rejectOnStdoutTruncation: options.rejectOnStdoutTruncation}),
+                ...(options.onTerminationProof === undefined
+                    ? {}
+                    : {onTerminationProof: options.onTerminationProof}),
+            });
+        } finally {
+            options.onClose?.();
+        }
+    }
     await assertNativeToolBuild(command);
     return runNativeCommand(command, args, createRunCommandOptions(options));
 }

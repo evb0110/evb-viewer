@@ -268,4 +268,49 @@ describe.skipIf(process.platform !== 'win32')('Windows atomic PDF replacement', 
         await expect(readPdfText(destinationPath)).resolves.toBe(1);
         expect((await readdir(root)).filter(name => name.includes('.tmp'))).toEqual([]);
     }, 90_000);
+
+    it('invokes evb-windows-job-launcher --exchange-paths with expected Windows envelope', async () => {
+        const root = await mkdtemp(join(runtimeRoot, 'evb-windows-exchange-paths-'));
+        rootPaths.push(root);
+        const stagedPath = join(root, 'staged.pdf');
+        const destinationPath = join(root, 'destination.pdf');
+        await writeFile(stagedPath, await makePdf('staged'));
+        await writeFile(destinationPath, await makePdf('destination'));
+        const launcherPath = resolve(
+            `.tmp/windows-job-launcher/win32-${process.arch}/bin/evb-windows-job-launcher.exe`,
+        );
+
+        const stdout = await new Promise<string>((resolvePromise, reject) => {
+            execFile(launcherPath, [
+                '--exchange-paths',
+                stagedPath,
+                destinationPath,
+            ], {windowsHide: true}, (error, out) => {
+                if (error) {
+                    reject(error);
+                    return;
+                }
+                resolvePromise(out);
+            });
+        });
+        expect(JSON.parse(stdout.trim())).toEqual({outcome: 'platform-has-no-exchange'});
+
+        const badExit = await new Promise<number>((resolvePromise, reject) => {
+            execFile(launcherPath, [
+                '--exchange-paths',
+                stagedPath,
+            ], {windowsHide: true}, error => {
+                if (!error) {
+                    resolvePromise(0);
+                    return;
+                }
+                if (typeof error.code === 'number') {
+                    resolvePromise(error.code);
+                    return;
+                }
+                reject(error);
+            });
+        });
+        expect(badExit).toBeGreaterThan(0);
+    });
 });

@@ -416,13 +416,6 @@ describe('afterPack extraResources preflight', () => {
                 type: 'directory',
             }),
             expect.objectContaining({
-                label: 'PDF page ops native tool (darwin-arm64)',
-                sourcePath: path.join('/repo', '.tmp', 'pdf-page-ops', 'darwin-arm64'),
-                stagedPath: path.join('/app/EVB Viewer.app/Contents/Resources', 'pdf-page-ops', 'darwin-arm64'),
-                tag: 'darwin-arm64',
-                type: 'directory',
-            }),
-            expect.objectContaining({
                 label: 'Scan cleanup native tool (darwin-arm64)',
                 sourcePath: path.join('/repo', '.tmp', 'scan-cleanup', 'darwin-arm64'),
                 stagedPath: path.join('/app/EVB Viewer.app/Contents/Resources', 'scan-cleanup', 'darwin-arm64'),
@@ -443,7 +436,7 @@ describe('afterPack extraResources preflight', () => {
 
             expect(message).toContain('[afterPack] Missing required electron-builder extraResources for linux-x64:');
             expect(message).toContain(path.join(tempRoot, 'resources', 'tesseract', 'tessdata'));
-            expect(message).toContain(path.join(tempRoot, '.tmp', 'pdf-page-ops', 'linux-x64'));
+            expect(message).toContain(path.join(tempRoot, '.tmp', 'pdf-image-combine', 'linux-x64'));
             expect(message).not.toContain('page-processing');
         } finally {
             await rm(tempRoot, {
@@ -464,24 +457,24 @@ describe('afterPack extraResources preflight', () => {
 
             const message = captureErrorMessage(() => assertRequiredExtraResources(context, {projectRoot: tempRoot}));
 
-            expect(message).toContain(`packaged PDF page ops native tool (win32-arm64): ${path.join(resourcesDir, 'pdf-page-ops', 'win32-arm64')}`);
+            expect(message).toContain(`packaged PDF image combine native tool (win32-arm64): ${path.join(resourcesDir, 'pdf-image-combine', 'win32-arm64')}`);
 
             await createRequiredPaths(entries, 'staged');
 
             expect(() => assertRequiredExtraResources(context, {projectRoot: tempRoot})).not.toThrow();
 
-            const pdfPageOps = entries.find(entry => entry.label.startsWith('PDF page ops native tool'))!;
-            const pdfPageOpsBinary = pdfPageOps.packagedEntries?.find(entry => (
-                entry.label === 'evb-pdf-page-ops binary'
+            const pdfImageCombine = entries.find(entry => entry.label.startsWith('PDF image combine native tool'))!;
+            const pdfImageCombineBinary = pdfImageCombine.packagedEntries?.find(entry => (
+                entry.label === 'evb-pdf-image-combine binary'
             ));
-            expect(pdfPageOpsBinary).toBeDefined();
+            expect(pdfImageCombineBinary).toBeDefined();
             await writeFile(
-                path.join(pdfPageOps.stagedPath, pdfPageOpsBinary!.relativePath),
+                path.join(pdfImageCombine.stagedPath, pdfImageCombineBinary!.relativePath),
                 'stale-binary',
                 'utf8',
             );
             const mismatchMessage = captureErrorMessage(() => assertRequiredExtraResources(context, {projectRoot: tempRoot}));
-            expect(mismatchMessage).toContain('packaged evb-pdf-page-ops binary differs from staged build');
+            expect(mismatchMessage).toContain('packaged evb-pdf-image-combine binary differs from staged build');
         } finally {
             await rm(tempRoot, {
                 force: true,

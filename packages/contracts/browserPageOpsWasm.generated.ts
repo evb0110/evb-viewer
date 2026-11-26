@@ -48,6 +48,19 @@ export const OPERATION_CODES = {
     openDocument: 28,
     closeDocument: 29,
     renderScanCleanupRasterCached: 30,
+    saveMutationsReported: 31,
+    parseAnnotationsToSink: 32,
+    annotationNameIndex: 33,
+    readPageSizesSidecar: 34,
+    decryptFile: 35,
+    recompressImagesFile: 36,
+    replacePageImagesFile: 37,
+    splitPagesFile: 38,
+    overlayTextFile: 39,
+    printLayoutFile: 40,
+    embeddedShapeIndex: 41,
+    cropFile: 42,
+    removeCropFile: 43,
 } as const;
 
 export const REQUEST_HEADER = {

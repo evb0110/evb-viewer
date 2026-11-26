@@ -654,6 +654,121 @@ pub(crate) fn read_page_geometry_table<S: ByteSource>(bytes: S, len: u64) -> Res
     })?)
 }
 
+/// Streams the exact JSONL page-sizes sidecar (with or without dominant-image
+/// raster analysis) from `bytes` into `write_chunk`, touching only indexed
+/// objects and one page's content stream at a time.
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+pub(crate) fn write_page_sizes_sidecar_to_sink<S: ByteSource>(
+    bytes: S,
+    len: u64,
+    metadata_only: bool,
+    mut write_chunk: impl FnMut(&[u8]) -> Result<()>,
+) -> Result<u32> {
+    let source = SourcePdf::open_plaintext(bytes, len)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    PageTreeResolver::with_both_ends(&source.document).map_err(crate::page_tree_damaged)?;
+    let document = &source.document;
+    let page_resolver = PageTreeResolver::new(document)?;
+    let declared_page_count = u64::from(page_resolver.page_count());
+    if declared_page_count == 0 {
+        return Err(domain_error(
+            NativeErrorCode::CorruptXref,
+            "PDF contains no pages",
+        ));
+    }
+    let chunk_limit = PAGE_SIZES_SIDECAR_CHUNK_BYTES;
+    let dominant_image_analysis = if metadata_only {
+        DominantImageAnalysis::Unavailable
+    } else {
+        DominantImageAnalysis::Performed
+    };
+    let encoded_reachable = format!(
+        "{declared_page_count:>width$}",
+        width = PAGE_COUNT_FIELD_WIDTH
+    );
+    let header = format!(
+        "{{\"format\":\"{PAGE_SIZES_SIDECAR_FORMAT}\",\"schemaVersion\":{PAGE_SIZES_SIDECAR_SCHEMA_VERSION},\"pageCount\":{declared_page_count},\"declaredPageCount\":{declared_page_count},\"reachablePageCount\":{encoded_reachable},\"chunkBytes\":{chunk_limit},\"dominantImageAnalysis\":\"{}\"}}\n",
+        dominant_image_analysis.as_str(),
+    );
+    write_chunk(header.as_bytes())?;
+    let mut chunk: Option<PageSizesSidecarChunk> = None;
+    let mut next_chunk_index = 0_u64;
+    let mut page_number = 0_u32;
+    let reachable_page_count = page_resolver.for_each_page_id_with_count(document, |page_id| {
+        page_number = page_number
+            .checked_add(1)
+            .ok_or("Page-size page number overflow")?;
+        let page_view = resolve_page_view(document, page_id)?;
+        let rotation = resolve_page_rotation(document, page_id)?;
+        let dominant_image = if metadata_only {
+            None
+        } else {
+            dominant_full_page_image_with_limit(
+                document,
+                page_id,
+                page_view,
+                MAX_DECOMPRESSED_PDF_STREAM_BYTES,
+                |id, stream, max_bytes| source.with_bytes(id, stream, max_bytes),
+            )?
+        };
+        let entry = page_size_entry(
+            document,
+            page_number,
+            page_id,
+            rotation,
+            page_view,
+            dominant_image,
+        )?;
+        let encoded_entry = serde_json::to_vec(&entry)?;
+        if chunk.is_none() {
+            chunk = Some(PageSizesSidecarChunk::new(next_chunk_index, page_number));
+        }
+        if !chunk
+            .as_mut()
+            .unwrap()
+            .try_push(&encoded_entry, chunk_limit)
+        {
+            if chunk.as_ref().is_some_and(|c| c.entry_count == 0) {
+                return Err(domain_error(
+                    NativeErrorCode::TooLarge,
+                    "Page-size entry exceeds the 4 MiB sidecar chunk limit",
+                ));
+            }
+            let finished = chunk.take().unwrap().finish();
+            write_chunk(&finished)?;
+            next_chunk_index = next_chunk_index
+                .checked_add(1)
+                .ok_or("Page-size sidecar chunk number overflow")?;
+            chunk = Some(PageSizesSidecarChunk::new(next_chunk_index, page_number));
+            if !chunk
+                .as_mut()
+                .unwrap()
+                .try_push(&encoded_entry, chunk_limit)
+            {
+                return Err(domain_error(
+                    NativeErrorCode::TooLarge,
+                    "Page-size entry exceeds the 4 MiB sidecar chunk limit",
+                ));
+            }
+        }
+        Ok(())
+    })?;
+    if reachable_page_count != declared_page_count {
+        return Err(domain_error(
+            NativeErrorCode::CorruptXref,
+            format!(
+                "PDF page tree declared {declared_page_count} pages but contains {reachable_page_count}"
+            ),
+        ));
+    }
+    if let Some(last) = chunk.take() {
+        if last.entry_count > 0 {
+            write_chunk(&last.finish())?;
+        }
+    }
+    Ok(u32::try_from(declared_page_count)?)
+}
+
 fn page_sizes_paths_alias(input_path: &Path, output_path: &Path) -> Result<bool> {
     if input_path == output_path {
         return Ok(true);

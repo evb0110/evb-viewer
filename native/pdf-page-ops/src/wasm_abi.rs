@@ -156,6 +156,56 @@ abi! {
         // and `insertion_data` is the JSON ScanRasterRequest. Answers
         // RESPONSE_REPORTED_RASTER.
         OP_RENDER_SCAN_CLEANUP_RASTER_CACHED = 30 => "renderScanCleanupRasterCached";
+        // FILE_REQUEST_HEADER framing: like OP_SAVE_MUTATIONS, but the trailing
+        // JSON payload uses the full NativeSaveReport shape (including
+        // annotationDeleteEffects when available).
+        OP_SAVE_MUTATIONS_REPORTED = 31 => "saveMutationsReported";
+        // FILE_REQUEST_HEADER framing over source 0: streams JSONL annotation
+        // parse output directly into the host sink. `pages` optionally restricts
+        // to one-based page numbers; `tail` optionally carries UTF-8 modifiedAt.
+        OP_PARSE_ANNOTATIONS_TO_SINK = 32 => "parseAnnotationsToSink";
+        // FILE_REQUEST_HEADER framing over source 0: streams JSONL annotation
+        // name index directly into the host sink.
+        OP_ANNOTATION_NAME_INDEX = 33 => "annotationNameIndex";
+        // FILE_REQUEST_HEADER framing over source 0: streams JSONL page-sizes
+        // sidecar directly into the host sink. `after_page == 1` selects
+        // metadata-only; `0` includes dominant raster image analysis.
+        OP_READ_PAGE_SIZES_SIDECAR = 34 => "readPageSizesSidecar";
+        // FILE_REQUEST_HEADER framing over source 0 with optional UTF-8 password
+        // in `tail`: writes decrypted PDF to host sink only when encrypted and
+        // rewritten, and answers RESPONSE_JSON with DecryptOutcomeReport.
+        OP_DECRYPT_FILE = 35 => "decryptFile";
+        // FILE_REQUEST_HEADER framing over source 0 with JSON instructions in
+        // `tail`: appends recompressed image revision to host sink when changed
+        // and answers WRITTEN_HEADER followed by JSON report.
+        OP_RECOMPRESS_IMAGES_FILE = 36 => "recompressImagesFile";
+        // FILE_REQUEST_HEADER framing over source 0 and replacement PDFs in
+        // sources 1..source_count with JSON instructions in `tail`: appends
+        // replacement revision to host sink when changed and answers
+        // WRITTEN_HEADER followed by JSON report.
+        OP_REPLACE_PAGE_IMAGES_FILE = 37 => "replacePageImagesFile";
+        // FILE_REQUEST_HEADER framing over source 0 with JSON instructions in
+        // `tail`: writes rewritten PDF (<= budget) or incremental revision
+        // (> budget, reported via `incrementalRevision: true`) to host sink.
+        OP_SPLIT_PAGES_FILE = 38 => "splitPagesFile";
+        // FILE_REQUEST_HEADER framing over target (source 0) and original source
+        // (source 1) with JSON instructions in `tail`: writes overlaid PDF to
+        // host sink and answers WRITTEN_HEADER followed by JSON report.
+        OP_OVERLAY_TEXT_FILE = 39 => "overlayTextFile";
+        // FILE_REQUEST_HEADER framing over source 0 with UTF-8
+        // "<view mode> <orientation>" in `tail`: writes laid-out print PDF to
+        // host sink and answers WRITTEN_HEADER.
+        OP_PRINT_LAYOUT_FILE = 40 => "printLayoutFile";
+        // FILE_REQUEST_HEADER framing over source 0: streams JSONL embedded
+        // shape index sidecar to host sink. Answers WRITTEN_HEADER.
+        OP_EMBEDDED_SHAPE_INDEX = 41 => "embeddedShapeIndex";
+        // FILE_REQUEST_HEADER framing over source 0: appends crop-box revision
+        // to host sink. `pages` selects one-based pages; `after_page != 0` sets
+        // physical points; `tail` is JSON `{top, bottom, left, right}`.
+        OP_CROP_FILE = 42 => "cropFile";
+        // FILE_REQUEST_HEADER framing over source 0: appends remove-crop
+        // revision to host sink for one-based `pages`.
+        OP_REMOVE_CROP_FILE = 43 => "removeCropFile";
     }
     layouts {
         REQUEST_HEADER: RequestHeader {
@@ -231,6 +281,246 @@ fn generated_typescript_is_current() {
     assert!(
         checked_in == current,
         "{} is stale; regenerate it with EVB_UPDATE_GENERATED=1 cargo test --manifest-path native/Cargo.toml -p evb-pdf-page-ops generated_typescript",
+        path.display()
+    );
+}
+
+#[cfg(test)]
+fn generated_wire_schema() -> String {
+    use crate::conformance::PdfConformanceFacts;
+    use crate::decrypt::{
+        DecryptOutcome, DecryptOutcomeReport, DECRYPT_OUTCOME_FORMAT,
+        DECRYPT_OUTCOME_SCHEMA_VERSION,
+    };
+    use crate::page_sizes::{
+        PAGE_SIZES_SIDECAR_CHUNK_BYTES, PAGE_SIZES_SIDECAR_FORMAT,
+        PAGE_SIZES_SIDECAR_SCHEMA_VERSION,
+    };
+    use crate::AnnotationIdentityBinding;
+
+    // Assert every generated field set and nullability against live serde
+    // serialization of the authoritative Rust wire structs so Rust and
+    // TypeScript can never drift.
+    let assert_exact_keys = |value: &serde_json::Value, expected: &[&str], label: &str| {
+        let map = value
+            .as_object()
+            .unwrap_or_else(|| panic!("{label} did not serialize to a JSON object"));
+        let mut actual: Vec<&str> = map.keys().map(String::as_str).collect();
+        actual.sort_unstable();
+        let mut wanted: Vec<&str> = expected.to_vec();
+        wanted.sort_unstable();
+        assert_eq!(actual, wanted, "{label} wire keys drifted");
+    };
+
+    let conformance_json = serde_json::to_value(PdfConformanceFacts {
+        is_signed: false,
+        is_encrypted: false,
+        is_tagged: false,
+        has_acro_form: false,
+        has_xfa: false,
+    })
+    .unwrap();
+    assert_exact_keys(
+        &conformance_json,
+        &[
+            "isSigned",
+            "isEncrypted",
+            "isTagged",
+            "hasAcroForm",
+            "hasXfa",
+        ],
+        "PdfConformanceFacts",
+    );
+
+    let decrypt_opened_json = serde_json::to_value(DecryptOutcomeReport {
+        format: DECRYPT_OUTCOME_FORMAT.to_string(),
+        schema_version: DECRYPT_OUTCOME_SCHEMA_VERSION,
+        outcome: DecryptOutcome::Opened,
+        was_encrypted: false,
+        revision: None,
+    })
+    .unwrap();
+    assert_exact_keys(
+        &decrypt_opened_json,
+        &[
+            "format",
+            "schemaVersion",
+            "outcome",
+            "wasEncrypted",
+            "revision",
+        ],
+        "DecryptOutcomeReport(opened)",
+    );
+    assert_eq!(decrypt_opened_json["outcome"], "opened");
+    assert!(decrypt_opened_json["revision"].is_null());
+
+    let decrypt_rewritten_some = serde_json::to_value(DecryptOutcomeReport {
+        format: DECRYPT_OUTCOME_FORMAT.to_string(),
+        schema_version: DECRYPT_OUTCOME_SCHEMA_VERSION,
+        outcome: DecryptOutcome::Rewritten,
+        was_encrypted: true,
+        revision: Some(6),
+    })
+    .unwrap();
+    assert_exact_keys(
+        &decrypt_rewritten_some,
+        &[
+            "format",
+            "schemaVersion",
+            "outcome",
+            "wasEncrypted",
+            "revision",
+        ],
+        "DecryptOutcomeReport(rewritten/some)",
+    );
+    assert_eq!(decrypt_rewritten_some["outcome"], "rewritten");
+    assert_eq!(decrypt_rewritten_some["revision"], 6);
+
+    let decrypt_rewritten_none = serde_json::to_value(DecryptOutcomeReport {
+        format: DECRYPT_OUTCOME_FORMAT.to_string(),
+        schema_version: DECRYPT_OUTCOME_SCHEMA_VERSION,
+        outcome: DecryptOutcome::Rewritten,
+        was_encrypted: true,
+        revision: None,
+    })
+    .unwrap();
+    assert_exact_keys(
+        &decrypt_rewritten_none,
+        &[
+            "format",
+            "schemaVersion",
+            "outcome",
+            "wasEncrypted",
+            "revision",
+        ],
+        "DecryptOutcomeReport(rewritten/none)",
+    );
+    assert!(decrypt_rewritten_none["revision"].is_null());
+
+    let binding_json = serde_json::to_value(AnnotationIdentityBinding {
+        annotation_id: "ann-1".to_string(),
+        pdf_ref: "1 0 R".to_string(),
+    })
+    .unwrap();
+    assert_exact_keys(
+        &binding_json,
+        &["annotationId", "pdfRef"],
+        "AnnotationIdentityBinding",
+    );
+
+    let report_without_effects: serde_json::Value = serde_json::from_slice(
+        &crate::serialize_native_save_report(
+            &[AnnotationIdentityBinding {
+                annotation_id: "ann-1".to_string(),
+                pdf_ref: "1 0 R".to_string(),
+            }],
+            None,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let bare_bindings = report_without_effects
+        .as_array()
+        .expect("NativeSaveReport(no delete effects) must serialize to a JSON array");
+    assert_eq!(bare_bindings.len(), 1);
+    assert_exact_keys(
+        &bare_bindings[0],
+        &["annotationId", "pdfRef"],
+        "NativeSaveReport(no delete effects)[0]",
+    );
+
+    let report_with_effects: serde_json::Value = serde_json::from_slice(
+        &crate::serialize_native_save_report(
+            &[],
+            Some(&crate::AnnotationDeleteEffects {
+                affected_page_indices: vec![0],
+                deleted_reply_refs: vec!["2 0 R".to_string()],
+            }),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_exact_keys(
+        &report_with_effects,
+        &["identityBindings", "annotationDeleteEffects"],
+        "NativeSaveReport(with delete effects)",
+    );
+    assert_exact_keys(
+        &report_with_effects["annotationDeleteEffects"],
+        &["affectedPageIndices", "deletedReplyRefs"],
+        "AnnotationDeleteEffects",
+    );
+
+    format!(
+        "// Generated from evb-pdf-page-ops Rust wire structs; do not edit.\n\
+         // Regenerate with `EVB_UPDATE_GENERATED=1 cargo test --manifest-path native/Cargo.toml -p evb-pdf-page-ops generated_wire_schema`.\n\n\
+         export const PDF_DECRYPT_OUTCOME_FORMAT = '{DECRYPT_OUTCOME_FORMAT}' as const;\n\
+         export const PDF_DECRYPT_OUTCOME_SCHEMA_VERSION = {DECRYPT_OUTCOME_SCHEMA_VERSION} as const;\n\
+         export const PDF_PAGE_SIZES_SIDECAR_FORMAT = '{PAGE_SIZES_SIDECAR_FORMAT}' as const;\n\
+         export const PDF_PAGE_SIZES_SIDECAR_SCHEMA_VERSION = {PAGE_SIZES_SIDECAR_SCHEMA_VERSION} as const;\n\
+         export const PDF_PAGE_SIZES_SIDECAR_CHUNK_BYTES = {PAGE_SIZES_SIDECAR_CHUNK_BYTES} as const;\n\n\
+         export interface IPdfConformanceFactsWire {{\n\
+         \x20   isSigned: boolean;\n\
+         \x20   isEncrypted: boolean;\n\
+         \x20   isTagged: boolean;\n\
+         \x20   hasAcroForm: boolean;\n\
+         \x20   hasXfa: boolean;\n\
+         }}\n\n\
+         export type TPdfDecryptOutcomeWire =\n\
+         \x20   | {{\n\
+         \x20       format: typeof PDF_DECRYPT_OUTCOME_FORMAT;\n\
+         \x20       schemaVersion: typeof PDF_DECRYPT_OUTCOME_SCHEMA_VERSION;\n\
+         \x20       outcome: 'opened';\n\
+         \x20       wasEncrypted: false;\n\
+         \x20       revision: null;\n\
+         \x20   }}\n\
+         \x20   | {{\n\
+         \x20       format: typeof PDF_DECRYPT_OUTCOME_FORMAT;\n\
+         \x20       schemaVersion: typeof PDF_DECRYPT_OUTCOME_SCHEMA_VERSION;\n\
+         \x20       outcome: 'rewritten';\n\
+         \x20       wasEncrypted: true;\n\
+         \x20       revision: number | null;\n\
+         \x20   }};\n\n\
+         export interface IPdfAnnotationIdentityBindingWire {{\n\
+         \x20   annotationId: string;\n\
+         \x20   pdfRef: string;\n\
+         }}\n\n\
+         export interface IPdfAnnotationDeleteEffectsWire {{\n\
+         \x20   affectedPageIndices: number[];\n\
+         \x20   deletedReplyRefs: string[];\n\
+         }}\n\n\
+         export type TPdfNativeSaveReportWire =\n\
+         \x20   | IPdfAnnotationIdentityBindingWire[]\n\
+         \x20   | {{\n\
+         \x20       identityBindings: IPdfAnnotationIdentityBindingWire[];\n\
+         \x20       annotationDeleteEffects: IPdfAnnotationDeleteEffectsWire;\n\
+         \x20   }};\n\n\
+         export type TPdfAppendAdmissionVerdictWire = 'appendable' | 'repairable' | 'limited' | 'unverified';\n\n\
+         export type TPdfDesktopAppendAdmissionWire =\n\
+         \x20   | {{\n\
+         \x20       verdict: 'appendable';\n\
+         \x20       reason: null;\n\
+         \x20   }}\n\
+         \x20   | {{\n\
+         \x20       verdict: Exclude<TPdfAppendAdmissionVerdictWire, 'appendable'>;\n\
+         \x20       reason: string;\n\
+         \x20   }};\n"
+    )
+}
+
+#[test]
+fn generated_wire_schema_is_current() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../packages/contracts/pdfPageOpsWire.generated.ts");
+    let current = generated_wire_schema();
+    if std::env::var_os("EVB_UPDATE_GENERATED").is_some() {
+        std::fs::write(&path, current).unwrap();
+        return;
+    }
+    let checked_in = std::fs::read_to_string(&path).unwrap_or_default();
+    assert!(
+        checked_in == current,
+        "{} is stale; regenerate it with EVB_UPDATE_GENERATED=1 cargo test --manifest-path native/Cargo.toml -p evb-pdf-page-ops generated_wire_schema",
         path.display()
     );
 }

@@ -6,8 +6,7 @@ extends: ./.tmp/generated-electron-builder-resources.yml
 # Keep the built Nuxt renderer as static assets. Electron backend behavior lives
 # in main/preload plus typed IPC; packaged apps do not ship or spawn Nitro.
 # Main, preload, and all workers are fully esbuild-bundled
-# (scripts/build-electron.mjs). The image fallback has one staged N-API package
-# and its target binding under dist-electron/runtime.
+# (scripts/build-electron.mjs).
 # Worker entry files that require direct filesystem paths are unpacked, together
 # with the package.json that pins dist-electron/*.js to ESM semantics.
 asar: true
@@ -15,14 +14,15 @@ asarUnpack:
   - dist-electron/package.json
   - dist-electron/djvu-engine-worker.js
   - dist-electron/image-export-tiff-worker.js
-  - dist-electron/runtime/@napi-rs/canvas/*.node
   - dist-electron/pdf-search-worker.js
   - dist-electron/pdf-text-worker.js
+  - dist-electron/pdf-page-ops-worker.js
   - dist-electron/ocr-engine-host.js
   - dist-electron/ocr-engine-worker.js
-  # The OCR and DjVuLibre WASM engines that worker threads import and compile by path.
+  # The OCR, DjVuLibre, and PDF page-ops WASM engines that worker threads read by path.
   - nuxt-output/public/wasm/evb-tesseract.*
   - nuxt-output/public/wasm/evb-djvulibre.*
+  - nuxt-output/public/wasm/evb-pdf-page-ops.wasm
 npmRebuild: false
 afterPack: ./scripts/afterPack.cjs
 afterSign: ./scripts/afterSign.cjs
@@ -37,10 +37,8 @@ files:
   - nuxt-output/public/
   - package.json
   - scripts/evb-mcp-proxy.mjs
-  # Runtime dependencies are otherwise bundled or web-only. The canvas fallback
-  # is staged below dist-electron by scripts/build-electron.mjs.
+  # Runtime dependencies are bundled or web-only.
   - "!node_modules/**"
-  - dist-electron/runtime/@napi-rs/**
   - "!nuxt-output/**/*.map"
   - "!dist-electron/**/*.map"
   - "!dist-electron/**/*.meta.json"

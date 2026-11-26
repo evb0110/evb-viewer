@@ -153,6 +153,51 @@ pub(crate) fn replace_page_images_bytes(
     })
 }
 
+/// Streaming host-file `replace-page-images`: opens `source` by range, reads
+/// replacement PDFs on demand via `load_replacement`, appends the revision via
+/// `write` when any page was replaced, and returns `(page_count, report_json)`.
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+pub(crate) fn replace_page_images_to_source<S: ByteSource>(
+    source: S,
+    len: u64,
+    instructions: &[u8],
+    mut load_replacement_bytes: impl FnMut(usize) -> Result<Vec<u8>>,
+    write: impl FnOnce(&[u8]) -> Result<Vec<u8>>,
+) -> Result<(u32, Vec<u8>)> {
+    let instructions: ReplacePageImagesFile<usize> = validate_replace_page_images(
+        parse_json_sidecar_bytes(instructions, "replace-page-images instructions")?,
+    )?;
+    let mut pdf = SourcePdf::open_append_base(source, len)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    let mut incremental = pdf
+        .take_append_base()
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    let report = replace_page_images_in(
+        &mut incremental,
+        Some(&pdf as StructuralSource),
+        &instructions,
+        |&index| load_pdf_bytes(&load_replacement_bytes(index)?),
+    )?;
+    let pages = page_count(&incremental.previous_document);
+    if report.changed {
+        let revision = build_incremental_revision(&mut incremental)?;
+        let expected_object_ids = collect_incremental_append_object_ids(&incremental);
+        validate_incremental_append_bytes(
+            &revision,
+            len,
+            incremental.previous_xref_start(),
+            &expected_object_ids,
+        )?;
+        validate_incremental_append_bytes(
+            &write(&revision)?,
+            len,
+            incremental.previous_xref_start(),
+            &expected_object_ids,
+        )?;
+    }
+    Ok((pages, serde_json::to_vec(&report.json)?))
+}
+
 fn replace_page_images_in<R: Clone + PartialEq>(
     incremental: &mut IncrementalDocument,
     structural: Option<StructuralSource<'_>>,

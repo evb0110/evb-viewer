@@ -61,6 +61,10 @@ import {
     type IJobBrokerLease,
     type IJobResourceVector,
 } from '@electron/resources/jobBroker';
+import {
+    cancelDesktopPageOpsWasmGroup,
+    cancelDesktopPageOpsWasmGroupAndWait,
+} from '@electron/native-tools/pdfPageOpsWorkerClient';
 
 export interface IRunCommandOptions {
     cwd?: string;
@@ -947,9 +951,10 @@ function unregisterCancelGroupCompletion(cancelGroup: string, completion: TCance
 }
 
 export function cancelNativeCommandGroup(cancelGroup: string) {
+    const canceledWasm = cancelDesktopPageOpsWasmGroup(cancelGroup);
     const handlers = activeCancelGroups.get(cancelGroup);
     if (!handlers || handlers.size === 0) {
-        return false;
+        return canceledWasm;
     }
     for (const handler of Array.from(handlers)) {
         handler();
@@ -958,14 +963,22 @@ export function cancelNativeCommandGroup(cancelGroup: string) {
 }
 
 export async function cancelNativeCommandGroupAndWait(cancelGroup: string) {
+    const wasmPromise = cancelDesktopPageOpsWasmGroupAndWait(cancelGroup);
     const handlers = activeCancelGroups.get(cancelGroup);
     const completions = activeCancelGroupCompletions.get(cancelGroup);
     if (!handlers || !completions || handlers.size === 0 || completions.size === 0) {
-        return false;
+        return (await wasmPromise) ?? false;
     }
     for (const handler of Array.from(handlers)) {
         handler();
     }
-    const results = await Promise.all(Array.from(completions, completion => completion()));
-    return results.every(Boolean);
+    const [
+        wasmSettled,
+        nativeResults,
+    ] = await Promise.all([
+        wasmPromise,
+        Promise.all(Array.from(completions, completion => completion())),
+    ]);
+    const nativeSettled = nativeResults.every(Boolean);
+    return wasmSettled !== null ? wasmSettled && nativeSettled : nativeSettled;
 }

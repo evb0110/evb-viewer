@@ -311,6 +311,29 @@ pub(crate) fn append_admission_of_source<S: ByteSource>(
     indexed_base_admission(admission, source, len)
 }
 
+/// Desktop-policy append admission over a range-read `ByteSource`. Uses
+/// `PDF_PATH_LOAD_POLICY` so files above the eager-load ceiling are not
+/// rejected as `limited` by the browser buffer cap and are still checked by
+/// `SourcePdf::open_append_base`.
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+pub(crate) fn append_admission_of_source_desktop<S: ByteSource>(
+    source: S,
+    len: u64,
+) -> Result<AppendAdmission> {
+    let mut reader = ByteSourceReadSeek {
+        source: &source,
+        len,
+        pos: 0,
+    };
+    let admission = append_admission_from(&mut reader, len, PDF_PATH_LOAD_POLICY, || {
+        Ok(AppendAdmission::Unverified(
+            "PDF exceeds eager append-admission ceiling; verified through indexed reader"
+                .to_string(),
+        ))
+    })?;
+    indexed_base_admission(admission, source, len)
+}
+
 fn large_base_needs_qpdf() -> Box<dyn Error> {
     domain_error(
         NativeErrorCode::InvalidRequest,

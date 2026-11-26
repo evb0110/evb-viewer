@@ -59,9 +59,7 @@ const engineDirectory = process.env.EVB_OCR_ENGINE_DIR ?? join(repositoryRoot, '
 const pdftotext = process.env.EVB_PDFTOTEXT_PATH ?? bundledExecutable('poppler', 'pdftotext');
 const pdftoppm = process.env.EVB_PDFTOPPM_PATH ?? bundledExecutable('poppler', 'pdftoppm');
 const qpdf = process.env.EVB_QPDF_PATH ?? bundledExecutable('qpdf', 'qpdf');
-// The copies `build-native-tool.mjs` stages for this host.
-const stagedNativeTool = (crateName, binaryName) => join(repositoryRoot, '.tmp', crateName, platformArch, 'bin', `${binaryName}${executableSuffix}`);
-const pdfPageOps = process.env.EVB_PDF_PAGE_OPS_PATH ?? stagedNativeTool('pdf-page-ops', 'evb-pdf-page-ops');
+const pdfPageOps = process.env.EVB_PDF_PAGE_OPS_PATH ?? join(repositoryRoot, 'public', 'wasm', 'evb-pdf-page-ops.wasm');
 const required = process.env.EVB_OCR_QUALITY_REQUIRED === '1';
 const degradedOptIn = required || process.env.EVB_OCR_QUALITY_DEGRADED === '1';
 const tessdataDirectory = process.env.EVB_TESSDATA_PATH
@@ -187,7 +185,7 @@ async function writeSinglePageTextLayer(pdfPageOpsBinary, tesseractPdfPath, dire
         source: tesseractPdfPath,
         normalizeGreekMicroSign,
     }]}));
-    await execFileAsync(pdfPageOpsBinary, [
+    const pageOpsArgs = [
         'ocr-text-layer',
         '--input',
         tesseractPdfPath,
@@ -195,7 +193,23 @@ async function writeSinglePageTextLayer(pdfPageOpsBinary, tesseractPdfPath, dire
         outputPath,
         '--instructions-file',
         instructionsPath,
-    ], {timeout: 30_000});
+    ];
+    if (pdfPageOpsBinary.toLowerCase().endsWith('.wasm')) {
+        await execFileAsync(process.execPath, [
+            '--import',
+            'tsx',
+            join(repositoryRoot, 'scripts', 'runPdfPageOpsWasmCli.ts'),
+            ...pageOpsArgs,
+        ], {
+            env: {
+                ...process.env,
+                EVB_PDF_PAGE_OPS_PATH: pdfPageOpsBinary,
+            },
+            timeout: 30_000,
+        });
+    } else {
+        await execFileAsync(pdfPageOpsBinary, pageOpsArgs, {timeout: 30_000});
+    }
     return outputPath;
 }
 
@@ -1024,7 +1038,10 @@ async function resolveOptionalScanCleanup() {
 
 async function resolveOptionalPdfPageOps() {
     try {
-        await access(pdfPageOps, fsConstants.X_OK);
+        await access(
+            pdfPageOps,
+            pdfPageOps.toLowerCase().endsWith('.wasm') ? fsConstants.R_OK : fsConstants.X_OK,
+        );
         return pdfPageOps;
     } catch {
         return undefined;

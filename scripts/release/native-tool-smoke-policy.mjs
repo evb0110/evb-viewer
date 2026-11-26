@@ -21,10 +21,6 @@ const PACKAGED_TOOL_SMOKE_POLICY = {
         allowedExitCodes: new Set([1]),
         expectedOutputTokens: ['missing --compact-manifest value'],
     },
-    'evb-pdf-page-ops': {
-        allowedExitCodes: new Set([0]),
-        expectedOutputTokens: ['evb-pdf-page-ops'],
-    },
     'evb-scan-cleanup': {
         allowedExitCodes: new Set([0]),
         expectedOutputTokens: ['evb-scan-cleanup'],

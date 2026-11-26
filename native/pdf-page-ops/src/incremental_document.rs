@@ -1,10 +1,7 @@
 use super::*;
-#[path = "qpdf_metadata.rs"]
-mod qpdf_metadata;
 use evb_native_support::bounded_io::{
     clear_deserialization_error, record_deserialization_error, take_deserialization_error,
 };
-pub(crate) use qpdf_metadata::*;
 use serde::de::{self, MapAccess, Visitor};
 use serde_json::{value::RawValue, Value};
 use std::{

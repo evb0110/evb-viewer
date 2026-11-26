@@ -121,12 +121,18 @@ envelopes; library crates supply their shared codecs, types and support code.
 A cross-platform native supervisor (`evb-windows-job-launcher`) binds child
 lifetime and memory limits to the kernel—using Job Objects on Windows and POSIX
 process groups with parent-death watching (`kqueue` on macOS,
-`PR_SET_PDEATHSIG` / subreaper on Linux)—so native sidecars cannot outlive the
+`PR_SET_PDEATHSIG` / subreaper on Linux)—and also provides `--exchange-paths`
+atomic file replacement on macOS/Linux so native sidecars cannot outlive the
 app or bypass memory caps. The binaries ship with the app they were built with, so there is no version negotiation: every binary carries a build ID
 (a hash of the sources it links, from `scripts/native-build-id.mjs`), and a
 development build refuses a binary whose ID differs from its own. The scan-cleanup, pdf-page-ops, pdf-image-combine and pdf-search crates build to
-WebAssembly; pdf-search runs as `evb-pdf-search.wasm` in both desktop worker
-threads and browser Web Workers.
+WebAssembly; `pdf-search` (`evb-pdf-search.wasm`) and `pdf-page-ops`
+(`evb-pdf-page-ops.wasm`) run as WASM modules in both desktop worker threads
+(streaming host files by position via Node `fs` so multi-GiB PDFs never buffer
+whole files in memory) and browser Web Workers.
+
+> **Desktop `qpdf` WASM readiness benchmark (Go verdict, deferred to follow-up):**
+> Mounting Node `fs` positional I/O directly on `evb-qpdf.wasm` (Emscripten 64-bit `off_t`) handles 1 GiB, 2 GiB, 2.5 GiB (>2 GiB), and 5 GiB sparse (>4 GiB) PDFs cleanly with flat RSS (~96–284 MiB peak RSS; `--show-npages` ~20–24 ms, `--check` ~218–422 ms, `--linearize --stream-data=preserve` ~1.25–2.26 s, full rewrite ~1.18–1.20x native). Native `qpdf` remains bundled until a dedicated follow-up retires it cleanly alongside `scan-cleanup`.
 
 | Crate | Owns |
 | --- | --- |

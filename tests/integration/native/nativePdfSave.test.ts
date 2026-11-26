@@ -8,10 +8,7 @@ import {
     writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {
-    join,
-    resolve,
-} from 'node:path';
+import {join} from 'node:path';
 import {promisify} from 'node:util';
 import {
     PDFDocument,
@@ -24,26 +21,13 @@ import {
     expect,
     it,
 } from 'vitest';
+import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
 import {copyFileAtomic} from '@electron/file-access/documentFileWriteAtomic';
+import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 
 const execFileAsync = promisify(execFile);
 const NATIVE_INTEGRATION_TIMEOUT_MS = 120_000;
-
-function resolveNativePageOpsPath() {
-    const configured = process.env.EVB_PDF_PAGE_OPS_PATH?.trim();
-    if (configured) {
-        return resolve(configured);
-    }
-    const extension = process.platform === 'win32' ? '.exe' : '';
-    return resolve(
-        '.tmp',
-        'pdf-page-ops',
-        `${process.platform}-${process.arch}`,
-        'bin',
-        `evb-pdf-page-ops${extension}`,
-    );
-}
 
 async function runQpdf(args: string[]) {
     return execFileAsync(getPdfNativeToolPaths().qpdf, args, {
@@ -71,10 +55,8 @@ async function createTinyPdf(path: string) {
 }
 
 async function expectCommandFailure(command: string, args: string[]) {
-    await expect(execFileAsync(command, args, {
-        encoding: 'utf8',
-        maxBuffer: 256 * 1024,
-        timeout: NATIVE_INTEGRATION_TIMEOUT_MS,
+    await expect(runNativeToolCommand(command, args, {
+        timeoutMs: NATIVE_INTEGRATION_TIMEOUT_MS,
     })).rejects.toMatchObject({code: expect.anything()});
 }
 
@@ -91,7 +73,7 @@ describe('native PDF save integration', () => {
         }
     });
 
-    it('saves a real tiny PDF with the native binary, validates qpdf, publishes atomically, and reopens after failure', async () => {
+    it('saves a real tiny PDF with page-ops WASM, validates qpdf, publishes atomically, and reopens after failure', async () => {
         tempRoot = await mkdtemp(join(tmpdir(), 'evb-native-pdf-save-'));
         const inputPath = join(tempRoot, 'input.pdf');
         const mutationsPath = join(tempRoot, 'mutations.json');
@@ -100,7 +82,8 @@ describe('native PDF save integration', () => {
         const malformedMutationsPath = join(tempRoot, 'malformed-mutations.json');
         const failedOutputPath = join(tempRoot, 'failed-output.pdf');
         const nativeBinaryPath = resolveNativePageOpsPath();
-        await access(nativeBinaryPath);
+        expect(nativeBinaryPath).not.toBeNull();
+        await access(nativeBinaryPath!);
         await createTinyPdf(inputPath);
         await writeFile(mutationsPath, `${JSON.stringify({freeTextNotes: [{
             author: 'native-integration',
@@ -117,7 +100,7 @@ describe('native PDF save integration', () => {
             text: 'native integration annotation',
         }]})}\n`, 'utf8');
 
-        await execFileAsync(nativeBinaryPath, [
+        await runNativeToolCommand(nativeBinaryPath!, [
             'save-mutations',
             '--input',
             inputPath,
@@ -130,9 +113,7 @@ describe('native PDF save integration', () => {
             '--qpdf',
             getPdfNativeToolPaths().qpdf,
         ], {
-            encoding: 'utf8',
-            maxBuffer: 512 * 1024,
-            timeout: NATIVE_INTEGRATION_TIMEOUT_MS,
+            timeoutMs: NATIVE_INTEGRATION_TIMEOUT_MS,
         });
         expect((await stat(nativeOutputPath)).size).toBeGreaterThan((await stat(inputPath)).size);
         await expect(runQpdf([
@@ -157,7 +138,7 @@ describe('native PDF save integration', () => {
         const publishedBeforeFailure = await readFile(publishedPath);
 
         await writeFile(malformedMutationsPath, '{"unknown":true}\n', 'utf8');
-        await expectCommandFailure(nativeBinaryPath, [
+        await expectCommandFailure(nativeBinaryPath!, [
             'save-mutations',
             '--input',
             inputPath,

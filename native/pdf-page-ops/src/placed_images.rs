@@ -29,6 +29,150 @@ pub(crate) fn validate_placed_image_payloads(images: &[PlacedImage]) -> Result<V
     )
 }
 
+/// Validates and hydrates placed images backed by `evb_host` file sources
+/// (`bytes_source_index: Some(idx)`) before `append_native_mutations_to_source`
+/// runs, keeping image payloads out of the JSON request buffer and checking
+/// per-image and aggregate byte ceilings before reading.
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+pub(crate) fn hydrate_placed_images_from_host_sources<S: ByteSource>(
+    images: &[PlacedImage],
+    source_len: impl Fn(u32) -> Result<u64>,
+    open_source: impl Fn(u32) -> S,
+) -> Result<()> {
+    if !images
+        .iter()
+        .any(|image| image.bytes_source_index.is_some())
+    {
+        return Ok(());
+    }
+    let mut aggregate_bytes = 0u64;
+    let mut lengths = Vec::with_capacity(images.len());
+    for image in images {
+        if image.byte_length == 0 || image.byte_length > MAX_PLACED_IMAGE_BYTES {
+            return Err(domain_error(
+                NativeErrorCode::TooLarge,
+                "Invalid placed image byte length",
+            ));
+        }
+        if image.sha256.len() != 64 {
+            return Err(domain_error(
+                NativeErrorCode::InvalidRequest,
+                "Placed image sidecar hash does not match its manifest",
+            ));
+        }
+        let image_len = if let Some(index) = image.bytes_source_index {
+            if image.bytes_base64.is_some() || !image.bytes_path.as_os_str().is_empty() {
+                return Err(domain_error(
+                    NativeErrorCode::InvalidRequest,
+                    "Placed image must have exactly one source",
+                ));
+            }
+            source_len(index)?
+        } else if let Some(encoded) = &image.bytes_base64 {
+            if !image.bytes_path.as_os_str().is_empty()
+                || encoded.len() as u64 != image.byte_length.div_ceil(3) * 4
+            {
+                return Err(domain_error(
+                    NativeErrorCode::InvalidRequest,
+                    "Placed image must have exactly one source with matching encoded length",
+                ));
+            }
+            image.byte_length
+        } else {
+            return Err(domain_error(
+                NativeErrorCode::InvalidRequest,
+                "Placed image source is missing",
+            ));
+        };
+        if image_len == 0 || image_len > MAX_PLACED_IMAGE_BYTES {
+            return Err(domain_error(
+                NativeErrorCode::TooLarge,
+                "Invalid placed image byte length",
+            ));
+        }
+        if image_len != image.byte_length {
+            return Err(domain_error(
+                NativeErrorCode::InvalidRequest,
+                "Placed image sidecar byte length does not match its manifest",
+            ));
+        }
+        aggregate_bytes = aggregate_bytes.saturating_add(image_len);
+        if aggregate_bytes > MAX_PLACED_IMAGE_AGGREGATE_BYTES {
+            return Err(domain_error(
+                NativeErrorCode::TooLarge,
+                format!(
+                    "Placed images exceed the {MAX_PLACED_IMAGE_AGGREGATE_BYTES}-byte aggregate admission ceiling"
+                ),
+            ));
+        }
+        lengths.push(image_len);
+    }
+
+    let mut decoded_bytes = 0_u64;
+    for (image, admitted_len) in images.iter().zip(lengths) {
+        let capacity = usize::try_from(admitted_len).map_err(|_| {
+            domain_error(
+                NativeErrorCode::TooLarge,
+                "Invalid placed image byte length",
+            )
+        })?;
+        let mut bytes = Vec::new();
+        bytes.try_reserve_exact(capacity).map_err(|_| {
+            domain_error(
+                NativeErrorCode::TooLarge,
+                "Invalid placed image byte length",
+            )
+        })?;
+        if let Some(index) = image.bytes_source_index {
+            let source = open_source(index);
+            let mut hasher = Sha256::new();
+            let mut offset = 0u64;
+            let mut chunk = [0u8; PLACED_IMAGE_READ_CHUNK_BYTES];
+            while offset < admitted_len {
+                let want = (admitted_len - offset).min(chunk.len() as u64) as usize;
+                source
+                    .read_at(offset, &mut chunk[..want])
+                    .map_err(io_domain_error)?;
+                hasher.update(&chunk[..want]);
+                bytes.extend_from_slice(&chunk[..want]);
+                offset += want as u64;
+            }
+            let digest = digest_hex(&hasher.finalize());
+            if !digest.eq_ignore_ascii_case(&image.sha256) {
+                return Err(domain_error(
+                    NativeErrorCode::InvalidRequest,
+                    "Placed image sidecar hash does not match its manifest",
+                ));
+            }
+        } else if let Some(encoded) = &image.bytes_base64 {
+            base64::engine::general_purpose::STANDARD
+                .decode_vec(encoded, &mut bytes)
+                .map_err(|_| {
+                    domain_error(
+                        NativeErrorCode::InvalidRequest,
+                        "Invalid placed image base64",
+                    )
+                })?;
+            if bytes.len() != capacity || !sha256_hex(&bytes).eq_ignore_ascii_case(&image.sha256) {
+                return Err(domain_error(
+                    NativeErrorCode::InvalidRequest,
+                    "Placed image inline payload does not match its manifest",
+                ));
+            }
+        }
+        decoded_bytes =
+            decoded_bytes.saturating_add(placed_raster_decoded_bytes(&bytes, &image.mime_type)?);
+        if decoded_bytes > MAX_PLACED_IMAGE_AGGREGATE_BYTES {
+            return Err(domain_error(
+                NativeErrorCode::TooLarge,
+                "Placed images exceed the aggregate decoded-byte admission ceiling",
+            ));
+        }
+        *image.validated_bytes.borrow_mut() = Some(bytes);
+    }
+    Ok(())
+}
+
 pub(crate) fn take_or_validate_placed_image_payloads(
     mutations: &NativeMutationsFile,
 ) -> Result<Vec<Vec<u8>>> {
@@ -803,6 +947,7 @@ pub(crate) fn placed_image_geometry_probe(update: &PlacedImageGeometryUpdate) ->
         mime_type: "image/jpeg".to_string(),
         bytes_path: PathBuf::new(),
         bytes_base64: None,
+        bytes_source_index: None,
         byte_length: 0,
         sha256: String::new(),
         validated_bytes: std::cell::RefCell::new(None),

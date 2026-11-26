@@ -6326,7 +6326,8 @@ describe('Electron E2E - Document Output', () => {
             });
         }
         const {resolveNativePageOpsPath} = await import('@electron/features/page-ops/public/nativePageOpsPath');
-        await execFileAsync(resolveNativePageOpsPath()!, [
+        const {runNativeToolCommand} = await import('@electron/native-tools/runNativeToolCommand');
+        await runNativeToolCommand(resolveNativePageOpsPath()!, [
             'print-layout',
             '--input',
             fixturePath,
@@ -6529,7 +6530,8 @@ describe('Electron E2E - Document Output', () => {
         await writeDevanagariPdf(devanagariPath, 18 * 1024 * 1024);
         await writeDevanagariPdf(join(printDirectory, 'devanagari-small.pdf'), 1);
         const {resolveNativePageOpsPath} = await import('@electron/features/page-ops/public/nativePageOpsPath');
-        await execFileAsync(resolveNativePageOpsPath()!, [
+        const {runNativeToolCommand} = await import('@electron/native-tools/runNativeToolCommand');
+        await runNativeToolCommand(resolveNativePageOpsPath()!, [
             'print-layout',
             '--input',
             join(printDirectory, 'devanagari-small.pdf'),

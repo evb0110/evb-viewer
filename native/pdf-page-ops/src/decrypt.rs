@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 
 use super::*;
 
-const DECRYPT_OUTCOME_FORMAT: &str = "evb-pdf-decrypt";
-const DECRYPT_OUTCOME_SCHEMA_VERSION: u32 = 1;
+pub(crate) const DECRYPT_OUTCOME_FORMAT: &str = "evb-pdf-decrypt";
+pub(crate) const DECRYPT_OUTCOME_SCHEMA_VERSION: u32 = 1;
 const DECRYPT_OUTCOME_SIDECAR_SUFFIX: &str = ".decrypt.json";
 const MAX_DECRYPT_PASSWORD_FILE_BYTES: usize = 4 * 1024;
 
@@ -18,11 +18,11 @@ pub(crate) enum DecryptOutcome {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct DecryptOutcomeReport {
-    format: String,
-    schema_version: u32,
-    outcome: DecryptOutcome,
-    was_encrypted: bool,
-    revision: Option<i64>,
+    pub(crate) format: String,
+    pub(crate) schema_version: u32,
+    pub(crate) outcome: DecryptOutcome,
+    pub(crate) was_encrypted: bool,
+    pub(crate) revision: Option<i64>,
 }
 
 /// The outcome sidecar lives next to the decrypted output and mirrors the
@@ -178,6 +178,72 @@ pub(crate) fn write_decrypted_pdf_with_password(
         return Err(error);
     }
     Ok(())
+}
+
+/// Decrypts a file-backed source into `sink`, returning the `DecryptOutcomeReport`.
+/// An unencrypted input reports `opened` without touching `sink`.
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+pub(crate) fn decrypt_source_to_sink<S: ByteSource, W: Write>(
+    source: S,
+    len: u64,
+    password: Option<&str>,
+    sink: &mut W,
+) -> Result<DecryptOutcomeReport> {
+    if len > MAX_ENCODED_PDF_BYTES as u64 {
+        match SourcePdf::open_plaintext(source, len) {
+            Ok(_) => return Ok(opened_report()),
+            Err(error) => {
+                if error
+                    .downcast_ref::<NativeError>()
+                    .is_some_and(|native| native.code == NativeErrorCode::Encrypted)
+                {
+                    return Err(domain_error(
+                        NativeErrorCode::TooLarge,
+                        format!(
+                            "Encrypted PDF input exceeds the {MAX_ENCODED_PDF_BYTES}-byte admission ceiling and cannot be decrypted by the bounded reader"
+                        ),
+                    ));
+                }
+                return Err(error);
+            }
+        }
+    }
+    let len_usize = usize::try_from(len)?;
+    let mut bytes = Vec::new();
+    bytes.try_reserve_exact(len_usize).map_err(|_| {
+        domain_error(
+            NativeErrorCode::TooLarge,
+            "PDF input exceeds available memory",
+        )
+    })?;
+    bytes.resize(len_usize, 0);
+    source.read_at(0, &mut bytes).map_err(io_domain_error)?;
+    let mut document = load_pdf_bytes_bounded(&bytes, Some(password.unwrap_or("")))?;
+    if document.is_encrypted() {
+        return Err(domain_error(
+            NativeErrorCode::NeedsPassword,
+            "The encrypted PDF requires the correct password",
+        ));
+    }
+    if !document.was_encrypted() {
+        return Ok(opened_report());
+    }
+    let revision = document
+        .encryption_state
+        .as_ref()
+        .map(|state| state.revision());
+    document
+        .save_to(sink)
+        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
+    sink.flush()
+        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
+    Ok(DecryptOutcomeReport {
+        format: DECRYPT_OUTCOME_FORMAT.to_string(),
+        schema_version: DECRYPT_OUTCOME_SCHEMA_VERSION,
+        outcome: DecryptOutcome::Rewritten,
+        was_encrypted: true,
+        revision,
+    })
 }
 
 fn validate_decrypt_paths(

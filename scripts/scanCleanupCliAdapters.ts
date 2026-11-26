@@ -38,6 +38,14 @@ import {
 } from '@contracts/getCheckedWasmMemoryView';
 import {createScanCleanupRenderers} from '@evb/scan-cleanup/adapters/createScanCleanupRenderers';
 import {parseScanCleanupCompactManifest} from '@evb/scan-cleanup/core/compactManifest';
+import {
+    createPdfPageOpsWasmRunner,
+    executeDesktopPageOpsCommand,
+    isPdfPageOpsWasmPath,
+    loadPdfPageOpsWasmModule,
+    resolvePdfPageOpsWasmPath,
+    type IPdfPageOpsWasmRunner,
+} from '@node-runtime/pdfPageOpsWasmRunner';
 import {createScanCleanupSidecarProtocolHandler} from '@evb/scan-cleanup/core/createScanCleanupSidecarProtocolHandler';
 import type {
     TScanCleanupLog,
@@ -541,12 +549,29 @@ function terminateCliChild(child: ChildProcess) {
     }, 1_500).unref();
 }
 
+const cliPageOpsRunners = new Map<string, Promise<IPdfPageOpsWasmRunner>>();
+
 export async function runCliNativeToolCommand(
     command: string,
     args: string[],
     options: IScanCleanupRunCommandOptions = {},
 ): Promise<IScanCleanupProcessResult> {
     if (options.signal?.aborted) throw options.signal.reason;
+    if (isPdfPageOpsWasmPath(command)) {
+        let runnerPromise = cliPageOpsRunners.get(command);
+        if (!runnerPromise) {
+            runnerPromise = loadPdfPageOpsWasmModule(command).then(mod => createPdfPageOpsWasmRunner(mod));
+            cliPageOpsRunners.set(command, runnerPromise);
+        }
+        const runner = await runnerPromise;
+        if (options.signal?.aborted) throw options.signal.reason;
+        const result = executeDesktopPageOpsCommand(runner, args);
+        if (options.signal?.aborted) throw options.signal.reason;
+        if (result.stdout.length > 0) {
+            options.onStdout?.(result.stdout);
+        }
+        return result;
+    }
     return new Promise<IScanCleanupProcessResult>((resolve, reject) => {
         const child = spawn(command, args, {
             cwd: options.cwd,
@@ -820,6 +845,13 @@ export function resolveCliNativeToolPath(
     currentDir: string,
     envOverride?: string,
 ) {
+    if (crateName === 'pdf-page-ops' || binaryName === 'evb-pdf-page-ops') {
+        return resolvePdfPageOpsWasmPath({
+            currentDir,
+            ...(envOverride === undefined ? {} : {envOverridePath: envOverride}),
+            isPackaged: false,
+        });
+    }
     const executableName = process.platform === 'win32' && !binaryName.toLowerCase().endsWith('.exe')
         ? `${binaryName}.exe`
         : binaryName;

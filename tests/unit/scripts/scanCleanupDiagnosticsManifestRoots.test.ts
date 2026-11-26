@@ -189,7 +189,7 @@ describe('corpus verifier staged native paths', () => {
         expect(paths).toEqual({
             scanCleanup: join('/repo', '.tmp/scan-cleanup/win32-x64/bin/evb-scan-cleanup.exe'),
             combine: join('/repo', '.tmp/pdf-image-combine/win32-x64/bin/evb-pdf-image-combine.exe'),
-            pageOps: join('/repo', '.tmp/pdf-page-ops/win32-x64/bin/evb-pdf-page-ops.exe'),
+            pageOps: join('/repo', 'public/wasm/evb-pdf-page-ops.wasm'),
         });
         expect(Object.values(paths).some(path => path.includes('/win-x64/'))).toBe(false);
     });

@@ -1059,6 +1059,12 @@ pub(crate) struct PlacedImage {
     pub(crate) bytes_path: PathBuf,
     #[serde(default)]
     pub(crate) bytes_base64: Option<String>,
+    #[serde(default)]
+    #[cfg_attr(
+        not(all(target_family = "wasm", target_os = "unknown")),
+        allow(dead_code)
+    )]
+    pub(crate) bytes_source_index: Option<u32>,
     pub(crate) byte_length: u64,
     pub(crate) sha256: String,
     #[serde(skip)]

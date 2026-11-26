@@ -1564,8 +1564,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         // Forward the native commands and hold completion of one successful real parse.
         const launcher = join(scratch, process.platform === 'win32' ? 'textsave-native.exe' : 'textsave-native');
         const preload = join(scratch, 'native-readback.cjs');
-        const realTool = join(process.cwd(), '.tmp/pdf-page-ops', `${process.platform}-${process.arch}`, 'bin',
-            process.platform === 'win32' ? 'evb-pdf-page-ops.exe' : 'evb-pdf-page-ops');
+        const wasmCliPath = join(process.cwd(), 'scripts', 'runPdfPageOpsWasmCli.ts');
         copyFileSync(process.execPath, launcher);
         chmodSync(launcher, 0o700);
         // Node runs its main module after the preload returns. Keep that main inert.
@@ -1576,7 +1575,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             '  const args = [require("node:path").basename(process.argv[1]), ...process.argv.slice(2)];',
             `  const hold = args[0] === 'parse-annotations' && fs.existsSync(${JSON.stringify(armed)});`,
             `  if (hold) fs.rmSync(${JSON.stringify(armed)});`,
-            `  const child = require('node:child_process').spawnSync(${JSON.stringify(realTool)}, args, {stdio: 'inherit'});`,
+            `  const child = require('node:child_process').spawnSync(${JSON.stringify(process.execPath)}, ['--import', 'tsx', ${JSON.stringify(wasmCliPath)}, ...args], {stdio: 'inherit'});`,
             '  if (child.status !== 0) process.exit(child.status ?? 1);',
             '  if (!hold) process.exit(0);',
             `  const watcher = fs.watch(${JSON.stringify(scratch)}, () => {`,

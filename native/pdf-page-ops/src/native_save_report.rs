@@ -6,8 +6,8 @@ const MAX_ANNOTATION_IDENTITY_REPORT_BYTES: usize = 256 * 1024;
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AnnotationDeleteEffects {
-    affected_page_indices: Vec<u32>,
-    deleted_reply_refs: Vec<String>,
+    pub(crate) affected_page_indices: Vec<u32>,
+    pub(crate) deleted_reply_refs: Vec<String>,
 }
 
 /// What a save changed for a parse of the saved file to re-read, or None, as

@@ -693,6 +693,331 @@ pub(crate) fn overlay_text_bytes(
     })
 }
 
+/// Adapter whose `copy_range` reads through `read_at` in chunks into any
+/// `Write` (e.g. an in-memory `Vec<u8>`) instead of targeting `HostSink`.
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+struct BufferedByteSource<S>(S);
+
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+impl<S: ByteSource> ByteSource for BufferedByteSource<S> {
+    fn read_at(&self, offset: u64, buffer: &mut [u8]) -> std::io::Result<()> {
+        self.0.read_at(offset, buffer)
+    }
+
+    fn copy_range(&self, offset: u64, len: u64, output: &mut impl Write) -> std::io::Result<()> {
+        let mut remaining = len;
+        let mut cursor = offset;
+        let mut buf = [0u8; 64 * 1024];
+        while remaining > 0 {
+            let chunk_len = remaining.min(buf.len() as u64) as usize;
+            self.0.read_at(cursor, &mut buf[..chunk_len])?;
+            output.write_all(&buf[..chunk_len])?;
+            cursor += chunk_len as u64;
+            remaining -= chunk_len as u64;
+        }
+        Ok(())
+    }
+}
+
+/// Bounded in-memory sink so extracting a huge source batch fails fast with
+/// `TooLarge` instead of allocating unbounded memory before `load_pdf_bytes`.
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+struct BoundedVecWriter {
+    buf: Vec<u8>,
+    limit: usize,
+}
+
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+impl Write for BoundedVecWriter {
+    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+        if self.buf.len().saturating_add(data.len()) > self.limit {
+            return Err(std::io::Error::other(
+                "Extracted overlay-text source batch exceeds byte admission ceiling",
+            ));
+        }
+        self.buf.extend_from_slice(data);
+        Ok(data.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+#[allow(clippy::too_many_arguments)]
+fn write_overlay_source_batch_to_sink_with_split<S: ByteSource, K: ByteSource>(
+    source_pdf: &SourcePdf<BufferedByteSource<S>>,
+    sink_source: &impl Fn() -> K,
+    current_len: &mut u64,
+    pages: &[usize],
+    instructions: &TextLayerFile,
+    destinations: &OverlayDestinations,
+    omitted: &mut Vec<usize>,
+    append_at: &mut impl FnMut(u64, &[u8]) -> Result<Vec<u8>>,
+) -> Result<()> {
+    let attempt = (|| -> std::result::Result<(), OverlaySourceBatchFailure> {
+        let subset = destinations
+            .subset_pages(pages)
+            .map_err(OverlaySourceBatchFailure::Failed)?;
+        let subset_pages_u32 = subset
+            .pages
+            .iter()
+            .map(|&page| {
+                u32::try_from(page + 1).map_err(|_| {
+                    OverlaySourceBatchFailure::Failed("overlay-text source page exceeds u32".into())
+                })
+            })
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let extracted = edit_page_structure(
+            PageStructureEdit::Extract(&subset_pages_u32),
+            std::slice::from_ref(source_pdf),
+        )
+        .map_err(OverlaySourceBatchFailure::Failed)?;
+        let subset_writer = extracted
+            .write(
+                std::slice::from_ref(source_pdf),
+                BoundedVecWriter {
+                    buf: Vec::new(),
+                    limit: MAX_ENCODED_PDF_BYTES,
+                },
+            )
+            .map_err(|error| {
+                if is_too_large_error(error.as_ref())
+                    || error.to_string().contains("exceeds byte admission ceiling")
+                {
+                    OverlaySourceBatchFailure::TooLarge
+                } else {
+                    OverlaySourceBatchFailure::Failed(error)
+                }
+            })?;
+        let subset_bytes = subset_writer.buf;
+        let mut source = match load_pdf_bytes(&subset_bytes) {
+            Ok(source) => source,
+            Err(error) => {
+                let error = classify_pdf_load_error(
+                    error,
+                    "Failed to parse extracted overlay-text source PDF structure",
+                );
+                return Err(if is_too_large_error(error.as_ref()) {
+                    OverlaySourceBatchFailure::TooLarge
+                } else {
+                    OverlaySourceBatchFailure::Failed(error)
+                });
+            }
+        };
+        assert_plaintext_base(
+            &source,
+            "Encrypted source PDFs are not supported by native page ops",
+        )
+        .map_err(OverlaySourceBatchFailure::Failed)?;
+        carry_named_destinations(&mut source, &subset)
+            .map_err(OverlaySourceBatchFailure::Failed)?;
+        let batch_instructions =
+            rebase_overlay_source_instructions(instructions, &subset.pages, pages)
+                .map_err(OverlaySourceBatchFailure::Failed)?;
+        let mut target_source_pdf = SourcePdf::open_append_base(sink_source(), *current_len)
+            .map_err(OverlaySourceBatchFailure::Failed)?;
+        let mut incremental = target_source_pdf
+            .take_append_base()
+            .map_err(OverlaySourceBatchFailure::Failed)?;
+        match overlay_text_layers_incremental(&mut incremental, &source, &batch_instructions) {
+            Ok(batch_omitted) => omitted.extend(batch_omitted),
+            Err(error) => {
+                return Err(if is_too_large_error(error.as_ref()) {
+                    OverlaySourceBatchFailure::TooLarge
+                } else {
+                    OverlaySourceBatchFailure::Failed(error)
+                });
+            }
+        }
+        incremental.new_document.version = incremental.get_prev_documents().version.clone();
+        let revision =
+            appended_revision_bytes(&mut incremental).map_err(OverlaySourceBatchFailure::Failed)?;
+        let expected_object_ids = collect_incremental_append_object_ids(&incremental);
+        let written =
+            append_at(*current_len, &revision).map_err(OverlaySourceBatchFailure::Failed)?;
+        validate_incremental_append_bytes(
+            &written,
+            *current_len,
+            incremental.previous_xref_start(),
+            &expected_object_ids,
+        )
+        .map_err(OverlaySourceBatchFailure::Failed)?;
+        *current_len = current_len
+            .checked_add(revision.len() as u64)
+            .ok_or_else(|| {
+                OverlaySourceBatchFailure::Failed("overlay-text output size overflow".into())
+            })?;
+        Ok(())
+    })();
+    match attempt {
+        Ok(()) => Ok(()),
+        Err(OverlaySourceBatchFailure::Failed(error)) => Err(error),
+        Err(OverlaySourceBatchFailure::TooLarge) if pages.len() > 1 => {
+            let midpoint = pages.len() / 2;
+            write_overlay_source_batch_to_sink_with_split(
+                source_pdf,
+                sink_source,
+                current_len,
+                &pages[..midpoint],
+                instructions,
+                destinations,
+                omitted,
+                append_at,
+            )?;
+            write_overlay_source_batch_to_sink_with_split(
+                source_pdf,
+                sink_source,
+                current_len,
+                &pages[midpoint..],
+                instructions,
+                destinations,
+                omitted,
+                append_at,
+            )
+        }
+        Err(OverlaySourceBatchFailure::TooLarge) => {
+            let page = pages
+                .first()
+                .copied()
+                .ok_or("overlay-text source batch cannot be empty")?;
+            Err(domain_error(
+                NativeErrorCode::TooLarge,
+                format!(
+                    "overlay-text source page {page} exceeds the bounded decoder resource limit"
+                ),
+            ))
+        }
+    }
+}
+
+/// Host-file `overlay-text`: preserves rewrite semantics when both documents
+/// fit `MAX_ENCODED_PDF_BYTES`, and streams incremental revisions directly via
+/// range-backed `SourcePdf` when either document exceeds 512 MiB.
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn overlay_text_to_sink<S: ByteSource, K: ByteSource, W: Write>(
+    target_source: impl Fn() -> S,
+    target_len: u64,
+    orig_source: impl Fn() -> S,
+    orig_len: u64,
+    sink_source: impl Fn() -> K,
+    instructions: &[u8],
+    sink: &mut W,
+    mut append_at: impl FnMut(u64, &[u8]) -> Result<Vec<u8>>,
+) -> Result<(u32, Vec<u8>)> {
+    let read_all = |src: &S, len: u64| -> Result<Vec<u8>> {
+        let len_usize = usize::try_from(len)?;
+        let mut buf = Vec::new();
+        buf.try_reserve_exact(len_usize).map_err(|_| {
+            domain_error(
+                NativeErrorCode::TooLarge,
+                "PDF input exceeds available memory",
+            )
+        })?;
+        buf.resize(len_usize, 0);
+        src.read_at(0, &mut buf).map_err(io_domain_error)?;
+        Ok(buf)
+    };
+    if target_len <= MAX_ENCODED_PDF_BYTES as u64 && orig_len <= MAX_ENCODED_PDF_BYTES as u64 {
+        let data = read_all(&target_source(), target_len)?;
+        let source_data = read_all(&orig_source(), orig_len)?;
+        let reported = overlay_text_bytes(&data, &source_data, instructions)?;
+        sink.write_all(&reported.data)
+            .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
+        sink.flush()
+            .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
+        return Ok((reported.page_count, reported.report));
+    }
+
+    let parsed = validate_text_layer(parse_json_sidecar_bytes(
+        instructions,
+        "text-layer instructions",
+    )?)?;
+    let mut current_len = target_len;
+    let mut omitted = Vec::new();
+    let pages_out;
+
+    if orig_len <= MAX_ENCODED_PDF_BYTES as u64 {
+        let mut target_pdf = SourcePdf::open_append_base(target_source(), target_len)?;
+        let mut incremental = target_pdf.take_append_base()?;
+        pages_out = page_count(incremental.get_prev_documents());
+        let source_data = read_all(&orig_source(), orig_len)?;
+        let source = load_pdf_bytes(&source_data).map_err(|error| {
+            classify_pdf_load_error(error, "Failed to parse source PDF structure")
+        })?;
+        assert_plaintext_base(
+            &source,
+            "Encrypted source PDFs are not supported by native page ops",
+        )?;
+        omitted = overlay_text_layers_incremental(&mut incremental, &source, &parsed)?;
+        incremental.new_document.version = incremental.get_prev_documents().version.clone();
+        let revision = appended_revision_bytes(&mut incremental)?;
+        let expected_object_ids = collect_incremental_append_object_ids(&incremental);
+        let written = append_at(current_len, &revision)?;
+        validate_incremental_append_bytes(
+            &written,
+            current_len,
+            incremental.previous_xref_start(),
+            &expected_object_ids,
+        )?;
+        current_len = current_len
+            .checked_add(revision.len() as u64)
+            .ok_or("overlay-text output size overflow")?;
+    } else {
+        let target_probe = SourcePdf::open_append_base(target_source(), target_len)?;
+        pages_out = page_count(&target_probe.document);
+        drop(target_probe);
+        let source_pdf = SourcePdf::open_plaintext(BufferedByteSource(orig_source()), orig_len)?;
+        let source_pages = referenced_source_pages(&parsed)?;
+        let destinations = OverlayDestinations::new(&source_pdf.document, &parsed)?;
+        // First write ensures the sink starts with target_len bytes before reading from sink_source.
+        let _ = append_at(target_len, &[])?;
+        for batch in source_pages.chunks(MAX_SOURCE_PAGE_BATCH_PAGES) {
+            write_overlay_source_batch_to_sink_with_split(
+                &source_pdf,
+                &sink_source,
+                &mut current_len,
+                batch,
+                &parsed,
+                &destinations,
+                &mut omitted,
+                &mut append_at,
+            )?;
+        }
+    }
+
+    let mut staged_pdf = SourcePdf::open_append_base(sink_source(), current_len)?;
+    let mut incremental = staged_pdf.take_append_base()?;
+    let rebind = crate::split_navigation::rebind_retained_destinations_in(
+        &mut incremental,
+        crate::split_navigation::navigation_source(orig_source(), orig_len)?,
+        &parsed,
+    )?;
+    if rebind.appends_revision {
+        let revision = appended_revision_bytes(&mut incremental)?;
+        let expected_object_ids = collect_incremental_append_object_ids(&incremental);
+        let written = append_at(current_len, &revision)?;
+        validate_incremental_append_bytes(
+            &written,
+            current_len,
+            incremental.previous_xref_start(),
+            &expected_object_ids,
+        )?;
+    }
+    let omitted_pages = omitted_source_pages(&parsed, &omitted);
+    let report = if rebind.accessibility_tags_removed || !omitted_pages.is_empty() {
+        crate::split_pages::scan_cleanup_page_ops_report(
+            rebind.accessibility_tags_removed,
+            &omitted_pages,
+        )?
+    } else {
+        Vec::new()
+    };
+    Ok((pages_out, report))
+}
+
 pub(crate) fn write_overlay_text_layers_path(
     input_path: &Path,
     source_path: &Path,

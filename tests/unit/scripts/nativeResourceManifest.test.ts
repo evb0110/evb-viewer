@@ -27,7 +27,6 @@ describe('native resource manifest', () => {
         expect(GENERATED_NATIVE_TOOL_RESOURCES.map(tool => tool.familyId)).toEqual([
             'windows-job-launcher',
             'pdf-image-combine',
-            'pdf-page-ops',
             'scan-cleanup',
         ]);
         for (const tool of GENERATED_NATIVE_TOOL_RESOURCES) {
@@ -42,16 +41,15 @@ describe('native resource manifest', () => {
             .map(family => family.sourceRootSegments.join('/'))).toEqual([
             '.tmp/windows-job-launcher',
             '.tmp/pdf-image-combine',
-            '.tmp/pdf-page-ops',
             '.tmp/scan-cleanup',
         ]);
     });
 
     it('resolves generated build tools from the canonical resource rows', () => {
-        expect(getGeneratedNativeToolResource('pdf-page-ops')).toMatchObject({
-            binaryName: 'evb-pdf-page-ops',
-            crateName: 'pdf-page-ops',
-            stagingName: 'pdf-page-ops',
+        expect(getGeneratedNativeToolResource('pdf-image-combine')).toMatchObject({
+            binaryName: 'evb-pdf-image-combine',
+            crateName: 'pdf-image-combine',
+            stagingName: 'pdf-image-combine',
         });
         expect(() => getGeneratedNativeToolResource('not-a-tool')).toThrow(
             'Unknown generated native tool: not-a-tool',
