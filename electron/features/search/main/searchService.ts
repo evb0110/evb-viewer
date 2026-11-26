@@ -29,6 +29,7 @@ import {
     type ISearchQueryOptions,
     type IProvisionalSearchMatches,
 } from '@electron/features/search/searchIndex';
+import {shutdownPdfSearchWorkers} from '@electron/features/search/pdfSearchWorkerClient';
 import { getErrorMessage } from '@electron/utils/error';
 
 export interface ISearchSenderContext {
@@ -217,7 +218,10 @@ export function createSearchService() {
             );
         },
         cancelAll: (reason: string) => jobs.cancelWhere(() => true, reason),
-        shutdown: () => jobs.dispose(),
+        shutdown: () => {
+            shutdownPdfSearchWorkers();
+            return jobs.dispose();
+        },
     };
 }
 

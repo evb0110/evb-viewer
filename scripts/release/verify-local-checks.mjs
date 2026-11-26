@@ -17,7 +17,6 @@ const REUSE_BUILD_RECEIPT_ENV_VAR = 'EVB_RELEASE_VERIFY_REUSE_BUILD_RECEIPT';
 const STRICT_BUILD_DUPLICATE_GATES = new Set([
     'build:pdf-image-combine',
     'build:pdf-page-ops',
-    'build:pdf-search',
     'build:scan-cleanup',
 ]);
 

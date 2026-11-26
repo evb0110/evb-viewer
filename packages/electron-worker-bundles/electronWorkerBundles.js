@@ -1,5 +1,5 @@
 /**
- * @typedef {'pdf-conformance' | 'document-save-utility' | 'scan-cleanup' | 'pdf-text' | 'image-export-tiff' | 'djvu-pdf' | 'ocr-engine-host' | 'ocr-engine'} TWorkerBundleId
+ * @typedef {'pdf-conformance' | 'document-save-utility' | 'scan-cleanup' | 'pdf-search' | 'pdf-text' | 'image-export-tiff' | 'djvu-pdf' | 'ocr-engine-host' | 'ocr-engine'} TWorkerBundleId
  */
 
 /**
@@ -32,6 +32,13 @@ export const WORKER_BUNDLES = [
         id: 'scan-cleanup',
         entryPoint: 'electron/features/scan-cleanup/worker/main.ts',
         fileName: 'scan-cleanup-worker.js',
+        format: 'esm',
+        unpacked: true,
+    },
+    {
+        id: 'pdf-search',
+        entryPoint: 'electron/features/search/pdfSearchWorker.ts',
+        fileName: 'pdf-search-worker.js',
         format: 'esm',
         unpacked: true,
     },

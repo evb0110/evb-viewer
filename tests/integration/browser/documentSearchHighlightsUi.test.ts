@@ -118,7 +118,7 @@ describe('browser document lifecycle UI', () => {
                 window.__searchPosted = 0;
                 const post = Worker.prototype.postMessage;
                 Worker.prototype.postMessage = function(message, options) {
-                    if (message.type === 'matchPageText') {
+                    if (message.type === 'matchPageText' || message.type === 'search') {
                         window.__searchPosted += 1;
                     }
                     return post.call(this, message, options);
@@ -354,7 +354,7 @@ describe('browser document lifecycle UI', () => {
         }
     }, 90_000);
 
-    it('stops a catastrophic DjVu regex at the search budget and keeps the page responsive', async () => {
+    it('finishes a backtracking-hostile DjVu regex in linear time via WASM and keeps the page responsive', async () => {
         try {
             const page = await lifecycle.browser.newPage({viewport: {
                 width: 1_280,
@@ -402,13 +402,13 @@ describe('browser document lifecycle UI', () => {
             await searchInput.fill('a+.a+$');
             await searchInput.press('Enter');
 
-            // Chromium takes quadratic time to match a+.a+$ over this run of a's,
-            // longer than the poll below unbounded. The 250 ms budget stops it in
-            // the worker, so the search reports the budget error instead.
+            // Backtracking engines take quadratic time on a+.a+$ over this run of a's;
+            // evb-pdf-search.wasm's linear-time automaton finishes cleanly without
+            // stalling the worker or blocking page input.
             await expect.poll(
                 () => page.locator('.document-search-results:visible').first().textContent(),
-                {timeout: 30_000},
-            ).toMatch(/matching budget/u);
+                {timeout: 10_000},
+            ).toMatch(/No results found/u);
             await regexToggle.first().click();
             await expect.poll(() => regexToggle.first().getAttribute('aria-pressed'), {timeout: 1_000}).toBe('false');
             expect(consoleProblems).toEqual([]);

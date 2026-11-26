@@ -1,49 +1,53 @@
-//! Document text search for EVB Viewer.
+//! Unified document text search for EVB Viewer (desktop and browser WASM).
 //!
-//! `index` reads one JSON line per page (`{"pageNumber":1,"text":"..."}`) on
-//! stdin and writes the document's search index; a last line
-//! `{"pageNumber":n,"overBudget":true}` says the producer stopped at page n
-//! because its text is over the budget. `search` matches a query against the
-//! index, or with `--pages-from-stdin` a literal query against such lines
-//! while the index is still being built, and `stat` reports its coverage. The index is a derived cache: a
-//! missing or unreadable file, another document revision, or another format
-//! answers `{"stale":true}` so the caller rebuilds it from the document.
+//! `evb-pdf-search` builds and searches binary `EVBSIDX4` document text
+//! indexes and raw page streams in memory. The index is a derived cache keyed
+//! by document revision: a missing, malformed, older-format, or foreign-revision
+//! index answers `{"stale":true}` so the caller rebuilds it from the document.
+
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+mod wasm;
 
 use evb_native_support::{NativeError, NativeErrorCode};
 use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, VecDeque};
-use std::env;
-use std::error::Error;
-use std::fs::{self, File};
-use std::io::{self, BufRead, BufReader, BufWriter, Cursor, Read, Seek, SeekFrom, Write};
-use std::path::{Path, PathBuf};
-use std::process;
+use std::io::{self, Cursor, Read, Seek, SeekFrom};
 use std::sync::OnceLock;
 use unicode_normalization::char::canonical_combining_class;
 use unicode_normalization::{is_nfc_quick, IsNormalized, UnicodeNormalization};
 
-const MAGIC: &[u8; 8] = b"EVBSIDX4";
+pub const MAGIC: &[u8; 8] = b"EVBSIDX4";
 /// magic, page count, pages scanned, flags, revision length, record count, reserved.
-const HEADER_SIZE: usize = 32;
+pub const HEADER_SIZE: usize = 32;
 /// page number and UTF-8 byte length.
-const RECORD_SIZE: usize = 8;
+pub const RECORD_SIZE: usize = 8;
 const FLAG_TRUNCATED: u32 = 1;
-const MAX_INDEX_BYTES: usize = 320 * 1024 * 1024;
+pub const MAX_INDEX_BYTES: usize = 320 * 1024 * 1024;
 /// Search reads stored page text in chunks of about this size; a larger page
 /// is read whole.
-const READ_CHUNK_BYTES: usize = 4 * 1024 * 1024;
+pub const READ_CHUNK_BYTES: usize = 4 * 1024 * 1024;
 /// Ceilings on the text budget a caller may ask `index` to hold.
-const MAX_PAGE_TEXT_BYTES: usize = 32 * 1024 * 1024;
-const MAX_TOTAL_TEXT_BYTES: usize = 256 * 1024 * 1024;
-const MAX_DOCUMENT_REVISION_BYTES: usize = 8_192;
-const MAX_QUERY_UTF16_UNITS: usize = 2_048;
-const MAX_RESULT_LIMIT: usize = 500;
-const MAX_CONTEXT_CHARS: usize = 56;
+pub const MAX_PAGE_TEXT_BYTES: usize = 32 * 1024 * 1024;
+pub const MAX_TOTAL_TEXT_BYTES: usize = 256 * 1024 * 1024;
+pub const MAX_DOCUMENT_REVISION_BYTES: usize = 8_192;
+pub const MAX_QUERY_UTF16_UNITS: usize = 2_048;
+pub const MAX_RESULT_LIMIT: usize = 500;
+pub const MAX_MATCH_PAGE_LIMIT: usize = MAX_RESULT_LIMIT + 1;
+pub const MAX_CONTEXT_CHARS: usize = 56;
 const MISSING_TEXT_PAGE_SAMPLE: usize = 80;
 /// Letters, numbers, marks, underscore and apostrophes join a word, as in
 /// `packages/pdf-core/pdfSearchAlgorithms.ts`.
 const WORD_CHARACTER_CLASS: &str = r"\p{L}\p{N}\p{M}_'’";
+
+/// Binary page-record header: page_number (u32), flags (u32), text_byte_len (u32).
+const PAGE_RECORD_HEADER_SIZE: usize = 12;
+const PAGE_RECORD_FLAG_TEXT: u32 = 0;
+const PAGE_RECORD_FLAG_OVER_BUDGET: u32 = 1;
+
+pub const REQUEST_MAGIC: &[u8; 4] = b"EPSR";
+pub const REQUEST_VERSION: u32 = 1;
+const REQUEST_PREFIX_SIZE: usize = 12;
 
 fn invalid_request(message: impl Into<String>) -> NativeError {
     NativeError::new(NativeErrorCode::InvalidRequest, message)
@@ -61,7 +65,7 @@ struct PageRecord {
 }
 
 #[derive(Debug)]
-struct SearchIndex<R = Cursor<Vec<u8>>> {
+pub struct SearchIndex<R = Cursor<Vec<u8>>> {
     page_count: u32,
     pages_scanned: u32,
     truncated: bool,
@@ -71,17 +75,17 @@ struct SearchIndex<R = Cursor<Vec<u8>>> {
 
 #[derive(Serialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-struct Coverage {
-    page_count: u32,
-    pages_scanned: u32,
-    pages_written: u32,
-    truncated: bool,
+pub struct Coverage {
+    pub page_count: u32,
+    pub pages_scanned: u32,
+    pub pages_written: u32,
+    pub truncated: bool,
     /// The first scanned pages that carry no text, for OCR recommendations.
-    missing_text_page_sample: Vec<u32>,
+    pub missing_text_page_sample: Vec<u32>,
 }
 
 impl<R: Read + Seek> SearchIndex<R> {
-    fn coverage(&self) -> Coverage {
+    pub fn coverage(&self) -> Coverage {
         let mut written = self
             .records
             .iter()
@@ -108,10 +112,9 @@ impl<R: Read + Seek> SearchIndex<R> {
 
     /// Visits the text of the given records, in increasing record order. Page
     /// text is stored back to back, so consecutive selected records that fit
-    /// one bounded chunk are read with one seek and one read: a page at a time
-    /// took two system calls per page, thousands for one query on a long book.
-    /// Stopping a batch when a record index is skipped ensures a sparse page
-    /// filter never reads unselected pages in between.
+    /// one bounded chunk are read with one seek and one read. Stopping a batch
+    /// when a record index is skipped ensures a sparse page filter never reads
+    /// unselected pages in between.
     fn visit_pages(
         &mut self,
         record_indices: &[usize],
@@ -159,8 +162,8 @@ impl<R: Read + Seek> SearchIndex<R> {
     }
 }
 
-/// Reads only the header and table; page bytes stay in the admitted open file.
-fn parse_index<R: Read + Seek>(
+/// Reads only the header and table; page bytes stay in the reader.
+pub fn parse_index<R: Read + Seek>(
     mut data: R,
     file_len: usize,
     expected_revision: &str,
@@ -226,38 +229,31 @@ fn parse_index<R: Read + Seek>(
     }))
 }
 
-fn load_index(
-    path: &Path,
+pub fn load_index_bytes<'a>(
+    bytes: &'a [u8],
     expected_revision: &str,
-) -> Result<Option<SearchIndex<BufReader<File>>>, NativeError> {
-    let result = (|| {
-        let file = File::open(path)?;
-        let length = file.metadata()?.len();
-        if length > MAX_INDEX_BYTES as u64 {
-            return Ok(Err(too_large(format!(
-                "Search index exceeds the {MAX_INDEX_BYTES}-byte admission ceiling"
-            ))));
-        }
-        parse_index(BufReader::new(file), length as usize, expected_revision).map(Ok)
-    })();
-    match result {
-        Ok(index) => index,
-        Err(error) => match error.kind() {
-            io::ErrorKind::NotFound | io::ErrorKind::UnexpectedEof => Ok(None),
-            _ => Err(NativeError::new(
-                NativeErrorCode::Io,
-                format!("Search index could not be read: {error}"),
-            )),
-        },
+) -> Result<Option<SearchIndex<Cursor<&'a [u8]>>>, NativeError> {
+    if bytes.len() > MAX_INDEX_BYTES {
+        return Err(too_large(format!(
+            "Search index exceeds the {MAX_INDEX_BYTES}-byte admission ceiling"
+        )));
+    }
+    match parse_index(Cursor::new(bytes), bytes.len(), expected_revision) {
+        Ok(index) => Ok(index),
+        Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => Ok(None),
+        Err(error) => Err(NativeError::new(
+            NativeErrorCode::Io,
+            format!("Search index could not be read: {error}"),
+        )),
     }
 }
 
 /// The text one index holds, in UTF-8 bytes: the caller's budget, within the
 /// ceilings above.
 #[derive(Debug, Clone, Copy)]
-struct TextBudget {
-    page: usize,
-    total: usize,
+pub struct TextBudget {
+    pub page: usize,
+    pub total: usize,
 }
 
 impl Default for TextBudget {
@@ -270,111 +266,133 @@ impl Default for TextBudget {
 }
 
 impl TextBudget {
-    /// A page within the budget always fits a line: JSON escapes a byte into
-    /// at most six (`\u001f`), and the rest is the page number and field names.
-    fn max_input_line_bytes(self) -> usize {
-        self.page.saturating_mul(6).saturating_add(1024)
+    pub fn validated(
+        max_page_text_bytes: Option<usize>,
+        max_total_text_bytes: Option<usize>,
+    ) -> Result<Self, NativeError> {
+        let ceiling = Self::default();
+        let page = match max_page_text_bytes {
+            None => ceiling.page,
+            Some(value) if value == 0 || value > ceiling.page => {
+                return Err(too_large(format!(
+                    "maxPageTextBytes must be between 1 and {} bytes",
+                    ceiling.page
+                )));
+            }
+            Some(value) => value,
+        };
+        let total = match max_total_text_bytes {
+            None => ceiling.total,
+            Some(value) if value == 0 || value > ceiling.total => {
+                return Err(too_large(format!(
+                    "maxTotalTextBytes must be between 1 and {} bytes",
+                    ceiling.total
+                )));
+            }
+            Some(value) => value,
+        };
+        Ok(Self { page, total })
     }
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct IndexInputPage {
-    page_number: u32,
-    text: Option<String>,
-    #[serde(default)]
-    over_budget: bool,
-}
-
-/// Reads bounded JSON lines and builds the index in memory. Pages must arrive
-/// in increasing order; a page with no text is scanned but not stored. The
-/// first page over the budget, received or reported, ends what is stored; a
-/// reported one is the producer's last line, so anything after it is refused.
-fn read_index_input(
-    input: &mut impl BufRead,
+/// Reads binary page records `[page_number: u32 LE][flags: u32 LE][byte_len: u32 LE][utf8]`
+/// and builds the index in memory. Pages must arrive in increasing order; a
+/// page with no text is scanned but not stored. The first page over the budget,
+/// received or reported, ends what is stored; a reported one is the producer's
+/// last record, so anything after it is refused.
+pub fn read_binary_pages(
+    payload: &[u8],
     page_count: Option<u32>,
     revision: &str,
     budget: TextBudget,
 ) -> Result<SearchIndex, NativeError> {
+    if revision.is_empty() || revision.len() > MAX_DOCUMENT_REVISION_BYTES {
+        return Err(invalid_request(
+            "Search index document revision has an invalid length",
+        ));
+    }
+    if page_count == Some(0) {
+        return Err(invalid_request("Invalid pageCount: 0"));
+    }
     let mut records = Vec::new();
     let mut data = Vec::new();
     let mut pages_seen = 0u32;
     let mut pages_scanned = 0u32;
     let mut truncated = false;
     let mut reported_over_budget = false;
-    let mut line = Vec::new();
-    let max_line_bytes = budget.max_input_line_bytes();
-    loop {
-        line.clear();
-        let limit = u64::try_from(max_line_bytes.saturating_add(1)).unwrap_or(u64::MAX);
-        let read = input
-            .by_ref()
-            .take(limit)
-            .read_until(b'\n', &mut line)
-            .map_err(|error| NativeError::new(NativeErrorCode::Io, error.to_string()))?;
-        if read == 0 {
-            break;
-        }
-        if line.len() > max_line_bytes {
-            return Err(too_large(
-                "Search index input line exceeds its admission ceiling",
-            ));
-        }
-        if line.iter().all(u8::is_ascii_whitespace) {
-            continue;
-        }
-        let page: IndexInputPage = serde_json::from_slice(&line).map_err(|error| {
-            invalid_request(format!("Invalid search index input page: {error}"))
-        })?;
+    let mut offset = 0usize;
+
+    while offset < payload.len() {
+        let header_end = offset
+            .checked_add(PAGE_RECORD_HEADER_SIZE)
+            .filter(|&end| end <= payload.len())
+            .ok_or_else(|| invalid_request("Invalid search index input page: truncated header"))?;
+        let page_number = u32::from_le_bytes(payload[offset..offset + 4].try_into().unwrap());
+        let flags = u32::from_le_bytes(payload[offset + 4..offset + 8].try_into().unwrap());
+        let text_len =
+            u32::from_le_bytes(payload[offset + 8..offset + 12].try_into().unwrap()) as usize;
+        offset = header_end;
+
+        let text_end = offset
+            .checked_add(text_len)
+            .filter(|&end| end <= payload.len())
+            .ok_or_else(|| invalid_request("Invalid search index input page: truncated text"))?;
+        let text_bytes = &payload[offset..text_end];
+        offset = text_end;
+
         if reported_over_budget {
             return Err(invalid_request(format!(
-                "Search index page {} follows the page reported over the budget",
-                page.page_number
+                "Search index page {page_number} follows the page reported over the budget"
             )));
         }
-        if page.page_number <= pages_seen || page.page_number > page_count.unwrap_or(u32::MAX) {
+        if page_number <= pages_seen || page_number > page_count.unwrap_or(u32::MAX) {
             return Err(invalid_request(format!(
-                "Search index page {} is out of order or outside the document",
-                page.page_number
+                "Search index page {page_number} is out of order or outside the document"
             )));
         }
-        pages_seen = page.page_number;
-        let text = match (page.text, page.over_budget) {
-            (Some(text), false) => text,
-            (None, true) => {
+        pages_seen = page_number;
+
+        match flags {
+            PAGE_RECORD_FLAG_OVER_BUDGET => {
+                if text_len != 0 {
+                    return Err(invalid_request(format!(
+                        "Search index page {page_number} needs either text or overBudget"
+                    )));
+                }
                 (truncated, reported_over_budget) = (true, true);
                 continue;
             }
+            PAGE_RECORD_FLAG_TEXT => {
+                if std::str::from_utf8(text_bytes).is_err() {
+                    return Err(invalid_request(format!(
+                        "Invalid search index input page {page_number}: text is not UTF-8"
+                    )));
+                }
+            }
             _ => {
                 return Err(invalid_request(format!(
-                    "Search index page {} needs either text or overBudget",
-                    page.page_number
-                )))
+                    "Invalid search index input page {page_number}: unknown record flags {flags}"
+                )));
             }
-        };
+        }
         if truncated {
             continue;
         }
-        let text_len = text.len();
         if text_len > budget.page || data.len() + text_len > budget.total {
             truncated = true;
             continue;
         }
-        pages_scanned = page.page_number;
+        pages_scanned = page_number;
         if text_len > 0 {
             records.push(PageRecord {
-                page_number: page.page_number,
+                page_number,
                 offset: data.len(),
                 byte_len: text_len,
             });
-            data.extend_from_slice(text.as_bytes());
+            data.extend_from_slice(text_bytes);
         }
     }
-    if revision.is_empty() || revision.len() > MAX_DOCUMENT_REVISION_BYTES {
-        return Err(invalid_request(
-            "Search index document revision has an invalid length",
-        ));
-    }
+
     Ok(SearchIndex {
         page_count: page_count.unwrap_or(pages_seen),
         pages_scanned,
@@ -384,76 +402,101 @@ fn read_index_input(
     })
 }
 
-fn write_index(index: &SearchIndex, revision: &str, out: &Path) -> Result<(), Box<dyn Error>> {
-    let temporary = PathBuf::from(format!("{}.tmp-{}", out.display(), process::id()));
-    let result = (|| -> Result<(), Box<dyn Error>> {
-        let mut writer = BufWriter::new(File::create(&temporary)?);
-        writer.write_all(MAGIC)?;
-        for value in [
-            index.page_count,
-            index.pages_scanned,
-            if index.truncated { FLAG_TRUNCATED } else { 0 },
-            u32::try_from(revision.len())?,
-            u32::try_from(index.records.len())?,
-            0,
-        ] {
-            writer.write_all(&value.to_le_bytes())?;
-        }
-        writer.write_all(revision.as_bytes())?;
-        for record in &index.records {
-            writer.write_all(&record.page_number.to_le_bytes())?;
-            writer.write_all(&u32::try_from(record.byte_len)?.to_le_bytes())?;
-        }
-        writer.write_all(index.data.get_ref())?;
-        writer.into_inner().map_err(|error| error.into_error())?;
-        fs::rename(&temporary, out)?;
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temporary);
+/// Serializes an in-memory `SearchIndex` into `EVBSIDX4` bytes.
+pub fn serialize_index(index: &SearchIndex, revision: &str) -> Result<Vec<u8>, NativeError> {
+    let revision_len = u32::try_from(revision.len())
+        .map_err(|_| invalid_request("Search index document revision exceeds u32 length"))?;
+    let record_count = u32::try_from(index.records.len())
+        .map_err(|_| too_large("Search index record count exceeds u32 limit"))?;
+    let text_bytes = index.data.get_ref();
+    let total_len = HEADER_SIZE
+        .checked_add(revision.len())
+        .and_then(|len| len.checked_add(index.records.len().checked_mul(RECORD_SIZE)?))
+        .and_then(|len| len.checked_add(text_bytes.len()))
+        .ok_or_else(|| too_large("Search index size overflow"))?;
+    if total_len > MAX_INDEX_BYTES {
+        return Err(too_large(format!(
+            "Search index exceeds the {MAX_INDEX_BYTES}-byte admission ceiling"
+        )));
     }
-    result
+    let mut output = Vec::with_capacity(total_len);
+    output.extend_from_slice(MAGIC);
+    for value in [
+        index.page_count,
+        index.pages_scanned,
+        if index.truncated { FLAG_TRUNCATED } else { 0 },
+        revision_len,
+        record_count,
+        0,
+    ] {
+        output.extend_from_slice(&value.to_le_bytes());
+    }
+    output.extend_from_slice(revision.as_bytes());
+    for record in &index.records {
+        output.extend_from_slice(&record.page_number.to_le_bytes());
+        let byte_len = u32::try_from(record.byte_len)
+            .map_err(|_| too_large("Search index page exceeds u32 byte length"))?;
+        output.extend_from_slice(&byte_len.to_le_bytes());
+    }
+    output.extend_from_slice(text_bytes);
+    Ok(output)
 }
 
-struct SearchOptions {
-    query: String,
-    limit: usize,
-    context_chars: usize,
-    result_offset: Option<usize>,
-    match_case: bool,
-    whole_word: bool,
-    use_regex: bool,
-    pages: Option<BTreeSet<u32>>,
+pub struct SearchOptions {
+    pub query: String,
+    pub limit: usize,
+    pub context_chars: usize,
+    pub result_offset: Option<usize>,
+    pub match_case: bool,
+    pub whole_word: bool,
+    pub use_regex: bool,
+    pub pages: Option<BTreeSet<u32>>,
 }
 
 #[derive(Serialize, Debug, PartialEq, Eq)]
-struct SearchExcerpt {
-    prefix: bool,
-    suffix: bool,
-    before: String,
+pub struct SearchExcerpt {
+    pub prefix: bool,
+    pub suffix: bool,
+    pub before: String,
     #[serde(rename = "match")]
-    matched_text: String,
-    after: String,
+    pub matched_text: String,
+    pub after: String,
 }
 
 #[derive(Serialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-struct SearchMatch {
-    page_number: u32,
-    page_match_index: usize,
-    match_index: usize,
-    start_offset: usize,
-    end_offset: usize,
-    excerpt: SearchExcerpt,
+pub struct SearchMatch {
+    pub page_number: u32,
+    pub page_match_index: usize,
+    pub match_index: usize,
+    pub start_offset: usize,
+    pub end_offset: usize,
+    pub excerpt: SearchExcerpt,
 }
 
 #[derive(Serialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-struct SearchResponse {
-    results: Vec<SearchMatch>,
-    truncated: bool,
-    page_count: u32,
-    coverage: Coverage,
+pub struct SearchResponse {
+    pub results: Vec<SearchMatch>,
+    pub truncated: bool,
+    pub page_count: u32,
+    pub coverage: Coverage,
+}
+
+#[derive(Serialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PageWindowMatch {
+    pub page_match_index: usize,
+    pub start_offset: usize,
+    pub end_offset: usize,
+}
+
+#[derive(Serialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MatchPageResponse {
+    pub matches: Vec<PageWindowMatch>,
+    pub truncated: bool,
+    pub match_count: usize,
 }
 
 fn fold_search_ligature(character: char) -> Option<&'static str> {
@@ -503,11 +546,6 @@ impl NormalizedText {
         let groups = GROUPS.get_or_init(|| Regex::new(
             r"(?:[\u{1100}-\u{1112}][\u{1161}-\u{1175}][\u{11a8}-\u{11c2}]?|[\u{ac00}-\u{d7a3}][\u{11a8}-\u{11c2}]|\P{M})\p{M}*|\p{M}+",
         ).expect("canonical search grouping is valid"));
-        // Every ASCII character starts a group, so only a run of non-ASCII
-        // text, with the ASCII base a leading mark combines with, can change.
-        // ASCII between runs, and runs or groups the quick check passes, are
-        // copied: one long s used to send a whole page through a fragment per
-        // scalar.
         let bytes = value.as_bytes();
         let mut copied = 0;
         while let Some(first) = bytes[copied..].iter().position(|byte| !byte.is_ascii()) {
@@ -572,8 +610,7 @@ impl NormalizedText {
 
 /// Scalars that are their own composition, combine with nothing before them
 /// and start a new combining sequence: Latin, Cyrillic, Hebrew and Arabic
-/// letters, kana, CJK ideographs and Hangul syllables, but not long s. Book
-/// text is nearly all of these, so most scalars skip the table lookups.
+/// letters, kana, CJK ideographs and Hangul syllables, but not long s.
 fn is_stable_starter(character: char) -> bool {
     matches!(
         character,
@@ -625,9 +662,8 @@ fn contains_unsegmented_script(value: &str) -> bool {
         .is_some_and(|pattern| pattern.is_match(value))
 }
 
-/// The query as a regex, with the same rules as the renderer's JavaScript
-/// matcher: literal or regex query over normalized text, optional case
-/// folding, and whole-word boundaries except for literal queries in
+/// The query as a regex: literal or regex query over normalized text, optional
+/// case folding, and whole-word boundaries except for literal queries in
 /// unsegmented scripts. With boundaries, group 1 is the match and the
 /// characters around it only delimit it.
 struct Matcher {
@@ -636,11 +672,16 @@ struct Matcher {
 }
 
 impl Matcher {
-    fn new(options: &SearchOptions) -> Result<Self, NativeError> {
-        let query = normalize_search_fragment(&options.query);
+    fn new(
+        query: &str,
+        match_case: bool,
+        whole_word: bool,
+        use_regex: bool,
+    ) -> Result<Self, NativeError> {
+        let query = normalize_search_fragment(query);
         // Each run of whitespace in a literal query matches any run of
         // whitespace in the page, across a line break or a no-break space.
-        let pattern = if options.use_regex {
+        let pattern = if use_regex {
             query.clone()
         } else {
             static WHITESPACE: OnceLock<Regex> = OnceLock::new();
@@ -651,15 +692,14 @@ impl Matcher {
                 .collect::<Vec<_>>()
                 .join(r"\s+")
         };
-        let bounded =
-            options.whole_word && (options.use_regex || !contains_unsegmented_script(&query));
+        let bounded = whole_word && (use_regex || !contains_unsegmented_script(&query));
         let pattern = if bounded {
             format!(r"(?:\A|[^{WORD_CHARACTER_CLASS}])({pattern})(?:[^{WORD_CHARACTER_CLASS}]|\z)")
         } else {
             pattern
         };
         let regex = RegexBuilder::new(&pattern)
-            .case_insensitive(!options.match_case)
+            .case_insensitive(!match_case)
             .build()
             .map_err(|error| invalid_request(format!("Invalid search regex: {error}")))?;
         Ok(Self { regex, bounded })
@@ -754,11 +794,16 @@ fn build_excerpt(
     }
 }
 
-fn search_index<R: Read + Seek>(
+pub fn search_index<R: Read + Seek>(
     index: &mut SearchIndex<R>,
     options: &SearchOptions,
 ) -> Result<SearchResponse, NativeError> {
-    let matcher = Matcher::new(options)?;
+    let matcher = Matcher::new(
+        &options.query,
+        options.match_case,
+        options.whole_word,
+        options.use_regex,
+    )?;
     let mut results = VecDeque::new();
     let mut truncated = false;
     let mut match_count = 0;
@@ -813,8 +858,6 @@ fn search_index<R: Read + Seek>(
         }
         Ok(true)
     })?;
-    // Excerpts are built only for the matches kept: the last window used to
-    // build one for every match in the document and discard all but `limit`.
     let mut kept_pages: Vec<usize> = results.iter().map(|result| result.0).collect();
     kept_pages.dedup();
     let mut kept = Vec::with_capacity(results.len());
@@ -842,211 +885,343 @@ fn search_index<R: Read + Seek>(
     })
 }
 
-fn usage() -> &'static str {
-    "Usage:\n  evb-pdf-search index --out <path> --document-revision <token> [--page-count <n>] [--max-page-text-bytes <n>] [--max-total-text-bytes <n>]  (page JSON lines on stdin)\n  evb-pdf-search search --index <path> --document-revision <token> --query <text> [--match-case] [--whole-word] [--regex] [--limit <n>] [--context <n>] [--pages <n,n,...>] [--result-offset <n|-1>]\n  evb-pdf-search search --pages-from-stdin --document-revision <token> --query <text> [search options except --regex]  (index page JSON lines on stdin)\n  evb-pdf-search stat --index <path> --document-revision <token>"
-}
-
-struct CliArgs {
-    values: Vec<(String, String)>,
-}
-
-impl CliArgs {
-    fn parse(mut args: impl Iterator<Item = String>) -> Result<Self, NativeError> {
-        let mut values = Vec::new();
-        while let Some(name) = args.next() {
-            if !name.starts_with("--") {
-                return Err(invalid_request(format!("Unexpected argument: {name}")));
-            }
-            let value = if [
-                "--match-case",
-                "--whole-word",
-                "--regex",
-                "--pages-from-stdin",
-            ]
-            .contains(&name.as_str())
-            {
-                String::new()
-            } else {
-                args.next()
-                    .ok_or_else(|| invalid_request(format!("Missing value for {name}")))?
-            };
-            values.push((name, value));
-        }
-        Ok(Self { values })
+/// Matches a single page's UTF-8 text into a bounded UTF-16 range window.
+pub fn match_page_window(
+    text: &str,
+    query: &str,
+    match_case: bool,
+    whole_word: bool,
+    use_regex: bool,
+    max_matches: usize,
+    result_offset: Option<usize>,
+) -> Result<MatchPageResponse, NativeError> {
+    if query.is_empty() {
+        return Err(invalid_request("Missing required query"));
     }
-
-    fn take(&mut self, name: &str) -> Option<String> {
-        let index = self.values.iter().position(|(key, _)| key == name)?;
-        Some(self.values.remove(index).1)
-    }
-
-    fn flag(&mut self, name: &str) -> bool {
-        self.take(name).is_some()
-    }
-
-    fn required(&mut self, name: &str) -> Result<String, NativeError> {
-        self.take(name)
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| invalid_request(format!("Missing required {name}")))
-    }
-
-    fn number<T: std::str::FromStr>(&mut self, name: &str, default: T) -> Result<T, NativeError> {
-        match self.take(name) {
-            None => Ok(default),
-            Some(raw) => raw
-                .parse()
-                .map_err(|_| invalid_request(format!("Invalid numeric value for {name}: {raw}"))),
-        }
-    }
-
-    /// A byte budget no larger than `ceiling`, which is also the default.
-    fn byte_budget(&mut self, name: &str, ceiling: usize) -> Result<usize, NativeError> {
-        let budget = self.number(name, ceiling)?;
-        if budget == 0 || budget > ceiling {
-            return Err(too_large(format!(
-                "{name} must be between 1 and {ceiling} bytes"
-            )));
-        }
-        Ok(budget)
-    }
-
-    fn finish(self) -> Result<(), NativeError> {
-        match self.values.first() {
-            Some((name, _)) => Err(invalid_request(format!("Unknown argument: {name}"))),
-            None => Ok(()),
-        }
-    }
-}
-
-fn parse_pages(raw: &str) -> Result<BTreeSet<u32>, NativeError> {
-    raw.split(',')
-        .map(|page| match page.trim().parse::<u32>() {
-            Ok(value) if value > 0 => Ok(value),
-            _ => Err(invalid_request(format!(
-                "Invalid page number in --pages: {page}"
-            ))),
-        })
-        .collect()
-}
-
-fn parse_search_options(args: &mut CliArgs) -> Result<SearchOptions, NativeError> {
-    let query = args.required("--query")?;
     if query.encode_utf16().count() > MAX_QUERY_UTF16_UNITS {
         return Err(too_large(format!(
             "Search query exceeds the {MAX_QUERY_UTF16_UNITS}-character admission ceiling"
         )));
     }
-    let limit = args.number("--limit", MAX_RESULT_LIMIT)?;
-    let context_chars = args.number("--context", 24usize)?;
-    let result_offset: i64 = args.number("--result-offset", 0)?;
-    if limit > MAX_RESULT_LIMIT || context_chars > MAX_CONTEXT_CHARS || result_offset < -1 {
-        return Err(too_large(
-            "Search limit, context or result offset exceeds its admission ceiling",
-        ));
+    if max_matches == 0 || max_matches > MAX_MATCH_PAGE_LIMIT {
+        return Err(too_large("Search maxMatches exceeds its admission ceiling"));
     }
-    Ok(SearchOptions {
-        query,
-        limit,
-        context_chars,
-        result_offset: (result_offset >= 0).then_some(result_offset as usize),
-        match_case: args.flag("--match-case"),
-        whole_word: args.flag("--whole-word"),
-        use_regex: args.flag("--regex"),
-        pages: args
-            .take("--pages")
-            .as_deref()
-            .map(parse_pages)
-            .transpose()?,
+    if text.len() > MAX_PAGE_TEXT_BYTES {
+        return Err(too_large(format!(
+            "Page text exceeds the {MAX_PAGE_TEXT_BYTES}-byte admission ceiling"
+        )));
+    }
+    let matcher = Matcher::new(query, match_case, whole_word, use_regex)?;
+    let normalized = needs_normalization(text).then(|| NormalizedText::new(text));
+    let haystack = normalized
+        .as_ref()
+        .map_or(text, |value| value.text.as_str());
+    let mut ascii = None;
+    let (mut mapped_byte, mut mapped_utf16) = (0, 0);
+    let mut matches = VecDeque::new();
+    let mut match_count = 0usize;
+    let mut truncated = false;
+
+    for (start, end) in matcher.matches(haystack) {
+        let page_match_index = match_count;
+        match_count += 1;
+        if result_offset.is_some_and(|offset| page_match_index < offset) {
+            continue;
+        }
+        if result_offset.is_some() && matches.len() >= max_matches {
+            truncated = true;
+            break;
+        }
+        let bytes = match &normalized {
+            Some(value) => value.original_byte_range(start, end),
+            None => (start, end),
+        };
+        let utf16 = if *ascii.get_or_insert_with(|| text.is_ascii()) {
+            bytes
+        } else {
+            mapped_utf16 += text[mapped_byte..bytes.0].encode_utf16().count();
+            mapped_byte = bytes.0;
+            (
+                mapped_utf16,
+                mapped_utf16 + text[bytes.0..bytes.1].encode_utf16().count(),
+            )
+        };
+        matches.push_back(PageWindowMatch {
+            page_match_index,
+            start_offset: utf16.0,
+            end_offset: utf16.1,
+        });
+        if matches.len() > max_matches {
+            matches.pop_front();
+        }
+    }
+
+    Ok(MatchPageResponse {
+        matches: matches.into_iter().collect(),
+        truncated,
+        match_count,
     })
 }
 
-fn print_json(value: &impl Serialize) -> Result<(), Box<dyn Error>> {
-    let mut stdout = io::stdout().lock();
-    serde_json::to_writer(&mut stdout, value)?;
-    stdout.write_all(b"\n")?;
-    Ok(())
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum WireResultOffset {
+    Number(usize),
+    Tag(String),
 }
 
-fn run_cli(args: impl Iterator<Item = String>) -> Result<(), Box<dyn Error>> {
-    run_cli_with_stdin(args, &mut io::stdin().lock())
-}
-
-fn run_cli_with_stdin(
-    mut args: impl Iterator<Item = String>,
-    mut stdin: impl BufRead,
-) -> Result<(), Box<dyn Error>> {
-    let command = args
-        .next()
-        .ok_or_else(|| invalid_request(usage().to_string()))?;
-    let mut args = CliArgs::parse(args)?;
-    match command.as_str() {
-        "index" => {
-            let out = PathBuf::from(args.required("--out")?);
-            let revision = args.required("--document-revision")?;
-            let page_count = args
-                .take("--page-count")
-                .map(|raw| match raw.parse::<u32>() {
-                    Ok(value) if value > 0 => Ok(value),
-                    _ => Err(invalid_request(format!("Invalid --page-count: {raw}"))),
-                })
-                .transpose()?;
-            let ceiling = TextBudget::default();
-            let budget = TextBudget {
-                page: args.byte_budget("--max-page-text-bytes", ceiling.page)?,
-                total: args.byte_budget("--max-total-text-bytes", ceiling.total)?,
-            };
-            args.finish()?;
-            let index = read_index_input(&mut stdin, page_count, &revision, budget)?;
-            write_index(&index, &revision, &out)?;
-            print_json(&index.coverage())
+impl WireResultOffset {
+    fn into_option(self) -> Result<Option<usize>, NativeError> {
+        match self {
+            Self::Number(value) => Ok(Some(value)),
+            Self::Tag(tag) if tag == "last" => Ok(None),
+            Self::Tag(tag) => Err(invalid_request(format!("Invalid resultOffset: {tag}"))),
         }
-        "search" if args.flag("--pages-from-stdin") => {
-            let revision = args.required("--document-revision")?;
-            let options = parse_search_options(&mut args)?;
-            args.finish()?;
-            // Provisional matches answer literal queries only. A regex such as
-            // `[A-Z]+B|` matches empty at every position of a long run, and
-            // rescanning a growing document for it repeats that work.
-            if options.use_regex {
-                return Err(Box::new(invalid_request(
-                    "--pages-from-stdin does not search with --regex",
-                )));
-            }
-            let mut index = read_index_input(&mut stdin, None, &revision, TextBudget::default())?;
-            print_json(&search_index(&mut index, &options)?)
-        }
-        "search" | "stat" => {
-            let index_path = PathBuf::from(args.required("--index")?);
-            let revision = args.required("--document-revision")?;
-            let options = if command == "search" {
-                Some(parse_search_options(&mut args)?)
-            } else {
-                None
-            };
-            args.finish()?;
-            match (load_index(&index_path, &revision)?, options) {
-                (None, _) => print_json(&serde_json::json!({"stale": true})),
-                (Some(mut index), Some(options)) => {
-                    print_json(&search_index(&mut index, &options)?)
-                }
-                (Some(index), None) => print_json(&index.coverage()),
-            }
-        }
-        _ => Err(Box::new(invalid_request(format!(
-            "Unknown command: {command}\n{}",
-            usage()
-        )))),
     }
 }
 
-fn main() {
-    evb_native_support::run_native_cli(
-        "evb-pdf-search",
-        env!("CARGO_PKG_VERSION"),
-        option_env!("EVB_NATIVE_BUILD_ID"),
-        env::args().skip(1),
-        |args| run_cli(args.into_iter()),
-    );
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct WireSearchQuery {
+    query: String,
+    #[serde(default)]
+    limit: Option<usize>,
+    #[serde(default)]
+    context_chars: Option<usize>,
+    #[serde(default)]
+    result_offset: Option<WireResultOffset>,
+    #[serde(default)]
+    match_case: bool,
+    #[serde(default)]
+    whole_word: bool,
+    #[serde(default)]
+    use_regex: bool,
+    #[serde(default)]
+    pages: Option<Vec<u32>>,
+}
+
+impl WireSearchQuery {
+    fn into_options(self) -> Result<SearchOptions, NativeError> {
+        if self.query.is_empty() {
+            return Err(invalid_request("Missing required query"));
+        }
+        if self.query.encode_utf16().count() > MAX_QUERY_UTF16_UNITS {
+            return Err(too_large(format!(
+                "Search query exceeds the {MAX_QUERY_UTF16_UNITS}-character admission ceiling"
+            )));
+        }
+        let limit = self.limit.unwrap_or(MAX_RESULT_LIMIT);
+        let context_chars = self.context_chars.unwrap_or(24);
+        if limit > MAX_RESULT_LIMIT || context_chars > MAX_CONTEXT_CHARS {
+            return Err(too_large(
+                "Search limit, context or result offset exceeds its admission ceiling",
+            ));
+        }
+        let result_offset = match self.result_offset {
+            None => Some(0),
+            Some(offset) => offset.into_option()?,
+        };
+        let pages = match self.pages {
+            None => None,
+            Some(list) if list.is_empty() => None,
+            Some(list) => {
+                let mut set = BTreeSet::new();
+                for page in list {
+                    if page == 0 {
+                        return Err(invalid_request("Invalid page number in pages: 0"));
+                    }
+                    set.insert(page);
+                }
+                Some(set)
+            }
+        };
+        Ok(SearchOptions {
+            query: self.query,
+            limit,
+            context_chars,
+            result_offset,
+            match_case: self.match_case,
+            whole_word: self.whole_word,
+            use_regex: self.use_regex,
+            pages,
+        })
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "op", rename_all = "camelCase", deny_unknown_fields)]
+enum WasmRequestHeader {
+    #[serde(rename_all = "camelCase")]
+    Index {
+        document_revision: String,
+        #[serde(default)]
+        page_count: Option<u32>,
+        #[serde(default)]
+        max_page_text_bytes: Option<usize>,
+        #[serde(default)]
+        max_total_text_bytes: Option<usize>,
+    },
+    #[serde(rename_all = "camelCase")]
+    Stat { document_revision: String },
+    #[serde(rename_all = "camelCase")]
+    Search {
+        document_revision: String,
+        #[serde(flatten)]
+        search: WireSearchQuery,
+    },
+    #[serde(rename_all = "camelCase")]
+    SearchPages {
+        document_revision: String,
+        #[serde(default)]
+        page_count: Option<u32>,
+        #[serde(default)]
+        max_page_text_bytes: Option<usize>,
+        #[serde(default)]
+        max_total_text_bytes: Option<usize>,
+        #[serde(default = "default_true")]
+        allow_regex: bool,
+        #[serde(flatten)]
+        search: WireSearchQuery,
+    },
+    #[serde(rename_all = "camelCase")]
+    MatchPage {
+        query: String,
+        #[serde(default)]
+        match_case: bool,
+        #[serde(default)]
+        whole_word: bool,
+        #[serde(default)]
+        use_regex: bool,
+        max_matches: usize,
+        #[serde(default)]
+        result_offset: Option<WireResultOffset>,
+    },
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn encode_json(value: &impl Serialize) -> Result<Vec<u8>, NativeError> {
+    serde_json::to_vec(value)
+        .map_err(|error| NativeError::new(NativeErrorCode::NativeFailure, error.to_string()))
+}
+
+/// Dispatches one binary-framed WASM request (`EPSR` + version + header_len + JSON + payload).
+pub fn handle_wasm_request(request: &[u8]) -> Result<Vec<u8>, NativeError> {
+    if request.len() < REQUEST_PREFIX_SIZE {
+        return Err(invalid_request("Truncated pdf-search WASM request"));
+    }
+    if &request[0..4] != REQUEST_MAGIC {
+        return Err(invalid_request("Invalid pdf-search WASM request magic"));
+    }
+    let version = u32::from_le_bytes(request[4..8].try_into().unwrap());
+    if version != REQUEST_VERSION {
+        return Err(invalid_request(format!(
+            "Unsupported pdf-search WASM request version: {version}"
+        )));
+    }
+    let header_len = u32::from_le_bytes(request[8..12].try_into().unwrap()) as usize;
+    let header_end = REQUEST_PREFIX_SIZE
+        .checked_add(header_len)
+        .filter(|&end| end <= request.len())
+        .ok_or_else(|| invalid_request("Truncated pdf-search WASM request header"))?;
+    let header: WasmRequestHeader =
+        serde_json::from_slice(&request[REQUEST_PREFIX_SIZE..header_end]).map_err(|error| {
+            invalid_request(format!("Invalid pdf-search WASM request header: {error}"))
+        })?;
+    let payload = &request[header_end..];
+
+    match header {
+        WasmRequestHeader::Index {
+            document_revision,
+            page_count,
+            max_page_text_bytes,
+            max_total_text_bytes,
+        } => {
+            let budget = TextBudget::validated(max_page_text_bytes, max_total_text_bytes)?;
+            let index = read_binary_pages(payload, page_count, &document_revision, budget)?;
+            let coverage_json = encode_json(&index.coverage())?;
+            let index_bytes = serialize_index(&index, &document_revision)?;
+            let coverage_len = u32::try_from(coverage_json.len())
+                .map_err(|_| too_large("Search coverage JSON exceeds u32 length"))?;
+            let mut output = Vec::with_capacity(4 + coverage_json.len() + index_bytes.len());
+            output.extend_from_slice(&coverage_len.to_le_bytes());
+            output.extend_from_slice(&coverage_json);
+            output.extend_from_slice(&index_bytes);
+            Ok(output)
+        }
+        WasmRequestHeader::Stat { document_revision } => {
+            if document_revision.is_empty() || document_revision.len() > MAX_DOCUMENT_REVISION_BYTES
+            {
+                return Err(invalid_request(
+                    "Search index document revision has an invalid length",
+                ));
+            }
+            match load_index_bytes(payload, &document_revision)? {
+                None => encode_json(&serde_json::json!({ "stale": true })),
+                Some(index) => encode_json(&index.coverage()),
+            }
+        }
+        WasmRequestHeader::Search {
+            document_revision,
+            search,
+        } => {
+            if document_revision.is_empty() || document_revision.len() > MAX_DOCUMENT_REVISION_BYTES
+            {
+                return Err(invalid_request(
+                    "Search index document revision has an invalid length",
+                ));
+            }
+            let options = search.into_options()?;
+            match load_index_bytes(payload, &document_revision)? {
+                None => encode_json(&serde_json::json!({ "stale": true })),
+                Some(mut index) => encode_json(&search_index(&mut index, &options)?),
+            }
+        }
+        WasmRequestHeader::SearchPages {
+            document_revision,
+            page_count,
+            max_page_text_bytes,
+            max_total_text_bytes,
+            allow_regex,
+            search,
+        } => {
+            let options = search.into_options()?;
+            if !allow_regex && options.use_regex {
+                return Err(invalid_request(
+                    "Provisional page search does not support regex queries",
+                ));
+            }
+            let budget = TextBudget::validated(max_page_text_bytes, max_total_text_bytes)?;
+            let mut index = read_binary_pages(payload, page_count, &document_revision, budget)?;
+            encode_json(&search_index(&mut index, &options)?)
+        }
+        WasmRequestHeader::MatchPage {
+            query,
+            match_case,
+            whole_word,
+            use_regex,
+            max_matches,
+            result_offset,
+        } => {
+            let text = std::str::from_utf8(payload)
+                .map_err(|_| invalid_request("Match page payload is not valid UTF-8"))?;
+            let offset = match result_offset {
+                None => Some(0),
+                Some(value) => value.into_option()?,
+            };
+            encode_json(&match_page_window(
+                text,
+                &query,
+                match_case,
+                whole_word,
+                use_regex,
+                max_matches,
+                offset,
+            )?)
+        }
+    }
 }
 
 #[cfg(test)]

@@ -9,7 +9,6 @@ import path from 'node:path';
 const NATIVE_TOOL_CRATES = [
     'pdf-image-combine',
     'pdf-page-ops',
-    'pdf-search',
     'scan-cleanup',
 ];
 
