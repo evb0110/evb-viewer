@@ -9,7 +9,7 @@ import {join} from 'node:path';
 import {PDFDocument} from 'pdf-lib';
 import {vi} from 'vitest';
 import type {TOcrJobResult} from '@electron/features/ocr/pipeline/types';
-import type {IOcrEngineRequest} from '@ocr-core/tesseractEngine';
+import type {TDesktopOcrEngineRequest} from '@electron/features/ocr/main/ocrEngineHostProtocol';
 import {readPnmSize} from '@ocr-core/ppmRaster';
 import {getErrorMessage} from '@electron/utils/error';
 import {requirePageNumber} from '@contracts/pageNumbers';
@@ -39,7 +39,7 @@ export async function createOcrWorkerPipelineHarness(options: {
     stallPage?: number;
     tempRoot?: string;
     /** Sees each engine request while the job's engine runs it. */
-    onEngineRequest?: (request: IOcrEngineRequest) => void;
+    onEngineRequest?: (request: TDesktopOcrEngineRequest) => void;
 } = {}): Promise<IOcrWorkerPipelineHarness> {
     const root = options.tempRoot ?? await mkdtemp(join(tmpdir(), 'evb-ocr-worker-pipeline-'));
     const sourcePdfPath = join(root, 'source.pdf');
@@ -113,8 +113,11 @@ export async function createOcrWorkerPipelineHarness(options: {
                 vi.stubEnv(name, value);
             }
             const controller = new AbortController();
-            const runEngine = async (request: IOcrEngineRequest, signal: AbortSignal) => {
-                const pageNumber = (readPnmSize(request.image).width - 600) / 10;
+            const runEngine = async (request: TDesktopOcrEngineRequest, signal: AbortSignal) => {
+                const width = request.image instanceof Uint8Array
+                    ? readPnmSize(request.image).width
+                    : request.image.width;
+                const pageNumber = (width - 600) / 10;
                 options.onEngineRequest?.(request);
                 if (pageNumber === options.stallPage) {
                     await new Promise((_resolve, reject) => {

@@ -10,6 +10,7 @@ import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationPr
 
 const mocks = vi.hoisted(() => ({
     runOcrCommand: vi.fn(),
+    open: vi.fn(),
     readFile: vi.fn(),
     rm: vi.fn(),
     stat: vi.fn(),
@@ -19,6 +20,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runOcrCommand}));
 vi.mock('fs/promises', () => ({
+    open: mocks.open,
     stat: mocks.stat,
     readFile: mocks.readFile,
     rm: mocks.rm,
@@ -272,7 +274,7 @@ describe('tryPreprocessOcrImage', () => {
         )).rejects.toBe(abortError);
     });
 
-    it('requests and consumes raw PNM output directly in prepareOcrPageRaster', async () => {
+    it('reads only the PNM header of the rendered page in prepareOcrPageRaster when cleanup succeeds', async () => {
         const renderedPpm = Buffer.concat([
             Buffer.from('P6\n2 1\n255\n', 'ascii'),
             Buffer.from([
@@ -291,11 +293,20 @@ describe('tryPreprocessOcrImage', () => {
                 255,
             ]),
         ]);
+        mocks.open.mockImplementation(async (path: string) => {
+            const source = path === '/tmp/page-1.ppm' ? renderedPpm : cleanedPgm;
+            return {
+                read: async (buffer: Buffer, offset: number, length: number, position: number) => {
+                    const bytesRead = source.copy(buffer, offset, position, Math.min(source.length, position + length));
+                    return {bytesRead};
+                },
+                close: async () => undefined,
+            };
+        });
         mocks.readFile.mockImplementation(async (path: string) => {
-            if (path === '/tmp/page-1.ppm') return renderedPpm;
             if (path === '/tmp/page-1.ppm-clean.pnm') return cleanedPgm;
             if (path === '/tmp/page-1.ppm-clean.pnm.json') return '{}';
-            throw new Error(`Unexpected readFile path: ${path}`);
+            throw new Error(`Unexpected full readFile path: ${path}`);
         });
         const {prepareOcrPageRaster} = await import('@electron/features/ocr/pipeline/tryPreprocessOcrImage');
 
@@ -315,7 +326,54 @@ describe('tryPreprocessOcrImage', () => {
         expect(result.width).toBe(2);
         expect(result.height).toBe(1);
         expect(Buffer.from(result.image)).toEqual(cleanedPgm);
+        expect(mocks.readFile).not.toHaveBeenCalledWith('/tmp/page-1.ppm');
         expect(mocks.rm).toHaveBeenCalledWith('/tmp/page-1.ppm-clean.pnm', {force: true});
         expect(mocks.rm).toHaveBeenCalledWith('/tmp/page-1.ppm-clean.pnm.json', {force: true});
+    });
+
+    it('passes file paths without reading raster bodies in prepareOcrPageRasterFile', async () => {
+        const renderedPpm = Buffer.from('P6\n2480 3508\n255\n', 'ascii');
+        const cleanedPgm = Buffer.from('P5\n2480 3508\n255\n', 'ascii');
+        mocks.open.mockImplementation(async (path: string) => {
+            const source = path === '/tmp/page-2.ppm' ? renderedPpm : cleanedPgm;
+            return {
+                read: async (buffer: Buffer, offset: number, length: number, position: number) => {
+                    const bytesRead = source.copy(buffer, offset, position, Math.min(source.length, position + length));
+                    return {bytesRead};
+                },
+                close: async () => undefined,
+            };
+        });
+        mocks.readFile.mockImplementation(async (path: string) => {
+            if (path === '/tmp/page-2.ppm-clean.pnm.json') return '{}';
+            throw new Error(`Unexpected full readFile path: ${path}`);
+        });
+        const {prepareOcrPageRasterFile} = await import('@electron/features/ocr/pipeline/tryPreprocessOcrImage');
+
+        const result = await prepareOcrPageRasterFile({
+            renderedPath: '/tmp/page-2.ppm',
+            pageNumber: 2,
+            dpi: 300,
+            cleanupMode: 'clean',
+            scanCleanupBinary: '/bin/evb-scan-cleanup',
+            log: mocks.log,
+            signal: new AbortController().signal,
+        });
+
+        expect(result).toEqual({
+            width: 2480,
+            height: 3508,
+            image: {
+                kind: 'file',
+                path: '/tmp/page-2.ppm-clean.pnm',
+                width: 2480,
+                height: 3508,
+            },
+        });
+        expect(mocks.readFile).toHaveBeenCalledTimes(1);
+        expect(mocks.readFile).toHaveBeenCalledWith('/tmp/page-2.ppm-clean.pnm.json', 'utf8');
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/page-2.ppm', {force: true});
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/page-2.ppm-clean.pnm.json', {force: true});
+        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/page-2.ppm-clean.pnm', {force: true});
     });
 });

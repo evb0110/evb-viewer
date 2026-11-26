@@ -9,6 +9,8 @@ import type {
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
 import {getPdfPageCount} from '@electron/pdf/pdfPageCount';
 import {detectSourceDpiDetails} from '@electron/pdf/sourceDpiDetection';
+import {detectSourceDpiDetails as detectCoreSourceDpiDetails} from '@evb/scan-cleanup/core/sourceDpiDetection';
+import {createScanCleanupRenderers} from '@evb/scan-cleanup/adapters/createScanCleanupRenderers';
 import {
     extractPdfMrcLayers,
     extractPdfMrcLayersBatch,
@@ -19,6 +21,11 @@ import {
     type TWorkerLog,
 } from '@electron/features/ocr/publicNative';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
+import {
+    chainTerminationProofSink,
+    type TTerminationProofSink,
+} from '@electron/resources/jobBroker';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import {
     requirePublishedRaster,
     runScanCleanupSidecar,
@@ -52,6 +59,73 @@ const defaultDependencies: IRunScanCleanupPipelineDependencies = {
     requirePublishedRaster,
 };
 
+function scopeDependenciesToLease(
+    dependencies: IRunScanCleanupPipelineDependencies,
+    onTerminationProof: TTerminationProofSink | undefined,
+): IRunScanCleanupPipelineDependencies {
+    if (onTerminationProof === undefined) {
+        return dependencies;
+    }
+    const mergeProofSink = (inner: TTerminationProofSink | undefined) => (
+        inner === undefined
+            ? onTerminationProof
+            : chainTerminationProofSink(onTerminationProof, inner)
+    );
+    const runCommand: IRunScanCleanupPipelineDependencies['runCommand'] = (command, args, commandOptions) => dependencies.runCommand(command, args, {
+        ...commandOptions,
+        onTerminationProof: mergeProofSink(commandOptions?.onTerminationProof),
+    });
+    const scopedRenderers = dependencies.renderPage === renderPdfPageToPng || dependencies.renderPagePpm === renderPdfPageToPpm
+        ? createScanCleanupRenderers(
+            runCommand,
+            undefined,
+            error => getUnprovenNativeTerminationDetail(error) !== undefined,
+            chainTerminationProofSink,
+        )
+        : null;
+    return {
+        ...dependencies,
+        runCommand,
+        getPageCount: dependencies.getPageCount === getPdfPageCount
+            ? (pdfPath, pageCountOptions) => getPdfPageCount(pdfPath, {
+                ...pageCountOptions,
+                onTerminationProof,
+            })
+            : dependencies.getPageCount,
+        detectSourceDpi: dependencies.detectSourceDpi === detectSourceDpiDetails
+            ? (pdfPath, pdfimagesBinary, log, commandEnv, signal, pages, onProgress) => detectCoreSourceDpiDetails(
+                pdfPath,
+                pdfimagesBinary,
+                log,
+                commandEnv,
+                signal,
+                pages,
+                onProgress,
+                runCommand,
+            )
+            : dependencies.detectSourceDpi,
+        renderPage: dependencies.renderPage === renderPdfPageToPng && scopedRenderers
+            ? scopedRenderers.renderPage
+            : dependencies.renderPage,
+        renderPagePpm: dependencies.renderPagePpm === renderPdfPageToPpm && scopedRenderers
+            ? scopedRenderers.renderPagePpm
+            : dependencies.renderPagePpm,
+        runSidecar: dependencies.runSidecar === runScanCleanupSidecar
+            ? (binary, manifestPath, sidecarSignal, log, onProgress, sidecarOptions) => runScanCleanupSidecar(
+                binary,
+                manifestPath,
+                sidecarSignal,
+                log,
+                onProgress,
+                {
+                    ...sidecarOptions,
+                    onTerminationProof: mergeProofSink(sidecarOptions?.onTerminationProof),
+                },
+            )
+            : dependencies.runSidecar,
+    };
+}
+
 export async function runScanCleanupPipeline(
     request: IRunScanCleanupPipelineRequest,
     paths: IScanCleanupWorkerPaths,
@@ -62,6 +136,7 @@ export async function runScanCleanupPipeline(
     dependencies: IRunScanCleanupPipelineDependencies = defaultDependencies,
     options?: {
         onCheckpointReadyForCleanup?: (entryDir: string) => void;
+        onTerminationProof?: TTerminationProofSink;
     },
 ): Promise<TScanCleanupSummary> {
     attachScanCleanupPageOverrideDefaults(
@@ -69,9 +144,10 @@ export async function runScanCleanupPipeline(
         request.options.pageOverrideDefaults,
         request.options.marginsMm,
     );
+    const scopedDependencies = scopeDependenciesToLease(dependencies, options?.onTerminationProof);
     const resolvedDependencies: IRunScanCleanupPipelineDependencies = {
-        ...dependencies,
-        ...(dependencies.evidenceDirectory === undefined
+        ...scopedDependencies,
+        ...(scopedDependencies.evidenceDirectory === undefined
             ? {
                 evidenceDirectory: join(dirname(request.outputPdfPath), SCAN_CLEANUP_RUN_REPORT_DIRECTORY),
                 evidenceFileFilter: isScanCleanupRunReportFile,

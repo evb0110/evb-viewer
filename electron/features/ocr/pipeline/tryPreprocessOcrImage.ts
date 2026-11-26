@@ -1,4 +1,5 @@
 import {
+    open,
     readFile,
     rm,
     stat,
@@ -10,6 +11,7 @@ import {
     readPnmSize,
 } from '@ocr-core/ppmRaster';
 import type {IOcrPageRaster} from '@ocr-core/recognizeOcrPages';
+import type {IOcrEngineImageFile} from '@electron/features/ocr/main/ocrEngineHostProtocol';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import type {TWorkerLog} from '@electron/features/ocr/pipeline/types';
 import { getErrorMessage } from '@electron/utils/error';
@@ -129,6 +131,56 @@ export async function tryPreprocessOcrImage(
     return {path: inputPath};
 }
 
+const RASTER_HEADER_PROBE_BYTES = 64;
+
+function isPngIhdrHeader(header: Buffer, bytesRead: number) {
+    return bytesRead >= 24
+        && header[0] === 0x89
+        && header[1] === 0x50
+        && header[2] === 0x4e
+        && header[3] === 0x47
+        && header[4] === 0x0d
+        && header[5] === 0x0a
+        && header[6] === 0x1a
+        && header[7] === 0x0a
+        && header.toString('ascii', 12, 16) === 'IHDR';
+}
+
+/**
+ * Inspects a rendered PNM or PNG raster's dimensions by reading only its header
+ * bytes instead of loading a 15-35 MiB raw PPM into memory.
+ */
+export async function readOcrRasterDimensions(path: string): Promise<{
+    width: number;
+    height: number;
+}> {
+    const handle = await open(path, 'r');
+    try {
+        const header = Buffer.alloc(RASTER_HEADER_PROBE_BYTES);
+        const {bytesRead} = await handle.read(header, 0, header.length, 0);
+        if (bytesRead > 0 && header[0] === 0x50) {
+            return readPnmSize(header.subarray(0, bytesRead));
+        }
+        if (isPngIhdrHeader(header, bytesRead)) {
+            const width = header.readUInt32BE(16);
+            const height = header.readUInt32BE(20);
+            if (width > 0 && height > 0) {
+                return {
+                    width,
+                    height,
+                };
+            }
+        }
+    } finally {
+        await handle.close();
+    }
+    const decoded = decodePng(await readFile(path));
+    return {
+        width: decoded.width,
+        height: decoded.height,
+    };
+}
+
 /** A rendered page file (Poppler's PPM, or a PNG) as the PNM the engine reads. */
 async function readOcrRasterFile(path: string) {
     const bytes = await readFile(path);
@@ -149,13 +201,7 @@ async function readOcrRasterFile(path: string) {
     };
 }
 
-/**
- * The raster the engine reads for a rendered page: with a preprocessing mode,
- * the cleaned page as the browser cleans it ('off' still normalizes
- * polarity); a cleanup that failed or changed the page size leaves the
- * rendered page with a diagnostic. Cleanup files go beside `renderedPath`.
- */
-export async function prepareOcrPageRaster(input: {
+interface IPrepareOcrPageRasterInput {
     renderedPath: string;
     pageNumber: number;
     dpi: number;
@@ -164,9 +210,19 @@ export async function prepareOcrPageRaster(input: {
     cleanupThreads?: number;
     log: TWorkerLog;
     signal: AbortSignal;
-}): Promise<IOcrPageRaster<Uint8Array>> {
-    const rendered = await readOcrRasterFile(input.renderedPath);
-    if (input.cleanupMode === undefined) return rendered;
+}
+
+/**
+ * The raster the engine reads for a rendered page: with a preprocessing mode,
+ * the cleaned page as the browser cleans it ('off' still normalizes
+ * polarity); a cleanup that failed or changed the page size leaves the
+ * rendered page with a diagnostic. Cleanup files go beside `renderedPath`.
+ */
+export async function prepareOcrPageRaster(input: IPrepareOcrPageRasterInput): Promise<IOcrPageRaster<Uint8Array>> {
+    if (input.cleanupMode === undefined) {
+        return readOcrRasterFile(input.renderedPath);
+    }
+    const renderedSize = await readOcrRasterDimensions(input.renderedPath);
     const cleanedPath = `${input.renderedPath}-clean.pnm`;
     const pageNumber = requirePageNumber(input.pageNumber);
     let diagnostic: IOcrDiagnostic | undefined;
@@ -189,24 +245,27 @@ export async function prepareOcrPageRaster(input: {
             input.cleanupThreads,
         );
         if (cleaned.path === input.renderedPath) {
+            const rendered = await readOcrRasterFile(input.renderedPath);
             return {
                 ...rendered,
                 ...(diagnostic ? {diagnostic} : {}),
             };
         }
         const page = await readOcrRasterFile(cleaned.path);
-        if (page.width !== rendered.width || page.height !== rendered.height) {
+        if (page.width !== renderedSize.width || page.height !== renderedSize.height) {
+            const rendered = await readOcrRasterFile(input.renderedPath);
             return {
                 ...rendered,
-                diagnostic: createOcrPreprocessingGeometryDiagnostic(pageNumber, rendered, page),
+                diagnostic: createOcrPreprocessingGeometryDiagnostic(pageNumber, renderedSize, page),
             };
         }
         return {
-            ...rendered,
+            width: renderedSize.width,
+            height: renderedSize.height,
             image: page.image,
             ...(cleaned.inverseTransform ? {preprocessInverse: {
-                rasterWidthPx: rendered.width,
-                rasterHeightPx: rendered.height,
+                rasterWidthPx: renderedSize.width,
+                rasterHeightPx: renderedSize.height,
                 matrix: cleaned.inverseTransform.matrix,
             }} : {}),
         };
@@ -215,5 +274,99 @@ export async function prepareOcrPageRaster(input: {
             cleanedPath,
             `${cleanedPath}.json`,
         ].map(path => rm(path, {force: true}))).catch(() => undefined);
+    }
+}
+
+/**
+ * File-backed variant of `prepareOcrPageRaster` for desktop OCR: avoids reading
+ * 15-35 MiB PNM rasters into main-process memory or structured-cloning them
+ * over utility-process IPC. The caller owns deleting the returned file path
+ * after recognition settles; unused sibling files are removed immediately.
+ */
+export async function prepareOcrPageRasterFile(input: IPrepareOcrPageRasterInput): Promise<IOcrPageRaster<IOcrEngineImageFile>> {
+    const renderedSize = await readOcrRasterDimensions(input.renderedPath);
+    if (input.cleanupMode === undefined) {
+        return {
+            ...renderedSize,
+            image: {
+                kind: 'file',
+                path: input.renderedPath,
+                ...renderedSize,
+            },
+        };
+    }
+    const cleanedPath = `${input.renderedPath}-clean.pnm`;
+    const metadataPath = `${cleanedPath}.json`;
+    const pageNumber = requirePageNumber(input.pageNumber);
+    let diagnostic: IOcrDiagnostic | undefined;
+    let keepCleanedPath = false;
+    let failure: unknown;
+    try {
+        const cleaned = await tryPreprocessOcrImage(
+            input.renderedPath,
+            cleanedPath,
+            input.log,
+            input.signal,
+            (reported) => {
+                diagnostic = {
+                    ...reported,
+                    pageNumber,
+                };
+            },
+            input.scanCleanupBinary,
+            metadataPath,
+            input.dpi,
+            input.cleanupMode,
+            input.cleanupThreads,
+        );
+        if (cleaned.path === input.renderedPath) {
+            return {
+                ...renderedSize,
+                image: {
+                    kind: 'file',
+                    path: input.renderedPath,
+                    ...renderedSize,
+                },
+                ...(diagnostic ? {diagnostic} : {}),
+            };
+        }
+        const cleanedSize = await readOcrRasterDimensions(cleaned.path);
+        if (cleanedSize.width !== renderedSize.width || cleanedSize.height !== renderedSize.height) {
+            return {
+                ...renderedSize,
+                image: {
+                    kind: 'file',
+                    path: input.renderedPath,
+                    ...renderedSize,
+                },
+                diagnostic: createOcrPreprocessingGeometryDiagnostic(pageNumber, renderedSize, cleanedSize),
+            };
+        }
+        keepCleanedPath = true;
+        await rm(input.renderedPath, {force: true}).catch(() => undefined);
+        return {
+            ...renderedSize,
+            image: {
+                kind: 'file',
+                path: cleaned.path,
+                ...cleanedSize,
+            },
+            ...(cleaned.inverseTransform ? {preprocessInverse: {
+                rasterWidthPx: renderedSize.width,
+                rasterHeightPx: renderedSize.height,
+                matrix: cleaned.inverseTransform.matrix,
+            }} : {}),
+        };
+    } catch (error) {
+        failure = error;
+        throw error;
+    } finally {
+        if (getUnprovenNativeTerminationDetail(failure) === undefined) {
+            const pathsToRemove = keepCleanedPath ? [metadataPath] : [
+                cleanedPath,
+                metadataPath,
+            ];
+            await Promise.all(pathsToRemove.map(path => rm(path, {force: true}))).catch(() => undefined);
+        }
     }
 }

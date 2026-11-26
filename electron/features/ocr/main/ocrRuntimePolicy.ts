@@ -9,6 +9,7 @@ import {
 } from '@contracts/ocrLanguages';
 import { parseBoundedEnvInt } from '@contracts/resourcePolicies';
 import { readPnmSize } from '@ocr-core/ppmRaster';
+import type { TOcrEngineImageInput } from '@electron/features/ocr/main/ocrEngineHostProtocol';
 import type { IJobResourceVector } from '@electron/resources/jobBroker';
 import { getHostResourceProfileSnapshot } from '@electron/resources/hostResourceProfile';
 import {runtimeConfig} from '@electron/runtimeConfig';
@@ -98,7 +99,10 @@ export function getOcrRuntimePolicy() {
     );
 }
 
-function readRasterPixelCount(image: Uint8Array) {
+function readRasterPixelCount(image: TOcrEngineImageInput) {
+    if (!(image instanceof Uint8Array)) {
+        return image.width * image.height;
+    }
     try {
         const {
             width,
@@ -118,7 +122,7 @@ function readRasterPixelCount(image: Uint8Array) {
  */
 export function resolveOcrLaneResources(
     modelBytes: number,
-    image: Uint8Array,
+    image: TOcrEngineImageInput,
     capacity: Readonly<IJobResourceVector>,
 ): IJobResourceVector {
     const wasmHeapBytes = OCR_LANE_BASE_WASM_HEAP_BYTES

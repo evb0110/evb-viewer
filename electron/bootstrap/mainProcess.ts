@@ -619,16 +619,6 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
             run: () => settleOpenDocuments(),
         },
         {
-            label: 'document-save-utilities',
-            run: async () => {
-                if (!loadedSubsystems.has('documents')) {
-                    return;
-                }
-                const {shutdownRetainedDocumentSaveUtilityProcesses} = await import('@electron/features/documents/public');
-                await shutdownRetainedDocumentSaveUtilityProcesses();
-            },
-        },
-        {
             label: 'djvu-conversions',
             run: async () => {
                 if (!loadedSubsystems.has('djvu')) {

@@ -34,10 +34,6 @@ const entrypoints = [
         'Invalid DjVu PDF worker payload',
     ],
     [
-        () => import('@electron/features/documents/main/pdfConformanceWorker'),
-        'Invalid PDF conformance worker payload',
-    ],
-    [
         () => import('@electron/features/image-export/main/tiffCombineWorker'),
         'Invalid TIFF combine worker payload',
     ],
@@ -73,7 +69,6 @@ describe('Node worker entrypoints', () => {
             error,
         })]));
         expect(cancellationListeners).toEqual([
-            true,
             true,
             true,
         ]);

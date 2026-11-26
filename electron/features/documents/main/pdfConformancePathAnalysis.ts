@@ -17,9 +17,11 @@ import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {
     abortErrorFromSignal,
     isAbortError,
+    raceWithAbortSignal,
 } from '@electron/utils/abort';
 import {getErrorMessage} from '@electron/utils/error';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
+import type {TTerminationProofSink} from '@electron/resources/jobBroker';
 import {
     PdfConformanceCapabilityError,
     type TPdfConformanceCapabilityErrorCode,
@@ -52,6 +54,7 @@ export interface IPdfConformancePathAnalysisOptions {
     cancelGroup?: string;
     timeoutMs?: number;
     markerEvidence?: 'full' | 'structural-only';
+    onTerminationProof?: TTerminationProofSink;
 }
 
 function throwIfAborted(signal?: AbortSignal) {
@@ -90,9 +93,9 @@ async function readPdfMarkerEvidenceFromPath(
     throwIfAborted(signal);
     let fileStat;
     try {
-        fileStat = await stat(filePath);
+        fileStat = await raceWithAbortSignal(stat(filePath), signal);
     } catch (error) {
-        if (isAbortError(error)) {
+        if (isAbortError(error) || signal?.aborted) {
             throw error;
         }
         throw capabilityError(
@@ -112,9 +115,15 @@ async function readPdfMarkerEvidenceFromPath(
     let handle: FileHandle | undefined;
     try {
         try {
-            handle = await open(filePath, 'r');
+            const openPromise = open(filePath, 'r');
+            try {
+                handle = await raceWithAbortSignal(openPromise, signal);
+            } catch (error) {
+                void openPromise.then(opened => opened.close().catch(() => undefined), () => undefined);
+                throw error;
+            }
         } catch (error) {
-            if (isAbortError(error)) {
+            if (isAbortError(error) || signal?.aborted) {
                 throw error;
             }
             throw capabilityError(
@@ -141,9 +150,9 @@ async function readPdfMarkerEvidenceFromPath(
             const chunk = Buffer.allocUnsafe(chunkBytes);
             let bytesRead: number;
             try {
-                ({bytesRead} = await handle.read(chunk, 0, chunkBytes, offset));
+                ({bytesRead} = await raceWithAbortSignal(handle.read(chunk, 0, chunkBytes, offset), signal));
             } catch (error) {
-                if (isAbortError(error)) {
+                if (isAbortError(error) || signal?.aborted) {
                     throw error;
                 }
                 throw capabilityError(
@@ -178,7 +187,11 @@ async function readPdfMarkerEvidenceFromPath(
         throwIfAborted(signal);
         return evidence;
     } finally {
-        await handle?.close().catch(() => undefined);
+        if (signal?.aborted) {
+            void handle?.close().catch(() => undefined);
+        } else {
+            await handle?.close().catch(() => undefined);
+        }
     }
 }
 
@@ -222,6 +235,7 @@ async function readPdfStructuralFactsFromPath(
             commandLabel: PDF_CONFORMANCE_NATIVE_COMMAND_LABEL,
             ...(options.signal ? {signal: options.signal} : {}),
             ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
+            ...(options.onTerminationProof ? {onTerminationProof: options.onTerminationProof} : {}),
         }));
     } catch (error) {
         if (isAbortError(error)) {

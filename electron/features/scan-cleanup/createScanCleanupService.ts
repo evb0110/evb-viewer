@@ -91,12 +91,6 @@ import {
     isScanCleanupDetectionResultStoreRegistered,
 } from '@electron/features/scan-cleanup/detectionResultStoreRegistry';
 import {
-    describePersistedScanCleanupDetectionResultStore,
-    persistScanCleanupDetectionResultStore,
-    removeScanCleanupDetectionResultStoreDescriptor,
-    type IScanCleanupDetectionResultStoreDescriptor,
-} from '@electron/features/scan-cleanup/detectionResultStoreDescriptor';
-import {
     createScanCleanupDetectionSignature,
     createScanCleanupPlacementAnchorCalibrationSignature,
 } from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
@@ -805,8 +799,6 @@ export function createScanCleanupService(
                     },
                     run: async job => {
                         runStarted = true;
-                        let detectionResultStoreDescriptor: IScanCleanupDetectionResultStoreDescriptor | null = null;
-                        let ownsDetectionResultStoreDescriptor = false;
                         let retainRunArtifacts = false;
                         try {
                             return await mainJobBroker.run({
@@ -842,29 +834,14 @@ export function createScanCleanupService(
                                         missingTools[0] ?? 'unknown scan-cleanup native tool',
                                     );
                                 }
-                                if (detectionResultStoreLease !== null) {
-                                    // The lease keeps the detection store open until
-                                    // the worker settles, so the worker can read the
-                                    // store's own files; only a store without them
-                                    // is copied, and only a copy is removed below.
-                                    const persisted = describePersistedScanCleanupDetectionResultStore(
-                                        detectionResultStoreLease.resultStore,
-                                    );
-                                    ownsDetectionResultStoreDescriptor = persisted === null;
-                                    detectionResultStoreDescriptor = persisted
-                                        ?? await persistScanCleanupDetectionResultStore(
-                                            detectionResultStoreLease.resultStore,
-                                            getAppTempDir(),
-                                        );
-                                }
                                 const checkpointDir = join(getAppTempDir(), 'scan-cleanup-checkpoints');
                                 let completedCheckpointEntryDir: string | null = null;
                                 const summary = await runScanCleanupWorkerTask(
                                     {
                                         ...workerRequest,
-                                        ...(detectionResultStoreDescriptor === null
+                                        ...(detectionResultStoreLease === null
                                             ? {}
-                                            : {detectionResultStoreDescriptor}),
+                                            : {detectionResultStore: detectionResultStoreLease.resultStore}),
                                         sourcePdfPath: await materializeScanCleanupSourcePath(
                                             request.sourcePdfPath,
                                             sender.id,
@@ -979,11 +956,6 @@ export function createScanCleanupService(
                                 });
                             }
                             await detectionResultStoreLease?.release();
-                            if (detectionResultStoreDescriptor !== null && ownsDetectionResultStoreDescriptor) {
-                                await removeScanCleanupDetectionResultStoreDescriptor(
-                                    detectionResultStoreDescriptor,
-                                ).catch(() => undefined);
-                            }
                         }
                     },
                 });

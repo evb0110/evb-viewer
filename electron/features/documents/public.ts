@@ -9,7 +9,6 @@ export {
     attachSerializedPdfPersistencePort,
     shutdownSerializedPdfPersistence,
 } from '@electron/features/documents/main/serializedPdfPersistence';
-export {shutdownRetainedDocumentSaveUtilityProcesses} from '@electron/features/documents/main/fingerprintFileWithUtilityProcess';
 export { assertOpenInputPathCount } from '@electron/features/documents/public/assertOpenInputPathCount';
 export { sweepStaleDefaultAppTempPdfs } from '@electron/features/documents/main/print';
 export { sweepStaleOcrTempArtifacts } from '@electron/features/documents/main/sweepStaleOcrTempArtifacts';
