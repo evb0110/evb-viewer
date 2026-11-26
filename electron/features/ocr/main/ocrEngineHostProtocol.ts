@@ -9,10 +9,37 @@ import type {
 } from '@ocr-core/tesseractEngine';
 import type {IOcrEngineWorkerData} from '@electron/features/ocr/main/ocrEngineWorker';
 
+/** A file-backed PNM raster passed by path across the utility-process IPC boundary. */
+export interface IOcrEngineImageFile {
+    kind: 'file';
+    path: string;
+    width: number;
+    height: number;
+}
+
+export type TOcrEngineImageInput = Uint8Array | IOcrEngineImageFile;
+export type TDesktopOcrEngineRequest = IOcrEngineRequest<TOcrEngineImageInput>;
+
+export function isOcrEngineImageFile(value: unknown): value is IOcrEngineImageFile {
+    if (typeof value !== 'object' || value === null) {
+        return false;
+    }
+    const candidate = value as Partial<IOcrEngineImageFile>;
+    return candidate.kind === 'file'
+        && typeof candidate.path === 'string'
+        && candidate.path.length > 0
+        && typeof candidate.width === 'number'
+        && Number.isSafeInteger(candidate.width)
+        && candidate.width > 0
+        && typeof candidate.height === 'number'
+        && Number.isSafeInteger(candidate.height)
+        && candidate.height > 0;
+}
+
 /** One page's passes, sent to an engine lane. */
 export interface IOcrEngineLaneRequest {
     id: number;
-    request: IOcrEngineRequest;
+    request: TDesktopOcrEngineRequest;
 }
 
 /** A lane's answer to one request, as its engine worker thread sends it. */
@@ -82,9 +109,13 @@ const hostRequestSchema = v.variant('type', [
         lane: laneSchema,
         message: v.object({
             id: laneSchema,
-            request: v.custom<IOcrEngineRequest>(value => typeof value === 'object'
-                && value !== null
-                && (value as {image?: unknown}).image instanceof Uint8Array),
+            request: v.custom<TDesktopOcrEngineRequest>(value => {
+                if (typeof value !== 'object' || value === null) {
+                    return false;
+                }
+                const image = (value as {image?: unknown}).image;
+                return image instanceof Uint8Array || isOcrEngineImageFile(image);
+            }),
         }),
     }),
     v.object({

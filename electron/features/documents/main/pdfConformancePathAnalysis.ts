@@ -20,6 +20,7 @@ import {
 } from '@electron/utils/abort';
 import {getErrorMessage} from '@electron/utils/error';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
+import type {TTerminationProofSink} from '@electron/resources/jobBroker';
 import {
     PdfConformanceCapabilityError,
     type TPdfConformanceCapabilityErrorCode,
@@ -52,6 +53,7 @@ export interface IPdfConformancePathAnalysisOptions {
     cancelGroup?: string;
     timeoutMs?: number;
     markerEvidence?: 'full' | 'structural-only';
+    onTerminationProof?: TTerminationProofSink;
 }
 
 function throwIfAborted(signal?: AbortSignal) {
@@ -222,6 +224,7 @@ async function readPdfStructuralFactsFromPath(
             commandLabel: PDF_CONFORMANCE_NATIVE_COMMAND_LABEL,
             ...(options.signal ? {signal: options.signal} : {}),
             ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
+            ...(options.onTerminationProof ? {onTerminationProof: options.onTerminationProof} : {}),
         }));
     } catch (error) {
         if (isAbortError(error)) {

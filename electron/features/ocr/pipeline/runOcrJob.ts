@@ -32,10 +32,11 @@ import {
     OcrJobMessages,
     recognizeOcrPages,
 } from '@ocr-core/recognizeOcrPages';
-import type {
-    IOcrEngineRequest,
-    IOcrEngineResult,
-} from '@ocr-core/tesseractEngine';
+import type {IOcrEngineResult} from '@ocr-core/tesseractEngine';
+import {
+    isOcrEngineImageFile,
+    type TDesktopOcrEngineRequest,
+} from '@electron/features/ocr/main/ocrEngineHostProtocol';
 import type {
     IOcrPipelinePaths,
     TOcrJobResult,
@@ -43,7 +44,7 @@ import type {
     TWorkerLog,
 } from '@electron/features/ocr/pipeline/types';
 import {detectSourceDpiDetails} from '@electron/pdf/sourceDpiDetection';
-import {prepareOcrPageRaster} from '@electron/features/ocr/pipeline/tryPreprocessOcrImage';
+import {prepareOcrPageRasterFile} from '@electron/features/ocr/pipeline/tryPreprocessOcrImage';
 import {writeSearchablePdf} from '@electron/features/ocr/pipeline/writeSearchablePdf';
 import {
     buildPopplerEnv,
@@ -101,7 +102,7 @@ export interface IOcrJob {
     publish: (progress: IOcrJobProgress) => void;
     log: TWorkerLog;
     /** The engine pool that runs one page's Tesseract passes. */
-    runEngine: (request: IOcrEngineRequest, signal: AbortSignal) => Promise<IOcrEngineResult>;
+    runEngine: (request: TDesktopOcrEngineRequest, signal: AbortSignal) => Promise<IOcrEngineResult>;
     /**
      * The engine charges the main broker for its workers itself, as the app's
      * pool does; otherwise the job charges each page's passes.
@@ -139,7 +140,7 @@ function getOcrPageConcurrency(pageCount: number, paths: IOcrPipelinePaths, opti
  */
 function createLeasedOcrEngine(job: Pick<IOcrJob, 'jobId' | 'paths' | 'runEngine'>) {
     const readModelBytes = createOcrModelBytesReader(job.paths.tessdataPath);
-    return async (request: IOcrEngineRequest, signal: AbortSignal) => {
+    return async (request: TDesktopOcrEngineRequest, signal: AbortSignal) => {
         const modelBytes = sumOcrModelBytes(await readModelBytes(request.models));
         return mainJobBroker.run({
             ownerId: `ocr:${job.jobId}`,
@@ -180,7 +181,20 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
     const warnings = new OcrJobMessages<string>();
     const errors = new OcrJobMessages<string>();
     const diagnostics = new OcrJobMessages<IOcrDiagnostic>();
-    const runEngine = job.engineChargesBroker ? job.runEngine : createLeasedOcrEngine(job);
+    const baseRunEngine = job.engineChargesBroker ? job.runEngine : createLeasedOcrEngine(job);
+    const runEngine = async (request: TDesktopOcrEngineRequest, engineSignal: AbortSignal) => {
+        let failure: unknown;
+        try {
+            return await baseRunEngine(request, engineSignal);
+        } catch (error) {
+            failure = error;
+            throw error;
+        } finally {
+            if (isOcrEngineImageFile(request.image) && getUnprovenNativeTerminationDetail(failure) === undefined) {
+                await rm(request.image.path, {force: true}).catch(() => undefined);
+            }
+        }
+    };
     const pageSizeSource = createOcrPageSizeSource({
         ...(paths.pdfPageOpsBinary ? {pdfPageOpsBinary: paths.pdfPageOpsBinary} : {}),
         qpdfBinary: paths.qpdfBinary,
@@ -334,7 +348,7 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
                         undefined,
                         pageSize === undefined ? undefined : createOcrRasterRenderLimits(pageSize, dpi),
                     ], preparePopplerFallback);
-                    return await prepareOcrPageRaster({
+                    return await prepareOcrPageRasterFile({
                         renderedPath,
                         pageNumber,
                         dpi,
@@ -347,11 +361,10 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
                 } catch (error) {
                     failure = error;
                     if (getUnprovenNativeTerminationDetail(error) !== undefined) jobAbort.abort(error);
-                    throw error;
-                } finally {
                     if (getUnprovenNativeTerminationDetail(failure) === undefined) {
                         await rm(renderedPath, {force: true}).catch(() => undefined);
                     }
+                    throw error;
                 }
             };
 

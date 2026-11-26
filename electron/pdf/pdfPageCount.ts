@@ -1,4 +1,5 @@
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
+import type {TTerminationProofSink} from '@electron/resources/jobBroker';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {
     getQpdfPageCountArgs,
@@ -12,6 +13,7 @@ export const QPDF_OUTPUT_SUCCESS_EXIT_CODES = QPDF_SUCCESS_EXIT_CODES;
 export interface IPdfPageCountOptions {
     signal?: AbortSignal;
     cancelGroup?: string;
+    onTerminationProof?: TTerminationProofSink;
 }
 
 export async function getPdfPageCount(pdfPath: string, options: IPdfPageCountOptions = {}) {
@@ -21,6 +23,7 @@ export async function getPdfPageCount(pdfPath: string, options: IPdfPageCountOpt
         commandLabel: 'qpdf(page-count)',
         ...(options.signal ? {signal: options.signal} : {}),
         ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
+        ...(options.onTerminationProof ? {onTerminationProof: options.onTerminationProof} : {}),
     });
     const pageCount = parseQpdfPageCount(result.stdout);
     if (pageCount === null) {

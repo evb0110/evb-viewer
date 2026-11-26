@@ -7,9 +7,9 @@ import {
 } from 'node:worker_threads';
 import {
     createTesseractEngine,
-    type IOcrEngineRequest,
     type TTesseractModuleFactory,
 } from '@ocr-core/tesseractEngine';
+import type {TDesktopOcrEngineRequest} from '@electron/features/ocr/main/ocrEngineHostProtocol';
 
 /** Where the engine and the installed models are; the pool passes it to each worker. */
 export interface IOcrEngineWorkerData {
@@ -48,10 +48,16 @@ parentPort!.on('message', async ({
     id, request,
 }: {
     id: number;
-    request: IOcrEngineRequest
+    request: TDesktopOcrEngineRequest;
 }) => {
     try {
-        const result = await recognize(request);
+        const image = request.image instanceof Uint8Array
+            ? request.image
+            : await readBytes(request.image.path);
+        const result = await recognize({
+            ...request,
+            image,
+        });
         parentPort!.postMessage({
             id,
             ok: true,

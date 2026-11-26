@@ -46,7 +46,7 @@ export async function handleAnalyzePdfConformance(
             kind: 'abortable-work',
             ownerWebContentsId: context.senderId,
             workingCopyPath,
-            // The worker listens to operation.signal; the lifecycle hook marks
+            // Conformance analysis listens to operation.signal; the lifecycle hook marks
             // this read as eligible for cancellation when the copy is released.
             cancel: () => undefined,
         });

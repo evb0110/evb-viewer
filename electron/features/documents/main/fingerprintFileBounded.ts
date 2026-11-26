@@ -7,7 +7,8 @@ import {Writable} from 'node:stream';
 
 const FINGERPRINT_CHUNK_BYTES = 1024 * 1024;
 
-export async function fingerprintFileBounded(path: string, expectedBytes: number) {
+export async function fingerprintFileBounded(path: string, expectedBytes: number, signal?: AbortSignal) {
+    signal?.throwIfAborted();
     const before = await stat(path);
     if (!before.isFile() || before.size !== expectedBytes) {
         throw new Error('Document file size changed during inspection');
@@ -21,7 +22,9 @@ export async function fingerprintFileBounded(path: string, expectedBytes: number
             contentHash.update(chunk);
             callback();
         }}),
+        ...(signal ? [{signal}] : []),
     );
+    signal?.throwIfAborted();
     const after = await stat(path);
     if (!after.isFile()
         || after.size !== before.size

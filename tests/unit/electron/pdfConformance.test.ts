@@ -6,7 +6,6 @@ import {
     getUnprovenNativeTerminationDetail,
     markUnprovenNativeTermination,
 } from '@electron/utils/nativeTerminationProof';
-import {createWorkerTaskErrorFrame} from '@electron/utils/workerTask';
 
 import {
     beforeEach,
@@ -17,11 +16,6 @@ import {
 } from 'vitest';
 
 const mocks = vi.hoisted(() => {
-    const workerState: {
-        mode: 'error-frame' | 'malformed-result' | 'runtime-error' | 'startup-error' | 'success';
-        errorFrame?: unknown
-    } = {mode: 'startup-error'};
-    const workerCtor = vi.fn();
     const broker = {current: null as TJobBrokerModule.JobBroker | null};
     const loggerWarn = vi.fn();
     const runNativeToolCommand = vi.fn();
@@ -89,10 +83,8 @@ const mocks = vi.hoisted(() => {
     }));
 
     return {
-        workerState,
         broker,
         sparseMarkerResults: false,
-        workerCtor,
         loggerWarn,
         runNativeToolCommand,
         rangeBytes,
@@ -114,7 +106,7 @@ vi.mock('@electron/resources/jobBroker', async importOriginal => {
     const actual = await importOriginal<typeof TJobBrokerModule>();
     return {
         ...actual,
-        mainJobBroker: {run: <T>(request: TJobBrokerModule.IJobBrokerRequest, work: () => Promise<T>) => mocks.broker.current!.run(request, work)},
+        mainJobBroker: {run: <T>(request: TJobBrokerModule.IJobBrokerRequest, work: (context: TJobBrokerModule.IJobBrokerRunContext) => Promise<T>) => mocks.broker.current!.run(request, work)},
     };
 });
 beforeEach(async () => {
@@ -138,120 +130,6 @@ vi.mock('@pdf-core', async importOriginal => {
         ),
     };
 });
-
-vi.mock('worker_threads', () => ({Worker: class {
-    private readonly onceHandlers = new Map<string, Set<(arg: unknown) => void>>();
-
-    private readonly onHandlers = new Map<string, Set<(arg: unknown) => void>>();
-
-    constructor(script: string, options: unknown) {
-        mocks.workerCtor(script, options);
-        queueMicrotask(() => {
-            switch (mocks.workerState.mode) {
-                case 'error-frame':
-                    this.emit('online', undefined);
-                    this.emit('message', {
-                        type: 'result',
-                        ok: false,
-                        errorFrame: mocks.workerState.errorFrame,
-                    });
-                    return;
-                case 'startup-error':
-                    this.emit('error', new Error('PDF worker missing'));
-                    return;
-                case 'runtime-error':
-                    this.emit('online', undefined);
-                    this.emit('error', new Error('worker crashed after startup'));
-                    return;
-                case 'malformed-result':
-                    this.emit('online', undefined);
-                    this.emit('message', {
-                        type: 'result',
-                        ok: true,
-                        data: {
-                            isSigned: false,
-                            isEncrypted: false,
-                            isTagged: false,
-                            pdfaLevel: null,
-                            hasAcroForm: false,
-                            hasXfa: false,
-                            canIncrementalSave: 'yes',
-                            saveRestrictions: [],
-                        },
-                    });
-                    return;
-                case 'success':
-                    this.emit('online', undefined);
-                    this.emit('message', {
-                        type: 'result',
-                        ok: true,
-                        data: {
-                            isSigned: false,
-                            isEncrypted: false,
-                            isTagged: false,
-                            pdfaLevel: null,
-                            hasAcroForm: false,
-                            hasXfa: false,
-                            canIncrementalSave: true,
-                            saveRestrictions: [],
-                        },
-                    });
-                    return;
-                default:
-                    return;
-            }
-        });
-    }
-
-    on(event: string, callback: (arg: unknown) => void) {
-        const handlers = this.onHandlers.get(event) ?? new Set();
-        handlers.add(callback);
-        this.onHandlers.set(event, handlers);
-        return this;
-    }
-
-    once(event: string, callback: (arg: unknown) => void) {
-        const handlers = this.onceHandlers.get(event) ?? new Set();
-        handlers.add(callback);
-        this.onceHandlers.set(event, handlers);
-        return this;
-    }
-
-    removeAllListeners(event?: string) {
-        if (event) {
-            this.onceHandlers.delete(event);
-            this.onHandlers.delete(event);
-            return this;
-        }
-
-        this.onceHandlers.clear();
-        this.onHandlers.clear();
-        return this;
-    }
-
-    removeListener(event: string, callback: (arg: unknown) => void) {
-        this.onceHandlers.get(event)?.delete(callback);
-        this.onHandlers.get(event)?.delete(callback);
-        return this;
-    }
-
-    terminate() {
-        return Promise.resolve(0);
-    }
-
-    private emit(event: string, payload: unknown) {
-        const onHandlers = [...(this.onHandlers.get(event) ?? [])];
-        for (const handler of onHandlers) {
-            handler(payload);
-        }
-
-        const onceHandlers = [...(this.onceHandlers.get(event) ?? [])];
-        this.onceHandlers.delete(event);
-        for (const handler of onceHandlers) {
-            handler(payload);
-        }
-    }
-}}));
 
 vi.mock('fs/promises', () => ({
     open: mocks.open,
@@ -303,7 +181,7 @@ const {
     validatePdfFileForOpening,
     validatePdfFileForSave,
 } = await import('@electron/features/documents/main/pdfConformance');
-const { analyzePdfConformanceFileDirect } = await import('@electron/features/documents/main/analyzePdfConformanceFileDirect');
+const { analyzePdfConformancePath: analyzePdfConformanceFileDirect } = await import('@electron/features/documents/main/pdfConformancePathAnalysis');
 
 function createNativeStructuralFacts(options: {
     signed?: boolean;
@@ -324,22 +202,20 @@ function createNativeStructuralFacts(options: {
 describe('analyzePdfConformanceFile', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mocks.workerState.mode = 'startup-error';
         mocks.runNativeToolCommand.mockResolvedValue({
             stdout: '',
             stderr: '',
             exitCode: 0,
         });
+        mocks.setRangeBytes(Buffer.from('%PDF-1.7\n', 'latin1'));
         mocks.stat.mockResolvedValue({
             isFile: () => true,
-            size: mocks.rangeBytes.length,
+            size: 9,
         });
         mocks.setFactsBytes(createNativeStructuralFacts());
     });
 
-    it('returns the worker result when the worker starts successfully', async () => {
-        mocks.workerState.mode = 'success';
-
+    it('runs conformance analysis directly in main under a job-broker lease', async () => {
         const result = await analyzePdfConformanceFile('/tmp/input.pdf');
 
         expect(result).toEqual({
@@ -352,47 +228,41 @@ describe('analyzePdfConformanceFile', () => {
             canIncrementalSave: true,
             saveRestrictions: [],
         });
-        expect(mocks.workerCtor).toHaveBeenCalledTimes(1);
-        expect(mocks.workerCtor.mock.calls[0]?.[1]).not.toHaveProperty('resourceLimits');
-        expect(mocks.open).not.toHaveBeenCalled();
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
+            '/mock/page-ops',
+            [
+                'pdf-conformance',
+                '--input',
+                '/tmp/input.pdf',
+                '--qpdf',
+                '/mock/qpdf',
+            ],
+            expect.objectContaining({
+                onTerminationProof: expect.any(Function),
+            }),
+        );
         expect(mocks.loggerWarn).not.toHaveBeenCalled();
     });
 
-    it('surfaces startup failures without falling back to direct main-thread analysis', async () => {
-        await expect(analyzePdfConformanceFile('/tmp/input.pdf'))
-            .rejects
-            .toThrow('PDF conformance worker failed before becoming ready: PDF worker missing');
-
-        expect(mocks.workerCtor).toHaveBeenCalledTimes(1);
-        expect(mocks.open).not.toHaveBeenCalled();
-        expect(mocks.stat).not.toHaveBeenCalled();
-        expect(mocks.loggerWarn).toHaveBeenCalledTimes(1);
-    });
-
-    it('surfaces runtime worker failures without falling back to the main thread', async () => {
-        mocks.workerState.mode = 'runtime-error';
+    it('surfaces native failures with a warning log', async () => {
+        mocks.runNativeToolCommand.mockRejectedValueOnce(new Error('native conformance failed'));
 
         await expect(analyzePdfConformanceFile('/tmp/runtime-failure.pdf'))
             .rejects
-            .toThrow('worker crashed after startup');
+            .toThrow('native conformance failed');
 
-        expect(mocks.workerCtor).toHaveBeenCalledTimes(1);
-        expect(mocks.open).not.toHaveBeenCalled();
-        expect(mocks.stat).not.toHaveBeenCalled();
         expect(mocks.loggerWarn).toHaveBeenCalledTimes(1);
     });
 
-    it('rejects malformed worker result payloads', async () => {
-        mocks.workerState.mode = 'malformed-result';
+    it('stays quiet when canceled via AbortSignal', async () => {
+        const controller = new AbortController();
+        controller.abort(new DOMException('canceled', 'AbortError'));
 
-        await expect(analyzePdfConformanceFile('/tmp/malformed-result.pdf'))
+        await expect(analyzePdfConformanceFile('/tmp/canceled.pdf', {signal: controller.signal}))
             .rejects
-            .toThrow('PDF conformance worker returned an invalid payload');
+            .toThrow('canceled');
 
-        expect(mocks.workerCtor).toHaveBeenCalledTimes(1);
-        expect(mocks.open).not.toHaveBeenCalled();
-        expect(mocks.stat).not.toHaveBeenCalled();
-        expect(mocks.loggerWarn).toHaveBeenCalledTimes(1);
+        expect(mocks.loggerWarn).not.toHaveBeenCalled();
     });
 });
 
@@ -805,7 +675,6 @@ describe('validatePdfFileForSave', () => {
 describe('native reader termination refusal', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mocks.workerState.mode = 'startup-error';
     });
 
     it.each([
@@ -853,17 +722,12 @@ describe('native reader termination refusal', () => {
         expect(getUnprovenNativeTerminationDetail(failure)).toBe('structural child tree remains alive');
     });
 
-    it('carries an actual structural callee failure through a cloned worker frame and the main decoder', async () => {
+    it('preserves marked native termination failures directly through analyzePdfConformanceFile', async () => {
         const failure = markUnprovenNativeTermination(new Error('Native conformance read did not settle'), 'native descendant may still hold PDF bytes');
         mocks.runNativeToolCommand.mockRejectedValueOnce(failure);
-        const observed = await analyzePdfConformanceFileDirect('/tmp/input.pdf').catch((error: unknown) => error);
+        const observed = await analyzePdfConformanceFile('/tmp/input.pdf').catch((error: unknown) => error);
         expect(observed).toBe(failure);
-        mocks.workerState.mode = 'error-frame';
-        mocks.workerState.errorFrame = structuredClone(createWorkerTaskErrorFrame(observed));
-        const decoded = await analyzePdfConformanceFile('/tmp/input.pdf').catch((error: unknown) => error);
-        expect(decoded).toBeInstanceOf(Error);
-        expect(getUnprovenNativeTerminationDetail(decoded)).toBe('native descendant may still hold PDF bytes');
-        expect(decoded).toMatchObject({message: 'Native conformance read did not settle'});
+        expect(getUnprovenNativeTerminationDetail(observed)).toBe('native descendant may still hold PDF bytes');
     });
 });
 
@@ -871,7 +735,6 @@ describe('native reader termination refusal', () => {
 // Real file opens and the main handler/read-lease owner, isolated from the direct-parser mocks above.
 describe('conformance admission through the main handler', () => {
     async function mainHarness() {
-        const {EventEmitter} = await import('node:events');
         const fs = await vi.importActual<typeof TNodeFsPromises>('node:fs/promises');
         const {join} = await import('node:path');
         const {tmpdir} = await import('node:os');
@@ -884,52 +747,46 @@ describe('conformance admission through the main handler', () => {
         };
         const broker = new JobBroker(resources);
         const directory = await fs.mkdtemp(join(tmpdir(), 'conformance-main-admission-'));
-        const opened = new Set<string>(); const closed = new Set<string>();
-        const handles: TNodeFsPromises.FileHandle[] = [];
         const operations = new Map<string, {
             controller: AbortController;
             completed: boolean
         }>();
-        let workerActive = 0;
-        const records: Array<{
-            emit: (event: string, value: unknown) => boolean;
-            fence: ReturnType<typeof Promise.withResolvers<number>> | null
+        let activeCalls = 0;
+        const calls: Array<{
+            resolve: (result: {stdout: string; stderr: string; exitCode: number}) => void;
+            reject: (error: unknown) => void;
+            onTerminationProof?: (proof: Promise<boolean>) => void;
+            signal?: AbortSignal;
         }> = [];
         vi.resetModules();
-        vi.doMock('fs/promises', () => ({
-            ...fs,
-            open: async (path: string, flags: string) => {
-                const handle = await fs.open(path, flags);
-                opened.add(path); handles.push(handle);
-                const close = handle.close.bind(handle);
-                handle.close = async () => { await close(); closed.add(path); };
-                return handle;
-            },
-        }));
+        vi.doMock('fs/promises', () => fs);
         vi.doMock('@electron/resources/jobBroker', () => ({mainJobBroker: broker}));
-        vi.doMock('worker_threads', () => ({
-            isMainThread: true,
-            Worker: class extends EventEmitter {
-                readonly record = {
-                    emit: (event: string, value: unknown) => {
-                        if (event === 'exit' && !this.ended) { this.ended = true; workerActive--; }
-                        return this.emit(event, value);
+        vi.doMock('@electron/native-tools/runNativeToolCommand', () => ({
+            runNativeToolCommand: (
+                _command: string,
+                _args: string[],
+                options?: {
+                    onTerminationProof?: (proof: Promise<boolean>) => void;
+                    signal?: AbortSignal;
+                },
+            ) => new Promise((resolve, reject) => {
+                activeCalls += 1;
+                calls.push({
+                    resolve: value => {
+                        activeCalls -= 1;
+                        resolve(value);
                     },
-                    fence: null as ReturnType<typeof Promise.withResolvers<number>> | null,
-                };
-                private ended = false;
-                constructor() { super(); records.push(this.record); workerActive++; }
-                postMessage() {}
-                async terminate() {
-                    const code = await (this.record.fence?.promise ?? Promise.resolve(0));
-                    if (!this.ended) { this.ended = true; workerActive--; this.emit('exit', code); }
-                    return code;
-                }
-            },
+                    reject: error => {
+                        activeCalls -= 1;
+                        reject(error);
+                    },
+                    ...(options?.onTerminationProof ? {onTerminationProof: options.onTerminationProof} : {}),
+                    ...(options?.signal ? {signal: options.signal} : {}),
+                });
+            }),
         }));
-        // Each fixture stands for an open document whose bytes are a file of its own.
         vi.doMock('@electron/file-access/documentStore', () => ({
-            getWorkingCopyBackingEntry: () => ({ref: 'document'}),
+            getWorkingCopyBackingEntry: (path: string) => ({ref: path}),
             runWithWorkingCopyReadBacking: (path: string, read: (physicalPath: string) => Promise<unknown>) => read(path),
             statOpenDocument: () => ({size: 1, modifiedAt: 1}),
         }));
@@ -951,7 +808,6 @@ describe('conformance admission through the main handler', () => {
             };
         }}));
         const {handleAnalyzePdfConformance} = await import('@electron/features/documents/main/documentPdfValidationHandlers');
-        const reads = await import('@electron/features/documents/main/documentFileReadHandlers');
         const profile = {
             isSigned: false,
             isEncrypted: false,
@@ -962,33 +818,35 @@ describe('conformance admission through the main handler', () => {
             canIncrementalSave: true,
             saveRestrictions: [],
         };
+        const factsJson = JSON.stringify({
+            isSigned: false,
+            isEncrypted: false,
+            isTagged: false,
+            hasAcroForm: false,
+            hasXfa: false,
+        });
         return {
             broker,
             resources,
-            records,
+            calls,
             operations,
-            opened,
-            closed,
-            reads,
-            directory,
-            fs,
             profile,
-            active: () => workerActive,
+            active: () => activeCalls,
             async fixture(index: number) { const path = join(directory, `source-${index}.pdf`); await fs.writeFile(path, '%PDF-1.4\n%%EOF\n'); return path; },
             run: (path: string) => handleAnalyzePdfConformance({senderId: 13}, path),
-            finish(index: number) { records[index]!.emit('online', undefined); records[index]!.emit('message', {
-                type: 'result',
-                ok: true,
-                data: profile,
-            }); },
+            finish(index: number) {
+                calls[index]!.resolve({
+                    stdout: factsJson,
+                    stderr: '',
+                    exitCode: 0,
+                });
+            },
             async close() {
                 for (const operation of operations.values()) operation.controller.abort(new Error('test cleanup'));
-                for (const record of records) { record.fence?.resolve(0); record.emit('exit', 0); }
-                await Promise.all(handles.map(handle => handle.close().catch(() => undefined)));
                 for (const name of [
                     'fs/promises',
                     '@electron/resources/jobBroker',
-                    'worker_threads',
+                    '@electron/native-tools/runNativeToolCommand',
                     '@electron/file-access/documentStore',
                     '@electron/file-access/workingCopyQuarantine',
                     '@electron/features/documents/main/documentFilePathResolution',
@@ -1002,7 +860,7 @@ describe('conformance admission through the main handler', () => {
         };
     }
 
-    it('queues twelve distinct real-file reads, cancels one, and holds capacity through worker termination', async () => {
+    it('queues twelve distinct real-file reads, cancels one, and holds capacity through native termination proof', async () => {
         const h = await mainHarness();
         const blocker = await h.broker.acquire({
             ownerId: 'occupied',
@@ -1013,28 +871,28 @@ describe('conformance admission through the main handler', () => {
         const paths = await Promise.all(Array.from({length: 12}, (_, i) => h.fixture(i)));
         const tasks = paths.map(path => h.run(path).catch((error: unknown) => error));
         try {
-            await vi.waitFor(() => expect(h.records.length > 0 || h.broker.getSnapshot().queued === 12).toBe(true));
-            expect(h.records).toHaveLength(0);
+            await vi.waitFor(() => expect(h.calls.length > 0 || h.broker.getSnapshot().queued === 12).toBe(true));
+            expect(h.calls).toHaveLength(0);
             expect(h.broker.getSnapshot().queued).toBe(12);
             h.operations.get(paths[11]!)!.controller.abort(new Error('working copy closed while queued'));
             expect(await tasks[11]).toBeInstanceOf(Error);
             expect(h.operations.get(paths[11]!)!.completed).toBe(true);
-            expect(h.records).toHaveLength(0);
+            expect(h.calls).toHaveLength(0);
             blocker.release();
-            await vi.waitFor(() => expect(h.records).toHaveLength(1));
-            const fence = Promise.withResolvers<number>(); h.records[0]!.fence = fence;
+            await vi.waitFor(() => expect(h.calls).toHaveLength(1));
+            const fence = Promise.withResolvers<boolean>();
+            h.calls[0]!.onTerminationProof?.(fence.promise);
             h.finish(0);
             await Promise.resolve();
-            expect(h.active()).toBe(1);
             expect(h.broker.getSnapshot()).toMatchObject({
                 active: 1,
                 queued: 10,
                 used: h.resources,
             });
-            expect(h.records).toHaveLength(1);
-            fence.resolve(0);
+            expect(h.calls).toHaveLength(1);
+            fence.resolve(true);
             for (let i = 1; i < 11; i++) {
-                await vi.waitFor(() => expect(h.records).toHaveLength(i + 1));
+                await vi.waitFor(() => expect(h.calls).toHaveLength(i + 1));
                 expect(h.active()).toBe(1);
                 expect(h.broker.getSnapshot().used).toEqual(h.resources);
                 h.finish(i);
@@ -1050,51 +908,27 @@ describe('conformance admission through the main handler', () => {
     });
 
     it.each([
-        'marked-frame',
-        'runtime-error',
-        'empty-exit',
-        'invalid-payload',
-        'invalid-result',
-        'ignored-cancel',
-        'ordinary-frame',
-        'startup-error',
+        'unproven',
+        'proven-failure',
     ] as const)(
-        'keeps capacity only when descendant settlement is unproven: %s', async mode => {
+        'keeps capacity only when native descendant settlement is unproven: %s', async mode => {
             const h = await mainHarness();
             const path = await h.fixture(0);
             const task = h.run(path).catch((error: unknown) => error);
             try {
-                await vi.waitFor(() => expect(h.records).toHaveLength(1));
-                const worker = h.records[0]!;
-                const error = new Error('worker failure');
-                if (mode !== 'startup-error') worker.emit('online', undefined);
-                if (mode === 'runtime-error' || mode === 'startup-error') worker.emit('error', error);
-                else if (mode === 'empty-exit') worker.emit('exit', 0);
-                else if (mode === 'invalid-payload') worker.emit('message', {type: 'unexpected'});
-                else if (mode === 'invalid-result') worker.emit('message', {
-                    type: 'result',
-                    ok: true,
-                    data: {},
-                });
-                else if (mode === 'ignored-cancel') {
-                    vi.useFakeTimers();
-                    h.operations.get(path)!.controller.abort(new Error('cooperative cancellation ignored'));
-                    await vi.advanceTimersByTimeAsync(5_000);
-                    vi.useRealTimers();
+                await vi.waitFor(() => expect(h.calls).toHaveLength(1));
+                const call = h.calls[0]!;
+                const error = new Error('native failure');
+                if (mode === 'unproven') {
+                    call.onTerminationProof?.(Promise.resolve(false));
+                    call.reject(markUnprovenNativeTermination(error, 'native qpdf alive'));
                 } else {
-                    const payload = mode === 'marked-frame' ? markUnprovenNativeTermination(error, 'native qpdf alive') : error;
-                    worker.emit('message', {
-                        type: 'result',
-                        ok: false,
-                        errorFrame: createWorkerTaskErrorFrame(payload),
-                    });
+                    call.onTerminationProof?.(Promise.resolve(true));
+                    call.reject(error);
                 }
                 const observed = await task;
                 expect(observed).toBeInstanceOf(Error);
-                const marked = ![
-                    'ordinary-frame',
-                    'startup-error',
-                ].includes(mode);
+                const marked = mode === 'unproven';
                 expect(getUnprovenNativeTerminationDetail(observed) !== undefined).toBe(marked);
                 expect(h.broker.getSnapshot()).toMatchObject({
                     active: marked ? 1 : 0,
@@ -1102,7 +936,7 @@ describe('conformance admission through the main handler', () => {
                 });
                 if (marked) expect(h.broker.getSnapshot().used).toEqual(h.resources);
                 expect(h.active()).toBe(0);
-            } finally { vi.useRealTimers(); await h.close(); }
+            } finally { await h.close(); }
         },
     );
 });

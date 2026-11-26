@@ -1,327 +1,183 @@
-import {stat} from 'node:fs/promises';
-import {dirname} from 'node:path';
-import {fileURLToPath} from 'node:url';
-import {utilityProcess} from 'electron';
-import {WORKER_BUNDLES_BY_ID} from '@electron-worker-bundles/electronWorkerBundles.js';
-import {resolveUnpackedWorkerPath} from '@electron/utils/workerTask';
-import {mainJobBroker} from '@electron/resources/jobBroker';
 import {
-    decodeDocumentSaveUtilityResult,
-    decodeDocumentSaveUtilityShutdownResult,
+    open,
+    stat,
+} from 'node:fs/promises';
+import {
+    mainJobBroker,
+    type TTerminationProofSink,
+} from '@electron/resources/jobBroker';
+import {
+    decodeDocumentSaveUtilityRequest,
+    getDocumentSaveUtilityReusePlan,
+    type IDocumentSaveUtilityValidateRequest,
 } from '@electron/features/documents/main/documentSaveUtilityProtocol';
+import {fingerprintFileBounded} from '@electron/features/documents/main/fingerprintFileBounded';
+import {validateTargetedPdfObjects} from '@electron/features/documents/main/validateTargetedPdfObjects';
+import {
+    runNativeToolCommand,
+    type IRunNativeToolCommandOptions,
+} from '@electron/native-tools/runNativeToolCommand';
 import {abortErrorFromSignal} from '@electron/utils/abort';
-import {DOCUMENT_FINGERPRINT_SERVICE_NAME} from '@electron/processDeathRecovery';
-import {terminateProcessTree} from '@electron/utils/processTree';
-import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
-import type {IJobBrokerLease} from '@electron/resources/jobBroker';
-import {waitForBoundedOperation} from '@node-runtime/waitForBoundedOperation';
+import {getErrorMessage} from '@electron/utils/error';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
 const ADMISSION_TIMEOUT_MS = 15_000;
 const FINGERPRINT_TIMEOUT_MS = 2 * 60_000;
 
-interface IDocumentSaveUtilityResult {
+export interface IDocumentSaveUtilityResult {
     bytes: number;
     sha256: string;
     contentFingerprint?: string;
 }
 
-interface IRetainedDocumentSaveUtility {
-    child: ReturnType<typeof utilityProcess.fork>;
-    pid: number | undefined;
-    releaseResourceLease: () => void;
-    retryTermination: () => Promise<boolean>;
-}
-
-const retainedDocumentSaveUtilities = new Map<IRetainedDocumentSaveUtility['child'], IRetainedDocumentSaveUtility>();
-
-export function getRetainedDocumentSaveUtilityCount() {
-    return retainedDocumentSaveUtilities.size;
-}
-
-export async function retryRetainedDocumentSaveUtilityProcesses() {
-    const results = await Promise.all([...retainedDocumentSaveUtilities.values()].map(async retained => {
-        const proven = await retained.retryTermination();
-        if (proven) {
-            retained.releaseResourceLease();
-            retainedDocumentSaveUtilities.delete(retained.child);
-        }
-        return proven;
-    }));
-    return results.every(Boolean);
-}
-
-export async function shutdownRetainedDocumentSaveUtilityProcesses() {
-    const proven = await retryRetainedDocumentSaveUtilityProcesses();
-    if (!proven && retainedDocumentSaveUtilities.size > 0) {
-        throw new Error(
-            `Document save utility cleanup remains unproven (${retainedDocumentSaveUtilities.size} retained process${retainedDocumentSaveUtilities.size === 1 ? '' : 'es'})`,
-        );
+async function inspectPdf(
+    path: string,
+    expectedBytes: number,
+    options: {
+        sha256?: string;
+        tailCheck?: boolean;
+        signal?: AbortSignal;
+    } = {},
+): Promise<IDocumentSaveUtilityResult> {
+    options.signal?.throwIfAborted();
+    const fingerprint = options.sha256 === undefined
+        ? await fingerprintFileBounded(path, expectedBytes, options.signal)
+        : {
+            bytes: expectedBytes,
+            sha256: options.sha256,
+        };
+    options.signal?.throwIfAborted();
+    const fileStat = await stat(path);
+    if (!fileStat.isFile() || fileStat.size !== expectedBytes) {
+        throw new Error('PDF save staging file size changed after receipt validation');
     }
+    const handle = await open(path, 'r');
+    try {
+        const header = Buffer.alloc(5);
+        await handle.read(header, 0, header.length, 0);
+        if (header.toString('ascii') !== '%PDF-') throw new Error('PDF save staging file has an invalid header');
+        if (options.tailCheck !== true) {
+            const tailBytes = Math.min(fingerprint.bytes, 64 * 1024);
+            const tail = Buffer.alloc(tailBytes);
+            await handle.read(tail, 0, tailBytes, fingerprint.bytes - tailBytes);
+            if (!tail.includes(Buffer.from('%%EOF'))) throw new Error('PDF save staging file has no end-of-file marker');
+        }
+    } finally {
+        await handle.close();
+    }
+    return fingerprint;
 }
 
-export async function runDocumentSaveUtilityProcess(options: {
-    cwd: string;
-    serviceName: string;
-    utilityName: string;
-    timeoutMs: number;
-    request: unknown;
-    signal?: AbortSignal;
-    resourceLease?: IJobBrokerLease;
-}) {
-    let resourceLeaseReleased = false;
-    const releaseResourceLease = () => {
-        if (resourceLeaseReleased) {
-            return;
-        }
-        resourceLeaseReleased = true;
-        options.resourceLease?.release();
-    };
+function createOperationSignal(signal: AbortSignal | undefined, timeoutMs: number) {
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
+    return signal ? AbortSignal.any([
+        signal,
+        timeoutSignal,
+    ]) : timeoutSignal;
+}
+
+export async function validateDocumentSaveStagingFile(
+    rawRequest: IDocumentSaveUtilityValidateRequest,
+    options: {
+        timeoutMs: number;
+        signal?: AbortSignal;
+        onTerminationProof?: TTerminationProofSink;
+    },
+): Promise<IDocumentSaveUtilityResult> {
     if (options.signal?.aborted) {
-        releaseResourceLease();
         throw abortErrorFromSignal(options.signal);
     }
-    let workerPath: string;
-    try {
-        workerPath = resolveUnpackedWorkerPath(
-            __dirname,
-            WORKER_BUNDLES_BY_ID['document-save-utility'].fileName,
-        );
-    } catch (error) {
-        releaseResourceLease();
-        throw error;
+    const request = decodeDocumentSaveUtilityRequest(rawRequest);
+    if (!request || request.type !== 'validate') {
+        throw new Error('Invalid document save validation request');
     }
-    return new Promise<IDocumentSaveUtilityResult>((resolve, reject) => {
-        let child: ReturnType<typeof utilityProcess.fork>;
-        try {
-            child = utilityProcess.fork(workerPath, [], {
-                cwd: options.cwd,
-                serviceName: options.serviceName,
-                stdio: 'ignore',
-            });
-        } catch (error) {
-            releaseResourceLease();
-            throw error;
+    const operationSignal = createOperationSignal(options.signal, options.timeoutMs);
+    const runValidationCommand = (
+        validationBinary: string,
+        args: string[],
+        commandOptions: IRunNativeToolCommandOptions = {},
+    ) => {
+        if (options.signal?.aborted) {
+            return Promise.reject(abortErrorFromSignal(options.signal));
         }
-        let settled = false;
-        let childExited = false;
-        let spawned = false;
-        let pid: number | undefined;
-        let retained: IRetainedDocumentSaveUtility | undefined;
-        let shutdownProof: boolean | undefined;
-        let shutdownProofPromise: Promise<boolean> | null = null;
-        let shutdownProofRequestId: string | null = null;
-        let shutdownRequestSequence = 0;
-        let resolveShutdownProof: ((requestId: string, proven: boolean) => void) | null = null;
-        let resolveSpawnState!: () => void;
-        const spawnState = new Promise<void>(resolve => {
-            resolveSpawnState = resolve;
+        return runNativeToolCommand(validationBinary, args, {
+            timeoutMs: 5 * 60_000,
+            maxStdoutBytes: 4 * 1024 * 1024,
+            maxStderrBytes: 4 * 1024 * 1024,
+            ...commandOptions,
+            signal: operationSignal,
+            ...(options.onTerminationProof ? {onTerminationProof: options.onTerminationProof} : {}),
         });
-        const waitForSpawnState = async (): Promise<boolean> => {
-            if (spawned || childExited) {
-                return spawned;
-            }
-            await waitForBoundedOperation(spawnState, {
-                timeoutMs: 2_500,
-                timeoutResult: undefined,
-                unref: true,
-            });
-            return spawned;
-        };
-        let terminationInFlight: Promise<boolean> | null = null;
-        const stopChild = async () => {
-            if (terminationInFlight) {
-                return terminationInFlight;
-            }
-            const attempt = (async () => {
-                const hasSpawned = await waitForSpawnState();
-                if (!hasSpawned) {
-                    // A PID exposed by utilityProcess.fork before the spawn event
-                    // is not an identity we are allowed to terminate.
-                    return childExited;
-                }
-                if (pid === undefined) {
-                    return false;
-                }
-                if (childExited) {
-                    return shutdownProof === true;
-                }
-                if (shutdownProof !== true && shutdownProofPromise === null) {
-                    const requestId = `${pid}:${++shutdownRequestSequence}`;
-                    shutdownProofRequestId = requestId;
-                    shutdownProof = undefined;
-                    shutdownProofPromise = new Promise(resolve => {
-                        let settled = false;
-                        const settle = (proven: boolean) => {
-                            if (settled) {
-                                return;
-                            }
-                            settled = true;
-                            clearTimeout(timer);
-                            resolve(proven);
-                        };
-                        resolveShutdownProof = (responseRequestId, proven) => {
-                            if (responseRequestId !== requestId) {
-                                return;
-                            }
-                            shutdownProof = proven;
-                            settle(proven);
-                        };
-                        const timer = setTimeout(() => {
-                            if (shutdownProofRequestId === requestId) {
-                                shutdownProof = false;
-                                settle(false);
-                            }
-                        }, 2_500);
-                        timer.unref();
-                    });
-                    try {
-                        child.postMessage({
-                            type: 'shutdown',
-                            requestId,
-                        });
-                    } catch {
-                        shutdownProof = false;
-                        resolveShutdownProof?.(requestId, false);
-                    }
-                }
-                const nativeDescendantsTerminated = shutdownProof === true
-                    || await shutdownProofPromise!;
-                if (!nativeDescendantsTerminated) {
-                    shutdownProofPromise = null;
-                    resolveShutdownProof = null;
-                    shutdownProofRequestId = null;
-                }
-                let directProcessTerminated: boolean = childExited;
-                try {
-                    if (!childExited) {
-                        directProcessTerminated = await terminateProcessTree(pid, {
-                            graceMs: 2_500,
-                            isTargetAlive: () => child.pid === pid && !childExited,
-                            // utilityProcess.fork does not create a detached POSIX process
-                            // group. A group probe can therefore miss this live child.
-                            preferProcessGroup: false,
-                        });
-                    }
-                } catch {
-                    directProcessTerminated = false;
-                }
-                return directProcessTerminated && nativeDescendantsTerminated && shutdownProof === true;
-            })();
-            terminationInFlight = attempt;
-            void attempt.finally(() => {
-                if (terminationInFlight === attempt) {
-                    terminationInFlight = null;
-                }
-            });
-            return attempt;
-        };
-        const retainUntilTerminationProof = () => {
-            const retainedUtility: IRetainedDocumentSaveUtility = {
-                child,
-                pid,
-                releaseResourceLease,
-                retryTermination: stopChild,
-            };
-            retained = retainedUtility;
-            retainedDocumentSaveUtilities.set(child, retainedUtility);
-        };
-        const finish = async (error?: Error, result?: IDocumentSaveUtilityResult) => {
-            if (settled) {
-                return;
-            }
-            settled = true;
-            clearTimeout(timeout);
-            options.signal?.removeEventListener('abort', abort);
-            const termination = stopChild();
-            if (!error && result) {
-                retainUntilTerminationProof();
-                resolve(result);
-                const terminated = await termination;
-                if (terminated) {
-                    releaseResourceLease();
-                    retainedDocumentSaveUtilities.delete(child);
-                }
-                return;
-            }
-            const terminated = await termination;
-            if (!terminated) {
-                retainUntilTerminationProof();
-                reject(markUnprovenNativeTermination(
-                    error ?? new Error(`${options.utilityName} process did not terminate cleanly.`),
-                    `${options.utilityName} process (pid=${child.pid ?? 'unknown'}) was not proven dead`,
-                ));
-                return;
-            }
-            releaseResourceLease();
-            reject(error);
-        };
-        const abort = () => {
-            void finish(abortErrorFromSignal(options.signal!));
-        };
-        const timeout = setTimeout(
-            () => {
-                void finish(new Error(`${options.utilityName} timed out`));
-            },
-            options.timeoutMs,
-        );
-        timeout.unref();
-        options.signal?.addEventListener('abort', abort, {once: true});
-        child.once('spawn', () => {
-            spawned = true;
-            pid = child.pid;
-            if (retained) {
-                retained.pid = pid;
-            }
-            resolveSpawnState();
-            if (!settled && !childExited && !options.signal?.aborted) {
-                child.postMessage(options.request);
-            }
-        });
-        child.on('message', (value) => {
-            const shutdownResult = decodeDocumentSaveUtilityShutdownResult(value);
-            if (shutdownResult && shutdownResult.requestId === shutdownProofRequestId) {
-                shutdownProof = shutdownResult.terminated;
-                resolveShutdownProof?.(shutdownResult.requestId, shutdownResult.terminated);
-                return;
-            }
-            const result = decodeDocumentSaveUtilityResult(value);
-            if (!result) {
-                void finish(new Error(`${options.utilityName} returned an invalid result`));
-                return;
-            }
-            if (!result.ok) {
-                void finish(new Error(result.error));
-                return;
-            }
-            void finish(undefined, {
-                bytes: result.bytes,
-                sha256: result.sha256,
-                ...(result.contentFingerprint === undefined ? {} : {contentFingerprint: result.contentFingerprint}),
-            });
-        });
-        child.once('error', (_type, location) => {
-            void finish(new Error(`${options.utilityName} failed at ${location}`));
-        });
-        child.once('exit', code => {
-            childExited = true;
-            resolveSpawnState();
-            if (shutdownProof === undefined) {
-                shutdownProof = false;
-                if (shutdownProofRequestId) {
-                    resolveShutdownProof?.(shutdownProofRequestId, false);
-                }
-            }
-            if (!settled) {
-                void finish(new Error(`${options.utilityName} exited before completion (${code})`));
-            }
-        });
+    };
+
+    const reuse = getDocumentSaveUtilityReusePlan(request);
+    let receiptSha256: string | undefined;
+    if (reuse.fingerprint) {
+        if (
+            request.stagedArtifact === undefined
+            || request.stagedArtifact.receiptVersion !== 1
+        ) {
+            throw new Error('Document save receipt reuse was enabled without an artifact');
+        }
+        receiptSha256 = request.stagedArtifact.sha256;
+    }
+    const inspection = await inspectPdf(request.sourcePath, request.expectedBytes, {
+        ...(receiptSha256 === undefined ? {} : {sha256: receiptSha256}),
+        ...(reuse.tailCheck ? {tailCheck: true} : {}),
+        signal: operationSignal,
     });
+    if (!reuse.qpdfCheck && !reuse.nativeIncrementalCheck && request.validationBinary) {
+        try {
+            const result = await runValidationCommand(request.validationBinary, [
+                '--check',
+                request.sourcePath,
+            ], {allowedExitCodes: [
+                0,
+                3,
+            ]});
+            if (result.exitCode !== 0 && result.exitCode !== 3) {
+                throw new Error(`qpdf exited with code ${result.exitCode}`);
+            }
+        } catch (error) {
+            if (getUnprovenNativeTerminationDetail(error) !== undefined || options.signal?.aborted || operationSignal.aborted) {
+                throw options.signal?.aborted && getUnprovenNativeTerminationDetail(error) === undefined
+                    ? abortErrorFromSignal(options.signal)
+                    : error;
+            }
+            const exitCode: unknown = (error as {code?: unknown}).code;
+            if (exitCode !== 3 && exitCode !== '3') {
+                throw new Error(`PDF save staging file failed qpdf validation: ${getErrorMessage(error)}`);
+            }
+        }
+    }
+    const changedObjectRefs = request.changedObjectRefs ?? [];
+    if (
+        changedObjectRefs.length > 0
+        && !reuse.changedObjectRefsCheck
+        && request.validationBinary
+    ) {
+        await validateTargetedPdfObjects(
+            request.sourcePath,
+            request.validationBinary,
+            changedObjectRefs,
+            runValidationCommand,
+        );
+    }
+    if (options.signal?.aborted) {
+        throw abortErrorFromSignal(options.signal);
+    }
+    operationSignal.throwIfAborted();
+    return inspection;
 }
 
-export async function fingerprintFileWithUtilityProcess(path: string) {
+export async function fingerprintFileWithUtilityProcess(path: string, signal?: AbortSignal): Promise<IDocumentSaveUtilityResult> {
+    if (signal?.aborted) {
+        throw abortErrorFromSignal(signal);
+    }
     const {size} = await stat(path);
-    const lease = await mainJobBroker.acquire({
+    const admissionSignal = createOperationSignal(signal, ADMISSION_TIMEOUT_MS);
+    const operationSignal = createOperationSignal(signal, FINGERPRINT_TIMEOUT_MS);
+    return mainJobBroker.run({
         ownerId: `document-fingerprint:${path}`,
         kind: 'document-save-utility',
         priority: 'foreground',
@@ -329,29 +185,9 @@ export async function fingerprintFileWithUtilityProcess(path: string) {
         resources: {
             cpuTokens: 1,
             estimatedResidentBytes: 256 * 1024 * 1024,
-            nativeProcesses: 1,
+            nativeProcesses: 0,
             ioWeight: 1,
         },
-        signal: AbortSignal.timeout(ADMISSION_TIMEOUT_MS),
-    });
-    let utilityOwnsLease = false;
-    try {
-        utilityOwnsLease = true;
-        return await runDocumentSaveUtilityProcess({
-            cwd: dirname(path),
-            serviceName: DOCUMENT_FINGERPRINT_SERVICE_NAME,
-            utilityName: 'Document fingerprint utility',
-            timeoutMs: FINGERPRINT_TIMEOUT_MS,
-            request: {
-                type: 'inspect',
-                sourcePath: path,
-                expectedBytes: size,
-            },
-            resourceLease: lease,
-        });
-    } finally {
-        if (!utilityOwnsLease) {
-            lease.release();
-        }
-    }
+        signal: admissionSignal,
+    }, () => fingerprintFileBounded(path, size, operationSignal));
 }

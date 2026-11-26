@@ -198,7 +198,9 @@ describe('desktop OCR job billing', () => {
                 const {
                     width,
                     height,
-                } = readPnmSize(request.image);
+                } = request.image instanceof Uint8Array
+                    ? readPnmSize(request.image)
+                    : request.image;
                 charges.push({
                     used: mainJobBroker.getSnapshot().used.estimatedResidentBytes,
                     expected: Math.ceil(2.5 * modelBytes + 192 * MIB + width * height * 12),

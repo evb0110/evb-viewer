@@ -36,27 +36,24 @@ function readAppLog(sessionName: string) {
     return readFileSync(resolve(electronFileLogDir(sessionName), 'app.ndjson'), 'utf8');
 }
 
-const CONFORMANCE_WORKER = 'pdfConformanceWorker.js';
-
-function readWorkerTaskEvents(log: string) {
+function readConformanceEvents(log: string) {
     return log.split(/\r?\n/u)
         .filter(Boolean)
         .map(line => JSON.parse(line) as {
             level?: string;
             scope?: string;
             msg?: string;
-            data?: {workerName?: string};
         })
-        .filter(entry => entry.scope === 'worker-task');
+        .filter(entry => entry.scope === 'documents-pdfConformance' || entry.scope === 'worker-task');
 }
 
-function hasWorkerTaskMessage(log: string, message: string) {
-    return readWorkerTaskEvents(log)
-        .some(entry => entry.msg === message && entry.data?.workerName === CONFORMANCE_WORKER);
+function hasConformanceMessage(log: string, message: string) {
+    return readConformanceEvents(log)
+        .some(entry => entry.scope === 'documents-pdfConformance' && entry.msg === message);
 }
 
-function readWorkerTaskErrors(sessionName: string) {
-    return readWorkerTaskEvents(readAppLog(sessionName))
+function readConformanceErrors(sessionName: string) {
+    return readConformanceEvents(readAppLog(sessionName))
         .filter(entry => entry.level === 'error');
 }
 
@@ -170,7 +167,7 @@ describe('Electron E2E - PDF Conformance', () => {
         try {
             await openPdfInApp(session.page, stablePdf);
             await expect.poll(
-                () => hasWorkerTaskMessage(readAppLog(session.name).slice(initialLog.length), 'Worker completed'),
+                () => hasConformanceMessage(readAppLog(session.name).slice(initialLog.length), 'PDF conformance analysis completed'),
                 {timeout: CONFORMANCE_WORKER_START_TIMEOUT_MS},
             ).toBe(true);
 
@@ -190,21 +187,21 @@ describe('Electron E2E - PDF Conformance', () => {
             await waitForPdfLoaded(session.page, 15_000);
             await expect.poll(() => {
                 const analysisLog = readAppLog(session.name).slice(largeAnalysisStart);
-                return hasWorkerTaskMessage(analysisLog, 'Worker reported cancellation')
-                    || hasWorkerTaskMessage(analysisLog, 'Worker reported failure');
+                return hasConformanceMessage(analysisLog, 'PDF conformance analysis canceled')
+                    || readConformanceEvents(analysisLog).some(entry => entry.scope === 'documents-pdfConformance' && entry.level === 'warn');
             }, {timeout: 30_000}).toBe(true);
             const visibleErrors = (await observer.collect()).visibleErrorSurfaces;
-            const workerTaskErrors = readWorkerTaskErrors(session.name);
+            const conformanceErrors = readConformanceErrors(session.name);
             expect({
                 visibleErrors,
-                workerTaskErrors,
+                conformanceErrors,
             }).toEqual({
                 visibleErrors: [],
-                workerTaskErrors: [],
+                conformanceErrors: [],
             });
             const analysisLog = readAppLog(session.name).slice(largeAnalysisStart);
-            expect(hasWorkerTaskMessage(analysisLog, 'Worker reported cancellation')).toBe(true);
-            expect(hasWorkerTaskMessage(stableLog, 'Worker completed')).toBe(true);
+            expect(hasConformanceMessage(analysisLog, 'PDF conformance analysis canceled')).toBe(true);
+            expect(hasConformanceMessage(stableLog, 'PDF conformance analysis completed')).toBe(true);
         } finally {
             observer.dispose();
             await sessionFixture.restart({
@@ -223,21 +220,21 @@ describe('Electron E2E - PDF Conformance', () => {
             await openPdfInApp(session.page, pdf);
             const readAnalysisLog = () => readAppLog(session.name).slice(initialLog.length);
             await expect.poll(
-                () => hasWorkerTaskMessage(readAnalysisLog(), 'Worker completed')
-                    || hasWorkerTaskMessage(readAnalysisLog(), 'Worker reported failure'),
+                () => hasConformanceMessage(readAnalysisLog(), 'PDF conformance analysis completed')
+                    || readConformanceEvents(readAnalysisLog()).some(entry => entry.scope === 'documents-pdfConformance' && entry.level === 'warn'),
                 {timeout: CONFORMANCE_WORKER_START_TIMEOUT_MS},
             ).toBe(true);
             const visibleErrors = (await observer.collect()).visibleErrorSurfaces;
-            const workerTaskErrors = readWorkerTaskEvents(readAnalysisLog())
+            const conformanceErrors = readConformanceEvents(readAnalysisLog())
                 .filter(entry => entry.level === 'error');
             expect({
                 visibleErrors,
-                workerTaskErrors,
+                conformanceErrors,
             }).toEqual({
                 visibleErrors: [],
-                workerTaskErrors: [],
+                conformanceErrors: [],
             });
-            expect(hasWorkerTaskMessage(readAnalysisLog(), 'Worker completed')).toBe(true);
+            expect(hasConformanceMessage(readAnalysisLog(), 'PDF conformance analysis completed')).toBe(true);
         } finally {
             observer.dispose();
         }

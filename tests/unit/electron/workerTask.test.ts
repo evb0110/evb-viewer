@@ -7,10 +7,6 @@ import {
     it,
     vi,
 } from 'vitest';
-import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
-import type {IScanCleanupWorkerPaths} from '@electron/features/scan-cleanup/worker/runScanCleanupPipeline';
-import type {TScanCleanupWorkerRequest} from '@electron/features/scan-cleanup/runScanCleanupWorkerTask';
-import {cast} from '@tests/helpers/cast';
 
 const mocks = vi.hoisted<{
     existsSync: ReturnType<typeof vi.fn<() => boolean>>;
@@ -1312,37 +1308,6 @@ describe('workerTask', () => {
 
             const error = await outcome;
             expect(error).toMatchObject({message: 'exit: 3'});
-            expect(getUnprovenNativeTerminationDetail(error)).toContain('stopped without settling');
-            expect(broker.getSnapshot()).toMatchObject({
-                active: 1,
-                used: {nativeProcesses: 1},
-            });
-        });
-
-        it('keeps the Scan Cleanup lease of a worker that crashed after starting', async () => {
-            mocks.throwConstructorError = false;
-            const {runScanCleanupWorkerTask} = await import('@electron/features/scan-cleanup/runScanCleanupWorkerTask');
-            const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
-
-            const {
-                broker,
-                outcome,
-            } = await runUnderLease(onTerminationProof => runScanCleanupWorkerTask(
-                cast<TScanCleanupWorkerRequest>({}),
-                cast<IScanCleanupWorkerPaths>({}),
-                cast<IScanCleanupRuntimePolicy>({}),
-                new AbortController().signal,
-                () => undefined,
-                'scan-cleanup-job',
-                {onTerminationProof},
-            ));
-            await vi.waitFor(() => expect(mocks.workerRecords).toHaveLength(1));
-            await Promise.resolve();
-            // Its Poppler and Tesseract children ran under this lease.
-            mocks.workerRecords[0]!.emit('exit', 3);
-
-            const error = await outcome;
-            expect(error).toMatchObject({message: 'Scan cleanup worker exited with code 3'});
             expect(getUnprovenNativeTerminationDetail(error)).toContain('stopped without settling');
             expect(broker.getSnapshot()).toMatchObject({
                 active: 1,

@@ -1,76 +1,42 @@
 import {randomUUID} from 'node:crypto';
-import { getErrorMessage } from '@electron/utils/error';
-import {dirname} from 'path';
-import { fileURLToPath } from 'url';
-import { isRecord } from '@contracts/runtimeGuards';
+import {basename} from 'node:path';
 import type {
     TScanCleanupProgress,
     TScanCleanupSummary,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
-import {SCAN_CLEANUP_SUMMARY_SCHEMA} from '@contracts/scan-cleanup/ipc';
-import {SCAN_CLEANUP_PROGRESS_SCHEMA} from '@contracts/scan-cleanup/progress';
-import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
-import type {
-    IRunScanCleanupPipelineRequest,
-    IScanCleanupWorkerPaths,
+import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
+import {
+    runScanCleanupPipeline,
+    type IRunScanCleanupPipelineRequest,
+    type IScanCleanupWorkerPaths,
 } from '@electron/features/scan-cleanup/worker/runScanCleanupPipeline';
-import type {IScanCleanupDetectionResultStoreDescriptor} from '@electron/features/scan-cleanup/detectionResultStoreDescriptor';
 import {reclaimScanCleanupCheckpointOwner} from '@evb/scan-cleanup/core/conversionCheckpoint';
 import {
     getWorkerTaskFailureReceipt,
     rememberWorkerTaskFailureReceipt,
-    resolveUnpackedWorkerPath,
-    startStreamingWorkerTask,
 } from '@electron/utils/workerTask';
 import {isAbortError} from '@electron/utils/abort';
-import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
+import {getErrorMessage} from '@electron/utils/error';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import {createLogger} from '@electron/utils/createLogger';
 import type {TTerminationProofSink} from '@electron/resources/jobBroker';
-import * as v from 'valibot';
 
-const currentDir = dirname(fileURLToPath(import.meta.url));
-const workerFileName = WORKER_BUNDLES_BY_ID['scan-cleanup'].fileName;
-const logger = createLogger('scan-cleanup-worker-task');
+const logger = createLogger('scan-cleanup-runner');
 
-/** Request data that can cross the worker_threads structured-clone boundary. */
-export type TScanCleanupWorkerRequest = Omit<IRunScanCleanupPipelineRequest, 'detectionResultStore'> & {detectionResultStoreDescriptor?: IScanCleanupDetectionResultStoreDescriptor;};
+export type TScanCleanupWorkerRequest = IRunScanCleanupPipelineRequest;
 
-type TDecodedProgress =
-    | {kind: 'not-progress'}
-    | {kind: 'invalid'}
-    | {
-        kind: 'progress';
-        value: TScanCleanupProgress;
-    };
-
-function decodeProgress(value: unknown): TDecodedProgress {
-    if (!isRecord(value) || value.type !== 'progress') {
-        return {kind: 'not-progress'};
-    }
-    try {
-        return {
-            kind: 'progress',
-            value: v.parse(SCAN_CLEANUP_PROGRESS_SCHEMA, value.progress, {abortEarly: true}),
-        };
-    } catch (error) {
-        logger.error('Rejected scan cleanup worker progress', {
-            code: 'MAIN_SCAN_CLEANUP_FAILED',
-            severity: 'error',
-            cause: error,
-        }, {
-            value,
-            errorMessage: getErrorMessage(error),
+function logScanCleanupMessage(jobId: string, level: 'debug' | 'error' | 'info' | 'warn', message: string) {
+    if (level === 'error') {
+        logger.error('Scan cleanup reported an error', {code: 'MAIN_SCAN_CLEANUP_FAILED'}, {
+            jobId,
+            message,
         });
-        return {kind: 'invalid'};
+        return;
     }
-}
-
-function decodeSummary(value: unknown): TScanCleanupSummary | null {
-    try {
-        return v.parse(SCAN_CLEANUP_SUMMARY_SCHEMA, value, {abortEarly: true});
-    } catch {
-        return null;
-    }
+    logger[level]('Scan cleanup reported a message', {
+        jobId,
+        message,
+    });
 }
 
 export async function runScanCleanupWorkerTask(
@@ -83,13 +49,13 @@ export async function runScanCleanupWorkerTask(
     options?: {
         onCheckpointReady?: (entryDir: string) => void;
         /**
-         * The owning broker lease's proof sink. The worker's native children
+         * The owning broker lease's proof sink. The pipeline's native children
          * run under that lease, so a stop that cannot prove them gone keeps it
          * charged.
          */
         onTerminationProof?: TTerminationProofSink;
     },
-) {
+): Promise<TScanCleanupSummary> {
     const checkpointOwnerId = `${jobId}-${randomUUID()}`;
     const workerPaths: IScanCleanupWorkerPaths = paths.checkpointDir === undefined
         ? paths
@@ -97,85 +63,99 @@ export async function runScanCleanupWorkerTask(
             ...paths,
             checkpointOwnerId,
         };
-    const task = startStreamingWorkerTask<TScanCleanupSummary>({
-        workerPath: resolveUnpackedWorkerPath(currentDir, workerFileName),
-        workerData: {
-            request,
-            paths: workerPaths,
-            runtimePolicy,
-            jobId,
-            checkpointOwnerId,
-        },
-        invalidPayloadMessage: 'Scan cleanup worker returned an invalid payload',
-        invalidResultMessage: 'Scan cleanup worker returned an invalid summary',
-        createStartupError: message => new Error(`Scan cleanup worker startup failed: ${message}`),
-        createWorkerExitError: code => new Error(`Scan cleanup worker exited with code ${code}`),
-        // A high-DPI book can legitimately take longer than an hour while
-        // still completing pages continuously. Guard against a stalled worker
-        // without canceling healthy long-running cleanup jobs.
-        inactivityTimeoutMs: 60 * 60 * 1000,
-        resourceLimits: {
-            maxOldGenerationSizeMb: 256,
-            maxYoungGenerationSizeMb: 64,
-            stackSizeMb: 4,
-        },
-        signal,
-        // AbortSignal is the transport. This worker adapter translates abort to
-        // a cooperative message and lets the worker-task harness force terminate
-        // after the grace period. Generation counters are never used to cancel.
-        createCancelMessage: () => ({type: 'cancel'}),
-        cooperativeCancelDelayMs: 5_000,
-        onProgressMessage: value => {
-            if (isRecord(value) && value.type === 'checkpoint-ready' && typeof value.entryDir === 'string') {
-                options?.onCheckpointReady?.(value.entryDir);
-                return true;
-            }
-            const decoded = decodeProgress(value);
-            if (decoded.kind === 'not-progress') {
-                return false;
-            }
-            if (decoded.kind === 'progress') onProgress(decoded.value);
-            return true;
-        },
-        decodeResult: decodeSummary,
-        ...(options?.onTerminationProof === undefined ? {} : {onTerminationProof: options.onTerminationProof}),
+    const startedAt = performance.now();
+    let lastProgressStage: TScanCleanupProgress['stage'] | null = null;
+    let lastProgressStageStartedAt = startedAt;
+    logger.info('Scan cleanup run started', {
+        jobId,
+        source: basename(request.sourcePdfPath),
+        selectedPages: request.sourcePageNumbers?.length ?? 'all',
     });
     try {
-        return await task.promise;
+        const result = await runScanCleanupPipeline(
+            request,
+            workerPaths,
+            signal,
+            progress => {
+                if (progress.stage !== lastProgressStage) {
+                    const now = performance.now();
+                    logger.info('Scan cleanup phase started', {
+                        jobId,
+                        stage: progress.stage,
+                        previousStage: lastProgressStage,
+                        previousStageMs: lastProgressStage === null ? null : Math.round(now - lastProgressStageStartedAt),
+                        completedUnits: progress.completedUnits,
+                        totalUnits: progress.totalUnits,
+                        percent: progress.percent,
+                        completedPageNumbers: progress.completedPageNumbers ?? null,
+                    });
+                    lastProgressStage = progress.stage;
+                    lastProgressStageStartedAt = now;
+                }
+                onProgress(progress);
+            },
+            runtimePolicy,
+            (level, message) => logScanCleanupMessage(jobId, level, message),
+            undefined,
+            {
+                ...(options?.onCheckpointReady === undefined
+                    ? {}
+                    : {onCheckpointReadyForCleanup: options.onCheckpointReady}),
+                ...(options?.onTerminationProof === undefined
+                    ? {}
+                    : {onTerminationProof: options.onTerminationProof}),
+            },
+        );
+        logger.info('Scan cleanup run completed', {
+            jobId,
+            lastStage: lastProgressStage,
+            lastStageMs: Math.round(performance.now() - lastProgressStageStartedAt),
+            inputPages: result.inputPages,
+            outputPages: result.outputPages,
+            durationMs: Math.round(performance.now() - startedAt),
+        });
+        return result;
     } catch (error) {
+        const elapsedMs = Math.round(performance.now() - startedAt);
         const detail = error instanceof Error ? (error.stack ?? getErrorMessage(error)) : String(error);
-        if (signal.aborted || isAbortError(error)) {
-            logger.info('Scan cleanup worker task canceled', {jobId});
+        const unprovenTermination = getUnprovenNativeTerminationDetail(error);
+        if (unprovenTermination !== undefined) {
+            logger.warn('Scan cleanup run stopped without proving native termination', {
+                jobId,
+                elapsedMs,
+                detail: unprovenTermination,
+            });
+        } else if (signal.aborted || isAbortError(error)) {
+            logger.info('Scan cleanup run canceled', {
+                jobId,
+                stage: lastProgressStage,
+                elapsedMs,
+            });
         } else if (getWorkerTaskFailureReceipt(error) !== undefined) {
-            // The generic worker-task layer already reported this exact
-            // rejection, so this line only ties it to the job.
-            logger.debug('Scan cleanup worker task rejected (already reported)', {
+            logger.debug('Scan cleanup task rejected (already reported)', {
                 jobId,
                 detail,
             });
         } else {
             rememberWorkerTaskFailureReceipt(
                 error,
-                logger.error('Scan cleanup worker task rejected', {
+                logger.error('Scan cleanup run failed', {
                     code: 'MAIN_SCAN_CLEANUP_FAILED',
                     cause: error,
                 }, {
                     jobId,
+                    stage: lastProgressStage,
+                    elapsedMs,
+                    errorMessage: getErrorMessage(error),
                     detail,
                 }),
             );
         }
         throw error;
     } finally {
-        // `startStreamingWorkerTask` settles `task.promise` only after
-        // `terminateWorkerAfterTask` confirms the Node Worker has exited
-        // ('exit' event or resolved `worker.terminate()`). Reclaiming here
-        // therefore runs strictly after the worker thread is gone and cleans
-        // up any lock/lease left behind by a force-terminated worker sharing
-        // `process.pid` with main.
         if (paths.checkpointDir !== undefined) {
             await reclaimScanCleanupCheckpointOwner(paths.checkpointDir, checkpointOwnerId).catch(reclaimError => {
-                logger.warn('Failed to reclaim scan cleanup checkpoint owner artifacts after worker exit', {
+                logger.warn('Failed to reclaim scan cleanup checkpoint owner artifacts', {
                     jobId,
                     checkpointOwnerId,
                     error: getErrorMessage(reclaimError),

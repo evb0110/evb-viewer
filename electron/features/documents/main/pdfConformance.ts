@@ -1,12 +1,8 @@
 import {stat} from 'fs/promises';
-import {dirname} from 'path';
-import { fileURLToPath } from 'url';
 import type {
     IPdfConformanceProfile,
     IPdfValidationResult,
 } from '@contracts/pdfConformance';
-import { isRecord } from '@contracts/runtimeGuards';
-import { createDefaultPdfConformanceProfile } from '@pdf-core';
 import {
     extractQpdfWarnings,
     getQpdfCheckArgs,
@@ -21,31 +17,23 @@ import { runNativeToolCommand } from '@electron/native-tools/runNativeToolComman
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
-import {
-    getUnprovenNativeTerminationDetail, markUnprovenNativeTermination,
-} from '@electron/utils/nativeTerminationProof';
+import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 import {mainJobBroker} from '@electron/resources/jobBroker';
 import {
     abortErrorFromSignal,
     isAbortError,
 } from '@electron/utils/abort';
 import {
+    analyzePdfConformancePath,
     validatePdfStructureFromPath,
     type IPdfConformancePathAnalysisOptions,
 } from '@electron/features/documents/main/pdfConformancePathAnalysis';
-import {
-    resolveUnpackedWorkerPath,
-    runResultWorkerTask,
-} from '@electron/utils/workerTask';
-import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
 
 const logger = createLogger('documents-pdfConformance');
 const QPDF_VALIDATE_COMMAND_LABEL = 'qpdf(validate-pdf)';
 const QPDF_VALIDATE_TIMEOUT_PATTERN = /^qpdf\(validate-pdf\) timed out after \d+ms$/u;
 const QPDF_OPENING_VALIDATE_COMMAND_LABEL = 'qpdf(validate-pdf-opening)';
 const QPDF_SAVE_VALIDATE_COMMAND_LABEL = 'qpdf(validate-pdf-structure)';
-const PDF_CONFORMANCE_WORKER_FILENAME = WORKER_BUNDLES_BY_ID['pdf-conformance'].fileName;
-const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export type {IPdfConformancePathAnalysisOptions};
 
@@ -59,122 +47,35 @@ async function tryStatPdfFile(filePath: string): Promise<TPdfFileStat | null> {
     }
 }
 
-class PdfConformanceWorkerStartupError extends Error {
-    constructor(message: string) {
-        super(message);
-        this.name = 'PdfConformanceWorkerStartupError';
-    }
-}
-
-function getPdfConformanceWorkerPath() {
-    return resolveUnpackedWorkerPath(__dirname, PDF_CONFORMANCE_WORKER_FILENAME);
-}
-
-function decodePdfConformanceResult(data: unknown): IPdfConformanceProfile | null {
-    if (data === undefined) {
-        return {
-            ...createDefaultPdfConformanceProfile(),
-            saveRestrictions: [],
-        };
-    }
-    if (!isRecord(data)
-        || typeof data.isSigned !== 'boolean'
-        || typeof data.isEncrypted !== 'boolean'
-        || typeof data.isTagged !== 'boolean'
-        || !(data.pdfaLevel === null || typeof data.pdfaLevel === 'string')
-        || typeof data.hasAcroForm !== 'boolean'
-        || typeof data.hasXfa !== 'boolean'
-        || typeof data.canIncrementalSave !== 'boolean'
-        || !Array.isArray(data.saveRestrictions)
-        || !data.saveRestrictions.every(restriction => typeof restriction === 'string')) {
-        return null;
-    }
-    return {
-        isSigned: data.isSigned,
-        isEncrypted: data.isEncrypted,
-        isTagged: data.isTagged,
-        pdfaLevel: data.pdfaLevel,
-        hasAcroForm: data.hasAcroForm,
-        hasXfa: data.hasXfa,
-        canIncrementalSave: data.canIncrementalSave,
-        saveRestrictions: data.saveRestrictions,
-    };
-}
-
-function createDefaultPdfConformanceResult(): IPdfConformanceProfile {
-    return {
-        ...createDefaultPdfConformanceProfile(),
-        saveRestrictions: [],
-    };
-}
-
-function runPdfConformanceWorker(
-    filePath: string,
-    options: IPdfConformancePathAnalysisOptions = {},
-) {
-    return mainJobBroker.run({
-        ownerId: 'pdf-conformance',
-        kind: 'pdf-conformance',
-        priority: 'background',
-        resources: {
-            cpuTokens: 2,
-            estimatedResidentBytes: 512 * 1024 * 1024,
-            nativeProcesses: 2,
-            ioWeight: 1,
-        },
-        ...(options.signal === undefined ? {} : {signal: options.signal}),
-    }, ({onTerminationProof}) => runResultWorkerTask<IPdfConformanceProfile>({
-        workerPath: getPdfConformanceWorkerPath(),
-        onTerminationProof,
-        workerData: {
-            filePath,
-            ...(options.cancelGroup === undefined ? {} : {cancelGroup: options.cancelGroup}),
-            ...(options.markerEvidence === undefined ? {} : {markerEvidence: options.markerEvidence}),
-        },
-        invalidPayloadMessage: 'PDF conformance worker returned an invalid payload',
-        invalidResultMessage: 'PDF conformance worker returned an invalid payload',
-        createStartupError: (message) => new PdfConformanceWorkerStartupError(
-            `PDF conformance worker failed before becoming ready: ${message}`,
-        ),
-        createStartError: (message) => new PdfConformanceWorkerStartupError(
-            `PDF conformance worker failed to start: ${message}`,
-        ),
-        createStartupExitError: (code) => new PdfConformanceWorkerStartupError(
-            `PDF conformance worker exited during startup with code ${code}`,
-        ),
-        createWorkerExitError: code => markUnprovenNativeTermination(
-            new Error(`PDF conformance worker exited with code ${code}`),
-            'PDF conformance worker exited without settling its native children',
-        ),
-        createWorkerError: error => markUnprovenNativeTermination(
-            error instanceof Error ? error : new Error(getErrorMessage(error)),
-            'PDF conformance worker failed without settling its native children',
-        ),
-        timeoutMs: options.timeoutMs ?? QPDF_VALIDATE_MAX_TIMEOUT_MS,
-        createCancelMessage: () => ({type: 'cancel'}),
-        cooperativeCancelDelayMs: 5_000,
-        ...(options.signal === undefined ? {} : {signal: options.signal}),
-        decodeResult: (data) => {
-            if (data === undefined) {
-                return createDefaultPdfConformanceResult();
-            }
-            return decodePdfConformanceResult(data);
-        },
-    }));
-}
-
 export async function analyzePdfConformanceFile(
     filePath: string,
     options: IPdfConformancePathAnalysisOptions = {},
 ): Promise<IPdfConformanceProfile> {
     try {
-        return await runPdfConformanceWorker(filePath, options);
+        const result = await mainJobBroker.run({
+            ownerId: 'pdf-conformance',
+            kind: 'pdf-conformance',
+            priority: 'background',
+            resources: {
+                cpuTokens: 2,
+                estimatedResidentBytes: 512 * 1024 * 1024,
+                nativeProcesses: 2,
+                ioWeight: 1,
+            },
+            ...(options.signal === undefined ? {} : {signal: options.signal}),
+        }, ({onTerminationProof}) => analyzePdfConformancePath(filePath, {
+            ...options,
+            timeoutMs: options.timeoutMs ?? QPDF_VALIDATE_MAX_TIMEOUT_MS,
+            onTerminationProof,
+        }));
+        logger.debug('PDF conformance analysis completed', {filePath});
+        return result;
     } catch (error) {
-        if (error instanceof PdfConformanceWorkerStartupError) {
-            logger.warn(`PDF conformance worker unavailable for ${filePath}: ${error.message}`);
+        if (isAbortError(error) || options.signal?.aborted) {
+            logger.info('PDF conformance analysis canceled', {filePath});
         } else {
             logger.warn(
-                `PDF conformance worker failed for ${filePath}: ${
+                `PDF conformance analysis failed for ${filePath}: ${
                     getErrorMessage(error)
                 }`,
             );

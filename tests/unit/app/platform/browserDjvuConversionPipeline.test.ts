@@ -36,6 +36,7 @@ const mocks = vi.hoisted(() => ({
     buildCompactPage: vi.fn(),
     combineWorker: vi.fn(),
     pageOps: vi.fn(),
+    renderDjvuPage: vi.fn(),
     /** The page-ops request boundary a test lowers; null keeps the real one. */
     pageOpsMaxRequestBytes: null as number | null,
 }));
@@ -69,7 +70,7 @@ vi.mock('@app/platform/browser-api/browserDjvuRasterizer', () => ({
             this.name = 'DjvuCanceledError';
         }
     },
-    renderDjvuPage: vi.fn(),
+    renderDjvuPage: mocks.renderDjvuPage,
     throwIfDjvuCanceled: (signal?: AbortSignal) => {
         if (signal?.aborted) {
             throw new Error('DjVu conversion canceled');
@@ -228,12 +229,11 @@ describe('browserDjvuConversionPipeline', () => {
         )).toBe(expectedConcurrency);
     });
 
-    it('streams the direct PDF when the compact request exceeds the WASM boundary', async () => {
+    it('falls back to direct JPEG combine when the compact request exceeds the WASM boundary', async () => {
         const stat = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
             size: 1,
             modifiedAt: 1,
         });
-        // The direct export's output sink is the first step past the fallback.
         const getSaveTarget = vi.spyOn(browserDocumentStore, 'getSaveTarget').mockRejectedValue(new Error('direct export output requested'));
         mocks.createWorker.mockResolvedValueOnce({terminate: vi.fn()});
         mocks.getPageSizes.mockResolvedValueOnce([{
@@ -258,10 +258,28 @@ describe('browserDjvuConversionPipeline', () => {
                 },
             },
         });
-        mocks.combineWorker.mockRejectedValueOnce(new SerializableError({
-            code: 'too-large',
-            message: 'Image combine WASM request exceeds the admission ceiling',
-        }));
+        mocks.renderDjvuPage.mockResolvedValueOnce({
+            bytes: new Uint8Array([
+                0xff,
+                0xd8,
+                0xff,
+                0xd9,
+            ]),
+            width: 100,
+            height: 100,
+            dpi: 300,
+        });
+        mocks.combineWorker
+            .mockRejectedValueOnce(new SerializableError({
+                code: 'too-large',
+                message: 'Image combine WASM request exceeds the admission ceiling',
+            }))
+            .mockResolvedValueOnce({data: new Uint8Array([
+                0x25,
+                0x50,
+                0x44,
+                0x46,
+            ])});
 
         try {
             await expect(runBrowserDjvuConversion(
@@ -276,14 +294,29 @@ describe('browserDjvuConversionPipeline', () => {
                 success: false,
                 error: 'direct export output requested',
             });
+            expect(mocks.renderDjvuPage).toHaveBeenCalledOnce();
+            expect(mocks.combineWorker).toHaveBeenCalledTimes(2);
+            expect(mocks.combineWorker.mock.calls[1]?.[1]).toMatchObject({
+                inputs: [],
+                wasmImagePreprocessing: {pageSpecs: [{
+                    kind: 'image',
+                    pageSize: {
+                        widthPoints: 24,
+                        heightPoints: 24,
+                    },
+                    image: {fileName: 'page-00001.jpg'},
+                }]},
+            });
             expect(getSaveTarget).toHaveBeenCalledOnce();
         } finally {
+            mocks.renderDjvuPage.mockReset();
+            mocks.combineWorker.mockReset();
             stat.mockRestore();
             getSaveTarget.mockRestore();
         }
     });
 
-    it('streams the direct PDF when one page of many exceeds the WASM boundary while another is still building', async () => {
+    it('falls back to direct JPEG combine when one page of many exceeds the WASM boundary while another is still building', async () => {
         const stat = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
             size: 1,
             modifiedAt: 1,
@@ -320,10 +353,37 @@ describe('browserDjvuConversionPipeline', () => {
                     },
                 },
             })));
-        mocks.combineWorker.mockRejectedValueOnce(new SerializableError({
-            code: 'too-large',
-            message: 'Image dimensions are too large to combine safely: 10000x8001',
-        }));
+        mocks.renderDjvuPage.mockResolvedValue({
+            bytes: new Uint8Array([
+                0xff,
+                0xd8,
+                0xff,
+                0xd9,
+            ]),
+            width: 100,
+            height: 100,
+            dpi: 300,
+        });
+        mocks.combineWorker
+            .mockRejectedValueOnce(new SerializableError({
+                code: 'too-large',
+                message: 'Image dimensions are too large to combine safely: 10000x8001',
+            }))
+            .mockResolvedValue({data: new Uint8Array([
+                0x25,
+                0x50,
+                0x44,
+                0x46,
+            ])});
+        mocks.pageOps.mockResolvedValueOnce({
+            status: 'written',
+            data: new Uint8Array([
+                0x25,
+                0x50,
+                0x44,
+                0x46,
+            ]),
+        });
 
         try {
             await expect(runBrowserDjvuConversion(
@@ -338,17 +398,21 @@ describe('browserDjvuConversionPipeline', () => {
                 success: false,
                 error: 'direct export output requested',
             });
+            expect(mocks.renderDjvuPage).toHaveBeenCalledTimes(2);
             expect(getSaveTarget).toHaveBeenCalledOnce();
         } finally {
             vi.unstubAllGlobals();
             mocks.buildCompactPage.mockReset();
+            mocks.renderDjvuPage.mockReset();
+            mocks.combineWorker.mockReset();
             mocks.createWorker.mockReset();
+            mocks.pageOps.mockReset();
             stat.mockRestore();
             getSaveTarget.mockRestore();
         }
     });
 
-    it('streams the direct PDF when the encoded pages together exceed what one merge request holds', async () => {
+    it('falls back to direct JPEG combine when the encoded compact pages together exceed what one merge request holds', async () => {
         const stat = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
             size: 1,
             modifiedAt: 1,
@@ -378,8 +442,32 @@ describe('browserDjvuConversionPipeline', () => {
                 },
             },
         });
-        // Each page encodes to four bytes; one fits the boundary, two do not.
-        mocks.combineWorker.mockResolvedValue({data: new Uint8Array(4)});
+        mocks.renderDjvuPage.mockResolvedValue({
+            bytes: new Uint8Array([
+                0xff,
+                0xd8,
+                0xff,
+                0xd9,
+            ]),
+            width: 100,
+            height: 100,
+            dpi: 300,
+        });
+        // Compact pages encode to 4 bytes each (8 > 6); direct JPEG pages encode to 2 bytes each (4 <= 6).
+        mocks.combineWorker.mockImplementation(async (_type: string, payload: {wasmImagePreprocessing: {pageSpecs: Array<{image: {fileName: string}}>}}) => ({
+            data: payload.wasmImagePreprocessing.pageSpecs[0]!.image.fileName.endsWith('.jpg')
+                ? new Uint8Array(2)
+                : new Uint8Array(4),
+        }));
+        mocks.pageOps.mockResolvedValueOnce({
+            status: 'written',
+            data: new Uint8Array([
+                0x25,
+                0x50,
+                0x44,
+                0x46,
+            ]),
+        });
         mocks.pageOpsMaxRequestBytes = 6;
 
         try {
@@ -396,10 +484,11 @@ describe('browserDjvuConversionPipeline', () => {
                 error: 'direct export output requested',
             });
             expect(getSaveTarget).toHaveBeenCalledOnce();
-            expect(mocks.pageOps).not.toHaveBeenCalled();
+            expect(mocks.pageOps).toHaveBeenCalledOnce();
         } finally {
             mocks.pageOpsMaxRequestBytes = null;
             mocks.buildCompactPage.mockReset();
+            mocks.renderDjvuPage.mockReset();
             mocks.combineWorker.mockReset();
             mocks.createWorker.mockReset();
             mocks.pageOps.mockReset();
@@ -408,7 +497,7 @@ describe('browserDjvuConversionPipeline', () => {
         }
     });
 
-    it('streams the direct PDF when the merge engine has no room to join the pages', async () => {
+    it('falls back to direct JPEG combine when the compact merge engine has no room to join the pages', async () => {
         const stat = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
             size: 1,
             modifiedAt: 1,
@@ -438,14 +527,35 @@ describe('browserDjvuConversionPipeline', () => {
                 },
             },
         });
-        mocks.combineWorker.mockResolvedValue({data: new Uint8Array(4)});
-        mocks.pageOps.mockResolvedValue({
-            status: 'failed',
-            error: {
-                code: 'too-large',
-                message: 'The PDF page engine ran out of memory',
-            },
+        mocks.renderDjvuPage.mockResolvedValue({
+            bytes: new Uint8Array([
+                0xff,
+                0xd8,
+                0xff,
+                0xd9,
+            ]),
+            width: 100,
+            height: 100,
+            dpi: 300,
         });
+        mocks.combineWorker.mockResolvedValue({data: new Uint8Array(4)});
+        mocks.pageOps
+            .mockResolvedValueOnce({
+                status: 'failed',
+                error: {
+                    code: 'too-large',
+                    message: 'The PDF page engine ran out of memory',
+                },
+            })
+            .mockResolvedValueOnce({
+                status: 'written',
+                data: new Uint8Array([
+                    0x25,
+                    0x50,
+                    0x44,
+                    0x46,
+                ]),
+            });
 
         try {
             await expect(runBrowserDjvuConversion(
@@ -461,9 +571,10 @@ describe('browserDjvuConversionPipeline', () => {
                 error: 'direct export output requested',
             });
             expect(getSaveTarget).toHaveBeenCalledOnce();
-            expect(mocks.pageOps).toHaveBeenCalledOnce();
+            expect(mocks.pageOps).toHaveBeenCalledTimes(2);
         } finally {
             mocks.buildCompactPage.mockReset();
+            mocks.renderDjvuPage.mockReset();
             mocks.combineWorker.mockReset();
             mocks.createWorker.mockReset();
             mocks.pageOps.mockReset();
