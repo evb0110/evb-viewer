@@ -12,10 +12,15 @@ import type {
     Page,
     PageOutput,
     PageResultMetadata,
+    PageStageTimings,
     PlacementAnchor,
+    Progress,
+    ProgressStage,
     RenderMode,
     ResolvedDocumentInkPrior,
+    ResultPayload,
     SplitDiagnostics,
+    SubPageStage,
 } from '@contracts/scan-cleanup/nativeWire.generated';
 import * as v from 'valibot';
 import {isRecord} from '@contracts/runtimeGuards';
@@ -29,6 +34,17 @@ import {requirePageNumber} from '@contracts/pageNumbers';
 import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
 
 export const SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION = 3 as const;
+
+export const SCAN_CLEANUP_SUB_PAGE_STAGES = [
+    'decode',
+    'background',
+    'analyze',
+    'deskew',
+    'render',
+    'encode',
+] as const satisfies readonly SubPageStage[];
+
+export type TScanCleanupSubPageStage = SubPageStage;
 
 export type TNativeScanCleanupOperation = Operation;
 export type TNativeScanCleanupRenderMode = RenderMode;
@@ -264,13 +280,15 @@ const outputModeDiagnostics = v.message(v.strictObject({
 }), 'Invalid evb-scan-cleanup output mode diagnostics');
 export const NATIVE_SCAN_CLEANUP_OUTPUT_MODE_DIAGNOSTICS_SCHEMA = outputModeDiagnostics;
 /**
- * `page-analyzed` is published as each page finishes; its completedPages value
- * is a monotone count of distinct analyzed pages and pageNumber may move in
- * either direction. `page-complete` keeps source-order completion semantics.
+ * `page-analyzed` and render `page-complete` are published immediately as
+ * workers finish out of order; `completedPages` stays a monotone distinct-page
+ * count. `page-started` and `page-stage` report live per-page progress.
  */
 const progress = v.pipe(v.object({
     stage: v.picklist([
         'started',
+        'page-started',
+        'page-stage',
         'page-analyzed',
         // Staged-input lease frames, carrying page identity only: the producer
         // answers `page-input-required` by publishing that page's raster and
@@ -283,6 +301,8 @@ const progress = v.pipe(v.object({
     completedPages: nonNegativeInteger('Invalid evb-scan-cleanup progress envelope'),
     totalPages: nonNegativeInteger('Invalid evb-scan-cleanup progress envelope'),
     pageNumber: v.optional(v.message(pageNumber, 'Invalid evb-scan-cleanup progress page number')),
+    subPageStage: v.optional(v.message(v.picklist(SCAN_CLEANUP_SUB_PAGE_STAGES),
+        'Invalid evb-scan-cleanup progress sub-page stage')),
     outputPaths: v.optional(v.array(v.string())),
     classification: v.optional(classification),
     confidence: v.optional(confidence('Invalid evb-scan-cleanup progress confidence')),
@@ -306,12 +326,16 @@ const progress = v.pipe(v.object({
 }), v.check(value => value.completedPages <= value.totalPages,
     'Invalid evb-scan-cleanup progress page counts'), v.check(value =>
     value.pageNumber === undefined
-        ? value.stage !== 'page-analyzed'
+        ? value.stage !== 'page-started'
+            && value.stage !== 'page-stage'
+            && value.stage !== 'page-analyzed'
             && value.stage !== 'page-complete'
             && value.stage !== 'page-input-required'
             && value.stage !== 'page-input-released'
         : value.pageNumber <= value.totalPages,
-'Invalid evb-scan-cleanup progress page number'));
+'Invalid evb-scan-cleanup progress page number'), v.check(value =>
+    value.stage !== 'page-stage' || value.subPageStage !== undefined,
+'Invalid evb-scan-cleanup progress sub-page stage'));
 export const NATIVE_SCAN_CLEANUP_DOCUMENT_INK_PRIOR_SCHEMA = v.variant('status', [
     v.strictObject({status: v.literal('none')}),
     v.pipe(
@@ -598,10 +622,47 @@ const _warningEventCodesMatchCatalog: TSameCodes<
 > = true;
 // The stdout validators must accept exactly the shapes the sidecar declares.
 type TSameShape<TLeft, TRight> = [TLeft] extends [TRight] ? [TRight] extends [TLeft] ? true : never : never;
+type TExpand<T> = T extends infer O ? {[K in keyof O]: O[K]} : never;
+type TStripOptionalUndefined<T> = T extends ReadonlyArray<infer U>
+    ? Array<TStripOptionalUndefined<U>>
+    : T extends Record<string, unknown>
+        ? TExpand<
+            {[K in keyof T as undefined extends T[K] ? never : K]: TStripOptionalUndefined<T[K]>}
+            & {[K in keyof T as undefined extends T[K] ? K : never]?: TStripOptionalUndefined<Exclude<T[K], undefined>>}
+        >
+        : T;
 const _outputModeDiagnosticsMatchNative: TSameShape<v.InferOutput<typeof outputModeDiagnostics>, OutputModeDiagnostics> = true;
 const _documentInkPriorMatchesNative: TSameShape<
     v.InferOutput<typeof NATIVE_SCAN_CLEANUP_DOCUMENT_INK_PRIOR_SCHEMA>,
     ResolvedDocumentInkPrior
+> = true;
+const _subPageStagesMatchNative: TSameCodes<
+    typeof SCAN_CLEANUP_SUB_PAGE_STAGES[number],
+    SubPageStage
+> = true;
+const _progressStagesMatchNative: TSameCodes<
+    v.InferOutput<typeof progress>['stage'],
+    ProgressStage
+> = true;
+const _progressKeysMatchNative: TSameCodes<
+    keyof v.InferOutput<typeof progress>,
+    keyof Progress
+> = true;
+const _progressMatchesNative: TSameShape<
+    Omit<TStripOptionalUndefined<v.InferOutput<typeof progress>>, 'pageNumber' | 'alternateView' | 'documentPrior' | 'recommendedOutputMode'>,
+    Omit<Progress, 'pageNumber' | 'alternateView' | 'documentPrior' | 'recommendedOutputMode'>
+> = true;
+const _pageStageTimingsMatchNative: TSameShape<
+    TStripOptionalUndefined<v.InferOutput<typeof pageStageTimings>>,
+    PageStageTimings
+> = true;
+const _resultPayloadMatchesNative: TSameShape<
+    TStripOptionalUndefined<v.InferOutput<typeof resultEnvelope>['result']>,
+    ResultPayload
+> = true;
+const _splitDiagnosticsMatchNative: TSameShape<
+    v.InferOutput<typeof NATIVE_SCAN_CLEANUP_SPLIT_DIAGNOSTICS_SCHEMA>,
+    SplitDiagnostics
 > = true;
 
 export const NATIVE_SCAN_CLEANUP_ENVELOPE_SCHEMA = v.pipe(

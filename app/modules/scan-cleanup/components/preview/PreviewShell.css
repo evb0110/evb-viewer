@@ -134,6 +134,20 @@
     color: var(--ui-text);
 }
 
+.preview-viewport-spinner {
+    flex: none;
+    color: var(--ui-primary);
+}
+
+.preview-viewport-stage {
+    font-weight: var(--app-font-weight-heading);
+}
+
+.preview-viewport-elapsed {
+    color: var(--ui-text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
 .is-stale-content {
     opacity: var(--app-scan-preview-stale-opacity);
     pointer-events: none;
@@ -690,6 +704,12 @@
 
 .is-spinning {
     animation: scan-preview-spin 1s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .is-spinning {
+        animation: none;
+    }
 }
 
 @keyframes scan-preview-spin {

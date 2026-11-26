@@ -1,5 +1,6 @@
 import {
     isBrowserScanCleanupWorkerResult,
+    parseBrowserScanCleanupWorkerProgressEvent,
     type IBrowserScanCleanupWorkerRequestMap,
     type IBrowserScanCleanupWorkerResultMap,
     type TBrowserScanCleanupWorkerRequestType,
@@ -17,6 +18,7 @@ import {
 import {
     BROWSER_SCAN_CLEANUP_THREADS_WASM_PATH,
     BROWSER_SCAN_CLEANUP_WASM_PATH,
+    type IScanCleanupWasmSubPageProgress,
 } from '@contracts/scan-cleanup/browserScanCleanupWasm';
 import {readScanCleanupEngineWorkerThreads} from '@app/platform/browser-api/scanCleanupEngineWorkerName';
 import {
@@ -51,8 +53,10 @@ export function canUseBrowserScanCleanupWorker() {
         && typeof createImageBitmap === 'function';
 }
 
+interface IPendingScanCleanupWorkerRequest extends IPendingBrowserWorkerRequest {onProgress?: ((progress: IScanCleanupWasmSubPageProgress) => void) | undefined;}
+
 function createClient() {
-    return new BrowserWorkerClient<IPendingBrowserWorkerRequest>({
+    return new BrowserWorkerClient<IPendingScanCleanupWorkerRequest>({
         idleTtlMs: BROWSER_SCAN_CLEANUP_WORKER_IDLE_TTL_MS,
         requestTimeoutMs: BROWSER_SCAN_CLEANUP_REQUEST_TIMEOUT_MS,
         // The worker's name tells it which engine to run, on how many threads;
@@ -78,7 +82,17 @@ function createClient() {
             event.error instanceof Error ? getErrorMessage(event.error) : event.message,
         ),
         onDrainedMessage: observeScanCleanupEngineReply,
+        isProgressMessage: response => parseBrowserScanCleanupWorkerProgressEvent(response) !== null,
         handleMessage: (pendingRequests, response, onSettled) => {
+            const progressEvent = parseBrowserScanCleanupWorkerProgressEvent(response);
+            if (progressEvent !== null) {
+                pendingRequests.get(progressEvent.id)?.onProgress?.({
+                    stage: progressEvent.stage,
+                    completed: progressEvent.completed,
+                    total: progressEvent.total,
+                });
+                return;
+            }
             observeScanCleanupEngineReply(response);
             settleBrowserWorkerResult(pendingRequests, response, onSettled);
         },
@@ -98,7 +112,7 @@ export function estimateBrowserScanCleanupEngineBytes(pixels: number, decodesCol
     return ENGINE_BASE_WASM_BYTES + Math.ceil(pixels) * (decodesColor ? 50 : 30);
 }
 
-let owner: BrowserWorkerRequestOwner<IPendingBrowserWorkerRequest> | null = null;
+let owner: BrowserWorkerRequestOwner<IPendingScanCleanupWorkerRequest> | null = null;
 
 /**
  * A worker and engine instance per page lane, and one more so a preview never
@@ -158,10 +172,11 @@ export function runBrowserScanCleanupWorkerRequest<K extends TBrowserScanCleanup
     signal: AbortSignal,
     onEngineIdentity?: (sha256: string) => void,
     concurrency?: number,
+    onProgress?: (progress: IScanCleanupWasmSubPageProgress) => void,
 ): Promise<IBrowserScanCleanupWorkerResultMap[K]> {
     return runWithScanCleanupEngineFailover(
         payload,
-        attempt => runOnWorker(type, attempt, signal, onEngineIdentity, concurrency),
+        attempt => runOnWorker(type, attempt, signal, onEngineIdentity, concurrency, onProgress),
     );
 }
 
@@ -171,6 +186,7 @@ function runOnWorker<K extends TBrowserScanCleanupWorkerRequestType>(
     signal: AbortSignal,
     onEngineIdentity: ((sha256: string) => void) | undefined,
     concurrency: number | undefined,
+    onProgress: ((progress: IScanCleanupWasmSubPageProgress) => void) | undefined,
 ): Promise<IBrowserScanCleanupWorkerResultMap[K]> {
     if (signal.aborted) return Promise.reject(abortError(signal));
     const engines = getOwner();
@@ -182,6 +198,7 @@ function runOnWorker<K extends TBrowserScanCleanupWorkerRequestType>(
         client.registerPendingRequest(id, {
             requestType: type,
             onEngineIdentity,
+            onProgress,
             resolveData: data => {
                 if (!isBrowserScanCleanupWorkerResult(type, data)) return false;
                 resolve(data);

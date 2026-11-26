@@ -57,8 +57,6 @@ import {
     type TScanCleanupLog,
 } from '@evb/scan-cleanup/core/types';
 import {
-    mapScanCleanupPageScope,
-    resolveScanCleanupPageScopeLazy,
     type TScanCleanupPageScope,
 } from '@evb/scan-cleanup/core/pageScope';
 import {
@@ -96,11 +94,9 @@ import {
     hashScanCleanupNativeBinarySha256s,
 } from '@evb/scan-cleanup/core/buildManifest';
 import {
-    buildScanCleanupPagePlanDigest,
     buildScanCleanupProvenanceStamp,
     encodeScanCleanupProvenanceStampHex,
     hashScanCleanupBackendMarker,
-    materializeScanCleanupStampOptions,
     type IBuildScanCleanupProvenanceStampInput,
     type TScanCleanupProvenanceStamp,
 } from '@evb/scan-cleanup/core/provenanceStamp';
@@ -131,10 +127,16 @@ import {
 } from '@evb/scan-cleanup/core/rasterLayerDimensions';
 import {
     createEmptyScanCleanupSummary,
-    createScanCleanupProgressReporter,
+    createScanCleanupActivePageTracker,
     createScanCleanupSummaryWarningReporter,
     reportScanCleanupSummaryWarningEvent,
+    type TEmitScanCleanupProgress,
 } from '@evb/scan-cleanup/core/createScanCleanupProgressReporter';
+import {
+    buildScanCleanupConversionProvenanceStamp,
+    commitScanCleanupRenderedPageSummary,
+    coordinateScanCleanupConversion,
+} from '@evb/scan-cleanup/core/coordinateScanCleanupConversion';
 import {
     logRasterHandoff,
     mapScanCleanupRasterPages,
@@ -151,14 +153,12 @@ import {runLosslessScanCleanup} from '@evb/scan-cleanup/core/runLosslessScanClea
 import {DETECTION_DPI} from '@evb/scan-cleanup/core/detection';
 import {SCAN_CLEANUP_RASTER_MAX_PIXELS} from '@evb/scan-cleanup/core/rasterValidation';
 import {
-    assertScanCleanupInkAnchorCapacity,
     buildBoundedDetectionRequestFields,
     createEmptyPageRasterSource,
     createPageGeometryRasterSource,
     describeScanCleanupFinalPage,
     planScanCleanupFinalPages,
     resolveScanCleanupSourceMrcCandidacy,
-    planScanCleanupRunQuality,
     readDetectionResultsForPageNumbers,
     withBoundedDetectionFields,
     type TScanCleanupDocumentCanvas,
@@ -172,7 +172,6 @@ import {
     type IRenderedCleanupOutputPage,
 } from '@evb/scan-cleanup/core/assembleCompactScanCleanupPages';
 import {
-    reportScanCleanupNativeWarnings,
     buildScanCleanupOutputMappings,
     buildScanCleanupRepresentationPage,
     collectScanCleanupPageOutputs,
@@ -1002,15 +1001,29 @@ async function runStreamingScanCleanupConversion({
                         childRecoveryPending = true;
                         return onRecoveryPending(recovery);
                     },
-                    emitProgress: (_stage, _completedUnits, _totalUnits, completedPages) => {
-                        if (completedPages !== undefined) {
+                    emitProgress: (childStage, childCompletedUnits, _totalUnits, completedPages, progressOptions) => {
+                        if (
+                            completedPages !== undefined
+                            && (childStage === 'rendering' || childStage === 'classifying' || childStage === 'collecting')
+                        ) {
                             for (const pageNumber of completedPages) completedPageNumbers.add(pageNumber);
                         }
+                        const childRasterized = childStage === 'rasterizing'
+                            ? childCompletedUnits
+                            : progressOptions?.rasterizedUnits;
+                        const rasterizedUnits = childRasterized === undefined
+                            ? undefined
+                            : Math.min(pageCount, batch.startOffset + childRasterized);
                         emitProgress(
                             'rendering',
                             completedPageNumbers.size,
                             pageCount,
                             completedPageNumbers,
+                            {
+                                ...(rasterizedUnits === undefined ? {} : {rasterizedUnits}),
+                                ...(progressOptions?.activePageNumbers === undefined ? {} : {activePageNumbers: progressOptions.activePageNumbers}),
+                                ...(progressOptions?.activeSubPageStage === undefined ? {} : {activeSubPageStage: progressOptions.activeSubPageStage}),
+                            },
                         );
                     },
                 });
@@ -1254,14 +1267,12 @@ export async function runScanCleanupConversion(
     const sessionId = randomUUID();
     const stagedPdfPath = join(scratch, 'cleaned.pdf');
     const publishTempPath = join(dirname(request.outputPdfPath), `.${sessionId}.scan-cleanup.tmp`);
-    // Set once the run knows which assembler it is actually using: a matched
-    // lossless run whose pages cannot keep their own pixels renders instead.
-    let losslessRun = request.options.preserveOriginalQuality === true;
     let preserveScratchForDiagnostics = false;
     let pendingSidecarRecovery: Promise<boolean> | null = null;
     let scratchCleanupPromise: Promise<void> | null = null;
     let pageSizeStore: IPdfPageSizeStore | null = null;
     let checkpoint: IScanCleanupConversionCheckpoint | null = null;
+    let geometrySidecarPath: string | null = null;
     const cleanupScratch = () => {
         if (!ownsScratch) return Promise.resolve();
         scratchCleanupPromise ??= (pendingSidecarRecovery ?? Promise.resolve(true))
@@ -1286,420 +1297,412 @@ export async function runScanCleanupConversion(
             ]).then(proofs => proofs.every(Boolean));
         return observed.then(() => scratchCleanupPromise).then(() => undefined);
     };
-    const emitProgress = createScanCleanupProgressReporter(onProgress, () => losslessRun);
-    try {
-        emitProgress('normalizing', 0, 1, []);
-        // The viewer has already opened this exact revision successfully, and
-        // every cleanup read is bounded by the operation signal. Rewriting the
-        // entire document through qpdf here used to add almost a second to a
-        // one-page cleanup (and repeated work already done at document open)
-        // before Poppler or the cleanup engine touched the selected page.
-        // Keep qpdf repair in the import/open boundary; this pipeline consumes
-        // the validated source directly.
-        const prepared = {
-            pdfPath: request.sourcePdfPath,
-            warnings: [] as string[],
-        };
-        const documentPageCount = await dependencies.getPageCount(prepared.pdfPath, {signal});
-        const pageNumbers = resolveScanCleanupPageScopeLazy(
-            request.sourcePageNumbers,
-            documentPageCount,
-            request.sourcePageRange,
-        );
-        const pageCount = pageNumbers.length;
-        // A document-wide summary carries only bounded calibration. Keep
-        // direct callers without that summary on the fail-closed contract
-        // instead of allowing a large request to allocate an unbounded anchor
-        // map during save.
-        assertScanCleanupInkAnchorCapacity(
-            pageCount,
-            request.options,
-            request.placementAnchorSummary,
-        );
-        const largeStreamingRun = documentPageCount > SCAN_CLEANUP_STREAMING_BATCH_PAGES;
-        const summary = createEmptyScanCleanupSummary(pageCount, prepared.warnings);
-        const warn = createScanCleanupSummaryWarningReporter(summary, log);
-        const warnEvent = (event: TScanCleanupWarningEvent, pageNumber?: number) => {
-            reportScanCleanupSummaryWarningEvent(summary, {
-                event,
-                ...(pageNumber === undefined ? {} : {pageNumber: requirePageNumber(pageNumber)}),
-            }, warn);
-        };
-        emitProgress('normalizing', 1, 1);
-        // Page geometry and the lossless assembler both come from
-        // evb-pdf-page-ops, so no quality path runs without it.
-        const pdfPageOpsBinary = paths.pdfPageOpsBinary;
-        if (!pdfPageOpsBinary) {
-            throw new ScanCleanupNativeToolUnavailableError('evb-pdf-page-ops');
-        }
-        // The same measurement the preview derives its canvas from, read from
-        // the prepared document this run renders. The lossless path cannot
-        // proceed without it — every crop it writes is expressed in these
-        // coordinates. Matching only wants the rectangle, and a document that
-        // carries none is still worth cleaning: the run drops matching, names
-        // why in the summary, and cleans every page at its own size, which is
-        // what it already answers when geometry yields no canvas.
-        // A detection store is the decision owner at every document size. A
-        // document small enough for one batch materializes its bounded maps
-        // from it once, exactly as each streaming child does for its batch.
-        const smallStoreFields = !largeStreamingRun && request.detectionResultStore !== undefined
-            ? await (async (store, documentPages) => buildBoundedDetectionRequestFields(
-                request,
-                await readDetectionResultsForPageNumbers(store, documentPages, signal),
-                documentPages,
-            ))(request.detectionResultStore, Array.from({length: documentPageCount}, (_, index) => index + 1))
-            : null;
-        const suppliedMetadata = request.detectionResultStore === undefined
-            ? request.sourcePageMetadataByPage
-            : smallStoreFields?.sourcePageMetadataByPage;
-        let suppliedMetadataComplete = suppliedMetadata !== undefined;
-        if (suppliedMetadataComplete) {
-            for (let pageNumber = 1; pageNumber <= documentPageCount; pageNumber += 1) {
-                if (suppliedMetadata?.[String(pageNumber)] === undefined) {
-                    suppliedMetadataComplete = false;
-                    break;
-                }
-            }
-        }
-        const pageSizeOptions = {
-            pdfPageOpsBinary,
-            qpdfBinary: paths.qpdfBinary,
-            log,
-            runCommand: dependencies.runCommand,
-            signal,
-            tempDir: scratch,
-        };
-        try {
-            if (suppliedMetadataComplete && suppliedMetadata !== undefined) {
-                if (largeStreamingRun) {
-                    throw new Error('Scan cleanup xlarge conversion requires a bounded page-size store, not a metadata map');
-                }
-                pageSizeStore = createPageSizeStoreFromMetadata(suppliedMetadata, documentPageCount);
-            } else {
-                pageSizeStore = await dependencies.getPageSizeStore(prepared.pdfPath, pageSizeOptions);
-            }
-            const openedPageSizeStore = pageSizeStore;
-            // Validate geometry once before the document pass admits batches.
-            await openedPageSizeStore.getPage(1);
-            if (openedPageSizeStore.pageCount !== documentPageCount) {
-                throw new Error(
-                    `Scan cleanup received geometry for ${String(openedPageSizeStore.pageCount ?? 0)} of ${String(documentPageCount)} pages`,
-                );
-            }
-        } catch (error) {
-            if (signal.aborted) throw error;
-            throw new Error(
-                `Scan cleanup cannot safely rasterize without trusted page geometry (${getErrorMessage(error)})`,
-                {cause: error},
-            );
-        }
-        const geometryPageSizeStore = pageSizeStore;
-        const probesWholeDocument = request.options.matchPageSize
-            || (request.sourcePageNumbers === undefined && request.sourcePageRange === undefined);
-        const dpiProbePages = probesWholeDocument
-            ? undefined
-            : pageNumbers.length <= SCAN_CLEANUP_STREAMING_BATCH_PAGES
-                ? collectScanCleanupPageScopeBatch(pageNumbers, {
-                    batchIndex: 0,
-                    startOffset: 0,
-                    endOffsetExclusive: pageNumbers.length,
-                })
-                : undefined;
-        const dpiProbePageCount = dpiProbePages === undefined
-            ? documentPageCount
-            : pageNumbers.length;
-        emitProgress('probing', 0, dpiProbePageCount, []);
-        // For scan PDFs the fast geometry pass above also reports the dominant
-        // raster and its actual page placement. It answers the same DPI question
-        // as pdfimages without reopening and walking every image stream in a
-        // second process. Mixed/vector documents keep the existing conservative
-        // Poppler fallback.
-        const metadataDpiDetails = largeStreamingRun
-            ? null
-            : await createPageGeometryRasterSource(pageSizeStore, documentPageCount, signal);
-        // Page geometry can name the dominant raster but not whether the PDF
-        // already carries a compact bilevel foreground. Auto needs that
-        // representation fact to distinguish an existing MRC text mask from
-        // genuinely antialiased low-resolution text, so retain the pdfimages
-        // structure probe whenever it is available.
-        const structuralDpiDetails: TScanCleanupDpiDetails = largeStreamingRun
-            ? createScanCleanupPageRasterSource({
-                pdfPath: prepared.pdfPath,
-                pdfimagesBinary: paths.pdfimagesBinary,
-                detectSourceDpi: dependencies.detectSourceDpi,
-                log,
-                signal,
-                documentPageCount,
-            })
-            : metadataDpiDetails !== null && paths.pdfimagesBinary === undefined
-                ? createEmptyPageRasterSource()
-                : await dependencies.detectSourceDpi(
-                    prepared.pdfPath,
-                    paths.pdfimagesBinary,
-                    log,
-                    undefined,
-                    signal,
-                    Array.isArray(dpiProbePages) ? dpiProbePages : undefined,
-                    (completedPages, totalPages) => emitProgress('probing', completedPages, totalPages),
-                );
-        const dpiDetails = structuralDpiDetails.detected
-            ? structuralDpiDetails
-            : metadataDpiDetails ?? structuralDpiDetails;
-        if (metadataDpiDetails && !structuralDpiDetails.detected) {
-            emitProgress('probing', dpiProbePageCount, dpiProbePageCount, dpiProbePages);
-        }
-        const geometrySidecarPath = largeStreamingRun
-            ? join(scratch, 'scan-cleanup-page-geometry.jsonl')
-            : null;
-        const geometrySidecarHandle = geometrySidecarPath === null
-            ? null
-            : await open(geometrySidecarPath, 'w');
-        let qualityPlan: Awaited<ReturnType<typeof planScanCleanupRunQuality>>;
-        try {
-            if (geometrySidecarHandle !== null) {
-                await appendJsonLine(geometrySidecarHandle, {
-                    format: PAGE_GEOMETRY_SIDECAR_FORMAT,
-                    schemaVersion: PAGE_GEOMETRY_SIDECAR_SCHEMA_VERSION,
-                    pageCount: documentPageCount,
-                });
-            }
-            qualityPlan = await planScanCleanupRunQuality({
-                request,
-                documentPageCount,
-                pageSizeStore,
-                rasterSource: dpiDetails,
-                rasterDetectionAvailable: paths.pdfimagesBinary !== undefined,
-                rasterMaxPixels: policy.rasterMaxPixels,
-                signal,
-                warn,
-                warnEvent,
-                ...(geometrySidecarHandle === null
-                    ? {}
-                    : {onGeometryPage: page => appendJsonLine(geometrySidecarHandle, page)}),
-            });
-        } finally {
-            await geometrySidecarHandle?.close();
-        }
-        const {
-            documentCanvas, options,
-        } = qualityPlan;
-        losslessRun = qualityPlan.losslessRun;
-        let cachedSourceSha256 = request.provenance?.sourceSha256;
-        let checkpointNativeToolIdentity: Record<string, string> | undefined;
-        if (paths.checkpointDir !== undefined) {
-            signal.throwIfAborted();
-            // Always hash the actual source PDF on disk for checkpoint admission:
-            // caller-supplied provenance digests are advisory and must never
-            // authorise resuming against modified source bytes.
-            const verifiedSourceSha256 = await sha256ScanCleanupFile(prepared.pdfPath);
-            cachedSourceSha256 ??= verifiedSourceSha256;
-            const resolvedToolIdentity = await resolveCheckpointNativeToolIdentity(
-                paths,
-                dependencies.hashNativeBinary,
-            );
-            if (resolvedToolIdentity === null) {
-                log(
-                    'debug',
-                    'Disabling scan cleanup checkpoint reuse because native tool build identity could not be hashed',
-                );
-            } else {
-                checkpointNativeToolIdentity = resolvedToolIdentity;
-                const witness = computeScanCleanupCheckpointWitness({
-                    sourceSha256: verifiedSourceSha256,
-                    request: smallStoreFields === null ? request : withBoundedDetectionFields(request, smallStoreFields),
-                    resolvedOptions: options,
-                    pageScope: pageNumbers,
+
+    return coordinateScanCleanupConversion<
+        TScanCleanupSummary,
+        IScanCleanupSourceTextSink,
+        IPdfPageSizeStore,
+        TScanCleanupDpiDetails,
+        {pdfPath: string}
+    >({
+        request,
+        signal,
+        onProgress,
+        log,
+        host: {
+            async prepareSource({
+                request: inputRequest,
+                signal: opSignal,
+            }) {
+                // Keep qpdf repair in the import/open boundary; this pipeline consumes
+                // the validated source directly.
+                const pdfPath = inputRequest.sourcePdfPath;
+                const documentPageCount = await dependencies.getPageCount(pdfPath, {signal: opSignal});
+                return {
                     documentPageCount,
-                    documentCanvas,
-                    losslessRun,
+                    preparedWarnings: [],
+                    prepared: {pdfPath},
+                };
+            },
+            async openGeometryAndProbe({
+                inputRequest,
+                smallStoreFields,
+                documentPageCount,
+                pageNumbers,
+                largeStreamingRun,
+                emitProgress,
+                prepared,
+                signal: opSignal,
+            }) {
+                const pdfPageOpsBinary = paths.pdfPageOpsBinary;
+                if (!pdfPageOpsBinary) {
+                    throw new ScanCleanupNativeToolUnavailableError('evb-pdf-page-ops');
+                }
+                const suppliedMetadata = inputRequest.detectionResultStore === undefined
+                    ? inputRequest.sourcePageMetadataByPage
+                    : smallStoreFields?.sourcePageMetadataByPage;
+                let suppliedMetadataComplete = suppliedMetadata !== undefined;
+                if (suppliedMetadataComplete) {
+                    for (let pageNumber = 1; pageNumber <= documentPageCount; pageNumber += 1) {
+                        if (suppliedMetadata?.[String(pageNumber)] === undefined) {
+                            suppliedMetadataComplete = false;
+                            break;
+                        }
+                    }
+                }
+                const pageSizeOptions = {
+                    pdfPageOpsBinary,
+                    qpdfBinary: paths.qpdfBinary,
+                    log,
+                    runCommand: dependencies.runCommand,
+                    signal: opSignal,
+                    tempDir: scratch,
+                };
+                try {
+                    if (suppliedMetadataComplete && suppliedMetadata !== undefined) {
+                        if (largeStreamingRun) {
+                            throw new Error('Scan cleanup xlarge conversion requires a bounded page-size store, not a metadata map');
+                        }
+                        pageSizeStore = createPageSizeStoreFromMetadata(suppliedMetadata, documentPageCount);
+                    } else {
+                        pageSizeStore = await dependencies.getPageSizeStore(prepared.pdfPath, pageSizeOptions);
+                    }
+                    const openedPageSizeStore = pageSizeStore;
+                    await openedPageSizeStore.getPage(1);
+                    if (openedPageSizeStore.pageCount !== documentPageCount) {
+                        throw new Error(
+                            `Scan cleanup received geometry for ${String(openedPageSizeStore.pageCount ?? 0)} of ${String(documentPageCount)} pages`,
+                        );
+                    }
+                } catch (error) {
+                    if (opSignal.aborted) throw error;
+                    throw new Error(
+                        `Scan cleanup cannot safely rasterize without trusted page geometry (${getErrorMessage(error)})`,
+                        {cause: error},
+                    );
+                }
+                const openedPageSizeStore = pageSizeStore;
+                const probesWholeDocument = inputRequest.options.matchPageSize
+                    || (inputRequest.sourcePageNumbers === undefined && inputRequest.sourcePageRange === undefined);
+                const dpiProbePages = probesWholeDocument
+                    ? undefined
+                    : pageNumbers.length <= SCAN_CLEANUP_STREAMING_BATCH_PAGES
+                        ? collectScanCleanupPageScopeBatch(pageNumbers, {
+                            batchIndex: 0,
+                            startOffset: 0,
+                            endOffsetExclusive: pageNumbers.length,
+                        })
+                        : undefined;
+                const dpiProbePageCount = dpiProbePages === undefined
+                    ? documentPageCount
+                    : pageNumbers.length;
+                emitProgress('probing', 0, dpiProbePageCount, []);
+                const metadataDpiDetails = largeStreamingRun
+                    ? null
+                    : await createPageGeometryRasterSource(openedPageSizeStore, documentPageCount, opSignal);
+                const structuralDpiDetails: TScanCleanupDpiDetails = largeStreamingRun
+                    ? createScanCleanupPageRasterSource({
+                        pdfPath: prepared.pdfPath,
+                        pdfimagesBinary: paths.pdfimagesBinary,
+                        detectSourceDpi: dependencies.detectSourceDpi,
+                        log,
+                        signal: opSignal,
+                        documentPageCount,
+                    })
+                    : metadataDpiDetails !== null && paths.pdfimagesBinary === undefined
+                        ? createEmptyPageRasterSource()
+                        : await dependencies.detectSourceDpi(
+                            prepared.pdfPath,
+                            paths.pdfimagesBinary,
+                            log,
+                            undefined,
+                            opSignal,
+                            Array.isArray(dpiProbePages) ? dpiProbePages : undefined,
+                            (completedPages, totalPages) => emitProgress('probing', completedPages, totalPages),
+                        );
+                const dpiDetails = structuralDpiDetails.detected
+                    ? structuralDpiDetails
+                    : metadataDpiDetails ?? structuralDpiDetails;
+                if (metadataDpiDetails && !structuralDpiDetails.detected) {
+                    emitProgress('probing', dpiProbePageCount, dpiProbePageCount, dpiProbePages);
+                }
+                geometrySidecarPath = largeStreamingRun
+                    ? join(scratch, 'scan-cleanup-page-geometry.jsonl')
+                    : null;
+                const geometrySidecarHandle = geometrySidecarPath === null
+                    ? null
+                    : await open(geometrySidecarPath, 'w');
+                if (geometrySidecarHandle !== null) {
+                    try {
+                        await appendJsonLine(geometrySidecarHandle, {
+                            format: PAGE_GEOMETRY_SIDECAR_FORMAT,
+                            schemaVersion: PAGE_GEOMETRY_SIDECAR_SCHEMA_VERSION,
+                            pageCount: documentPageCount,
+                        });
+                    } catch (error) {
+                        await geometrySidecarHandle.close().catch(() => undefined);
+                        throw error;
+                    }
+                }
+                return {
+                    pageSizeStore: openedPageSizeStore,
+                    rasterSource: dpiDetails,
+                    rasterDetectionAvailable: paths.pdfimagesBinary !== undefined,
                     rasterMaxPixels: policy.rasterMaxPixels,
-                    nativeToolIdentity: checkpointNativeToolIdentity,
-                    assemblyBackend: request.assemblyBackend ?? paths.assemblyBackend ?? null,
-                    transportMode: request.transportMode ?? paths.transportMode ?? null,
-                    provenanceStampSupport: paths.provenanceStampSupport ?? null,
-                });
-                checkpoint = await openScanCleanupConversionCheckpoint({
-                    checkpointDir: paths.checkpointDir,
-                    sourcePdfPath: prepared.pdfPath,
-                    witness,
-                    documentPageCount,
-                    mode: largeStreamingRun ? 'streaming' : 'batch',
-                    log,
-                    ...(paths.checkpointOwnerId === undefined ? {} : {ownerId: paths.checkpointOwnerId}),
-                });
-            }
-        }
-        const sourceText: IScanCleanupSourceTextSink = {
-            outputPageOffset: 0,
-            pages: [],
-            skippedNonAffine: [],
-        };
-        if (largeStreamingRun) {
-            if (geometrySidecarPath === null) {
-                throw new Error('Scan cleanup streaming run has no geometry sidecar');
-            }
-            const provenance = request.provenance ?? {
-                sourceSha256: cachedSourceSha256 ?? await sha256ScanCleanupFile(prepared.pdfPath),
-                nativeBinarySha256s: await hashScanCleanupNativeBinarySha256s({
-                    paths,
-                    ...(dependencies.hashNativeBinary === undefined
+                    ...(geometrySidecarHandle === null
                         ? {}
-                        : {hashNativeBinary: dependencies.hashNativeBinary}),
-                }),
-            } satisfies IScanCleanupProvenanceInputs;
-            await runStreamingScanCleanupConversion({
-                request,
-                paths,
-                signal,
-                policy,
-                log,
-                dependencies,
-                emitProgress,
-                pageNumbers,
-                pageCount,
-                documentPageCount,
-                preparedPdfPath: prepared.pdfPath,
-                stagedPdfPath,
-                scratch,
-                summary,
-                geometrySidecarPath,
-                dpiDetails,
-                ...(request.detectionResultStore === undefined
-                    ? {}
-                    : {detectionResultStore: request.detectionResultStore}),
-                documentCanvas,
-                options,
-                provenance,
-                sourceText,
-                ...(checkpoint === null
-                    ? {}
-                    : {
-                        checkpoint,
-                        ...(checkpointNativeToolIdentity === undefined
+                        : {
+                            onGeometryPage: page => appendJsonLine(geometrySidecarHandle, page),
+                            afterQualityPlan: () => geometrySidecarHandle.close(),
+                        }),
+                };
+            },
+            async executeConversion(context) {
+                const {
+                    inputRequest,
+                    request: materializedRequest,
+                    documentPageCount,
+                    pageNumbers,
+                    pageCount,
+                    largeStreamingRun,
+                    summary,
+                    emitProgress,
+                    prepared,
+                    pageSizeStore: geometryPageSizeStore,
+                    rasterSource: dpiDetails,
+                    qualityPlan,
+                    signal: opSignal,
+                } = context;
+                const {
+                    documentCanvas,
+                    options,
+                    losslessRun,
+                } = qualityPlan;
+                let cachedSourceSha256 = inputRequest.provenance?.sourceSha256;
+                let checkpointNativeToolIdentity: Record<string, string> | undefined;
+                if (paths.checkpointDir !== undefined) {
+                    opSignal.throwIfAborted();
+                    const verifiedSourceSha256 = await sha256ScanCleanupFile(prepared.pdfPath);
+                    cachedSourceSha256 ??= verifiedSourceSha256;
+                    const resolvedToolIdentity = await resolveCheckpointNativeToolIdentity(
+                        paths,
+                        dependencies.hashNativeBinary,
+                    );
+                    if (resolvedToolIdentity === null) {
+                        log(
+                            'debug',
+                            'Disabling scan cleanup checkpoint reuse because native tool build identity could not be hashed',
+                        );
+                    } else {
+                        checkpointNativeToolIdentity = resolvedToolIdentity;
+                        const witness = computeScanCleanupCheckpointWitness({
+                            sourceSha256: verifiedSourceSha256,
+                            request: materializedRequest,
+                            resolvedOptions: options,
+                            pageScope: pageNumbers,
+                            documentPageCount,
+                            documentCanvas,
+                            losslessRun,
+                            rasterMaxPixels: policy.rasterMaxPixels,
+                            nativeToolIdentity: checkpointNativeToolIdentity,
+                            assemblyBackend: inputRequest.assemblyBackend ?? paths.assemblyBackend ?? null,
+                            transportMode: inputRequest.transportMode ?? paths.transportMode ?? null,
+                            provenanceStampSupport: paths.provenanceStampSupport ?? null,
+                        });
+                        checkpoint = await openScanCleanupConversionCheckpoint({
+                            checkpointDir: paths.checkpointDir,
+                            sourcePdfPath: prepared.pdfPath,
+                            witness,
+                            documentPageCount,
+                            mode: largeStreamingRun ? 'streaming' : 'batch',
+                            log,
+                            ...(paths.checkpointOwnerId === undefined ? {} : {ownerId: paths.checkpointOwnerId}),
+                        });
+                    }
+                }
+                const sourceText: IScanCleanupSourceTextSink = {
+                    outputPageOffset: 0,
+                    pages: [],
+                    skippedNonAffine: [],
+                };
+                if (largeStreamingRun) {
+                    if (geometrySidecarPath === null) {
+                        throw new Error('Scan cleanup streaming run has no geometry sidecar');
+                    }
+                    const provenance = inputRequest.provenance ?? {
+                        sourceSha256: cachedSourceSha256 ?? await sha256ScanCleanupFile(prepared.pdfPath),
+                        nativeBinarySha256s: await hashScanCleanupNativeBinarySha256s({
+                            paths,
+                            ...(dependencies.hashNativeBinary === undefined
+                                ? {}
+                                : {hashNativeBinary: dependencies.hashNativeBinary}),
+                        }),
+                    } satisfies IScanCleanupProvenanceInputs;
+                    await runStreamingScanCleanupConversion({
+                        request: inputRequest,
+                        paths,
+                        signal: opSignal,
+                        policy,
+                        log,
+                        dependencies,
+                        emitProgress,
+                        pageNumbers,
+                        pageCount,
+                        documentPageCount,
+                        preparedPdfPath: prepared.pdfPath,
+                        stagedPdfPath,
+                        scratch,
+                        summary,
+                        geometrySidecarPath,
+                        dpiDetails,
+                        ...(inputRequest.detectionResultStore === undefined
                             ? {}
-                            : {checkpointNativeToolIdentity}),
-                    }),
-                onRecoveryPending: retainScratchUntilRecovery,
-            });
-        } else {
-            const batchRequest = smallStoreFields === null
-                ? request
-                : withBoundedDetectionFields(request, smallStoreFields);
-            await executeScanCleanupBatch({
-                request: cachedSourceSha256 === undefined || batchRequest.provenance !== undefined
-                    ? batchRequest
-                    : {
-                        ...batchRequest,
-                        provenance: {
-                            sourceSha256: cachedSourceSha256,
-                            nativeBinarySha256s: {},
-                        },
-                    },
-                paths,
-                signal,
-                policy,
-                log,
-                dependencies,
-                emitProgress,
-                pageNumbers,
-                documentPageCount,
-                preparedPdfPath: prepared.pdfPath,
-                stagedPdfPath,
-                scratch,
-                summary,
-                pageSizeStore: geometryPageSizeStore,
-                dpiDetails,
-                documentCanvas,
-                options,
-                sourceText,
-                ...(checkpoint === null
-                    ? {}
-                    : {
-                        checkpoint,
-                        ...(checkpointNativeToolIdentity === undefined
+                            : {detectionResultStore: inputRequest.detectionResultStore}),
+                        documentCanvas,
+                        options,
+                        provenance,
+                        sourceText,
+                        ...(checkpoint === null
                             ? {}
-                            : {checkpointNativeToolIdentity}),
-                    }),
-                onRecoveryPending: retainScratchUntilRecovery,
-            });
-        }
-        // One overlay over the merged output: a link may name another batch's page.
-        const overlaid = await overlayScanCleanupTextLayerAndMeasure(
-            sourceText, paths, prepared.pdfPath, stagedPdfPath, scratch, signal, log, dependencies,
-            retainScratchUntilRecovery, sourceText.provenanceStampHex,
-        );
-        summary.sourceTextOmission = await inspectSkippedScanCleanupSourceText({
-            pages: overlaid.omittedSourcePages,
-            pdfPath: prepared.pdfPath,
-            scratch,
-            pdfPageOpsBinary: paths.pdfPageOpsBinary,
-            qpdfBinary: paths.qpdfBinary,
-            signal,
-            runCommand: dependencies.runCommand,
-            log,
-        });
-        summary.accessibilityTagsRemoved ||= overlaid.accessibilityTagsRemoved;
-        await validateStagedPdf(paths.qpdfBinary, stagedPdfPath, signal, log, dependencies.runCommand);
-        emitProgress('handoff', 0, pageCount, []);
-        await copyFile(stagedPdfPath, publishTempPath);
-        if (signal.aborted) throw signal.reason;
-        await rename(publishTempPath, request.outputPdfPath);
-        if (checkpoint !== null) {
-            if (paths.deferCheckpointCleanup === true) {
-                dependencies.onCheckpointReadyForCleanup?.(checkpoint.entryDir);
-                await checkpoint.close().catch(error => {
-                    log('warn', `Failed to release scan cleanup checkpoint lease: ${getErrorMessage(error)}`);
+                            : {
+                                checkpoint,
+                                ...(checkpointNativeToolIdentity === undefined
+                                    ? {}
+                                    : {checkpointNativeToolIdentity}),
+                            }),
+                        onRecoveryPending: retainScratchUntilRecovery,
+                    });
+                } else {
+                    await executeScanCleanupBatch({
+                        request: cachedSourceSha256 === undefined || materializedRequest.provenance !== undefined
+                            ? materializedRequest
+                            : {
+                                ...materializedRequest,
+                                provenance: {
+                                    sourceSha256: cachedSourceSha256,
+                                    nativeBinarySha256s: {},
+                                },
+                            },
+                        paths,
+                        signal: opSignal,
+                        policy,
+                        log,
+                        dependencies,
+                        emitProgress,
+                        pageNumbers,
+                        documentPageCount,
+                        preparedPdfPath: prepared.pdfPath,
+                        stagedPdfPath,
+                        scratch,
+                        summary,
+                        pageSizeStore: geometryPageSizeStore,
+                        dpiDetails,
+                        documentCanvas,
+                        options,
+                        sourceText,
+                        ...(checkpoint === null
+                            ? {}
+                            : {
+                                checkpoint,
+                                ...(checkpointNativeToolIdentity === undefined
+                                    ? {}
+                                    : {checkpointNativeToolIdentity}),
+                            }),
+                        onRecoveryPending: retainScratchUntilRecovery,
+                    });
+                }
+                return sourceText;
+            },
+            async validateAndPublish(context, sourceText) {
+                const {
+                    inputRequest,
+                    pageNumbers,
+                    pageCount,
+                    summary,
+                    emitProgress,
+                    prepared,
+                    signal: opSignal,
+                } = context;
+                // One overlay over the merged output: a link may name another batch's page.
+                const overlaid = await overlayScanCleanupTextLayerAndMeasure(
+                    sourceText, paths, prepared.pdfPath, stagedPdfPath, scratch, opSignal, log, dependencies,
+                    retainScratchUntilRecovery, sourceText.provenanceStampHex,
+                );
+                summary.sourceTextOmission = await inspectSkippedScanCleanupSourceText({
+                    pages: overlaid.omittedSourcePages,
+                    pdfPath: prepared.pdfPath,
+                    scratch,
+                    pdfPageOpsBinary: paths.pdfPageOpsBinary!,
+                    qpdfBinary: paths.qpdfBinary,
+                    signal: opSignal,
+                    runCommand: dependencies.runCommand,
+                    log,
                 });
-            } else {
-                await checkpoint.complete().catch(error => {
-                    log('warn', `Failed to remove completed scan cleanup checkpoint: ${getErrorMessage(error)}`);
+                summary.accessibilityTagsRemoved ||= overlaid.accessibilityTagsRemoved;
+                await validateStagedPdf(paths.qpdfBinary, stagedPdfPath, opSignal, log, dependencies.runCommand);
+                emitProgress('handoff', 0, pageCount, []);
+                await copyFile(stagedPdfPath, publishTempPath);
+                if (opSignal.aborted) throw opSignal.reason;
+                await rename(publishTempPath, inputRequest.outputPdfPath);
+                if (checkpoint !== null) {
+                    if (paths.deferCheckpointCleanup === true) {
+                        dependencies.onCheckpointReadyForCleanup?.(checkpoint.entryDir);
+                        await checkpoint.close().catch(error => {
+                            log('warn', `Failed to release scan cleanup checkpoint lease: ${getErrorMessage(error)}`);
+                        });
+                    } else {
+                        await checkpoint.complete().catch(error => {
+                            log('warn', `Failed to remove completed scan cleanup checkpoint: ${getErrorMessage(error)}`);
+                        });
+                    }
+                    checkpoint = null;
+                }
+                emitProgress('handoff', pageCount, pageCount, pageNumbers);
+                return summary;
+            },
+            onError(error) {
+                if (
+                    error instanceof ScanCleanupPdfValidationError
+                    || error instanceof ScanCleanupStreamingEvidenceError
+                ) {
+                    preserveScratchForDiagnostics = true;
+                }
+            },
+            async cleanup() {
+                if (checkpoint !== null) {
+                    await checkpoint.cleanupTempFiles().catch(error => {
+                        log('warn', `Failed to cleanup scan cleanup checkpoint temp files: ${getErrorMessage(error)}`);
+                    });
+                    await checkpoint.close().catch(error => {
+                        log('warn', `Failed to release scan cleanup checkpoint lease: ${getErrorMessage(error)}`);
+                    });
+                }
+                if (pageSizeStore !== null) {
+                    await pageSizeStore.close().catch(error => {
+                        log('warn', `Failed to close scan cleanup page-size store: ${getErrorMessage(error)}`);
+                    });
+                }
+                await rm(publishTempPath, {force: true}).catch(() => undefined);
+                await preserveScanCleanupJsonEvidence(
+                    scratch,
+                    log,
+                    dependencies.evidenceDirectory,
+                    undefined,
+                    dependencies.evidenceFileFilter,
+                ).catch(error => {
+                    log('warn', `Failed to preserve scan cleanup JSON evidence: ${getErrorMessage(error)}`);
                 });
-            }
-            checkpoint = null;
-        }
-        emitProgress('handoff', pageCount, pageCount, pageNumbers);
-        return summary;
-    } catch (error) {
-        if (
-            error instanceof ScanCleanupPdfValidationError
-            || error instanceof ScanCleanupStreamingEvidenceError
-        ) {
-            preserveScratchForDiagnostics = true;
-        }
-        throw error;
-    } finally {
-        if (checkpoint !== null) {
-            await checkpoint.cleanupTempFiles().catch(error => {
-                log('warn', `Failed to cleanup scan cleanup checkpoint temp files: ${getErrorMessage(error)}`);
-            });
-            await checkpoint.close().catch(error => {
-                log('warn', `Failed to release scan cleanup checkpoint lease: ${getErrorMessage(error)}`);
-            });
-        }
-        if (pageSizeStore !== null) {
-            await pageSizeStore.close().catch(error => {
-                log('warn', `Failed to close scan cleanup page-size store: ${getErrorMessage(error)}`);
-            });
-        }
-        await rm(publishTempPath, {force: true}).catch(() => undefined);
-        await preserveScanCleanupJsonEvidence(
-            scratch,
-            log,
-            dependencies.evidenceDirectory,
-            undefined,
-            dependencies.evidenceFileFilter,
-        ).catch(error => {
-            log('warn', `Failed to preserve scan cleanup JSON evidence: ${getErrorMessage(error)}`);
-        });
-        if (preserveScratchForDiagnostics) {
-            log('warn', `Preserving invalid staged scan cleanup PDF for diagnostics: ${stagedPdfPath}`);
-        } else {
-            if (pendingSidecarRecovery !== null) {
-                log('warn', `Retaining scan cleanup recovery scratch until producer termination and recovery are proven: ${scratch}`);
-            }
-            await cleanupScratch();
-        }
-    }
+                if (preserveScratchForDiagnostics) {
+                    log('warn', `Preserving invalid staged scan cleanup PDF for diagnostics: ${stagedPdfPath}`);
+                } else {
+                    if (pendingSidecarRecovery !== null) {
+                        log('warn', `Retaining scan cleanup recovery scratch until producer termination and recovery are proven: ${scratch}`);
+                    }
+                    await cleanupScratch();
+                }
+            },
+        },
+    });
 }
 
 interface IScanCleanupBatchExecution {
@@ -1709,7 +1712,7 @@ interface IScanCleanupBatchExecution {
     policy: IScanCleanupRuntimePolicy;
     log: TScanCleanupLog;
     dependencies: IRunScanCleanupPipelineDependencies;
-    emitProgress: ReturnType<typeof createScanCleanupProgressReporter>;
+    emitProgress: TEmitScanCleanupProgress;
     pageNumbers: TScanCleanupPageScope;
     documentPageCount: number;
     preparedPdfPath: string;
@@ -2416,7 +2419,37 @@ async function executeScanCleanupBatch({
                     item.plan.pageNumber,
                     item.pageInput.analysisInputPath,
                 ]));
+                const activePages = createScanCleanupActivePageTracker();
                 const reportNativeProgress = (nativeProgress: TNativeScanCleanupProgressV3) => {
+                    if (
+                        nativeProgress.stage === 'page-started'
+                        && nativeProgress.pageNumber !== undefined
+                    ) {
+                        const sourcePageNumber = sourcePageNumberByManifestIndex.get(nativeProgress.pageNumber);
+                        if (sourcePageNumber !== undefined) {
+                            activePages.start(sourcePageNumber);
+                            emitProgress('rendering', renderedPageNumbers.size, pageCount, renderedPageNumbers, {
+                                rasterizedUnits: rasterizedPageNumbers.size,
+                                ...activePages.snapshot(),
+                            });
+                        }
+                        return;
+                    }
+                    if (
+                        nativeProgress.stage === 'page-stage'
+                        && nativeProgress.pageNumber !== undefined
+                        && nativeProgress.subPageStage !== undefined
+                    ) {
+                        const sourcePageNumber = sourcePageNumberByManifestIndex.get(nativeProgress.pageNumber);
+                        if (sourcePageNumber !== undefined) {
+                            activePages.setStage(sourcePageNumber, nativeProgress.subPageStage);
+                            emitProgress('rendering', renderedPageNumbers.size, pageCount, renderedPageNumbers, {
+                                rasterizedUnits: rasterizedPageNumbers.size,
+                                ...activePages.snapshot(),
+                            });
+                        }
+                        return;
+                    }
                     if (nativeProgress.stage !== 'page-complete') {
                         return;
                     }
@@ -2427,6 +2460,7 @@ async function executeScanCleanupBatch({
                                 `Native cleanup reported unknown manifest page index ${String(nativeProgress.pageNumber)}`,
                             );
                         }
+                        activePages.finish(sourcePageNumber);
                         renderedPageNumbers.add(sourcePageNumber);
                         if (!releasedAnalysisPages.has(sourcePageNumber)) {
                             releasedAnalysisPages.add(sourcePageNumber);
@@ -2442,10 +2476,13 @@ async function executeScanCleanupBatch({
                             }
                         }
                     }
-                    emitProgress('rendering', renderedPageNumbers.size, pageCount, renderedPageNumbers);
+                    emitProgress('rendering', renderedPageNumbers.size, pageCount, renderedPageNumbers, {
+                        rasterizedUnits: rasterizedPageNumbers.size,
+                        ...activePages.snapshot(),
+                    });
                 };
                 renderingStarted = true;
-                emitProgress('rendering', renderedPageNumbers.size, pageCount, renderedPageNumbers);
+                emitProgress('rendering', renderedPageNumbers.size, pageCount, renderedPageNumbers, {rasterizedUnits: rasterizedPageNumbers.size});
                 try {
                     await dependencies.runSidecar(
                         paths.scanCleanupBinary,
@@ -2464,6 +2501,7 @@ async function executeScanCleanupBatch({
                         },
                     );
                 } finally {
+                    activePages.clear();
                     await observeScanCleanupAnalysisReleasePromises(analysisReleasePromises, log);
                 }
                 for (const item of chunkItems) {
@@ -2499,20 +2537,33 @@ async function executeScanCleanupBatch({
         pageMetadataBySource.set(sourcePageNumber, pageMetadata);
         emitProgress('collecting', pageIndex + 1, pageCount, collectedPageNumbers);
             if (pageMetadata.excluded) {
-                summary.excludedPages += 1;
-                emptyOutputMappings.push({
-                    sourcePage: sourcePageNumber,
-                    half: 'full',
-                    outputOrdinal: null,
-                    rotationDegrees: pageMetadata.rotationDegrees,
-                    excluded: true,
-                    blank: false,
+                commitScanCleanupRenderedPageSummary({
+                    summary,
+                    pageNumber: sourcePageNumber,
+                    pageMetadata,
+                    pageOutputs: [],
+                    deskewSkipped: 0,
+                    cropSkipped: 0,
+                    mixedLayerMismatchWarnings: [],
+                    pageEmptyOutputMappings: [{
+                        sourcePage: sourcePageNumber,
+                        half: 'full',
+                        outputOrdinal: null,
+                        rotationDegrees: pageMetadata.rotationDegrees,
+                        excluded: true,
+                        blank: false,
+                    }],
+                    emptyOutputMappings,
+                    fittedMarginBoxPages,
+                    warn: report,
                 });
                 continue;
             }
-            summary.blankPagesSkipped += pageMetadata.blankOutputsSkipped;
             const pageOutputPages: typeof outputPages = [];
             let intentionallyBlankOutputCount = 0;
+            let pageDeskewSkipped = 0;
+            let pageCropSkipped = 0;
+            const pageMixedLayerWarnings: string[] = [];
             for (const [
                 outputIndex,
                 output,
@@ -2629,7 +2680,7 @@ async function executeScanCleanupBatch({
                         }
                         const warning = `Page ${pageNumber} mixed layer dimensions do not match metadata `
                             + `${layerMismatch}; using ${fallbackDescription}`;
-                        report(warning, 'error');
+                        pageMixedLayerWarnings.push(warning);
                     } else {
                         backgroundPath = candidateBackgroundPath;
                         backgroundIsColor = backgroundHeader.isColor;
@@ -2680,26 +2731,32 @@ async function executeScanCleanupBatch({
                     ...renderedOutput,
                     ...(preservedSource === undefined ? {} : {preservedSource}),
                 });
-                if (!metadata.skewApplied) summary.deskewSkipped += 1;
-                if (request.options.crop && metadata.contentBox == null) summary.cropSkipped += 1;
-                reportScanCleanupNativeWarnings(
-                    summary,
-                    metadata,
-                    pageNumber,
-                    fittedMarginBoxPages,
-                    report,
-                );
+                if (!metadata.skewApplied) pageDeskewSkipped += 1;
+                if (request.options.crop && metadata.contentBox == null) pageCropSkipped += 1;
             }
-            outputPages.push(...collectScanCleanupPageOutputs({
+            const pageEmptyOutputMappings: IScanCleanupOutputMapping[] = [];
+            const collectedPageOutputs = collectScanCleanupPageOutputs({
                 request,
                 sourcePageNumber,
                 pageMetadata,
                 pageOutputPages,
                 intentionallyBlankOutputCount,
+                emptyOutputMappings: pageEmptyOutputMappings,
+            });
+            outputPages.push(...collectedPageOutputs);
+            commitScanCleanupRenderedPageSummary({
+                summary,
+                pageNumber: sourcePageNumber,
+                pageMetadata,
+                pageOutputs: pageOutputPages,
+                deskewSkipped: pageDeskewSkipped,
+                cropSkipped: pageCropSkipped,
+                mixedLayerMismatchWarnings: pageMixedLayerWarnings,
+                pageEmptyOutputMappings,
                 emptyOutputMappings,
-            }));
-            if (pageMetadata.layoutClassification === 'two-page-spread') summary.spreadsSplit += 1;
-            if (pageMetadata.layoutClassification === 'page-with-offcut') summary.offcutsDiscarded += 1;
+                fittedMarginBoxPages,
+                warn: report,
+            });
     }
     if (fittedMarginBoxPages.size > 0) {
         reportScanCleanupSummaryWarningEvent(summary, {event: {
@@ -2716,27 +2773,15 @@ async function executeScanCleanupBatch({
     ));
     const hasCompactSourcePages = outputPages.some(output => output.preservedSource !== undefined);
     const outputMappings = buildScanCleanupOutputMappings(outputPages, emptyOutputMappings);
-    const effectiveOptions = mapScanCleanupPageScope(pageNumbers, (sourcePage) => {
-        const page = manifestPageBySource.get(sourcePage);
-        if (page === undefined) {
-            throw new ScanCleanupContractError(
-                `Scan cleanup lost manifest page ${String(sourcePage)} during batching`,
-            );
-        }
-        return {
+    const nativeOptionsBySource = new Map(
+        [...manifestPageBySource].map(([
             sourcePage,
-            options: materializeScanCleanupStampOptions({
-                nativeOptions: page.options,
-                options,
-                qualityPath: 'raster',
-            }),
-        };
-    });
-    const pagePlanDigests = effectiveOptions.map(record => buildScanCleanupPagePlanDigest(
-        record.sourcePage,
-        record.options,
-        pageMetadataBySource.get(record.sourcePage) ?? {excluded: true},
-    ));
+            page,
+        ]) => [
+            sourcePage,
+            page.options,
+        ] as const),
+    );
     const assemblerBackend = request.assemblyBackend
         ?? paths.assemblyBackend
         ?? (hasCompactSourcePages
@@ -2760,14 +2805,19 @@ async function executeScanCleanupBatch({
             ? {}
             : {reusableNativeBinarySha256s: request.provenance.nativeBinarySha256s}),
     });
-    const stamp = buildScanCleanupProvenanceStamp({
+    const {
+        stamp,
+        stampHex: provenanceStampHex,
+    } = buildScanCleanupConversionProvenanceStamp({
+        options,
+        pageNumbers,
+        qualityPath: 'raster',
         sourceSha256: request.provenance?.sourceSha256 ?? await sha256ScanCleanupFile(preparedPdfPath),
-        effectiveOptions,
+        nativeOptionsBySource,
+        pageMetadataBySource,
         outputMappings,
-        pagePlanDigests,
         buildIds,
     });
-    const provenanceStampHex = encodeScanCleanupProvenanceStampHex(stamp);
     await writeFile(join(scratch, 'scan-cleanup-provenance-stamp.json'), `${JSON.stringify(stamp, null, 2)}\n`);
     if (outputPages.length === 0) {
         // An empty batch of a multi-batch run still accounts for its pages in

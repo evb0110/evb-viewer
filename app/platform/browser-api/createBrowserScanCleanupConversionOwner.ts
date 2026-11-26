@@ -49,6 +49,8 @@ function withoutPageMetadata(progress: TScanCleanupJobState['progress']) {
     const {
         completedPageNumbers: _completedPageNumbers,
         completedPageNumbersTruncated: _completedPageNumbersTruncated,
+        activePageNumbers: _activePageNumbers,
+        activeSubPageStage: _activeSubPageStage,
         etaSeconds: _etaSeconds,
         ...rest
     } = progress;

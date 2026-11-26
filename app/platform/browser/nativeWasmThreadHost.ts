@@ -49,6 +49,8 @@ export interface INativeWasmThreadImportsOptions {
     spawnThread: (startArg: number) => number;
     /** Receives text the engine writes to stdout or stderr, such as a panic message. */
     writeOutput: (text: string) => void;
+    /** Receives live sub-page stage progress relayed by the calling thread's poll loop. */
+    onProgress?: ((stage: number, completed: number, total: number) => void) | undefined;
 }
 
 const WASI_ESUCCESS = 0;
@@ -81,6 +83,7 @@ export function createNativeWasmThreadImports({
     memory,
     spawnThread,
     writeOutput,
+    onProgress,
 }: INativeWasmThreadImportsOptions): WebAssembly.Imports {
     // The buffer object changes when the memory grows: read it on every call.
     const view = () => new DataView(memory.buffer);
@@ -89,7 +92,12 @@ export function createNativeWasmThreadImports({
     // 2 GiB arrives negative, so each is read back as unsigned.
     const unsigned = (value: number) => value >>> 0;
     return {
-        env: {memory},
+        env: {
+            memory,
+            evb_progress: (stage: number, completed: number, total: number) => {
+                onProgress?.(unsigned(stage), unsigned(completed), unsigned(total));
+            },
+        },
         wasi_snapshot_preview1: {
             clock_time_get(clockId: number, _precision: bigint, timePointer: number) {
                 if (clockId !== WASI_CLOCK_REALTIME && clockId !== WASI_CLOCK_MONOTONIC) return WASI_EINVAL;

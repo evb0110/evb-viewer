@@ -178,10 +178,19 @@ export async function runBrowserScanCleanupDetection({
                     }
                     return raster.ppm;
                 },
+                onPageStarted: (job) => {
+                    batchRecorder.markPageStarted(pages[job.index]!.pageNumber);
+                },
+                onPageStage: (job, progress) => {
+                    batchRecorder.markPageStage(pages[job.index]!.pageNumber, progress.stage);
+                },
                 onAnalyzed: async (job, result) => {
-                    if (job.view !== 'primary' || job.rerun) return;
-                    analyzedPages += 1;
                     const page = pages[job.index]!;
+                    if (job.view !== 'primary' || job.rerun) {
+                        batchRecorder.markPageFinished(page.pageNumber);
+                        return;
+                    }
+                    analyzedPages += 1;
                     await batchRecorder.recordAnalyzed(verdictInput(page.pageNumber, page.view, result.pageMetadata, analyzedPages));
                 },
             });

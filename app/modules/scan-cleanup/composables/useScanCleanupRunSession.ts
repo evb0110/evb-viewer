@@ -37,6 +37,7 @@ import {
     isScanCleanupRunning,
     registerScanCleanupWorkspaceOwner,
     reportScanCleanupRunError,
+    resolveScanCleanupActivePages,
     resolveScanCleanupProcessedPages,
     ScanCleanupRunReconciliationError,
     scanCleanupRun,
@@ -302,6 +303,14 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         scanCleanupRun.jobState,
         scanCleanupRun.ownerDocumentRef,
         options.sourcePath.value,
+        options.previewTotalPages(),
+    ));
+    const activePages = computed(() => resolveScanCleanupActivePages(
+        scanCleanupRun.jobState,
+        scanCleanupRun.ownerDocumentRef,
+        scanCleanupRun.ownerDocumentRevision,
+        options.sourcePath.value,
+        options.documentRevision.value,
         options.previewTotalPages(),
     ));
     const canRun = computed(() => Boolean(options.sourcePath.value)
@@ -748,6 +757,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
     });
 
     return {
+        activePages,
         cancel,
         cancelRequested,
         cancelStatusText,

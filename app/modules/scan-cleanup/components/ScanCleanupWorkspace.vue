@@ -108,6 +108,7 @@
                 :disabled="isRunning"
                 :can-redetect="canDetectAll && !detectionPending"
                 :processed-pages="processedPages"
+                :active-pages="activePages"
                 :detection-active="detectionPending"
                 :settled-pages="detectionSettledPages"
                 @inspect-page="inspectPage"
@@ -146,6 +147,8 @@
                     :show-first-run-guidance="showFirstRunGuidance"
                     :zone-editing="zoneEditing"
                     :disabled="isRunning"
+                    :activity="activity"
+                    :activity-timeline="activityTimeline"
                     @previous="navigatePreview(-1)"
                     @next="navigatePreview(1)"
                     @retry="retryPreview"
@@ -337,6 +340,7 @@ const {
 } = workspaceSession.selection;
 const previewPage = selectionLeader;
 const {
+    activePages: detectionActivePages,
     authoritativeLayoutByPage,
     blankPageCount,
     canDetectAll,
@@ -374,6 +378,7 @@ const {
     viewMode: previewViewMode,
 } = workspaceSession.preview;
 const {
+    activePages: runActivePages,
     cancel,
     cancelRequested,
     cancelStatusText,
@@ -386,6 +391,7 @@ const {
     runLabel,
     runDisabledReason,
     run,
+    waitingForDetection,
 } = workspaceSession.run;
 // A failed analysis is told once, when this workspace is the one on screen: an
 // expected refusal as a warning, a defect with its Error ID. The toolbar keeps
@@ -483,6 +489,11 @@ const {
     activity,
     activityTimeline,
 } = workspaceSession;
+const activePages = computed<ReadonlySet<number>>(() => (
+    isRunning.value && !waitingForDetection.value
+        ? runActivePages.value
+        : detectionActivePages.value
+));
 // Settings persist from one document to the next, so the rail names the ones
 // that differ from the defaults where they can be reset in one click.
 const changedSettings = computed(() => resolveScanCleanupNonDefaultSettings(settings)

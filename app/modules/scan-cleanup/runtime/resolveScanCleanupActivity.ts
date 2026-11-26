@@ -1,6 +1,7 @@
 import type {
     TScanCleanupProgress,
     TScanCleanupProgressStage,
+    TScanCleanupSubPageStage,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 
 /**
@@ -93,6 +94,8 @@ export interface IScanCleanupActivity {
     /** Work ahead of the fill, such as page images read but not analyzed. */
     bufferFraction: number;
     etaSeconds?: number;
+    /** Fine-grained native sub-page stage currently executing, when reported. */
+    activeSubPageStage?: TScanCleanupSubPageStage;
     steps: IScanCleanupActivityStepView[];
 }
 
@@ -198,6 +201,11 @@ function resolveAnalysis(
         fraction: analyzed === 0 && read === 0 ? null : analyzed / total,
         bufferFraction: read / total,
         ...(progress?.etaSeconds === undefined || verdictsComplete ? {} : {etaSeconds: progress.etaSeconds}),
+        ...(progress?.activeSubPageStage === undefined
+            || queued
+            || (verdictsComplete && !(progress.activePageNumbers && progress.activePageNumbers.length > 0))
+            ? {}
+            : {activeSubPageStage: progress.activeSubPageStage}),
         steps: stepViews({
             read: read >= total || verdictsComplete ? 'done' : queued ? 'waiting' : 'active',
             detect: verdictsComplete ? 'done' : analyzed > 0 || read > 0 ? 'active' : 'waiting',
@@ -290,6 +298,9 @@ function resolveRun(run: IScanCleanupRunActivityInput): IScanCleanupActivity {
         fraction,
         bufferFraction,
         ...(progress?.etaSeconds === undefined || step !== 'clean' ? {} : {etaSeconds: progress.etaSeconds}),
+        ...(progress?.activeSubPageStage === undefined || step !== 'clean' || run.committing || run.starting
+            ? {}
+            : {activeSubPageStage: progress.activeSubPageStage}),
         steps: stepViews(states, {
             ...(PREPARE_STAGES.has(stage) && count !== undefined ? {prepare: count} : {}),
             ...(step === 'clean' && count !== undefined ? {clean: count} : {}),

@@ -270,10 +270,22 @@
                     </div>
                     <span
                         class="preview-viewport-caption"
-                        :aria-hidden="canvasNotice === ''"
-                        :data-canvas-notice="canvasNoticeKind"
+                        :class="{'is-cleaning': liveStageStatus !== null}"
+                        :aria-hidden="liveStageStatus === null && canvasNotice === ''"
+                        :data-canvas-notice="liveStageStatus !== null ? 'cleaning' : canvasNoticeKind"
+                        :data-processing-stage="liveStageStatus?.stage"
                     >
-                        <template v-if="canvasNotice">
+                        <template v-if="liveStageStatus !== null">
+                            <UIcon name="i-ph-circle-notch" class="preview-viewport-spinner is-spinning" aria-hidden="true" />
+                            <span class="preview-viewport-stage">{{ liveStageStatus.label }}</span>
+                            <span
+                                v-if="liveStageStatus.elapsed"
+                                class="preview-viewport-elapsed"
+                                aria-hidden="true"
+                            >{{ liveStageStatus.elapsed }}</span>
+                            <span v-if="canvasNotice" class="preview-viewport-notice">· {{ canvasNotice }}</span>
+                        </template>
+                        <template v-else-if="canvasNotice">
                             {{ canvasNotice }}
                         </template>
                     </span>
@@ -335,7 +347,24 @@
                             </div>
                         </div>
                     </div>
-                    <span class="preview-viewport-caption">{{ t('scanCleanup.preview.loading') }}</span>
+                    <span
+                        class="preview-viewport-caption"
+                        :class="{'is-cleaning': skeletonLiveStageStatus !== null}"
+                        :data-processing-stage="skeletonLiveStageStatus?.stage"
+                    >
+                        <template v-if="skeletonLiveStageStatus !== null">
+                            <UIcon name="i-ph-circle-notch" class="preview-viewport-spinner is-spinning" aria-hidden="true" />
+                            <span class="preview-viewport-stage">{{ skeletonLiveStageStatus.label }}</span>
+                            <span
+                                v-if="skeletonLiveStageStatus.elapsed"
+                                class="preview-viewport-elapsed"
+                                aria-hidden="true"
+                            >{{ skeletonLiveStageStatus.elapsed }}</span>
+                        </template>
+                        <template v-else>
+                            {{ t('scanCleanup.preview.loading') }}
+                        </template>
+                    </span>
                 </div>
                 <div v-else class="preview-message is-error" role="alert">
                     <UIcon name="i-ph-warning-circle" class="size-6" />
@@ -447,7 +476,11 @@
 </template>
 
 <script setup lang="ts">
-import {useTimeoutFn} from '@vueuse/core';
+import {
+    useIntervalFn,
+    useNow,
+    useTimeoutFn,
+} from '@vueuse/core';
 import {useWindowDevicePixelRatio} from '@app/composables/useWindowDevicePixelRatio';
 import type {
     IScanCleanupManualZones,
@@ -529,6 +562,9 @@ import {
 } from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewImages';
 import {useScanCleanupPreviewZoom} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewZoom';
 import {useScanCleanupPreviewOverlayGeometry} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewOverlayGeometry';
+import type {IScanCleanupActivityTimeline} from '@app/modules/scan-cleanup/composables/useScanCleanupActivityTimeline';
+import {formatScanCleanupDuration} from '@app/modules/scan-cleanup/runtime/formatScanCleanupProgress';
+import type {IScanCleanupActivity} from '@app/modules/scan-cleanup/runtime/resolveScanCleanupActivity';
 
 interface IUseScanCleanupZoneEditorOptions {
     editing: MaybeRefOrGetter<boolean | undefined>;
@@ -655,6 +691,8 @@ const props = defineProps<{
     layoutClassification?: IScanCleanupPreviewMetadata['layoutClassification'] | undefined;
     layoutDetectionComplete?: boolean;
     rotationDegrees?: TScanCleanupPageRotation;
+    activity?: IScanCleanupActivity | null;
+    activityTimeline?: IScanCleanupActivityTimeline | null;
 }>();
 const emit = defineEmits<{
     'dismiss-first-run-guidance': [];
@@ -924,6 +962,52 @@ const canvasNotice = computed(() => {
         ? t('scanCleanup.preview.matchedCanvasProvisional')
         : '';
 });
+const {
+    now: liveClock,
+    pause: pauseLiveClock,
+    resume: resumeLiveClock,
+} = useNow({
+    controls: true,
+    scheduler: callback => useIntervalFn(callback, 1000, {immediate: false}),
+});
+watch(
+    () => props.activity !== null,
+    (active) => {
+        if (active) {
+            liveClock.value = new Date();
+            resumeLiveClock();
+        } else {
+            pauseLiveClock();
+        }
+    },
+    {immediate: true},
+);
+const liveStageStatus = computed(() => {
+    const activity = props.activity;
+    if (!activity) return null;
+    if (!activity.run && (activity.activeSubPageStage === undefined || canvasNotice.value !== '')) {
+        return null;
+    }
+    const stage = activity.activeSubPageStage ?? activity.detail;
+    const label = activity.activeSubPageStage === undefined
+        ? t(`scanCleanup.activity.detail.${activity.detail}`)
+        : t(`scanCleanup.activity.subPageStage.${activity.activeSubPageStage}`);
+    const startedAtMs = props.activityTimeline?.steps[activity.step]?.startedAtMs
+        ?? props.activityTimeline?.startedAtMs;
+    const elapsed = startedAtMs === undefined
+        ? ''
+        : formatScanCleanupDuration(liveClock.value.getTime() - startedAtMs);
+    return {
+        stage,
+        label,
+        elapsed,
+    };
+});
+// Keep the initial preview skeleton's "Building cleanup preview…" caption during
+// background detection; only replace it when an active cleanup run is underway.
+const skeletonLiveStageStatus = computed(() => (
+    props.activity?.run === true ? liveStageStatus.value : null
+));
 const viewModes = computed(() => props.lossless ? [{
     value: 'original' as const,
     label: t('scanCleanup.preview.preview'),

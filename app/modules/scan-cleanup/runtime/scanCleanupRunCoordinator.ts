@@ -281,6 +281,27 @@ export function resolveScanCleanupProcessedPages(
         .filter(pageNumber => pageNumber <= totalPages));
 }
 
+export function resolveScanCleanupActivePages(
+    state: TScanCleanupJobState | null,
+    ownerDocumentRef: string | null,
+    ownerDocumentRevision: string | null,
+    sourceDocumentRef: string | null,
+    sourceDocumentRevision: string | null,
+    totalPages: number,
+): ReadonlySet<number> {
+    if (
+        !state
+        || !sourceDocumentRef
+        || ownerDocumentRef !== sourceDocumentRef
+        || ownerDocumentRevision !== sourceDocumentRevision
+        || !isLiveScanCleanupJobState(state)
+    ) {
+        return new Set();
+    }
+    return new Set((state.progress.activePageNumbers ?? [])
+        .filter(pageNumber => pageNumber >= 1 && pageNumber <= totalPages));
+}
+
 type IScanCleanupToast = IFailureToastTarget;
 
 export interface IScanCleanupCoordinatorDependencies {

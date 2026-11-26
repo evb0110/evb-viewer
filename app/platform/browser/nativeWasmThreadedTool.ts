@@ -22,6 +22,8 @@ export interface INativeWasmThreadsDescriptor {
     count: number;
     /** The shared memory's maximum in 64 KiB pages. */
     maximumMemoryPages?: number;
+    /** Receives live sub-page stage progress relayed by the calling thread's poll loop. */
+    onProgress?: (stage: number, completed: number, total: number) => void;
 }
 
 /**
@@ -170,6 +172,7 @@ export function createNativeWasmThreadedInstances({
             const instance = await WebAssembly.instantiate(module, createNativeWasmThreadImports({
                 memory,
                 writeOutput,
+                onProgress: threads.onProgress,
                 spawnThread: (startArg) => {
                     const worker = idle.shift();
                     if (!worker) return -1;

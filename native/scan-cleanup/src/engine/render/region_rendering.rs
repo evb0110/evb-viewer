@@ -1427,6 +1427,7 @@ fn prepare_region_transforms(
     } = input;
     let deskew_key =
         split_cache_key.map(|split_key| StageCacheKey::deskew(options, split_key, region));
+    crate::sub_page_progress::report_sub_page_stage(crate::sub_page_progress::SubPageStage::Deskew);
     let deskew_started = Instant::now();
     let deskew = if options.ocr_polarity_only {
         // Polarity-only OCR must not quietly become scan cleanup through
@@ -2006,6 +2007,7 @@ fn prepare_render_planes(
         dewarp_model,
         timings,
     } = input;
+    crate::sub_page_progress::report_sub_page_stage(crate::sub_page_progress::SubPageStage::Render);
     let rasterization_started = Instant::now();
     let tonal_render_source = normalized;
     // A colour page publishes its RGB raster, and polarity-only B&W OCR only

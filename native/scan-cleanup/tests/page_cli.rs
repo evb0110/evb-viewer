@@ -3703,31 +3703,55 @@ fn parallel_batch_outputs_and_progress_are_deterministic() {
         "stderr={}",
         String::from_utf8_lossy(&second.stderr)
     );
-    let stable_progress = |bytes: &[u8]| {
-        String::from_utf8_lossy(bytes)
+    let stable_page_completions = |bytes: &[u8]| {
+        let mut records = String::from_utf8_lossy(bytes)
             .lines()
-            .map(|line| {
-                let mut value = serde_json::from_str::<Value>(line).unwrap();
-                value
-                    .get_mut("progress")
-                    .and_then(Value::as_object_mut)
-                    .map(|progress| progress.remove("stageTimings"));
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .filter(|value| value["progress"]["stage"] == "page-complete")
+            .map(|mut value| {
+                if let Some(progress) = value.get_mut("progress").and_then(Value::as_object_mut) {
+                    progress.remove("stageTimings");
+                    progress.remove("completedPages");
+                }
                 value
             })
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>();
+        records.sort_by_key(|value| value["progress"]["pageNumber"].as_u64().unwrap());
+        records
     };
     assert_eq!(
-        stable_progress(&first.stdout),
-        stable_progress(&second.stdout)
+        stable_page_completions(&first.stdout),
+        stable_page_completions(&second.stdout)
     );
     let progress = String::from_utf8(second.stdout).unwrap();
-    let completed_pages = progress
+    let events = progress
         .lines()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .collect::<Vec<_>>();
+    let mut completed_pages = events
+        .iter()
         .filter(|event| event["progress"]["stage"] == "page-complete")
         .map(|event| event["progress"]["pageNumber"].as_u64().unwrap())
         .collect::<Vec<_>>();
+    let completed_counts = events
+        .iter()
+        .filter(|event| event["progress"]["stage"] == "page-complete")
+        .map(|event| event["progress"]["completedPages"].as_u64().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(completed_counts, vec![1, 2, 3, 4]);
+    completed_pages.sort_unstable();
     assert_eq!(completed_pages, vec![1, 2, 3, 4]);
+    let mut started_pages = events
+        .iter()
+        .filter(|event| event["progress"]["stage"] == "page-started")
+        .map(|event| event["progress"]["pageNumber"].as_u64().unwrap())
+        .collect::<Vec<_>>();
+    started_pages.sort_unstable();
+    assert_eq!(started_pages, vec![1, 2, 3, 4]);
+    assert!(events
+        .iter()
+        .any(|event| event["progress"]["stage"] == "page-stage"
+            && event["progress"]["subPageStage"].is_string()));
     for ((output, metadata), (expected_output, expected_metadata)) in
         artifacts.iter().zip(first_artifacts)
     {

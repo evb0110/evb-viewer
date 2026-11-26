@@ -89,6 +89,7 @@ import {
     type TBrowserScanCleanupOutcome,
 } from '@app/platform/browser-api/browserScanCleanupWasm';
 import {
+    decodeScanCleanupWasmSubPageStage,
     encodeScanCleanupWasmAnalyzeRequest,
     encodeScanCleanupWasmRenderPreviewRequest,
     type IScanCleanupWasmRenderedOutput,
@@ -6545,9 +6546,13 @@ import(workerData.hostUrl).then((host) => {
     const {hostUrl, maximumPages, module, request, threads, threadSource, trapChannel} = workerData;
     const memory = host.createNativeWasmThreadMemory(maximumPages);
     const thread = {faultPointer: 0, count: 0};
+    const progressStages = [];
     const engine = new WebAssembly.Instance(module, host.createNativeWasmThreadImports({
         memory,
         writeOutput: () => {},
+        onProgress: (stage) => {
+            progressStages.push(stage);
+        },
         spawnThread: (startArg) => {
             thread.count += 1;
             new Worker(threadSource, {
@@ -6568,17 +6573,24 @@ import(workerData.hostUrl).then((host) => {
         : code === -1
             ? new Uint8Array(memory.buffer, engine.evb_scan_cleanup_error_ptr(), engine.evb_scan_cleanup_error_len()).slice()
             : new Uint8Array();
-    parentPort.postMessage({started, code, result});
+    parentPort.postMessage({started, code, result, progressStages});
 });
 `;
 
 interface IScanCleanupEngineRun {
     code: number;
     result: Uint8Array;
+    progressStages: number[];
 }
 
 async function runSingleThreadedScanCleanup(request: Uint8Array): Promise<IScanCleanupEngineRun> {
-    const {instance} = await WebAssembly.instantiate(await readFile(scanCleanupWasmPath), {env: {evb_now_ms: () => performance.now()}});
+    const progressStages: number[] = [];
+    const {instance} = await WebAssembly.instantiate(await readFile(scanCleanupWasmPath), {env: {
+        evb_now_ms: () => performance.now(),
+        evb_progress: (stage: number) => {
+            progressStages.push(stage);
+        },
+    }});
     const engine = instance.exports as unknown as {
         memory: WebAssembly.Memory;
         evb_scan_cleanup_alloc(byteLength: number): number;
@@ -6596,6 +6608,7 @@ async function runSingleThreadedScanCleanup(request: Uint8Array): Promise<IScanC
         result: code === 0
             ? new Uint8Array(engine.memory.buffer, engine.evb_scan_cleanup_output_ptr(), engine.evb_scan_cleanup_output_len()).slice()
             : new Uint8Array(engine.memory.buffer, engine.evb_scan_cleanup_error_ptr(), engine.evb_scan_cleanup_error_len()).slice(),
+        progressStages,
     };
 }
 
@@ -6698,9 +6711,25 @@ describe.skipIf(missingThreadedEngines.length > 0)(`threaded browser scan-cleanu
             const request = await encode();
             const expected = await runSingleThreadedScanCleanup(request);
             expect(expected.code, new TextDecoder().decode(expected.result)).toBe(0);
+            const expectedStages = expected.progressStages
+                .map(stage => decodeScanCleanupWasmSubPageStage(stage))
+                .filter(stage => stage !== null);
+            expect(expectedStages.length).toBe(expected.progressStages.length);
+            expect(expectedStages).toContain('decode');
+            expect(expectedStages).toContain('analyze');
+            if (label.includes('preview')) {
+                expect(expectedStages).toContain('render');
+                expect(expectedStages).toContain('encode');
+            }
             const actual = await runThreadedScanCleanup(request, threads);
             expect(actual.code, actual.failure).toBe(0);
             expect(Buffer.from(actual.result).equals(Buffer.from(expected.result))).toBe(true);
+            const actualStages = actual.progressStages
+                .map(stage => decodeScanCleanupWasmSubPageStage(stage))
+                .filter(stage => stage !== null);
+            expect(actualStages.length).toBeGreaterThan(0);
+            expect(actualStages.length).toBe(actual.progressStages.length);
+            expect(actualStages.at(-1)).toBe(label.includes('preview') ? 'encode' : 'analyze');
         });
     }
 

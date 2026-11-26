@@ -41,6 +41,8 @@ interface IBrowserWorkerClientOptions<TPendingRequest> {
     ) => void;
     /** Optional observer called when a stale reply from a warm-canceled request finishes draining. */
     onDrainedMessage?: (response: unknown) => void;
+    /** Identifies non-terminal progress frames so they never release a warm-canceled draining worker. */
+    isProgressMessage?: (response: unknown) => boolean;
     createError: (event: ErrorEvent) => Error;
 }
 
@@ -215,6 +217,9 @@ export class BrowserWorkerClient<
                 }
 
                 if (this.drainingRequestId !== null && isMatchingResponseId(event.data, this.drainingRequestId)) {
+                    if (this.options.isProgressMessage?.(event.data)) {
+                        return;
+                    }
                     this.clearDrainState();
                     this.options.onDrainedMessage?.(event.data);
                     this.scheduleIdleWorkerTermination();

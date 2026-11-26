@@ -1,4 +1,5 @@
 import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
+import {SCAN_CLEANUP_SUB_PAGE_STAGES} from '@contracts/scan-cleanup/nativeProtocolV3';
 import * as v from 'valibot';
 
 const progress = v.message(v.pipe(v.object({
@@ -29,6 +30,10 @@ const progress = v.message(v.pipe(v.object({
     // A long detection run reports a bounded list in verdict-arrival order.
     // Consumers use completedUnits for the authoritative distinct-page count.
     completedPageNumbersTruncated: v.optional(v.boolean()),
+    // Source page numbers currently executing in parallel workers.
+    activePageNumbers: v.optional(v.array(v.pipe(v.number(), v.integer(), v.minValue(1)))),
+    // Latest fine-grained sub-page processing stage reported by an active worker.
+    activeSubPageStage: v.optional(v.picklist(SCAN_CLEANUP_SUB_PAGE_STAGES)),
 }), v.check(value =>
     value.completedUnits <= value.totalUnits
     && (
@@ -54,6 +59,13 @@ const progress = v.message(v.pipe(v.object({
     && (
         value.completedPageNumbersTruncated !== true
         || value.completedPageNumbers !== undefined
+    )
+    && (
+        value.activePageNumbers === undefined
+        || (
+            value.activePageNumbers.length <= SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES
+            && new Set(value.activePageNumbers).size === value.activePageNumbers.length
+        )
     ),
 )), 'invalid scan-cleanup progress');
 

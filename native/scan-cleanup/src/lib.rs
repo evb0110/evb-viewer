@@ -21,6 +21,7 @@ mod mrc;
 pub mod picture;
 pub mod protocol;
 pub mod split;
+pub mod sub_page_progress;
 pub mod text_tone;
 mod thin_strokes;
 #[cfg(any(test, all(target_family = "wasm", feature = "wasm-exports")))]

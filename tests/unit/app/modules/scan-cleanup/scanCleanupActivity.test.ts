@@ -4,7 +4,10 @@ import {
     it,
 } from 'vitest';
 import type {TScanCleanupProgress} from '@contracts/scan-cleanup/electronApiScanCleanup';
-import {createScanCleanupProgressEtaEstimator} from '@evb/scan-cleanup/core/createScanCleanupProgressReporter';
+import {
+    createScanCleanupActivePageTracker,
+    createScanCleanupProgressEtaEstimator,
+} from '@evb/scan-cleanup/core/createScanCleanupProgressReporter';
 import type {TTranslateFn} from '@i18n-app';
 import {
     formatScanCleanupDuration,
@@ -426,5 +429,153 @@ describe('scan cleanup activity', () => {
             totalUnits: 9,
         }), t).text)
             .toBe('scanCleanup.activity.detail.assembling');
+    });
+
+    it('surfaces activeSubPageStage during detection and cleaning and clears it during compare and commit', () => {
+        const detecting = resolveScanCleanupActivity({
+            detection: analysis({
+                analyzedPages: 3,
+                progress: progress({
+                    stage: 'detecting',
+                    completedUnits: 3,
+                    rasterizedUnits: 5,
+                    activeSubPageStage: 'background',
+                }),
+            }),
+            run: null,
+        })!;
+        expect(detecting.activeSubPageStage).toBe('background');
+
+        const comparingIdle = resolveScanCleanupActivity({
+            detection: analysis({
+                analyzedPages: 148,
+                progress: progress({
+                    stage: 'detecting',
+                    completedUnits: 148,
+                    rasterizedUnits: 148,
+                    activeSubPageStage: 'analyze',
+                }),
+            }),
+            run: null,
+        })!;
+        expect(comparingIdle.step).toBe('compare');
+        expect(comparingIdle.activeSubPageStage).toBeUndefined();
+
+        const comparingRecheck = resolveScanCleanupActivity({
+            detection: analysis({
+                analyzedPages: 148,
+                progress: progress({
+                    stage: 'detecting',
+                    completedUnits: 148,
+                    rasterizedUnits: 148,
+                    activePageNumbers: [12],
+                    activeSubPageStage: 'analyze',
+                }),
+            }),
+            run: null,
+        })!;
+        expect(comparingRecheck.step).toBe('compare');
+        expect(comparingRecheck.activeSubPageStage).toBe('analyze');
+
+        const cleaning = resolveScanCleanupActivity({
+            detection: analysis({pending: false}),
+            run: {
+                waitingForDetection: false,
+                starting: false,
+                progress: progress({
+                    stage: 'rendering',
+                    completedUnits: 4,
+                    totalUnits: 10,
+                    activeSubPageStage: 'deskew',
+                }),
+                committing: false,
+            },
+        })!;
+        expect(cleaning.activeSubPageStage).toBe('deskew');
+
+        const committing = resolveScanCleanupActivity({
+            detection: analysis({pending: false}),
+            run: {
+                waitingForDetection: false,
+                starting: false,
+                progress: progress({
+                    stage: 'rendering',
+                    completedUnits: 10,
+                    totalUnits: 10,
+                    activeSubPageStage: 'encode',
+                }),
+                committing: true,
+            },
+        })!;
+        expect(committing.activeSubPageStage).toBeUndefined();
+    });
+});
+
+describe('scan cleanup active page tracker', () => {
+    it('tracks concurrent in-flight pages and falls back to remaining page stages on out-of-order completion', () => {
+        const tracker = createScanCleanupActivePageTracker();
+        expect(tracker.snapshot()).toEqual({});
+
+        tracker.start(3);
+        tracker.start(1);
+        expect(tracker.snapshot()).toEqual({activePageNumbers: [
+            1,
+            3,
+        ]});
+
+        tracker.setStage(3, 'deskew');
+        tracker.setStage(1, 'render');
+        expect(tracker.snapshot()).toEqual({
+            activePageNumbers: [
+                1,
+                3,
+            ],
+            activeSubPageStage: 'render',
+        });
+
+        // Finishing page 1 out of order returns true and preserves page 3's stage.
+        expect(tracker.finish(1)).toBe(true);
+        expect(tracker.finish(1)).toBe(false);
+        expect(tracker.snapshot()).toEqual({
+            activePageNumbers: [3],
+            activeSubPageStage: 'deskew',
+        });
+
+        expect(tracker.finish(3)).toBe(true);
+        expect(tracker.snapshot()).toEqual({});
+
+        tracker.setStage(2, 'encode');
+        expect(tracker.snapshot()).toEqual({
+            activePageNumbers: [2],
+            activeSubPageStage: 'encode',
+        });
+        tracker.clear();
+        expect(tracker.snapshot()).toEqual({});
+    });
+
+    it('falls back by most recent stage update and supports clearing stage while keeping a page active', () => {
+        const tracker = createScanCleanupActivePageTracker();
+        tracker.setStage(1, 'decode');
+        tracker.setStage(2, 'decode');
+        tracker.setStage(1, 'render');
+        tracker.setStage(3, 'encode');
+
+        expect(tracker.finish(3)).toBe(true);
+        expect(tracker.snapshot()).toEqual({
+            activePageNumbers: [
+                1,
+                2,
+            ],
+            activeSubPageStage: 'render',
+        });
+
+        expect(tracker.clearStage(1)).toBe(true);
+        expect(tracker.snapshot()).toEqual({
+            activePageNumbers: [
+                1,
+                2,
+            ],
+            activeSubPageStage: 'decode',
+        });
     });
 });

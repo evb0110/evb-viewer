@@ -40,6 +40,7 @@ import type {
     IScanCleanupWasmAnalyzeResult,
     IScanCleanupWasmPageResult,
     IScanCleanupWasmRenderPreviewRequest,
+    IScanCleanupWasmSubPageProgress,
     TScanCleanupEncodedRaster,
 } from '@contracts/scan-cleanup/browserScanCleanupWasm';
 import type {
@@ -845,6 +846,8 @@ export interface IRunBrowserScanCleanupAnalysisInput {
     rasterize: (job: AnalysisJob, signal: AbortSignal) => Promise<TScanCleanupEncodedRaster | null>;
     /** The pixels of the raster a job names, which bound the analyses in flight. */
     estimatePixels: (job: AnalysisJob) => number;
+    onPageStarted?: (job: AnalysisJob) => void;
+    onPageStage?: (job: AnalysisJob, progress: IScanCleanupWasmSubPageProgress) => void;
     onAnalyzed?: (job: AnalysisJob, result: IScanCleanupWasmAnalyzeResult) => Promise<void> | void;
     signal: AbortSignal;
     onEngineIdentity?: (sha256: string) => void;
@@ -866,6 +869,8 @@ export async function runBrowserScanCleanupAnalysis({
     documentCanvas,
     rasterize,
     estimatePixels,
+    onPageStarted,
+    onPageStage,
     onAnalyzed,
     signal,
     onEngineIdentity,
@@ -913,7 +918,9 @@ export async function runBrowserScanCleanupAnalysis({
                         actualBytes: 0,
                     };
                 }
+                jobSignal.throwIfAborted();
                 const page = pages[job.index]!;
+                onPageStarted?.(job);
                 const result = unwrapBrowserScanCleanupOutcome(await runBrowserScanCleanupWorkerRequest('analyze-page', {
                     input,
                     page: {
@@ -923,7 +930,11 @@ export async function runBrowserScanCleanupAnalysis({
                         ...(analysisPurpose === undefined ? {} : {analysisPurpose}),
                         ...(job.documentPrior == null ? {} : {documentPrior: job.documentPrior}),
                     },
-                }, jobSignal, onEngineIdentity, concurrency));
+                }, jobSignal, onEngineIdentity, concurrency, progress => {
+                    if (!jobSignal.aborted) {
+                        onPageStage?.(job, progress);
+                    }
+                }));
                 if (notifyAnalyzed !== null && !jobSignal.aborted) {
                     await notifyAnalyzed(job, result, jobSignal);
                 }

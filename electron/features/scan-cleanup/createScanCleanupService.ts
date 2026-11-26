@@ -243,6 +243,8 @@ function omitCompletedPageMetadata(progress: TScanCleanupProgress): TScanCleanup
     const {
         completedPageNumbers: _completedPageNumbers,
         completedPageNumbersTruncated: _completedPageNumbersTruncated,
+        activePageNumbers: _activePageNumbers,
+        activeSubPageStage: _activeSubPageStage,
         ...rest
     } = progress;
     return rest;

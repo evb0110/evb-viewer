@@ -34,6 +34,12 @@ import {
     SCAN_CLEANUP_WASM_REQUEST_MAGIC,
     SCAN_CLEANUP_WASM_REQUEST_VERSION,
     SCAN_CLEANUP_WASM_RESULT_HEADER_BYTES,
+    SCAN_CLEANUP_WASM_SUB_PAGE_STAGE_ANALYZE,
+    SCAN_CLEANUP_WASM_SUB_PAGE_STAGE_BACKGROUND,
+    SCAN_CLEANUP_WASM_SUB_PAGE_STAGE_DECODE,
+    SCAN_CLEANUP_WASM_SUB_PAGE_STAGE_DESKEW,
+    SCAN_CLEANUP_WASM_SUB_PAGE_STAGE_ENCODE,
+    SCAN_CLEANUP_WASM_SUB_PAGE_STAGE_RENDER,
 } from '@contracts/scan-cleanup/browserScanCleanupWasm.generated';
 import {
     decodeNativeScanCleanupOutputMetadataJson,
@@ -45,6 +51,7 @@ import type {
     AnalysisJob,
     DetailRenderGeometry,
     ReconciliationCandidate,
+    SubPageStage,
     WasmAnalyzePageRequestV2,
     WasmPlanAnalysisRequestV3,
     WasmRenderPageRequestV2,
@@ -288,6 +295,42 @@ const REQUESTED_PLANES: Record<TScanCleanupWasmRequestedPlanes, number> = {
     raw: SCAN_CLEANUP_WASM_PLANES_RAW,
     encoded: SCAN_CLEANUP_WASM_PLANES_ENCODED,
 };
+const SUB_PAGE_STAGES = new Map<number, SubPageStage>([
+    [
+        SCAN_CLEANUP_WASM_SUB_PAGE_STAGE_DECODE,
+        'decode',
+    ],
+    [
+        SCAN_CLEANUP_WASM_SUB_PAGE_STAGE_BACKGROUND,
+        'background',
+    ],
+    [
+        SCAN_CLEANUP_WASM_SUB_PAGE_STAGE_ANALYZE,
+        'analyze',
+    ],
+    [
+        SCAN_CLEANUP_WASM_SUB_PAGE_STAGE_DESKEW,
+        'deskew',
+    ],
+    [
+        SCAN_CLEANUP_WASM_SUB_PAGE_STAGE_RENDER,
+        'render',
+    ],
+    [
+        SCAN_CLEANUP_WASM_SUB_PAGE_STAGE_ENCODE,
+        'encode',
+    ],
+]);
+
+export interface IScanCleanupWasmSubPageProgress {
+    stage: SubPageStage;
+    completed: number;
+    total: number;
+}
+
+export function decodeScanCleanupWasmSubPageStage(code: number): SubPageStage | null {
+    return SUB_PAGE_STAGES.get(code) ?? null;
+}
 const U32_MAX = 0xffff_ffff;
 
 export class InvalidScanCleanupWasmResultError extends Error {

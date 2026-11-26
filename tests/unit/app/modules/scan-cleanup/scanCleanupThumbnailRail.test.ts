@@ -386,12 +386,15 @@ function mountRail(options: {
     leader?: number;
     selected?: ReadonlySet<number>;
     processed?: ReadonlySet<number>;
+    activePages?: ReadonlySet<number>;
     disabled?: boolean;
 } = {}) {
     const source = options.source === undefined ? createSource() : options.source;
     const leader = ref(options.leader ?? 1);
     const anchor = ref(options.leader ?? 1);
     const selected = ref<ReadonlySet<number>>(options.selected ?? new Set([leader.value]));
+    const activePages = ref<ReadonlySet<number>>(options.activePages ?? new Set());
+    const processed = ref<ReadonlySet<number>>(options.processed ?? new Set());
     const disabled = ref(options.disabled ?? false);
     const inspectedPages: number[] = [];
     const redetect = vi.fn();
@@ -421,7 +424,8 @@ function mountRail(options: {
         recommendedOutputModeReasons: options.recommendedOutputModeReasons ?? new Map(),
         diagnostics: options.diagnostics ?? new Map(),
         textAxes: options.textAxes ?? new Map(),
-        processedPages: options.processed ?? new Set(),
+        activePages: activePages.value,
+        processedPages: processed.value,
         disabled: disabled.value,
         onSelectPage: (page: number, intent: TScanCleanupSelectionIntent, orderedPages: readonly number[]) => {
             const next = resolveScanCleanupSelection({
@@ -453,10 +457,12 @@ function mountRail(options: {
     mountedApps.add(unmount);
     return {
         host,
+        activePages,
         disabled,
         leader,
         overrideUpdates,
         inspectedPages,
+        processed,
         redetect,
         selected,
     };
@@ -1072,6 +1078,44 @@ describe('ScanCleanupThumbnailRail', () => {
         toggle.dispatchEvent(new FocusEvent('focusin', {bubbles: true}));
         await nextTick();
         expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe('Include in output');
+    });
+
+    it('shows a live spinning badge on active pages and replaces it with the processed checkmark when done', async () => {
+        realLocale = 'en';
+        const harness = mountRail({
+            activePages: new Set([
+                2,
+                3,
+            ]),
+            overrides: {'3': {
+                rotationDegrees: 0,
+                layoutOverride: 'auto',
+                excluded: true,
+                manualSplit: null,
+            }},
+        });
+
+        const page1 = pageRow(harness.host, 1);
+        const page2 = pageRow(harness.host, 2);
+        const page3 = pageRow(harness.host, 3);
+
+        expect(page1.querySelector('[data-page-active="true"]')).toBeNull();
+        const spinner = page2.querySelector<HTMLElement>('[data-page-active="true"]');
+        expect(spinner).not.toBeNull();
+        expect(spinner?.classList.contains('scan-thumbnail-active')).toBe(true);
+        expect(spinner?.classList.contains('is-spinning')).toBe(true);
+        expect(spinner?.getAttribute('data-icon')).toBe('i-ph-circle-notch');
+        expect(spinner?.getAttribute('aria-label')).toBe('Processing page 2');
+        expect(page2.querySelector('.scan-thumbnail-processed')).toBeNull();
+        // Excluded pages do not display a live processing badge.
+        expect(page3.querySelector('[data-page-active="true"]')).toBeNull();
+
+        harness.activePages.value = new Set();
+        harness.processed.value = new Set([2]);
+        await nextTick();
+
+        expect(page2.querySelector('[data-page-active="true"]')).toBeNull();
+        expect(page2.querySelector('.scan-thumbnail-processed')).not.toBeNull();
     });
 
 });

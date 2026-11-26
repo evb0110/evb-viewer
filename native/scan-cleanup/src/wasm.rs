@@ -498,6 +498,12 @@ pub unsafe extern "C" fn evb_scan_cleanup_run(
         return -1;
     }
     let request = slice::from_raw_parts(request_pointer, request_len);
+    #[cfg(all(
+        target_family = "wasm",
+        target_os = "unknown",
+        feature = "wasm-exports"
+    ))]
+    crate::sub_page_progress::reset_sub_page_progress();
     #[cfg(not(target_os = "wasi"))]
     let outcome = execute(request);
     #[cfg(target_os = "wasi")]
@@ -849,7 +855,13 @@ fn run_render_page(frame: &RequestFrame<'_>) -> Result<Vec<u8>, Box<dyn Error>> 
     } = finish_page(rendered, final_render, request.document_canvas, planes)?;
     let mut frame_outputs = Vec::with_capacity(outputs.len());
     let mut geometries = Vec::with_capacity(outputs.len());
-    for output in &mut outputs {
+    let total_outputs = u32::try_from(outputs.len()).unwrap_or(u32::MAX);
+    for (output_index, output) in outputs.iter_mut().enumerate() {
+        crate::sub_page_progress::report_sub_page_progress(
+            crate::sub_page_progress::SubPageStage::Encode,
+            u32::try_from(output_index).unwrap_or(u32::MAX),
+            total_outputs,
+        );
         let mut sink = FramePlaneSink {
             encoded: frame.plane_encoding == PLANES_ENCODED,
             planes: Vec::new(),
@@ -865,6 +877,11 @@ fn run_render_page(frame: &RequestFrame<'_>) -> Result<Vec<u8>, Box<dyn Error>> 
             request.source_page_index,
             request.document_canvas,
         ));
+        crate::sub_page_progress::report_sub_page_progress(
+            crate::sub_page_progress::SubPageStage::Encode,
+            u32::try_from(output_index + 1).unwrap_or(u32::MAX),
+            total_outputs,
+        );
     }
     // What a render manifest does once its pages are published, for this page.
     if let Some(pdf_page) = &request.pdf_page {

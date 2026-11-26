@@ -477,6 +477,7 @@ pub(crate) fn render_page(
     let options = options.clone();
     options.validate().map_err(invalid)?;
     let mut timings = PageStageTimings::default();
+    crate::sub_page_progress::report_sub_page_stage(crate::sub_page_progress::SubPageStage::Decode);
     let decode_started = Instant::now();
     // Render pages retain reusable analysis-stage artifacts, but decoded
     // source rasters are intentionally scoped to this invocation. Analyze's
@@ -1415,16 +1416,29 @@ pub(crate) fn run_page(
                 .map(OutputPlanes::of_destination)
                 .collect(),
         )?;
-        for (output, destination) in outputs.iter_mut().zip(&destinations) {
+        let total_outputs = u32::try_from(outputs.len()).unwrap_or(u32::MAX);
+        for (output_index, (output, destination)) in
+            outputs.iter_mut().zip(&destinations).enumerate()
+        {
             if is_canceled.load(Ordering::Acquire) {
                 return Err(crate::engine::cancellation_error().into());
             }
+            crate::sub_page_progress::report_sub_page_progress(
+                crate::sub_page_progress::SubPageStage::Encode,
+                u32::try_from(output_index).unwrap_or(u32::MAX),
+                total_outputs,
+            );
             let mut sink = FilePlaneSink {
                 destination,
                 published: Vec::new(),
             };
             output.publish(&mut sink)?;
             write_json_atomic(&destination.metadata_path, &output.result.metadata)?;
+            crate::sub_page_progress::report_sub_page_progress(
+                crate::sub_page_progress::SubPageStage::Encode,
+                u32::try_from(output_index + 1).unwrap_or(u32::MAX),
+                total_outputs,
+            );
             let published_path = |role: PlaneRole, path: &Option<PathBuf>| {
                 sink.published
                     .contains(&role)
@@ -1608,6 +1622,7 @@ pub(crate) fn classify_page(
     let options = options.clone();
     options.validate().map_err(invalid)?;
     let mut timings = PageStageTimings::default();
+    crate::sub_page_progress::report_sub_page_stage(crate::sub_page_progress::SubPageStage::Decode);
     let decode_started = Instant::now();
     // Analyze produces mode-independent diagnostics even when a concrete mode
     // is selected. A concrete final render does not publish or consume those
@@ -1624,6 +1639,9 @@ pub(crate) fn classify_page(
         .or(gray_input.as_deref())
         .expect("classification input is initialized");
     let options = options.at_scan_resolution(input.width(), input.height());
+    crate::sub_page_progress::report_sub_page_stage(
+        crate::sub_page_progress::SubPageStage::Analyze,
+    );
     let result = analyze_page_with_color_and_document_prior_cached_cancellable(
         input,
         color_input.as_ref().map(|decoded| &decoded.rgb),
