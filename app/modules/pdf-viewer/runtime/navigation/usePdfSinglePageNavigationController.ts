@@ -71,6 +71,7 @@ interface IUsePdfSinglePageNavigationControllerOptions extends IUsePdfSinglePage
 }
 
 interface IPdfSinglePageWheelEvent {
+    cancelable?: boolean;
     deltaX: number;
     deltaY: number;
     timeStamp: number;
@@ -1042,15 +1043,18 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
     }
 
     function handleWheel(event: IPdfSinglePageWheelEvent) {
-        if (
-            event.deltaY === 0
-            || options.continuousScroll.value
-            || Math.abs(event.deltaY) < Math.abs(event.deltaX)
-        ) {
+        if (options.continuousScroll.value) {
             return false;
         }
         const container = options.viewerContainer.value;
         if (!container) {
+            return false;
+        }
+        if (event.deltaY === 0 || Math.abs(event.deltaY) < Math.abs(event.deltaX)) {
+            if (wheelFlipGate.consumeGestureJitter(event)) {
+                event.preventDefault();
+                return true;
+            }
             return false;
         }
         const direction = resolveWheelDirection(event.deltaY);
@@ -1061,15 +1065,14 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             viewMode: options.viewMode.value,
             scaledMargin: options.scaledMargin.value,
         });
-        wheelFlipGate.recordWheelPacket(event.timeStamp, event.deltaY);
         if (bounds === null) {
             return false;
         }
         if (canScrollWithinPageBounds(container, bounds, direction)) {
-            wheelFlipGate.recordInteriorScroll();
+            wheelFlipGate.recordInteriorScroll(event);
             return false;
         }
-        if (wheelFlipGate.shouldBlockFlip(direction, event.timeStamp, {delta: event.deltaY})) {
+        if (wheelFlipGate.shouldBlockFlip(direction, event)) {
             event.preventDefault();
             return true;
         }
@@ -1084,7 +1087,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             alignPageBottom: direction < 0,
         }) !== false;
         if (submitted) {
-            wheelFlipGate.recordFlip(direction, event.timeStamp, event.deltaY);
+            wheelFlipGate.recordFlip(direction, event);
         }
         return submitted;
     }

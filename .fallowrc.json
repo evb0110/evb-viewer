@@ -3,6 +3,7 @@
     "entry": [
         "app/app.vue",
         "app/app.config.ts",
+        "app/router.options.ts",
         "app/pages/**/*.vue",
         "app/components/**/*.vue",
         "app/plugins/**/*.ts",

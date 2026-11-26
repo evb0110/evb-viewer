@@ -645,6 +645,129 @@ describe('usePdfSinglePageNavigationController', () => {
         }
     });
 
+    it('flips by one page on a small smooth scroll with mid-gesture diagonal jitter', async () => {
+        const scope = effectScope();
+        const viewer = document.createElement('div');
+        Object.defineProperties(viewer, {
+            clientHeight: {value: 700},
+            clientWidth: {value: 900},
+            scrollHeight: {value: 700},
+            scrollWidth: {value: 900},
+            scrollLeft: {
+                value: 0,
+                writable: true,
+            },
+            scrollTop: {
+                value: 0,
+                writable: true,
+            },
+        });
+        for (let pageNumber = 1; pageNumber <= 5; pageNumber += 1) {
+            const page = document.createElement('div');
+            page.className = 'page_container page_container--rendered';
+            page.dataset.page = String(pageNumber);
+            page.innerHTML = '<div class="page_canvas"><canvas width="500" height="660"></canvas></div>';
+            Object.defineProperties(page, {
+                offsetHeight: {value: 660},
+                offsetTop: {value: 20},
+            });
+            viewer.append(page);
+        }
+        const layout = buildPageLayoutMetrics({
+            pageMetrics: Array.from({length: 5}, () => ({
+                width: 500,
+                height: 660,
+            })),
+            totalPages: 5,
+            viewMode: 'single',
+            scale: 1,
+            gap: 20,
+            paddingTop: 20,
+            paddingBottom: 20,
+        });
+        if (!layout) {
+            throw new Error('Expected PDF layout metrics');
+        }
+        const viewportWrites = createTestPdfViewportWritePort();
+        const preventDefault = vi.fn();
+
+        try {
+            const controller = scope.run(() => usePdfSinglePageNavigationController({
+                viewerContainer: ref(viewer),
+                numPages: ref(5),
+                currentPage: ref(1),
+                scaledMargin: ref(20),
+                viewMode: ref('single'),
+                continuousScroll: ref(false),
+                isLoading: ref(false),
+                pdfDocument: shallowRef({numPages: 5} as IPdfDocument),
+                updateVisibleRange: vi.fn(),
+                renderVisiblePages: vi.fn(async () => true),
+                isPageFreshlyRenderedForNavigation: vi.fn(() => true),
+                visibleRange: ref({
+                    start: 1,
+                    end: 1,
+                }),
+                viewportWritePort: viewportWrites.port,
+                getPageLayoutMetrics: () => layout,
+                getPhysicalScrollOrigin: () => 0,
+                getDocumentRevision: () => 1,
+                getGeometryRevision: () => 1,
+            }));
+            if (!controller) {
+                throw new Error('Expected navigation controller');
+            }
+
+            // First packet flips from page 1 to page 2 and settles.
+            expect(controller.handleWheel({
+                timeStamp: 1_000,
+                deltaX: 0,
+                deltaY: 36,
+                cancelable: true,
+                preventDefault,
+            })).toBe(true);
+            await vi.waitFor(() => {
+                expect(controller.viewportAuthority.currentPage.value).toBe(2);
+                expect(controller.isProgrammaticNavigationActive.value).toBe(false);
+            });
+
+            // Remaining decaying tail (> 180ms cooldown) plus mid-gesture horizontal jitter stays on page 2.
+            for (const packet of [
+                {timeStamp: 1_020, deltaX: 12, deltaY: 2},
+                {timeStamp: 1_040, deltaX: 0, deltaY: 28},
+                {timeStamp: 1_120, deltaX: 0, deltaY: 16},
+                {timeStamp: 1_200, deltaX: 0, deltaY: 8},
+                {timeStamp: 1_280, deltaX: 0, deltaY: 4},
+                {timeStamp: 1_360, deltaX: 0, deltaY: 2},
+            ]) {
+                expect(controller.handleWheel({
+                    ...packet,
+                    cancelable: true,
+                    preventDefault,
+                })).toBe(true);
+            }
+            await yieldToBrowser();
+            expect(controller.viewportAuthority.currentPage.value).toBe(2);
+            expect(controller.isProgrammaticNavigationActive.value).toBe(false);
+            expect(preventDefault).toHaveBeenCalledTimes(7);
+
+            // After a quiet gap (>= 200ms), another small scroll flips to page 3.
+            expect(controller.handleWheel({
+                timeStamp: 1_600,
+                deltaX: 0,
+                deltaY: 36,
+                cancelable: true,
+                preventDefault,
+            })).toBe(true);
+            await vi.waitFor(() => {
+                expect(controller.viewportAuthority.currentPage.value).toBe(3);
+                expect(controller.isProgrammaticNavigationActive.value).toBe(false);
+            });
+        } finally {
+            scope.stop();
+        }
+    });
+
     it.each([
         0,
         1,
