@@ -1520,6 +1520,15 @@ describe('scan cleanup run coordinator', () => {
             }
 
             expect(signals[0]!.aborted).toBe(true);
+            expect(diagnosticMocks.error).toHaveBeenCalledWith(
+                'scan-cleanup',
+                'Opening the generated scan cleanup PDF failed',
+                {
+                    reason: 'timed-out',
+                    outputPdfPath: '/managed/job-deadline.pdf',
+                },
+                {code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED'},
+            );
             expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({
                 color: 'error',
                 title: 'scanCleanup.openResultFailed',
@@ -1912,6 +1921,16 @@ describe('scan cleanup run coordinator', () => {
                 color: 'error',
                 title: 'scanCleanup.openResultFailed',
             })));
+            expect(diagnosticMocks.error).toHaveBeenCalledWith(
+                'scan-cleanup',
+                'Opening the generated scan cleanup PDF failed',
+                {
+                    reason: 'open-failed',
+                    outputPdfPath: '/managed/missing.pdf',
+                    error: 'Invalid or non-existent file',
+                },
+                {code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED'},
+            );
         } finally {
             cleanup();
         }

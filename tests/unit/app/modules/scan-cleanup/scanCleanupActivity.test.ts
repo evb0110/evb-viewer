@@ -138,6 +138,34 @@ describe('scan cleanup activity', () => {
         });
     });
 
+    it('transitions Analyze from read to detect once all pages are read even before the first verdict arrives', () => {
+        const allRead = resolveScanCleanupActivity({
+            detection: analysis({
+                totalPages: 4,
+                analyzedPages: 0,
+                progress: progress({
+                    stage: 'rasterizing',
+                    completedUnits: 0,
+                    totalUnits: 4,
+                    rasterizedUnits: 4,
+                    percent: 100,
+                }),
+            }),
+            run: null,
+        })!;
+
+        expect(allRead.detail).toBe('detect');
+        expect(allRead.step).toBe('detect');
+        expect(allRead.count).toEqual({
+            completed: 0,
+            total: 4,
+        });
+        expect(allRead.fraction).toBe(0);
+        expect(allRead.bufferFraction).toBe(1);
+        expect(allRead.steps.find(step => step.id === 'read')?.state).toBe('done');
+        expect(allRead.steps.find(step => step.id === 'detect')?.state).toBe('active');
+    });
+
     it('keeps one sentence while reading runs ahead of detection and never moves the verdict count backward', () => {
         const detecting = resolveScanCleanupActivity({
             detection: analysis({
@@ -323,11 +351,67 @@ describe('scan cleanup activity', () => {
             completed: 3,
             total: 148,
         });
-        expect(cleaning.fraction).toBeCloseTo(0.4);
+        expect(cleaning.fraction).toBeCloseTo(3 / 148);
         expect(cleaning.steps.filter(step => step.phase === 'analyze').every(step => step.state === 'done')).toBe(true);
         const building = stepFor('assembling');
         expect(building.count).toBeNull();
-        expect(building.fraction).toBeNull();
+        expect(building.fraction).toBeCloseTo(0.1 + 0.65 * (3 / 148));
+    });
+
+    it('fills the Clean and Finish segments phase-locally instead of jumping from overall weighted percent', () => {
+        const runActivity = (
+            stage: TScanCleanupProgress['stage'],
+            completedUnits: number,
+            totalUnits: number,
+            percent: number,
+            extras: Partial<TScanCleanupProgress> = {},
+            committing = false,
+        ) => resolveScanCleanupActivity({
+            detection: analysis({pending: false}),
+            run: {
+                waitingForDetection: false,
+                starting: false,
+                progress: progress({
+                    stage,
+                    completedUnits,
+                    totalUnits,
+                    percent,
+                    ...extras,
+                }),
+                committing,
+            },
+        })!;
+
+        // Entering rendering at 0 of 4 must not jump to ~26% from RASTER_STAGE_WEIGHTS.
+        const zeroStarted = runActivity('rendering', 0, 4, 26, {rasterizedUnits: 0});
+        expect(zeroStarted.fraction).toBeNull();
+        expect(zeroStarted.bufferFraction).toBe(0);
+
+        const rasterizedAhead = runActivity('rendering', 0, 4, 26, {rasterizedUnits: 2});
+        expect(rasterizedAhead.fraction).toBe(0);
+        expect(rasterizedAhead.bufferFraction).toBeCloseTo(0.5);
+
+        const halfway = runActivity('rendering', 2, 4, 55, {rasterizedUnits: 4});
+        expect(halfway.fraction).toBeCloseTo(0.5);
+        expect(halfway.bufferFraction).toBe(1);
+
+        const finishedClean = runActivity('rendering', 4, 4, 84, {rasterizedUnits: 4});
+        expect(finishedClean.fraction).toBe(1);
+
+        // Finish segment progresses monotonically across assembling, handoff, and commit.
+        const mergeStart = runActivity('assembling', 0, 2, 86);
+        const overlayStart = runActivity('assembling', 1, 2, 92);
+        const overlayDone = runActivity('assembling', 2, 2, 98);
+        const handoffStart = runActivity('handoff', 0, 4, 98);
+        const handoffDone = runActivity('handoff', 4, 4, 100);
+        const committing = runActivity('handoff', 4, 4, 100, {}, true);
+
+        expect(mergeStart.fraction).toBeNull();
+        expect(overlayStart.fraction).toBeGreaterThan(0);
+        expect(overlayDone.fraction).toBeGreaterThan(overlayStart.fraction!);
+        expect(handoffStart.fraction).toBeGreaterThanOrEqual(overlayDone.fraction!);
+        expect(handoffDone.fraction).toBeGreaterThan(handoffStart.fraction!);
+        expect(committing.fraction).toBeGreaterThanOrEqual(handoffDone.fraction!);
     });
 
     it('describes a run seen from the reader toolbar with the same words', () => {

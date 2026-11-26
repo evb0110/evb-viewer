@@ -69,9 +69,9 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         return documentSessions.getSession(tabId)?.snapshot.value.failure ?? null;
     }
 
-    async function openInTab(tabId: string, target: TWorkspaceOpenDocumentTarget) {
+    async function openInTab(tabId: string, target: TWorkspaceOpenDocumentTarget, signal?: AbortSignal) {
         const session = documentSessions.getSession(tabId);
-        if (!session) {
+        if (!session || signal?.aborted) {
             return false;
         }
         // A tab that is not shown opens its file when it is; until then it
@@ -101,9 +101,33 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
                 target: describeDocumentTarget(target),
             }
             : describeOpenResult(target));
-        const workspace = mounted ?? await view?.whenMounted() ?? null;
+        let workspace = mounted;
+        if (!workspace && view) {
+            if (!signal) {
+                workspace = await view.whenMounted();
+            } else {
+                let onAbort: (() => void) | null = null;
+                try {
+                    workspace = await Promise.race([
+                        view.whenMounted(),
+                        new Promise<null>((resolve) => {
+                            if (signal.aborted) {
+                                resolve(null);
+                                return;
+                            }
+                            onAbort = () => resolve(null);
+                            signal.addEventListener('abort', onAbort, {once: true});
+                        }),
+                    ]);
+                } finally {
+                    if (onAbort) {
+                        signal.removeEventListener('abort', onAbort);
+                    }
+                }
+            }
+        }
         const claimed = claim === null || session.snapshot.value.activeTransaction?.id === claim;
-        if (!workspace || session.getView(tabId) !== view || !claimed) {
+        if (!workspace || session.getView(tabId) !== view || !claimed || signal?.aborted) {
             if (claim && claimed) session.markFailed(null);
             return false;
         }
@@ -135,8 +159,14 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
     async function handleOpenInNewTab(
         target: TWorkspaceOpenDocumentTarget,
         paneId?: string,
-        placement: {activate: boolean} = {activate: true},
+        placement: {
+            activate: boolean;
+            signal?: AbortSignal;
+        } = {activate: true},
     ) {
+        if (placement.signal?.aborted) {
+            return false;
+        }
         const outgoingTabId = activeTabId.value;
         const tab = createTab({
             paneId: paneId ?? activePaneId.value,
@@ -144,7 +174,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         });
         let opened = false;
         try {
-            opened = await openInTab(tab.id, target);
+            opened = await openInTab(tab.id, target, placement.signal);
         } catch (error) {
             BrowserLogger.error('workspace-routing', 'New-tab document open failed', {
                 error,

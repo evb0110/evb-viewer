@@ -350,6 +350,7 @@ interface IGeneratedPdfHandoffResult {
     handoff: IGeneratedPdfHandoff;
     /** Settled by the caller in the turn it acts on it, so a disposal in between wins. */
     outcome: TGeneratedPdfHandoffReason;
+    error?: unknown;
 }
 
 /**
@@ -380,6 +381,7 @@ async function openGeneratedPdfWithHandoff(
     const {signal} = handoff.controller;
     const deadline = setTimeout(() => handoff.controller.abort('timed-out'), GENERATED_PDF_HANDOFF_TIMEOUT_MS);
     let opened = false;
+    let error: unknown = undefined;
     try {
         // A handoff with a job is the run finishing now; without one it is
         // the completed journal's replay.
@@ -392,7 +394,8 @@ async function openGeneratedPdfWithHandoff(
                     signal.removeEventListener('abort', abandon);
                     resolve(answer === true);
                 },
-                () => {
+                (caught: unknown) => {
+                    error = caught;
                     signal.removeEventListener('abort', abandon);
                     resolve(false);
                 },
@@ -401,7 +404,8 @@ async function openGeneratedPdfWithHandoff(
                 abandon();
             }
         });
-    } catch {
+    } catch (caught: unknown) {
+        error = caught;
         opened = false;
     } finally {
         clearTimeout(deadline);
@@ -409,6 +413,7 @@ async function openGeneratedPdfWithHandoff(
     return {
         handoff,
         outcome: opened ? 'opened' : signal.aborted ? 'timed-out' : 'open-failed',
+        ...(error === undefined ? {} : {error}),
     };
 }
 
@@ -622,7 +627,9 @@ async function handleTerminalState(state: TScanCleanupJobState) {
         // race the working-copy claim of the output document.
         const subscription = unsubscribe;
         const {
-            handoff, outcome,
+            handoff,
+            outcome,
+            error,
         } = await openGeneratedPdfWithHandoff(
             terminalDependencies.openGeneratedPdf,
             state.outputPdfPath,
@@ -643,7 +650,11 @@ async function handleTerminalState(state: TScanCleanupJobState) {
                 const failure = BrowserLogger.error(
                     'scan-cleanup',
                     'Opening the generated scan cleanup PDF failed',
-                    undefined,
+                    {
+                        reason,
+                        outputPdfPath: state.outputPdfPath,
+                        ...(error === undefined ? {} : {error: getErrorMessage(error)}),
+                    },
                     {code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED'},
                 );
                 createFailureToastPresenter(terminalDependencies.toast, terminalDependencies.t)({
