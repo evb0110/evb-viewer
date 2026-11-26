@@ -32,7 +32,7 @@ flowchart LR
     LocalServer --> WorkspaceBridge["workspaceBridge.ts"]
     WorkspaceBridge --> AppShell["useAgentWorkspaceSnapshot.ts"]
     AppShell --> WorkspaceExpose["Document workspace expose API"]
-    LocalServer --> SearchIndex["documentText.ts / evb-pdf-search"]
+    LocalServer --> SearchIndex["documentText.ts / evb-pdf-search.wasm"]
 ```
 
 The embedded assistant uses the same MCP tool implementation, but through a separate random-port listener:
@@ -86,7 +86,7 @@ flowchart LR
   Main-to-renderer request bridge for workspace snapshots and UI navigation commands. Uses request ids, sender-window validation, and timeouts.
 
 - `electron/features/agent/documentText.ts`
-  Main-process document text operations backed by the document search index and `evb-pdf-search`.
+  Main-process document text operations backed by the document search index and `evb-pdf-search.wasm`.
 
 - `electron/features/search/public.ts`
   Public feature entrypoint used by the agent feature for allowed PDF path resolution, the search index, and page text reads.

@@ -268,29 +268,6 @@ const manifest = JSON.parse(String.raw`{
             ]
         },
         {
-            "binaryName": "evb-pdf-search",
-            "id": "pdf-search",
-            "label": "PDF search native tool",
-            "packagedEntries": [
-                {
-                    "id": "evb-pdf-search",
-                    "label": "evb-pdf-search binary",
-                    "pathSegments": [
-                        "bin",
-                        "evb-pdf-search{exeSuffix}"
-                    ],
-                    "type": "file"
-                }
-            ],
-            "sourceRootSegments": [
-                ".tmp",
-                "pdf-search"
-            ],
-            "stagedRootSegments": [
-                "pdf-search"
-            ]
-        },
-        {
             "binaryName": "evb-scan-cleanup",
             "id": "scan-cleanup",
             "label": "Scan cleanup native tool",
@@ -393,9 +370,6 @@ const manifest = JSON.parse(String.raw`{
             ],
             [
                 "pdf-page-ops"
-            ],
-            [
-                "pdf-search"
             ],
             [
                 "scan-cleanup"

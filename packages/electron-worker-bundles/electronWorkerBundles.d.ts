@@ -1,4 +1,5 @@
 export type TWorkerBundleId =
+    | 'pdf-search'
     | 'pdf-text'
     | 'image-export-tiff'
     | 'djvu-pdf'

@@ -346,7 +346,6 @@ jobs:
             .tmp/scan-cleanup
             .tmp/pdf-image-combine
             .tmp/pdf-page-ops
-            .tmp/pdf-search
           # The runner image is part of the key: native tools built on one Ubuntu
           # image must not be restored on another. Update it with runs-on.
           key: electron-native-v2-ubuntu-26.04-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/**', 'packages/contracts/**', 'public/fonts/annotation/*.ttf', 'public/pdf/standard_fonts/LiberationSans-*.ttf', 'scripts/build-native-tool.mjs', 'scripts/native-build-id.mjs', 'scripts/cargo-artifacts.mjs', 'scripts/lib/build-environment.mjs', 'scripts/nativeResourceManifest.ts', 'scripts/native-rust-targets.mjs', 'rust-toolchain.toml', 'native/rust-toolchain.toml', 'pnpm-lock.yaml') }}
@@ -372,7 +371,7 @@ jobs:
 
       # A tarball keeps the native tools executable.
       - name: Pack build
-        run: tar -cf electron-e2e-build.tar nuxt-output/public dist-electron public/wasm .tmp/wasm-build-ids.json .tmp/windows-job-launcher .tmp/scan-cleanup .tmp/pdf-image-combine .tmp/pdf-page-ops .tmp/pdf-search
+        run: tar -cf electron-e2e-build.tar nuxt-output/public dist-electron public/wasm .tmp/wasm-build-ids.json .tmp/windows-job-launcher .tmp/scan-cleanup .tmp/pdf-image-combine .tmp/pdf-page-ops
 
       - name: Upload build
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -398,15 +397,14 @@ jobs:
         uses: ./.github/actions/setup-ci-env
         with:
           node-version: ${{ env.NODE_VERSION }}
+          wasm: 'true'
 
       - name: Restore staged Electron native binaries
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with: *electron-native-binaries
 
       - name: Build native PDF tools
-        run: |
-          pnpm run build:pdf-page-ops
-          pnpm run build:pdf-search
+        run: pnpm run build:pdf-page-ops
 
       - name: Run native PDF integration gate
         run: pnpm exec vitest run --project native-integration

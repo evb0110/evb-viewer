@@ -1,11 +1,5 @@
-import { randomUUID } from 'node:crypto';
-import { createReadStream } from 'node:fs';
-import {
-    mkdir,
-    rm,
-} from 'node:fs/promises';
-import { dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import {mkdir} from 'node:fs/promises';
+import {dirname} from 'node:path';
 import {
     type TSearchResultOffset,
     type IPdfSearchResult,
@@ -14,34 +8,33 @@ import {
     SEARCH_RESULT_LIMIT,
 } from '@contracts/search';
 import {
+    concatUint8Arrays,
+    encodePdfSearchPageRecord,
     isStaleSearchIndexAnswer,
     SEARCH_INDEX_COVERAGE_SCHEMA,
     SEARCH_INDEX_RESPONSE_SCHEMA,
     SEARCH_INDEX_TEXT_BUDGET,
+    type IPdfSearchWasmQueryFields,
     type ISearchIndexCoverage,
     type ISearchIndexResponse,
 } from '@contracts/searchIndexWire';
-import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
-import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import {
     registerMainOperation,
     runWithMainOperationCancellationSignal,
 } from '@electron/operation-lifecycle/mainOperationLifecycle';
-import type { IPageText } from '@electron/features/search/pageText';
-import { writeSearchIndexInput } from '@electron/features/search/writeSearchIndexInput';
-import { createLogger } from '@electron/utils/createLogger';
-import { getErrorMessage } from '@electron/utils/error';
+import type {IPageText} from '@electron/features/search/pageText';
+import {runPdfSearchWorkerCommand} from '@electron/features/search/pdfSearchWorkerClient';
+import {createLogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
 import {
     getWorkingCopyDerivedPath,
     isWorkingCopyDocumentPath,
 } from '@electron/file-access/documentStore';
 import * as v from 'valibot';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
 /**
  * A document whose text is indexed for search. The index file is a derived
- * cache keyed by the document revision: `evb-pdf-search` reports a missing
+ * cache keyed by the document revision: `evb-pdf-search.wasm` reports a missing
  * or foreign-revision file as stale and the index is rebuilt from `readPages`.
  */
 export interface ISearchIndexedDocument {
@@ -75,35 +68,21 @@ export function getSearchIndexPath(documentPath: string) {
         : `${documentPath}.evb-search-index`;
 }
 
-function resolvePdfSearchBinary() {
-    const binaryPath = resolveNativeToolPath({
-        binaryName: process.platform === 'win32' ? 'evb-pdf-search.exe' : 'evb-pdf-search',
-        crateName: 'pdf-search',
-        currentDir: __dirname,
-        isPackaged: __dirname.includes('app.asar'),
-    });
-    if (!binaryPath) {
-        throw new Error('evb-pdf-search is unavailable');
-    }
-    return binaryPath;
-}
-
-function parseOutput(stdout: string) {
-    const value: unknown = JSON.parse(stdout);
+function unwrapIndexAnswer(value: unknown) {
     return isStaleSearchIndexAnswer(value) ? null : value;
 }
 
 interface IIndexBuildFollower {
-    /** A page was reached; once its text is written, `input.writtenBytes` includes it. */
+    /** A page was reached; once its record is buffered, `input.writtenBytes` includes it. */
     onProgress?(pagesScanned: number): void;
 }
 
 interface IIndexBuild {
     promise: Promise<ISearchIndexCoverage>;
     followers: Set<IIndexBuildFollower>;
-    /** The extracted text, and the length of its complete page lines. */
+    /** Extracted binary page records held directly in memory for provisional search and indexing. */
     input: {
-        path: string;
+        chunks: Uint8Array[];
         writtenBytes: number;
         pagesScanned: number;
     };
@@ -119,6 +98,39 @@ const builds = new Map<string, IIndexBuild>();
  */
 const SHARED_BUILD_CANCELLATION = new AbortController().signal;
 
+async function collectIndexInputInMemory(
+    pages: AsyncIterable<IPageText>,
+    input: IIndexBuild['input'],
+    onPage: (page: IPageText) => void,
+    signal: AbortSignal,
+) {
+    let totalTextBytes = 0;
+    for await (const page of pages) {
+        signal.throwIfAborted();
+        const textBytes = Buffer.byteLength(page.text);
+        totalTextBytes += textBytes;
+        if (
+            textBytes > SEARCH_INDEX_TEXT_BUDGET.maxPageTextBytes
+            || totalTextBytes > SEARCH_INDEX_TEXT_BUDGET.maxTotalTextBytes
+        ) {
+            const overBudgetRecord = encodePdfSearchPageRecord({
+                pageNumber: page.pageNumber,
+                overBudget: true,
+            });
+            input.chunks.push(overBudgetRecord);
+            input.writtenBytes += overBudgetRecord.byteLength;
+            return;
+        }
+        const record = encodePdfSearchPageRecord({
+            pageNumber: page.pageNumber,
+            text: page.text,
+        });
+        input.chunks.push(record);
+        input.writtenBytes += record.byteLength;
+        onPage(page);
+    }
+}
+
 async function runIndexBuild(
     document: ISearchIndexedDocument,
     followers: ReadonlySet<IIndexBuildFollower>,
@@ -133,36 +145,30 @@ async function runIndexBuild(
             follower.onProgress?.(pageNumber);
         }
     };
-    let result: Awaited<ReturnType<typeof runNativeToolCommand>>;
+    let rawCoverage: unknown;
     try {
-        // Extraction ends, and releases what it held, before the indexer starts.
-        await writeSearchIndexInput(input.path, document.readPages(signal, pageCount, reportProgress), (page, writtenBytes) => {
-            input.writtenBytes = writtenBytes;
-            reportProgress(page.pageNumber);
-        }, signal);
-        result = await runNativeToolCommand(resolvePdfSearchBinary(), [
-            'index',
-            '--out',
-            document.indexPath,
-            '--document-revision',
-            indexRevision(document),
-            ...(pageCount !== undefined && pageCount > 0 ? [
-                '--page-count',
-                String(pageCount),
-            ] : []),
-            '--max-page-text-bytes',
-            String(SEARCH_INDEX_TEXT_BUDGET.maxPageTextBytes),
-            '--max-total-text-bytes',
-            String(SEARCH_INDEX_TEXT_BUDGET.maxTotalTextBytes),
-        ], {
-            commandLabel: 'evb-pdf-search(index)',
+        // Extraction finishes and releases its resources before the indexer runs.
+        await collectIndexInputInMemory(
+            document.readPages(signal, pageCount, reportProgress),
+            input,
+            page => reportProgress(page.pageNumber),
             signal,
-            stdin: (async function* readInput() { yield* createReadStream(input.path, {encoding: 'utf8'}); })(),
-        });
+        );
+        const pagesBuffer = concatUint8Arrays(input.chunks, input.writtenBytes);
+        input.chunks.length = 0;
+        rawCoverage = await runPdfSearchWorkerCommand({
+            op: 'index',
+            indexPath: document.indexPath,
+            documentRevision: indexRevision(document),
+            ...(pageCount !== undefined && pageCount > 0 ? {pageCount} : {}),
+            maxPageTextBytes: SEARCH_INDEX_TEXT_BUDGET.maxPageTextBytes,
+            maxTotalTextBytes: SEARCH_INDEX_TEXT_BUDGET.maxTotalTextBytes,
+            pagesBuffer,
+        }, signal);
     } finally {
-        await rm(input.path, {force: true});
+        input.chunks.length = 0;
     }
-    const parsed = v.safeParse(SEARCH_INDEX_COVERAGE_SCHEMA, parseOutput(result.stdout), {abortEarly: true});
+    const parsed = v.safeParse(SEARCH_INDEX_COVERAGE_SCHEMA, unwrapIndexAnswer(rawCoverage), {abortEarly: true});
     if (!parsed.success) {
         throw new Error('evb-pdf-search index returned an invalid coverage report');
     }
@@ -179,8 +185,8 @@ function startIndexBuild(document: ISearchIndexedDocument, key: string) {
     });
     const {signal} = operation;
     const followers = new Set<IIndexBuildFollower>();
-    const input = {
-        path: `${document.indexPath}.${randomUUID()}.input`,
+    const input: IIndexBuild['input'] = {
+        chunks: [],
         writtenBytes: 0,
         pagesScanned: 0,
     };
@@ -209,9 +215,7 @@ function startIndexBuild(document: ISearchIndexedDocument, key: string) {
 /**
  * The document's index build for its revision: the running one, or a new
  * one. A build is not tied to the search that started it, so a newer query
- * joins it. Closing the working copy or shutting down stops it. The page text
- * is extracted into a file beside the index before the indexer starts, and
- * opened only as the indexer reads it, so a failed start leaves no open file.
+ * joins it. Closing the working copy or shutting down stops it.
  */
 function reserveIndexBuild(document: ISearchIndexedDocument) {
     const key = `${document.indexPath}\0${document.documentRevision}`;
@@ -277,32 +281,23 @@ export interface IProvisionalSearchMatches {
 }
 
 /**
- * Text written since the last provisional search must reach this multiple of
+ * Text buffered since the last provisional search must reach this multiple of
  * what it read before the next one, so the rescans of a growing document
  * cost a small multiple of reading it once.
  */
 const PROVISIONAL_RESCAN_GROWTH = 1.25;
 
-function searchQueryArgs(query: string, options: ISearchQueryOptions) {
-    return [
-        '--query',
+function searchQueryFields(query: string, options: ISearchQueryOptions): IPdfSearchWasmQueryFields {
+    return {
         query,
-        '--limit',
-        String(options.limit ?? SEARCH_RESULT_LIMIT),
-        '--context',
-        String(SEARCH_EXCERPT_CONTEXT_CHARS),
-        ...(options.resultOffset === undefined ? [] : [
-            '--result-offset',
-            options.resultOffset === 'last' ? '-1' : String(options.resultOffset),
-        ]),
-        ...(options.matchCase ? ['--match-case'] : []),
-        ...(options.wholeWord ? ['--whole-word'] : []),
-        ...(options.useRegex ? ['--regex'] : []),
-        ...(options.pages && options.pages.length > 0 ? [
-            '--pages',
-            options.pages.join(','),
-        ] : []),
-    ];
+        limit: options.limit ?? SEARCH_RESULT_LIMIT,
+        contextChars: SEARCH_EXCERPT_CONTEXT_CHARS,
+        ...(options.resultOffset === undefined ? {} : {resultOffset: options.resultOffset}),
+        matchCase: options.matchCase,
+        wholeWord: options.wholeWord,
+        useRegex: options.useRegex,
+        ...(options.pages && options.pages.length > 0 ? {pages: options.pages} : {}),
+    };
 }
 
 function parseSearchResponse(response: unknown) {
@@ -315,17 +310,15 @@ function parseSearchResponse(response: unknown) {
 
 /**
  * Streams the first window of a literal query while its index is built. The
- * indexer's own searcher reads the text the build has written so far, so the
- * matches follow the indexed answer's rules and the matching runs outside the
- * main process: a JavaScript regex here blocked it for a third of a second on
- * one page of blank layout space. A search that joins a running build starts
- * from everything the build has already written. The indexed answer replaces
- * these matches, so a failure only ends them.
+ * warm WASM search worker reads the buffered page snapshot directly in memory,
+ * so the matches follow the indexed answer's rules with no temp-file round-trip
+ * and without blocking the main process. The indexed answer replaces these
+ * matches, so a failure only ends them.
  */
 function followProvisionalMatches(
     build: IIndexBuild,
     document: ISearchIndexedDocument,
-    queryArgs: readonly string[],
+    queryFields: IPdfSearchWasmQueryFields,
     onMatches: (matches: IProvisionalSearchMatches) => void,
 ) {
     const controller = new AbortController();
@@ -333,26 +326,15 @@ function followProvisionalMatches(
     let reported = false;
     let finished = false;
     let running: Promise<void> | null = null;
-    const search = async (path: string, writtenBytes: number) => {
-        const result = await runNativeToolCommand(resolvePdfSearchBinary(), [
-            'search',
-            '--pages-from-stdin',
-            '--document-revision',
-            indexRevision(document),
-            ...queryArgs,
-        ], {
-            commandLabel: 'evb-pdf-search(provisional search)',
-            maxStdoutBytes: 16 * 1024 * 1024,
-            signal: controller.signal,
-            stdin: (async function* readWrittenPages() {
-                yield* createReadStream(path, {
-                    start: 0,
-                    end: writtenBytes - 1,
-                    encoding: 'utf8',
-                });
-            })(),
-        });
-        const response = parseSearchResponse(JSON.parse(result.stdout));
+    const search = async (pagesBuffer: Uint8Array) => {
+        const raw = await runPdfSearchWorkerCommand({
+            op: 'searchPages',
+            documentRevision: indexRevision(document),
+            allowRegex: false,
+            pagesBuffer,
+            ...queryFields,
+        }, controller.signal);
+        const response = parseSearchResponse(raw);
         if (controller.signal.aborted || (!reported && response.results.length === 0)) return;
         reported = true;
         onMatches({
@@ -365,12 +347,19 @@ function followProvisionalMatches(
     };
     const schedule = () => {
         const {
-            path, writtenBytes,
+            chunks,
+            writtenBytes,
         } = build.input;
-        if (finished || running !== null || controller.signal.aborted
-            || writtenBytes <= searchedBytes * PROVISIONAL_RESCAN_GROWTH) return;
-        searchedBytes = writtenBytes;
-        running = search(path, writtenBytes).catch((error: unknown) => {
+        if (
+            finished
+            || running !== null
+            || controller.signal.aborted
+            || chunks.length === 0
+            || writtenBytes <= searchedBytes * PROVISIONAL_RESCAN_GROWTH
+        ) return;
+        const snapshot = concatUint8Arrays(chunks);
+        searchedBytes = snapshot.byteLength;
+        running = search(snapshot).catch((error: unknown) => {
             finished = true;
             if (!controller.signal.aborted) {
                 log.debug('Provisional search matches stopped', {error: getErrorMessage(error)});
@@ -388,18 +377,6 @@ function followProvisionalMatches(
         build.followers.delete(follower);
         while (running !== null) await running;
     };
-}
-
-async function runIndexQuery(command: 'search' | 'stat', args: string[], signal: AbortSignal | undefined) {
-    const result = await runNativeToolCommand(resolvePdfSearchBinary(), [
-        command,
-        ...args,
-    ], {
-        commandLabel: `evb-pdf-search(${command})`,
-        maxStdoutBytes: 16 * 1024 * 1024,
-        ...(signal === undefined ? {} : {signal}),
-    });
-    return parseOutput(result.stdout);
 }
 
 function awaitWithSignal<T>(promise: Promise<T>, signal: AbortSignal | undefined) {
@@ -429,15 +406,15 @@ export async function searchIndexedDocument(
         onProvisionalMatches?: (matches: IProvisionalSearchMatches) => void;
     } = {},
 ): Promise<ISearchIndexResponse> {
-    const queryArgs = searchQueryArgs(query, options);
-    const args = [
-        '--index',
-        document.indexPath,
-        '--document-revision',
-        indexRevision(document),
-        ...queryArgs,
-    ];
-    let response = await runIndexQuery('search', args, context.signal);
+    const queryFields = searchQueryFields(query, options);
+    const runSearch = async () => unwrapIndexAnswer(await runPdfSearchWorkerCommand({
+        op: 'search',
+        indexPath: document.indexPath,
+        documentRevision: indexRevision(document),
+        ...queryFields,
+    }, context.signal));
+
+    let response = await runSearch();
     if (response === null) {
         context.signal?.throwIfAborted();
         const build = reserveIndexBuild(document);
@@ -448,14 +425,14 @@ export async function searchIndexedDocument(
         // exists: rescanning a growing document for a regex that matches empty
         // at every position repeats work the index does once.
         const stopProvisionalMatches = context.onProvisionalMatches && !options.useRegex && (options.resultOffset ?? 0) === 0
-            ? followProvisionalMatches(build, document, queryArgs, context.onProvisionalMatches)
+            ? followProvisionalMatches(build, document, queryFields, context.onProvisionalMatches)
             : null;
         try {
             await awaitIndexBuild(build, context.onIndexProgress, context.signal);
         } finally {
             await stopProvisionalMatches?.();
         }
-        response = await runIndexQuery('search', args, context.signal);
+        response = await runSearch();
     }
     return parseSearchResponse(response);
 }
@@ -468,12 +445,11 @@ export async function ensureSearchIndex(
         onIndexProgress?: (pagesScanned: number) => void;
     } = {},
 ): Promise<ISearchIndexCoverage> {
-    const coverage = await runIndexQuery('stat', [
-        '--index',
-        document.indexPath,
-        '--document-revision',
-        indexRevision(document),
-    ], context.signal);
+    const coverage = unwrapIndexAnswer(await runPdfSearchWorkerCommand({
+        op: 'stat',
+        indexPath: document.indexPath,
+        documentRevision: indexRevision(document),
+    }, context.signal));
     const parsed = v.safeParse(SEARCH_INDEX_COVERAGE_SCHEMA, coverage, {abortEarly: true});
     if (parsed.success) {
         return parsed.output;

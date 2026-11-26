@@ -13,7 +13,6 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { tsImport } from 'tsx/esm/api';
 import {
     countWasmBulkMemory,
     lowerWasmBulkMemory,
@@ -30,8 +29,8 @@ import { getWasmArtifactsByCrateName } from './wasm-artifacts.mjs';
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const usage = `Usage: node scripts/build-wasm-tool.mjs <tool> [--dry-run]
 
-Builds the browser WASM files of a tool registered by the canonical native
-resource manifest, one per registered Rust target.
+Builds the WASM files of a crate registered in scripts/wasm-artifacts.mjs,
+one per registered Rust target.
 Use --dry-run to resolve and print the build plans without invoking Cargo.`;
 
 export function createWasmToolBuildPlan({
@@ -106,15 +105,14 @@ async function stageLoweredArtifact(sourcePath, plan) {
     console.log(`Lowered ${lowered.copy} memory.copy and ${lowered.fill} memory.fill in ${plan.label}`);
 }
 
-async function resolveTool(toolId) {
-    const { getGeneratedNativeToolResource } = await tsImport(
-        './nativeResourceManifest.ts',
-        import.meta.url,
-    );
-    const tool = getGeneratedNativeToolResource(toolId);
+function resolveTool(toolId) {
+    const artifacts = getWasmArtifactsByCrateName(toolId);
     return {
-        artifacts: getWasmArtifactsByCrateName(tool.crateName),
-        tool,
+        artifacts,
+        tool: {
+            crateName: toolId,
+            familyId: toolId,
+        },
     };
 }
 

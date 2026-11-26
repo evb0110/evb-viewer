@@ -8,6 +8,9 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[lib]
+crate-type = ["rlib", "cdylib"]
+
 [dependencies]
 evb-native-support = { version = "0.1.0", path = "../evb-native-support" }
 serde = { version = "1.0", features = ["derive"] }

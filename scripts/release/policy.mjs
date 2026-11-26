@@ -92,6 +92,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'native/jbig2-codec/**',
                 'native/pdf-image-combine/**',
                 'native/pdf-page-ops/**',
+                'native/pdf-search/**',
                 'native/scan-cleanup/**',
                 'native/scan-primitives/**',
                 'scripts/build-wasm-tool.mjs',
@@ -193,6 +194,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
             paths: [
                 'app/**',
                 'electron/**',
+                'native/pdf-search/**',
                 'packages/**',
                 'public/pdf/**',
                 ...getNativeExternalBuildInputs('pdf-page-ops'),

@@ -3,14 +3,23 @@ import {
     isSafeWorkerRequestId,
 } from '@contracts/runtimeGuards';
 import {
-    SEARCH_RESULT_LIMIT, searchResultOffsetSchema,
+    SEARCH_EXCERPT_CONTEXT_CHARS,
+    SEARCH_RESULT_LIMIT,
+    searchResultOffsetSchema,
 } from '@contracts/search';
+import {
+    PDF_SEARCH_MATCH_PAGE_RESPONSE_SCHEMA,
+    SEARCH_INDEX_COVERAGE_SCHEMA,
+    SEARCH_INDEX_RESPONSE_SCHEMA,
+} from '@contracts/searchIndexWire';
 import * as v from 'valibot';
 
 export const BROWSER_SEARCH_MAX_MATCHES_PER_REQUEST = SEARCH_RESULT_LIMIT + 1;
 
 const requestIdSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
 const durationMsSchema = v.pipe(v.number(), v.finite(), v.minValue(0));
+const positiveSafeInt = v.pipe(v.number(), v.safeInteger(), v.minValue(1));
+const uint8ArraySchema = v.custom<Uint8Array>(value => value instanceof Uint8Array, 'Expected Uint8Array');
 
 const matchOptionsSchema = v.object({
     matchCase: v.boolean(),
@@ -18,43 +27,77 @@ const matchOptionsSchema = v.object({
     useRegex: v.boolean(),
 });
 
-const searchRangeSchema = v.pipe(
-    v.object({
-        pageMatchIndex: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
-        startOffset: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
-        endOffset: v.pipe(v.number(), v.safeInteger(), v.minValue(1)),
+const staleResponseSchema = v.object({stale: v.literal(true)});
+
+const resultSchemas = {
+    index: v.object({
+        coverage: SEARCH_INDEX_COVERAGE_SCHEMA,
+        indexBytes: uint8ArraySchema,
     }),
-    v.check(value => value.endOffset > value.startOffset),
-);
+    search: v.union([
+        staleResponseSchema,
+        SEARCH_INDEX_RESPONSE_SCHEMA,
+    ]),
+    matchPageText: v.object({
+        matches: v.pipe(
+            PDF_SEARCH_MATCH_PAGE_RESPONSE_SCHEMA.entries.matches,
+            v.maxLength(BROWSER_SEARCH_MAX_MATCHES_PER_REQUEST),
+        ),
+        truncated: v.boolean(),
+        matchingMs: durationMsSchema,
+        matchCount: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
+    }),
+};
 
-const resultSchemas = {matchPageText: v.object({
-    matches: v.pipe(v.array(searchRangeSchema), v.maxLength(BROWSER_SEARCH_MAX_MATCHES_PER_REQUEST)),
-    truncated: v.boolean(),
-    matchingMs: durationMsSchema,
-    matchCount: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
-})};
+const requestPayloadSchemas = {
+    index: v.object({
+        documentRevision: v.pipe(v.string(), v.minLength(1)),
+        pageCount: positiveSafeInt,
+        pagesBuffer: uint8ArraySchema,
+        maxPageTextBytes: v.optional(positiveSafeInt),
+        maxTotalTextBytes: v.optional(positiveSafeInt),
+    }),
+    search: v.object({
+        indexBytes: uint8ArraySchema,
+        documentRevision: v.pipe(v.string(), v.minLength(1)),
+        query: v.string(),
+        options: matchOptionsSchema,
+        limit: v.pipe(v.number(), v.safeInteger(), v.minValue(1), v.maxValue(SEARCH_RESULT_LIMIT)),
+        contextChars: v.pipe(v.number(), v.safeInteger(), v.minValue(0), v.maxValue(SEARCH_EXCERPT_CONTEXT_CHARS)),
+        resultOffset: v.optional(searchResultOffsetSchema),
+    }),
+    matchPageText: v.object({
+        text: v.string(),
+        resultOffset: v.optional(searchResultOffsetSchema),
+        query: v.string(),
+        options: matchOptionsSchema,
+        maxMatches: v.pipe(
+            v.number(),
+            v.safeInteger(),
+            v.minValue(1),
+            v.maxValue(BROWSER_SEARCH_MAX_MATCHES_PER_REQUEST),
+        ),
+        budgetMs: v.optional(durationMsSchema),
+    }),
+};
 
-const requestPayloadSchemas = {matchPageText: v.object({
-    text: v.string(),
-    resultOffset: v.optional(searchResultOffsetSchema),
-    query: v.string(),
-    options: matchOptionsSchema,
-    maxMatches: v.pipe(
-        v.number(),
-        v.safeInteger(),
-        v.minValue(1),
-        v.maxValue(BROWSER_SEARCH_MAX_MATCHES_PER_REQUEST),
-    ),
-    // The matching time left to the search. The worker starts it when it
-    // starts matching, so its own start-up never spends it.
-    budgetMs: v.optional(durationMsSchema),
-})};
-
-const requestSchema = v.object({
-    id: requestIdSchema,
-    type: v.literal('matchPageText'),
-    payload: requestPayloadSchemas.matchPageText,
-});
+const requestSchema = v.variant('type', [
+    v.object({
+        id: requestIdSchema,
+        type: v.literal('index'),
+        payload: requestPayloadSchemas.index,
+    }),
+    v.object({
+        id: requestIdSchema,
+        type: v.literal('search'),
+        payload: requestPayloadSchemas.search,
+    }),
+    v.object({
+        id: requestIdSchema,
+        type: v.literal('matchPageText'),
+        payload: requestPayloadSchemas.matchPageText,
+    }),
+]);
 
 const successResponseSchema = v.object({
     id: v.number(),
@@ -93,18 +136,20 @@ type IBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestType = TBr
     {type: K}
 >;
 
-/** What the worker posts back for one request: `started`, then the outcome. */
+/** What the worker posts back for one request: optional `started`, then the outcome. */
 type TBrowserSearchWorkerResponse =
     | {
         id: number;
         started: true;
     }
     | {
-        id: number;
-        type: 'matchPageText';
-        ok: true;
-        data: IBrowserSearchWorkerResultMap['matchPageText'];
-    }
+        [K in TBrowserSearchWorkerRequestType]: {
+            id: number;
+            type: K;
+            ok: true;
+            data: IBrowserSearchWorkerResultMap[K];
+        };
+    }[TBrowserSearchWorkerRequestType]
     | {
         id: number;
         ok: false;

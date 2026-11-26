@@ -3,28 +3,48 @@ use std::io::Cursor;
 
 const REVISION: &str = "test-revision";
 
-fn index_input(pages: &[(u32, &str)]) -> String {
-    pages
-        .iter()
-        .map(|(page_number, text)| {
-            format!(
-                "{}\n",
-                serde_json::json!({"pageNumber": page_number, "text": text})
-            )
-        })
-        .collect()
+fn push_page_record(buf: &mut Vec<u8>, page_number: u32, text: Option<&str>) {
+    buf.extend_from_slice(&page_number.to_le_bytes());
+    match text {
+        Some(text) => {
+            buf.extend_from_slice(&PAGE_RECORD_FLAG_TEXT.to_le_bytes());
+            buf.extend_from_slice(&(text.len() as u32).to_le_bytes());
+            buf.extend_from_slice(text.as_bytes());
+        }
+        None => {
+            buf.extend_from_slice(&PAGE_RECORD_FLAG_OVER_BUDGET.to_le_bytes());
+            buf.extend_from_slice(&0u32.to_le_bytes());
+        }
+    }
 }
 
-fn read_input(
-    input: &str,
-    page_count: Option<u32>,
-    budget: TextBudget,
-) -> Result<SearchIndex, NativeError> {
-    read_index_input(&mut Cursor::new(input), page_count, REVISION, budget)
+fn encode_pages(pages: &[(u32, &str)]) -> Vec<u8> {
+    let mut buf = Vec::new();
+    for &(page_number, text) in pages {
+        push_page_record(&mut buf, page_number, Some(text));
+    }
+    buf
+}
+
+fn encode_request(header: &serde_json::Value, payload: &[u8]) -> Vec<u8> {
+    let header_bytes = serde_json::to_vec(header).expect("serialize header");
+    let mut request = Vec::with_capacity(REQUEST_PREFIX_SIZE + header_bytes.len() + payload.len());
+    request.extend_from_slice(REQUEST_MAGIC);
+    request.extend_from_slice(&REQUEST_VERSION.to_le_bytes());
+    request.extend_from_slice(&(header_bytes.len() as u32).to_le_bytes());
+    request.extend_from_slice(&header_bytes);
+    request.extend_from_slice(payload);
+    request
 }
 
 fn build_index(page_count: u32, pages: &[(u32, &str)]) -> SearchIndex {
-    read_input(&index_input(pages), Some(page_count), TextBudget::default()).expect("build index")
+    read_binary_pages(
+        &encode_pages(pages),
+        Some(page_count),
+        REVISION,
+        TextBudget::default(),
+    )
+    .expect("build index")
 }
 
 fn options(query: &str) -> SearchOptions {
@@ -55,16 +75,18 @@ fn matches_the_shared_conformance_corpus() {
     ))
     .expect("parse search conformance corpus");
     for case in corpus["cases"].as_array().expect("corpus cases") {
-        let mut search_options = options(case["query"].as_str().expect("query"));
+        let text = case["text"].as_str().expect("text");
+        let query = case["query"].as_str().expect("query");
+        let match_case = case["options"]["matchCase"].as_bool().unwrap_or(false);
+        let whole_word = case["options"]["wholeWord"].as_bool().unwrap_or(false);
+        let use_regex = case["options"]["useRegex"].as_bool().unwrap_or(false);
+        let mut search_options = options(query);
         search_options.context_chars = case["contextChars"].as_u64().expect("context") as usize;
-        search_options.match_case = case["options"]["matchCase"].as_bool().unwrap_or(false);
-        search_options.whole_word = case["options"]["wholeWord"].as_bool().unwrap_or(false);
-        search_options.use_regex = case["options"]["useRegex"].as_bool().unwrap_or(false);
-        let response = search_index(
-            &mut build_index(1, &[(1, case["text"].as_str().expect("text"))]),
-            &search_options,
-        )
-        .expect("search corpus case");
+        search_options.match_case = match_case;
+        search_options.whole_word = whole_word;
+        search_options.use_regex = use_regex;
+        let response = search_index(&mut build_index(1, &[(1, text)]), &search_options)
+            .expect("search corpus case");
         let actual: Vec<_> = response
             .results
             .iter()
@@ -82,19 +104,44 @@ fn matches_the_shared_conformance_corpus() {
             "case {}",
             case["id"]
         );
+
+        let page_window = match_page_window(
+            text,
+            query,
+            match_case,
+            whole_word,
+            use_regex,
+            MAX_RESULT_LIMIT,
+            Some(0),
+        )
+        .expect("match_page_window corpus case");
+        let expected_ranges: Vec<_> = response
+            .results
+            .iter()
+            .map(|r| (r.page_match_index, r.start_offset, r.end_offset))
+            .collect();
+        let actual_ranges: Vec<_> = page_window
+            .matches
+            .iter()
+            .map(|m| (m.page_match_index, m.start_offset, m.end_offset))
+            .collect();
+        assert_eq!(
+            actual_ranges, expected_ranges,
+            "matchPage case {}",
+            case["id"]
+        );
+        assert_eq!(page_window.match_count, expected_ranges.len());
+        assert!(!page_window.truncated);
     }
 }
 
 #[test]
-fn written_index_reads_back_for_its_revision_only() {
-    let directory = std::env::temp_dir().join(format!("evb-pdf-search-test-{}", process::id()));
-    fs::create_dir_all(&directory).expect("create test directory");
-    let path = directory.join("document.pdf.evb-search-index");
+fn serialized_index_reads_back_for_its_revision_only() {
     let first_page = format!("first page{}", " padding".repeat(2048));
     let index = build_index(4, &[(1, &first_page), (2, ""), (4, "fourth page")]);
-    write_index(&index, REVISION, &path).expect("write index");
+    let bytes = serialize_index(&index, REVISION).expect("serialize index");
 
-    let mut loaded = load_index(&path, REVISION)
+    let mut loaded = load_index_bytes(&bytes, REVISION)
         .expect("read index")
         .expect("index is current");
     assert_eq!(
@@ -111,62 +158,27 @@ fn written_index_reads_back_for_its_revision_only() {
         offsets(&search_index(&mut loaded, &options("page")).expect("search")),
         vec![(1, 6, 10), (4, 7, 11)],
     );
-    assert!(load_index(&path, "other-revision")
+    assert!(load_index_bytes(&bytes, "other-revision")
         .expect("read index")
         .is_none());
-    assert!(load_index(&directory.join("missing"), REVISION)
-        .expect("missing index")
+    assert!(load_index_bytes(&[], REVISION)
+        .expect("empty index is stale")
         .is_none());
 
-    // Atomic replacement for another revision cannot retarget an admitted read.
-    write_index(
-        &build_index(4, &[(4, "replacement")]),
-        "new-revision",
-        &path,
-    )
-    .expect("publish replacement index");
-    assert_eq!(
-        offsets(&search_index(&mut loaded, &options("page")).expect("search admitted revision")),
-        vec![(1, 6, 10), (4, 7, 11)],
-    );
-    assert!(load_index(&path, REVISION)
-        .expect("old revision is stale")
-        .is_none());
-    assert_eq!(
-        offsets(
-            &search_index(
-                &mut load_index(&path, "new-revision").unwrap().unwrap(),
-                &options("replacement")
-            )
-            .unwrap()
-        ),
-        vec![(4, 0, 11)],
-    );
-    write_index(&index, REVISION, &path).expect("restore original index");
-
-    let mut older_format = fs::read(&path).expect("read index bytes");
+    let mut older_format = bytes.clone();
     older_format[..8].copy_from_slice(b"EVBSIDX3");
-    fs::write(&path, &older_format).expect("write older format");
-    assert!(load_index(&path, REVISION).expect("read index").is_none());
-    fs::remove_dir_all(&directory).expect("remove test directory");
-}
-
-fn index_bytes(index: &SearchIndex, name: &str) -> Vec<u8> {
-    let directory = std::env::temp_dir().join(format!("evb-pdf-search-{name}-{}", process::id()));
-    fs::create_dir_all(&directory).expect("create test directory");
-    let path = directory.join("document.pdf.evb-search-index");
-    write_index(index, REVISION, &path).expect("write index");
-    let bytes = fs::read(&path).expect("read index bytes");
-    fs::remove_dir_all(&directory).expect("remove test directory");
-    bytes
+    assert!(load_index_bytes(&older_format, REVISION)
+        .expect("older format is stale")
+        .is_none());
 }
 
 #[test]
 fn treats_a_header_claiming_an_impossible_record_table_as_stale() {
-    let valid = index_bytes(
+    let valid = serialize_index(
         &build_index(4, &[(1, "first page"), (3, "third page")]),
-        "header",
-    );
+        REVISION,
+    )
+    .expect("serialize index");
     let admitted = |bytes: &[u8]| {
         parse_index(Cursor::new(bytes), bytes.len(), REVISION)
             .unwrap()
@@ -196,9 +208,10 @@ fn treats_a_header_claiming_an_impossible_record_table_as_stale() {
 
 #[test]
 fn page_count_defaults_to_the_pages_received() {
-    let index = read_input(
-        &index_input(&[(1, "a"), (2, ""), (3, "")]),
+    let index = read_binary_pages(
+        &encode_pages(&[(1, "a"), (2, ""), (3, "")]),
         None,
+        REVISION,
         TextBudget::default(),
     )
     .expect("build index");
@@ -208,9 +221,10 @@ fn page_count_defaults_to_the_pages_received() {
 
 #[test]
 fn index_input_rejects_out_of_order_pages() {
-    let error = read_input(
-        &index_input(&[(2, "b"), (1, "a")]),
+    let error = read_binary_pages(
+        &encode_pages(&[(2, "b"), (1, "a")]),
         Some(2),
+        REVISION,
         TextBudget::default(),
     )
     .expect_err("pages must increase");
@@ -220,19 +234,19 @@ fn index_input_rejects_out_of_order_pages() {
 #[test]
 fn a_page_over_the_budget_ends_the_index_as_truncated() {
     let budget = TextBudget { page: 8, total: 10 };
-    let read = |input: &str| {
-        read_input(input, Some(5), budget)
+    let read = |payload: &[u8]| {
+        read_binary_pages(payload, Some(5), REVISION, budget)
             .expect("build index")
             .coverage()
     };
+    let mut reported = Vec::new();
+    push_page_record(&mut reported, 1, Some("first"));
+    push_page_record(&mut reported, 2, None);
+
     for input in [
-        // Producer report, over-page-budget text, and over-total-budget text.
-        format!(
-            "{}{{\"pageNumber\":2,\"overBudget\":true}}\n",
-            index_input(&[(1, "first")])
-        ),
-        index_input(&[(1, "first"), (2, "nine char"), (3, "x")]),
-        index_input(&[(1, "first"), (2, "second"), (3, "x")]),
+        reported,
+        encode_pages(&[(1, "first"), (2, "nine char"), (3, "x")]),
+        encode_pages(&[(1, "first"), (2, "second"), (3, "x")]),
     ] {
         assert_eq!(
             read(&input),
@@ -248,30 +262,61 @@ fn a_page_over_the_budget_ends_the_index_as_truncated() {
 }
 
 #[test]
-fn an_input_page_needs_text_or_an_over_budget_report() {
-    for line in [
-        "{\"pageNumber\":1}\n",
-        "{\"pageNumber\":1,\"text\":\"a\",\"overBudget\":true}\n",
-        "{\"pageNumber\":1,\"overBudget\":false}\n",
-        // The over-budget report is the producer's last line.
-        "{\"pageNumber\":1,\"overBudget\":true}\n{\"pageNumber\":2,\"text\":\"a\"}\n",
+fn an_input_page_rejects_malformed_over_budget_records() {
+    // overBudget with non-empty text
+    let mut non_empty_over_budget = Vec::new();
+    non_empty_over_budget.extend_from_slice(&1u32.to_le_bytes());
+    non_empty_over_budget.extend_from_slice(&PAGE_RECORD_FLAG_OVER_BUDGET.to_le_bytes());
+    non_empty_over_budget.extend_from_slice(&1u32.to_le_bytes());
+    non_empty_over_budget.push(b'a');
+
+    // Page following overBudget
+    let mut trailing_after_over_budget = Vec::new();
+    push_page_record(&mut trailing_after_over_budget, 1, None);
+    push_page_record(&mut trailing_after_over_budget, 2, Some("a"));
+
+    // Unknown flags
+    let mut unknown_flags = Vec::new();
+    unknown_flags.extend_from_slice(&1u32.to_le_bytes());
+    unknown_flags.extend_from_slice(&2u32.to_le_bytes());
+    unknown_flags.extend_from_slice(&0u32.to_le_bytes());
+
+    // Truncated header
+    let truncated_header = vec![1, 0, 0, 0];
+
+    for payload in [
+        non_empty_over_budget,
+        trailing_after_over_budget,
+        unknown_flags,
+        truncated_header,
     ] {
-        let error = read_input(line, None, TextBudget::default()).expect_err("ambiguous page line");
-        assert_eq!(error.code, NativeErrorCode::InvalidRequest, "{line}");
+        let error = read_binary_pages(&payload, None, REVISION, TextBudget::default())
+            .expect_err("malformed page record");
+        assert_eq!(error.code, NativeErrorCode::InvalidRequest);
     }
 }
 
 #[test]
 fn a_caller_budget_must_stay_within_the_ceilings() {
-    let budget = |raw: &str| {
-        CliArgs::parse(["--max-page-text-bytes".to_string(), raw.to_string()].into_iter())
-            .expect("parse")
-            .byte_budget("--max-page-text-bytes", MAX_PAGE_TEXT_BYTES)
-    };
-    assert_eq!(budget("8388608").expect("in range"), 8 * 1024 * 1024);
-    for refused in ["0", "33554433"] {
+    assert_eq!(
+        TextBudget::validated(Some(8 * 1024 * 1024), None)
+            .expect("in range")
+            .page,
+        8 * 1024 * 1024
+    );
+    for refused in [0, MAX_PAGE_TEXT_BYTES + 1] {
         assert_eq!(
-            budget(refused).expect_err("out of range").code,
+            TextBudget::validated(Some(refused), None)
+                .expect_err("out of range")
+                .code,
+            NativeErrorCode::TooLarge
+        );
+    }
+    for refused in [0, MAX_TOTAL_TEXT_BYTES + 1] {
+        assert_eq!(
+            TextBudget::validated(None, Some(refused))
+                .expect_err("out of range")
+                .code,
             NativeErrorCode::TooLarge
         );
     }
@@ -459,6 +504,29 @@ fn traverses_bounded_windows_within_a_page_and_across_pages() {
 }
 
 #[test]
+fn match_page_window_supports_offsets_and_tail_window() {
+    let dense = "valve ".repeat(560);
+    let first = match_page_window(&dense, "valve", false, false, false, 500, Some(0)).unwrap();
+    assert_eq!(first.matches.len(), 500);
+    assert!(first.truncated);
+    assert_eq!(first.match_count, 501);
+
+    let next = match_page_window(&dense, "valve", false, false, false, 500, Some(500)).unwrap();
+    assert_eq!(next.matches.len(), 60);
+    assert!(!next.truncated);
+    assert_eq!(next.match_count, 560);
+    assert_eq!(next.matches[0].page_match_index, 500);
+    assert_eq!(next.matches.last().unwrap().page_match_index, 559);
+
+    let tail = match_page_window(&dense, "valve", false, false, false, 500, None).unwrap();
+    assert_eq!(tail.matches.len(), 500);
+    assert!(!tail.truncated);
+    assert_eq!(tail.match_count, 560);
+    assert_eq!(tail.matches[0].page_match_index, 60);
+    assert_eq!(tail.matches.last().unwrap().page_match_index, 559);
+}
+
+#[test]
 fn stable_starters_take_the_quick_check_answer() {
     for character in (0..=0x10ffff).filter_map(char::from_u32) {
         if is_stable_starter(character) {
@@ -493,10 +561,6 @@ fn stable_starters_take_the_quick_check_answer() {
 
 #[test]
 fn reads_page_text_in_chunks_across_their_boundaries() {
-    let directory =
-        std::env::temp_dir().join(format!("evb-pdf-search-chunks-test-{}", process::id()));
-    fs::create_dir_all(&directory).expect("create test directory");
-    let path = directory.join("document.pdf.evb-search-index");
     let page = |padding: usize| format!("{}marker é", "x".repeat(padding));
     let texts = [
         page(0),
@@ -510,8 +574,8 @@ fn reads_page_text_in_chunks_across_their_boundaries() {
         .zip(&texts)
         .map(|(page_number, text)| (page_number, text.as_str()))
         .collect();
-    write_index(&build_index(7, &pages), REVISION, &path).expect("write index");
-    let mut loaded = load_index(&path, REVISION).unwrap().unwrap();
+    let bytes = serialize_index(&build_index(7, &pages), REVISION).expect("serialize index");
+    let mut loaded = load_index_bytes(&bytes, REVISION).unwrap().unwrap();
     let expected: Vec<_> = (1..)
         .zip(&texts)
         .map(|(page_number, text)| (page_number, text.len() - 9, text.len() - 3))
@@ -542,7 +606,6 @@ fn reads_page_text_in_chunks_across_their_boundaries() {
         ),
         (true, format!("{}marker ", "x".repeat(17)).as_str(), "")
     );
-    fs::remove_dir_all(&directory).expect("remove test directory");
 }
 
 #[test]
@@ -554,43 +617,6 @@ fn a_leading_space_query_crosses_long_blank_layout_runs() {
         offsets(&search_index(&mut index, &options(" needle")).unwrap()),
         vec![(1, blank.len() + 1, blank.len() + 8)]
     );
-}
-
-#[test]
-fn searching_written_pages_refuses_a_regex_before_reading_them() {
-    struct PanicReader;
-
-    impl Read for PanicReader {
-        fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
-            panic!("stdin must not be read when --regex is rejected");
-        }
-    }
-
-    impl BufRead for PanicReader {
-        fn fill_buf(&mut self) -> io::Result<&[u8]> {
-            panic!("stdin must not be read when --regex is rejected");
-        }
-
-        fn consume(&mut self, _amt: usize) {}
-    }
-
-    let error = run_cli_with_stdin(
-        [
-            "search",
-            "--pages-from-stdin",
-            "--document-revision",
-            REVISION,
-            "--query",
-            "[A-Z]+B|",
-            "--regex",
-        ]
-        .into_iter()
-        .map(String::from),
-        PanicReader,
-    )
-    .expect_err("a regex over written pages is refused");
-    let error = error.downcast_ref::<NativeError>().expect("a native error");
-    assert_eq!(error.code, NativeErrorCode::InvalidRequest);
 }
 
 #[test]
@@ -616,17 +642,15 @@ fn sparse_page_filter_does_not_read_unselected_intermediate_pages() {
         }
     }
 
-    let directory =
-        std::env::temp_dir().join(format!("evb-pdf-search-sparse-test-{}", process::id()));
-    fs::create_dir_all(&directory).expect("create test directory");
-    let path = directory.join("document.pdf.evb-search-index");
     let skipped = format!("{}unselected", "y".repeat(16 * 1024));
-    let built = build_index(
-        3,
-        &[(1, "alpha needle"), (2, &skipped), (3, "omega needle")],
-    );
-    write_index(&built, REVISION, &path).expect("write index");
-    let raw = fs::read(&path).expect("read index bytes");
+    let raw = serialize_index(
+        &build_index(
+            3,
+            &[(1, "alpha needle"), (2, &skipped), (3, "omega needle")],
+        ),
+        REVISION,
+    )
+    .expect("serialize index");
     let len = raw.len();
     let mut index = parse_index(
         SpyReader {
@@ -660,6 +684,100 @@ fn sparse_page_filter_does_not_read_unselected_intermediate_pages() {
         vec![(3, 6, 12)]
     );
     assert_eq!(index.data.read_calls, 2);
+}
 
-    fs::remove_dir_all(&directory).expect("remove test directory");
+#[test]
+fn wasm_request_round_trips_index_stat_search_provisional_and_match_page() {
+    let pages_payload = encode_pages(&[(1, "alpha needle"), (2, ""), (3, "omega needle")]);
+    let index_req = encode_request(
+        &serde_json::json!({
+            "op": "index",
+            "documentRevision": REVISION,
+            "pageCount": 3,
+        }),
+        &pages_payload,
+    );
+    let index_out = handle_wasm_request(&index_req).expect("index op");
+    let cov_len = u32::from_le_bytes(index_out[0..4].try_into().unwrap()) as usize;
+    let coverage: serde_json::Value =
+        serde_json::from_slice(&index_out[4..4 + cov_len]).expect("coverage json");
+    assert_eq!(
+        coverage,
+        serde_json::json!({
+            "pageCount": 3,
+            "pagesScanned": 3,
+            "pagesWritten": 2,
+            "truncated": false,
+            "missingTextPageSample": [2],
+        })
+    );
+    let index_bytes = &index_out[4 + cov_len..];
+
+    let stat_req = encode_request(
+        &serde_json::json!({
+            "op": "stat",
+            "documentRevision": REVISION,
+        }),
+        index_bytes,
+    );
+    let stat_out: serde_json::Value =
+        serde_json::from_slice(&handle_wasm_request(&stat_req).unwrap()).unwrap();
+    assert_eq!(stat_out, coverage);
+
+    let stale_stat_req = encode_request(
+        &serde_json::json!({
+            "op": "stat",
+            "documentRevision": "other-rev",
+        }),
+        index_bytes,
+    );
+    let stale_out: serde_json::Value =
+        serde_json::from_slice(&handle_wasm_request(&stale_stat_req).unwrap()).unwrap();
+    assert_eq!(stale_out, serde_json::json!({ "stale": true }));
+
+    let search_req = encode_request(
+        &serde_json::json!({
+            "op": "search",
+            "documentRevision": REVISION,
+            "query": "needle",
+            "limit": 500,
+            "contextChars": 24,
+            "resultOffset": 0,
+        }),
+        index_bytes,
+    );
+    let search_out: serde_json::Value =
+        serde_json::from_slice(&handle_wasm_request(&search_req).unwrap()).unwrap();
+    assert_eq!(search_out["results"].as_array().unwrap().len(), 2);
+    assert_eq!(search_out["truncated"], false);
+
+    // Provisional search refuses regex when allowRegex is false.
+    let provisional_regex = encode_request(
+        &serde_json::json!({
+            "op": "searchPages",
+            "documentRevision": REVISION,
+            "query": "[A-Z]+B|",
+            "useRegex": true,
+            "allowRegex": false,
+        }),
+        &pages_payload,
+    );
+    let err = handle_wasm_request(&provisional_regex).expect_err("refuse provisional regex");
+    assert_eq!(err.code, NativeErrorCode::InvalidRequest);
+
+    // MatchPage op
+    let match_req = encode_request(
+        &serde_json::json!({
+            "op": "matchPage",
+            "query": "needle",
+            "maxMatches": 501,
+            "resultOffset": "last",
+        }),
+        b"alpha needle beta needle",
+    );
+    let match_out: serde_json::Value =
+        serde_json::from_slice(&handle_wasm_request(&match_req).unwrap()).unwrap();
+    assert_eq!(match_out["matchCount"], 2);
+    assert_eq!(match_out["truncated"], false);
+    assert_eq!(match_out["matches"].as_array().unwrap().len(), 2);
 }

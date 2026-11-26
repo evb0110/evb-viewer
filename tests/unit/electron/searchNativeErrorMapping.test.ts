@@ -19,11 +19,47 @@ import {
     vi,
 } from 'vitest';
 import type * as TWorkerTaskModule from '@electron/utils/workerTask';
+import type {TPdfSearchWorkerCommand} from '@electron/features/search/pdfSearchWorkerOps';
 import {SEARCH_INDEX_TEXT_BUDGET} from '@contracts/searchIndexWire';
 import {MAX_DOCUMENT_TEXT_SNAPSHOT_TOTAL_TEXT_LENGTH} from '@contracts/documentTextCatalog';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireRequestId} from '@contracts/shared';
 
+type TDecodedPageRecord =
+    | {
+        pageNumber: number;
+        text: string;
+    }
+    | {
+        pageNumber: number;
+        overBudget: true;
+    };
+
+function decodeBinaryPageRecords(buffer: Uint8Array): TDecodedPageRecord[] {
+    const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+    const decoder = new TextDecoder();
+    const pages: TDecodedPageRecord[] = [];
+    let offset = 0;
+    while (offset < buffer.byteLength) {
+        const pageNumber = view.getUint32(offset, true);
+        const flags = view.getUint32(offset + 4, true);
+        const byteLen = view.getUint32(offset + 8, true);
+        offset += 12;
+        if ((flags & 1) !== 0) {
+            pages.push({
+                pageNumber,
+                overBudget: true,
+            });
+        } else {
+            pages.push({
+                pageNumber,
+                text: decoder.decode(buffer.subarray(offset, offset + byteLen)),
+            });
+        }
+        offset += byteLen;
+    }
+    return pages;
+}
 
 const fake = vi.hoisted(() => ({
     broker: null as TJobBrokerModule.JobBroker | null,
@@ -39,8 +75,8 @@ const fake = vi.hoisted(() => ({
     missingCjkDataPages: new Set<number>(),
     pdfjsPages: [] as number[],
     pdfjsRelease: null as Promise<void> | null,
-    indexArgs: [] as string[],
-    indexLines: [] as string[],
+    indexCommand: null as Extract<TPdfSearchWorkerCommand, {op: 'index'}> | null,
+    indexPages: [] as TDecodedPageRecord[],
     indexCoverage: null as Record<string, unknown> | null,
     indexFailure: null as Error | null,
     indexRuns: 0,
@@ -72,8 +108,89 @@ beforeEach(async () => {
     fake.workerStopped = null;
     fake.workerActive = 0;
 });
+vi.mock('@electron/features/search/pdfSearchWorkerClient', () => ({
+    shutdownPdfSearchWorkers: () => undefined,
+    async runPdfSearchWorkerCommand(command: TPdfSearchWorkerCommand) {
+        if (command.op === 'stat') {
+            return fake.indexCoverage;
+        }
+        if (command.op === 'searchPages') {
+            fake.provisionalSearches += 1;
+            const query = command.query.toLowerCase();
+            const pages = decodeBinaryPageRecords(command.pagesBuffer);
+            const found = pages.flatMap((page) => {
+                if ('overBudget' in page) {
+                    return [];
+                }
+                const matches = [];
+                for (let start = page.text.toLowerCase().indexOf(query); start >= 0; start = page.text.toLowerCase().indexOf(query, start + query.length)) {
+                    matches.push({
+                        pageNumber: page.pageNumber,
+                        pageMatchIndex: matches.length,
+                        startOffset: start,
+                        endOffset: start + query.length,
+                        excerpt: {
+                            prefix: false,
+                            suffix: false,
+                            before: page.text.slice(0, start),
+                            match: page.text.slice(start, start + query.length),
+                            after: page.text.slice(start + query.length),
+                        },
+                    });
+                }
+                return matches;
+            }).map((match, matchIndex) => ({
+                ...match,
+                matchIndex,
+            }));
+            const limit = command.limit ?? 500;
+            return {
+                results: found.slice(0, limit),
+                truncated: found.length > limit,
+                coverage: {
+                    pageCount: 3,
+                    pagesScanned: 0,
+                    pagesWritten: 0,
+                    truncated: false,
+                    missingTextPageSample: [],
+                },
+            };
+        }
+        if (command.op === 'search') {
+            if (fake.staleSearches > 0) {
+                fake.staleSearches -= 1;
+                return {stale: true};
+            }
+            if (fake.searchResponse) {
+                return fake.searchResponse;
+            }
+            return {
+                results: [],
+                truncated: false,
+                coverage: fake.indexCoverage,
+            };
+        }
+        if (fake.indexFailure) {
+            throw fake.indexFailure;
+        }
+        fake.indexRuns += 1;
+        fake.indexStartCapacity = {
+            brokerActive: fake.broker!.getSnapshot().active,
+            workers: fake.workerActive,
+        };
+        fake.indexCommand = command;
+        await fake.indexRelease;
+        fake.indexPages = decodeBinaryPageRecords(command.pagesBuffer);
+        return fake.indexCoverage ?? {
+            pageCount: 3,
+            pagesScanned: 1,
+            pagesWritten: 1,
+            truncated: true,
+            missingTextPageSample: [],
+        };
+    },
+}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({async runNativeToolCommand(command: string, args: string[], options: {
-    stdin?: AsyncIterable<string>;
     onStdout?: (chunk: string) => void;
     signal?: AbortSignal;
 }) {
@@ -135,102 +252,13 @@ vi.mock('@electron/native-tools/runNativeToolCommand', () => ({async runNativeTo
             })),
         }));
     }
-    if (args[0] === 'stat') {
-        return result(JSON.stringify(fake.indexCoverage));
-    }
-    if (args[0] === 'search' && args.includes('--pages-from-stdin')) {
-        fake.provisionalSearches += 1;
-        // The indexer's searcher over the written pages: a plain case-folded
-        // literal stands in for its matcher, whose rules pdf-search tests.
-        let input = '';
-        for await (const chunk of options.stdin ?? []) {
-            input += chunk;
-        }
-        const query = args[args.indexOf('--query') + 1]!.toLowerCase();
-        const limit = Number(args[args.indexOf('--limit') + 1]);
-        const found = input.split('\n').filter(Boolean).flatMap((line) => {
-            const page = JSON.parse(line) as {
-                pageNumber: number;
-                text: string
-            };
-            const matches = [];
-            for (let start = page.text.toLowerCase().indexOf(query); start >= 0; start = page.text.toLowerCase().indexOf(query, start + query.length)) {
-                matches.push({
-                    pageNumber: page.pageNumber,
-                    pageMatchIndex: matches.length,
-                    startOffset: start,
-                    endOffset: start + query.length,
-                    excerpt: {
-                        prefix: false,
-                        suffix: false,
-                        before: page.text.slice(0, start),
-                        match: page.text.slice(start, start + query.length),
-                        after: page.text.slice(start + query.length),
-                    },
-                });
-            }
-            return matches;
-        }).map((match, matchIndex) => ({
-            ...match,
-            matchIndex,
-        }));
-        return result(JSON.stringify({
-            results: found.slice(0, limit),
-            truncated: found.length > limit,
-            coverage: {
-                pageCount: 3,
-                pagesScanned: 0,
-                pagesWritten: 0,
-                truncated: false,
-                missingTextPageSample: [],
-            },
-        }));
-    }
-    if (args[0] === 'search') {
-        if (fake.staleSearches > 0) {
-            fake.staleSearches -= 1;
-            return result(JSON.stringify({stale: true}));
-        }
-        if (fake.searchResponse) return result(JSON.stringify(fake.searchResponse));
-        return result(JSON.stringify({
-            results: [],
-            truncated: false,
-            coverage: fake.indexCoverage,
-        }));
-    }
-    if (fake.indexFailure) {
-        throw fake.indexFailure;
-    }
-    fake.indexRuns += 1;
-    fake.indexStartCapacity = {
-        brokerActive: fake.broker!.getSnapshot().active,
-        workers: fake.workerActive,
-    };
-    fake.indexArgs = args;
-    await fake.indexRelease;
-    let input = '';
-    for await (const chunk of options.stdin ?? []) {
-        input += chunk;
-    }
-    fake.indexLines = input.split('\n').filter(Boolean);
-    return {
-        stdout: JSON.stringify(fake.indexCoverage ?? {
-            pageCount: 3,
-            pagesScanned: 1,
-            pagesWritten: 1,
-            truncated: true,
-            missingTextPageSample: [],
-        }),
-        stderr: '',
-        exitCode: 0,
-    };
+    throw new Error(`Unexpected native tool command in search test: ${command} ${args.join(' ')}`);
 }}));
 vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({
     pdfinfo: '/fake/pdfinfo',
     pdftotext: '/fake/pdftotext',
     qpdf: '/fake/qpdf',
 })}));
-vi.mock('@electron/native-tools/resolveNativeToolPath', () => ({resolveNativeToolPath: () => '/fake/evb-pdf-search'}));
 vi.mock('@electron/file-access/documentStore', async importOriginal => ({
     ...await importOriginal<Record<string, unknown>>(),
     assertWorkingCopyRevisionCurrent: async () => undefined,
@@ -295,8 +323,8 @@ afterEach(() => {
     fake.missingCjkDataPages = new Set();
     fake.pdfjsPages = [];
     fake.pdfjsRelease = null;
-    fake.indexArgs = [];
-    fake.indexLines = [];
+    fake.indexCommand = null;
+    fake.indexPages = [];
     fake.indexCoverage = null;
     fake.indexFailure = null;
     fake.indexRuns = 0;
@@ -389,7 +417,7 @@ describe('search index text budget', () => {
             await indexed;
             expect(progress.at(-1)).toBe(512);
             expect(progress.every((pageNumber, index) => pageNumber >= (progress[index - 1] ?? 0))).toBe(true);
-            expect(JSON.parse(fake.indexLines[0]!)).toEqual({
+            expect(fake.indexPages[0]).toEqual({
                 pageNumber: 1,
                 text: 'recognized first page',
             });
@@ -456,7 +484,7 @@ describe('search index text budget', () => {
 
             // What the indexer makes of the report is its own contract
             // (pdf-search a_page_over_the_budget_ends_the_index_as_truncated).
-            expect(fake.indexLines.map(line => JSON.parse(line) as unknown)).toEqual([
+            expect(fake.indexPages).toEqual([
                 {
                     pageNumber: 1,
                     text: 'small page',
@@ -470,16 +498,12 @@ describe('search index text budget', () => {
                 1,
                 2,
             ]);
-            expect(fake.indexArgs).toEqual(expect.arrayContaining([
-                '--page-count',
-                '3',
-            ]));
-            expect(fake.indexArgs.slice(fake.indexArgs.indexOf('--max-page-text-bytes'))).toEqual([
-                '--max-page-text-bytes',
-                String(SEARCH_INDEX_TEXT_BUDGET.maxPageTextBytes),
-                '--max-total-text-bytes',
-                String(SEARCH_INDEX_TEXT_BUDGET.maxTotalTextBytes),
-            ]);
+            expect(fake.indexCommand).toMatchObject({
+                op: 'index',
+                pageCount: 3,
+                maxPageTextBytes: SEARCH_INDEX_TEXT_BUDGET.maxPageTextBytes,
+                maxTotalTextBytes: SEARCH_INDEX_TEXT_BUDGET.maxTotalTextBytes,
+            });
         } finally {
             await rm(directory, {
                 recursive: true,
