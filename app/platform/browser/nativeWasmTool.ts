@@ -3,13 +3,14 @@ import {
     exceedsWasmMemoryHighWater,
     loadWasmWithDeadline,
     readLoadedWasmDigest,
+    resolveWasmUrl,
 } from '@app/platform/browser/loadWasmWithDeadline';
 import {
     createNativeWasmThreadedInstances,
     NativeWasmThreadStartError,
     type INativeWasmThreadsDescriptor,
-} from '@app/platform/browser-api/nativeWasmThreadedTool';
-import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
+} from '@app/platform/browser/nativeWasmThreadedTool';
+import { toTransferableUint8Array } from '@app/platform/browser/toTransferableUint8Array';
 import {
     getCheckedWasmMemoryView,
     WASM_REQUEST_ALLOCATION_ABI_VERSION,
@@ -51,12 +52,29 @@ export interface INativeWasmToolDescriptor {
     label: string;
     maxRequestBytes: number;
     maxOutputBytes: number;
-    imports?: () => WebAssembly.Imports;
+    /** Builds host imports; `getMemory` resolves to the instantiated tool's linear memory once loaded. */
+    imports?: (getMemory: () => WebAssembly.Memory) => WebAssembly.Imports;
+    /** Error code surfaced when a WebAssembly RuntimeError traps inside `run`. Defaults to `'panic'`. */
+    trapErrorCode?: INativeErrorEnvelope['code'];
     /**
      * Runs the tool's threaded build instead of the module at `path`. Its
      * imports are the threads host's, not `imports`.
      */
     threads?: INativeWasmThreadsDescriptor;
+}
+
+export interface ICallNativeWasmToolOptions {
+    /** Invoked right after `tool.run` returns normally, before reading output/error (e.g. rethrow host import error). */
+    afterRun?: () => void;
+    /** Byte slice in the request buffer (and its WASM copy) to zero out before freeing. */
+    scrubRange?: {
+        offset: number;
+        length: number;
+    };
+    /** Propagate non-RuntimeError throws (such as host QuotaExceededError from `afterRun`) instead of wrapping as invalid-request. */
+    rethrowNonTrapErrors?: boolean;
+    /** Keep the instance cached even past the high-water mark (e.g. while a cached Document is open; caller releases on close). */
+    skipHighWaterRelease?: boolean;
 }
 
 /**
@@ -78,6 +96,11 @@ export type TNativeWasmCallResult =
 
 function isWasmFunction(value: WebAssembly.ExportValue | undefined): value is (...args: number[]) => number {
     return typeof value === 'function';
+}
+
+function isWasmRuntimeError(error: unknown): boolean {
+    return (typeof WebAssembly !== 'undefined' && typeof WebAssembly.RuntimeError === 'function' && error instanceof WebAssembly.RuntimeError)
+        || (error instanceof Error && error.name === 'RuntimeError');
 }
 
 /** The tool's exports, or null when the module is not this tool's ABI. */
@@ -160,24 +183,52 @@ export function callNativeWasmTool(
     tool: INativeWasmTool,
     descriptor: Pick<INativeWasmToolDescriptor, 'label' | 'maxRequestBytes' | 'maxOutputBytes'>,
     request: Uint8Array,
+    options?: ICallNativeWasmToolOptions,
 ): TNativeWasmCallResult {
     const {label} = descriptor;
     const byteLength = request.byteLength;
+    const scrub = options?.scrubRange;
+    const scrubRequest = () => {
+        if (scrub && scrub.length > 0) {
+            request.fill(0, scrub.offset, scrub.offset + scrub.length);
+        }
+    };
     if (byteLength === 0 || byteLength > descriptor.maxRequestBytes) {
+        scrubRequest();
         return failure('too-large', `${label} request exceeds the admission ceiling`);
     }
     const pointer = tool.alloc(byteLength);
     if (pointer === 0) {
+        scrubRequest();
         return failure('too-large', `${label} could not allocate request memory`);
     }
-    getCheckedWasmMemoryView(tool.memory, pointer, byteLength, `${label} allocation`).set(request);
-    const resultCode = tool.run(pointer, byteLength);
-    if (resultCode === NATIVE_WASM_ENGINE_FAULT) {
-        return failure('panic', `${label} stopped: one of its threads failed`);
+    let trapped = false;
+    let engineFault = false;
+    try {
+        getCheckedWasmMemoryView(tool.memory, pointer, byteLength, `${label} allocation`).set(request);
+        const resultCode = tool.run(pointer, byteLength);
+        options?.afterRun?.();
+        if (resultCode === NATIVE_WASM_ENGINE_FAULT) {
+            engineFault = true;
+            return failure('panic', `${label} stopped: one of its threads failed`);
+        }
+        return readResult(tool, descriptor, resultCode);
+    } catch (error) {
+        trapped = isWasmRuntimeError(error);
+        throw error;
+    } finally {
+        scrubRequest();
+        try {
+            if (scrub && scrub.length > 0 && !engineFault) {
+                getCheckedWasmMemoryView(tool.memory, pointer, byteLength, `${label} allocation`)
+                    .fill(0, scrub.offset, scrub.offset + scrub.length);
+            }
+        } finally {
+            if (!trapped && !engineFault) {
+                tool.free(pointer, byteLength);
+            }
+        }
     }
-    const result = readResult(tool, descriptor, resultCode);
-    tool.free(pointer, byteLength);
-    return result;
 }
 
 function readResult(
@@ -244,15 +295,17 @@ export function createNativeWasmToolLoader(descriptor: INativeWasmToolDescriptor
                 readFault: instance.readFault,
             };
         }
+        let memory: WebAssembly.Memory | null = null;
         const instantiated = await loadWasmWithDeadline(
-            new URL(descriptor.path, globalThis.location.href).toString(),
-            descriptor.imports?.() ?? {},
+            resolveWasmUrl(descriptor.path),
+            descriptor.imports?.(() => memory!) ?? {},
         );
         const instance = 'instance' in instantiated ? instantiated.instance : instantiated;
         const tool = readNativeWasmTool(instance.exports, descriptor);
         if (!tool) {
             throw new Error(`The ${descriptor.label} does not match this version of the app`);
         }
+        memory = tool.memory;
         return tool;
     }
 
@@ -268,15 +321,72 @@ export function createNativeWasmToolLoader(descriptor: INativeWasmToolDescriptor
         return current;
     }
 
-    function discard() {
+    /**
+     * Drops the thread's cached instance. When `target` is given, only drops
+     * if `target` is still this thread's current instance so a retired instance
+     * finishing late leaves its replacement untouched.
+     */
+    function discard(target?: INativeWasmTool) {
+        if (target !== undefined && loaded !== target) return;
         const tool = loaded;
         pending = null;
         loaded = null;
         tool?.dispose?.();
     }
 
+    function releaseIfAboveHighWater(tool: INativeWasmTool) {
+        if (loaded === tool && threaded === null && exceedsWasmMemoryHighWater(tool.memory)) {
+            discard(tool);
+        }
+    }
+
+    /** Runs one request synchronously on an already-loaded `tool` instance. */
+    function callLoaded(
+        tool: INativeWasmTool,
+        request: Uint8Array,
+        options?: ICallNativeWasmToolOptions,
+    ): TNativeWasmCallResult {
+        try {
+            const result = callNativeWasmTool(tool, descriptor, request, options);
+            // The call has ended; whoever still holds the instance finishes on it.
+            // A threaded instance is kept past the high-water mark: its memory
+            // is reserved in full when created, so a new one would only add a
+            // reservation until the old is collected. It ends with its worker.
+            if (result.status === 'failed' && result.error.code === 'panic') {
+                discard(tool);
+            } else if (!options?.skipHighWaterRelease) {
+                releaseIfAboveHighWater(tool);
+            }
+            return result;
+        } catch (error) {
+            if (isWasmRuntimeError(error)) {
+                // A trap leaves the instance's allocator and result slots unknown.
+                discard(tool);
+                const trapCode = descriptor.trapErrorCode ?? 'panic';
+                return failure(
+                    trapCode,
+                    trapCode === 'too-large'
+                        ? `The ${descriptor.label} ran out of memory: ${getErrorMessage(error)}`
+                        : `The ${descriptor.label} failed: ${getErrorMessage(error)}`,
+                );
+            }
+            releaseIfAboveHighWater(tool);
+            if (options?.rethrowNonTrapErrors) {
+                throw error;
+            }
+            discard(tool);
+            return failure(
+                'invalid-request',
+                `The ${descriptor.label} failed: ${getErrorMessage(error)}`,
+            );
+        }
+    }
+
     /** Loads the tool if needed and runs one request through it. */
-    async function call(request: Uint8Array): Promise<TNativeWasmCallResult> {
+    async function call(
+        request: Uint8Array,
+        options?: ICallNativeWasmToolOptions,
+    ): Promise<TNativeWasmCallResult> {
         let tool: INativeWasmTool;
         try {
             tool = await load();
@@ -288,35 +398,20 @@ export function createNativeWasmToolLoader(descriptor: INativeWasmToolDescriptor
                 `The ${descriptor.label} could not be loaded: ${getErrorMessage(error)}`,
             );
         }
-        try {
-            let result = callNativeWasmTool(tool, descriptor, request);
-            if (result.status === 'failed' && result.error.code === 'panic' && tool.readFault) {
-                const reason = await tool.readFault();
-                if (reason !== null) result = failure('panic', `${result.error.message}: ${reason}`);
-            }
-            // The call has ended; whoever still holds the instance finishes on it.
-            // A threaded instance is kept past the high-water mark: its memory
-            // is reserved in full when created, so a new one would only add a
-            // reservation until the old is collected. It ends with its worker.
-            if (loaded === tool && (
-                (result.status === 'failed' && result.error.code === 'panic')
-                || (threaded === null && exceedsWasmMemoryHighWater(tool.memory))
-            )) discard();
-            return result;
-        } catch (error) {
-            // A trap leaves the instance's allocator and result slots unknown.
-            if (loaded === tool) discard();
-            return failure(
-                error instanceof WebAssembly.RuntimeError ? 'panic' : 'invalid-request',
-                `The ${descriptor.label} failed: ${getErrorMessage(error)}`,
-            );
+        let result = callLoaded(tool, request, options);
+        if (result.status === 'failed' && result.error.code === 'panic' && tool.readFault) {
+            const reason = await tool.readFault();
+            if (reason !== null) result = failure('panic', `${result.error.message}: ${reason}`);
         }
+        return result;
     }
 
     return {
         call,
+        callLoaded,
         discard,
         load,
+        releaseIfAboveHighWater,
         /** The SHA-256 of the module this thread compiled for the tool, once it has. */
         readDigest: () => readLoadedWasmDigest(modulePath),
     };

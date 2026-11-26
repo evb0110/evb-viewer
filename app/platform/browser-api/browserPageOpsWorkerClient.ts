@@ -5,8 +5,12 @@ import type {
     TBrowserPageOpsWorkerRequest,
     TBrowserPageOpsWorkerRequestType,
 } from '@contracts/browserPageOpsWorker';
-import {BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS} from '@contracts/browserPageOpsWorker';
-import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
+import {
+    BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS,
+    EVICT_BROWSER_PAGE_OPS_DOCUMENT_MESSAGE_TYPE,
+} from '@contracts/browserPageOpsWorker';
+import { toTransferableUint8Array } from '@app/platform/browser/toTransferableUint8Array';
+import { PDF_PAGE_OPS_WASM_PATH } from '@app/platform/browser/pdfPageEngine';
 import { settleBrowserWorkerResult } from '@app/platform/browser-api/settleBrowserWorkerResult';
 import type { IPendingBrowserWorkerRequest } from '@app/platform/browser-api/settleBrowserWorkerResult';
 import {
@@ -16,10 +20,14 @@ import {
     canUseBrowserWorker,
 } from '@app/platform/browser-api/browserWorkerClient';
 import {BrowserPageOpsWorkerUnavailableError} from '@app/platform/browser-api/browserPageOpsWorkerUnavailableError';
+import {onBrowserWorkingCopyClose} from '@app/platform/browser-api/browserWorkingCopyClose';
 import { getErrorMessage } from '@app/utils/error';
 import { captureRendererFailure } from '@app/utils/failureReporter';
 import {yieldToBrowser} from '@app/platform/browser-api/browserYield';
-import {tryRunBrowserPageOpsWithWasm} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
+import {
+    evictCachedBrowserPageOpsDocument,
+    tryRunBrowserPageOpsWithWasm,
+} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import * as v from 'valibot';
 
@@ -74,8 +82,12 @@ async function buildWorkerRequestWithTransfers(
         return copy;
     };
     const transfer: Transferable[] = [];
-    // Blobs are posted by reference; the engine reads them by range.
-    if (request.type === 'textBoxAppearance' || request.type === 'pageStructure' || 'source' in request.payload) return {
+    // Blobs are posted by reference; the engine reads them by range or caches the parsed Document.
+    if (
+        request.type === 'textBoxAppearance'
+        || request.type === 'pageStructure'
+        || ('source' in request.payload && request.payload.source instanceof Blob)
+    ) return {
         request,
         transfer,
     };
@@ -109,7 +121,32 @@ async function buildWorkerRequestWithTransfers(
         };
     }
 
-    const transferableData = await toTransferableRequestData(request.payload.data);
+    if (request.type === 'appendAdmission') {
+        if (request.payload.source instanceof Uint8Array) {
+            const transferableSource = await toTransferableRequestData(request.payload.source);
+            transfer.push(transferableSource.buffer);
+            return {
+                request: {
+                    ...request,
+                    payload: {source: transferableSource},
+                },
+                transfer,
+            };
+        }
+        return {
+            request,
+            transfer,
+        };
+    }
+
+    const inputData = 'data' in request.payload ? request.payload.data : undefined;
+    if (!(inputData instanceof Uint8Array)) {
+        return {
+            request,
+            transfer,
+        };
+    }
+    const transferableData = await toTransferableRequestData(inputData);
     transfer.push(transferableData.buffer);
     return {
         request: {
@@ -147,6 +184,7 @@ export function canUseBrowserPageOpsWorker() {
 function createBrowserPageOpsWorkerClient() {
     return new BrowserWorkerClient<IPendingBrowserWorkerRequest>({
         idleTtlMs: BROWSER_PAGE_OPS_WORKER_IDLE_TTL_MS,
+        preloadWasmPaths: () => [PDF_PAGE_OPS_WASM_PATH],
         createWorker: () => {
             try {
                 return new Worker(
@@ -170,9 +208,28 @@ const browserPageOpsWorkerClient = createBrowserPageOpsWorkerClient();
 // Two reusable workers admit isolated and CPU-bound operations; the rest wait their turn.
 const pageOpsWorkerOwner = new BrowserWorkerRequestOwner(createBrowserPageOpsWorkerClient, 2);
 
+/**
+ * Evicts any parsed PDF `Document` cached inside active page-ops workers whose
+ * cache key starts with `keyPrefix` (or all cached documents when omitted).
+ */
+export function evictBrowserPageOpsDocumentCache(keyPrefix?: string) {
+    const message = {
+        type: EVICT_BROWSER_PAGE_OPS_DOCUMENT_MESSAGE_TYPE,
+        ...(keyPrefix === undefined ? {} : {keyPrefix}),
+    };
+    browserPageOpsWorkerClient.postControlMessage(message);
+    pageOpsWorkerOwner.postToActiveWorkers(message, keyPrefix);
+    evictCachedBrowserPageOpsDocument(keyPrefix);
+}
+
+onBrowserWorkingCopyClose(ref => {
+    evictBrowserPageOpsDocumentCache(`${ref}\u0000`);
+});
+
 async function runAdmittedPageOperation<TResult>(
     signal: AbortSignal | undefined,
     run: (client: BrowserWorkerClient<IPendingBrowserWorkerRequest>, requestId: number, yieldAdmitted: () => Promise<void>) => Promise<TResult>,
+    affinityKey?: string,
 ) {
     if (signal?.aborted) {
         throw abortErrorFromSignal(signal);
@@ -190,7 +247,7 @@ async function runAdmittedPageOperation<TResult>(
             if (!isAdmitted()) {
                 throw new BrowserWorkerResetError();
             }
-        }));
+        }), affinityKey === undefined ? {} : {affinityKey});
     } finally {
         signal?.removeEventListener('abort', abort);
     }
@@ -299,7 +356,7 @@ async function runBrowserPageOpsWorkerRequestWithClient<K extends TBrowserPageOp
 
 function isCpuPageOperation(type: TBrowserPageOpsWorkerRequestType) {
     return type === 'textBoxAppearance' || type === 'decrypt' || type === 'printLayout'
-        || type === 'readPageSizes'
+        || type === 'readPageSizes' || type === 'appendAdmission'
         || type === 'ocrTextVisibility' || type === 'inspectScanCleanupPdf' || type === 'splitPages' || type === 'renderScanCleanupRaster'
         || type === 'overlayText' || type === 'recompressImages' || type === 'replacePageImages';
 }
@@ -330,6 +387,9 @@ function runAdmittedBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWorkerR
     options: IRunBrowserPageOpsWorkerRequestOptions,
 ) {
     const {signal} = options;
+    const affinityKey = type === 'renderScanCleanupRaster'
+        ? (payload as IBrowserPageOpsWorkerRequestMap['renderScanCleanupRaster']).cacheKey
+        : undefined;
     return runAdmittedPageOperation(signal, async (client, requestId, yieldAdmitted) => {
         if (isCpuPageOperation(type)) {
             // Worker startup and the ownership-preserving copy must not extend
@@ -349,7 +409,7 @@ function runAdmittedBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWorkerR
             ...options,
             preserveInputOwnership: !options.transferInput,
         });
-    });
+    }, affinityKey);
 }
 
 export async function runBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWorkerRequestType>(

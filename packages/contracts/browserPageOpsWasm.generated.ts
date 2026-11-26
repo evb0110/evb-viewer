@@ -25,9 +25,6 @@ export const OPERATION_CODES = {
     extractPages: 2,
     reorderPages: 3,
     insertPages: 4,
-    rotate: 5,
-    crop: 6,
-    removeCrop: 7,
     getPageGeometry: 8,
     decrypt: 9,
     parseAnnotations: 10,
@@ -48,6 +45,9 @@ export const OPERATION_CODES = {
     verifyWritten: 25,
     readPageSizes: 26,
     appendAdmission: 27,
+    openDocument: 28,
+    closeDocument: 29,
+    renderScanCleanupRasterCached: 30,
 } as const;
 
 export const REQUEST_HEADER = {

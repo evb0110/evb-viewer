@@ -10,6 +10,7 @@ export const PDF_NATIVE_MUTATION_LIMITS = {
     /** @deprecated Use textBoxes. */
     freeTextEditors: 256,
     noteTextLength: 64 * 1024,
+    pageGeometryMutations: 10_000,
     pageLabelRanges: 2_048,
     bookmarkItems: 5_000,
     bookmarkDepth: 64,

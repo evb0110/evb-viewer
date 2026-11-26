@@ -6,7 +6,8 @@ import {
     type TBrowserSearchWorkerRequestType,
     type TBrowserSearchWorkerResponse,
 } from '@app/platform/browser-api/browserSearchWorker.types';
-import {createNativeWasmToolLoader} from '@app/platform/browser-api/nativeWasmTool';
+import {createNativeWasmToolLoader} from '@app/platform/browser/nativeWasmTool';
+import {handlePrecompiledWasmModuleMessage} from '@app/platform/browser/loadWasmWithDeadline';
 import {getErrorMessage} from '@app/utils/error';
 import {
     decodePdfSearchIndexWasmOutput,
@@ -165,6 +166,7 @@ async function handleMatchPageTextRequest(
 // comes from the renderer's own PDF.js or DjVu.js document, so terminating this
 // worker on cancel never touches a document.
 self.addEventListener('message', async (event: MessageEvent<unknown>) => {
+    if (handlePrecompiledWasmModuleMessage(event.data)) return;
     const request = parseBrowserSearchWorkerRequest(event.data);
     if (request === null) {
         const id = getBrowserSearchWorkerRequestId(event.data);

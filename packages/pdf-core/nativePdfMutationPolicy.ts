@@ -360,6 +360,15 @@ export function splitPdfNativeMutationSetIntoBoundedChunks(
 
     const textBoxes = getTextBoxes(mutations);
     const textBoxChunks = sliceIntoChunks(textBoxes, Math.min(PDF_NATIVE_MUTATION_LIMITS.textBoxes, identityChunkItems));
+    const pageRotationChunks = mutations.pageRotations?.length
+        ? sliceIntoChunks(mutations.pageRotations, PDF_NATIVE_MUTATION_LIMITS.pageGeometryMutations)
+        : [];
+    const pageCropChunks = mutations.pageCrops?.length
+        ? sliceIntoChunks(mutations.pageCrops, PDF_NATIVE_MUTATION_LIMITS.pageGeometryMutations)
+        : [];
+    const pageCropRemovalChunks = mutations.pageCropRemovals?.length
+        ? sliceIntoChunks(mutations.pageCropRemovals, PDF_NATIVE_MUTATION_LIMITS.pageGeometryMutations)
+        : [];
     const {
         pageLabels: pageLabelsMutation,
         bookmarks: bookmarksMutation,
@@ -443,6 +452,9 @@ export function splitPdfNativeMutationSetIntoBoundedChunks(
             chunk.originalAppearanceSource = mutations.originalAppearanceSource;
         }
     });
+    appendFamilyChunks('pageRotations', pageRotationChunks, (chunk, value) => {chunk.pageRotations = value;});
+    appendFamilyChunks('pageCrops', pageCropChunks, (chunk, value) => {chunk.pageCrops = value;});
+    appendFamilyChunks('pageCropRemovals', pageCropRemovalChunks, (chunk, value) => {chunk.pageCropRemovals = value;});
     appendFamilyChunks('pageLabels', pageLabelChunks, (chunk, value) => {chunk.pageLabels = value;});
     appendFamilyChunks(
         'bookmarks',

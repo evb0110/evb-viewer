@@ -13,6 +13,11 @@ import {
     BrowserPageOpsWorkerUnavailableError,
     runBrowserPageOpsWorkerRequest,
 } from '@app/platform/browser-api/browserPageOpsWorkerClient';
+import {
+    browserScanCleanupRasterCache,
+    buildScanCleanupRasterCacheKey,
+    isCacheableScanCleanupRaster,
+} from '@app/platform/browser-api/browserScanCleanupRasterCache';
 import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
 import {createPpmRaster} from '@ocr-core/ppmRaster';
 import type {
@@ -111,8 +116,9 @@ export interface IBrowserScanCleanupSource {
     rasterFacts: IPageRasterDetectionResult;
     /** Pages carrying any annotation, links and widgets included. */
     annotatedPages: ReadonlySet<number>;
-    /** The revision's bytes, which the page-ops engine rasterizes as pdftoppm does. */
-    data: Uint8Array;
+    /** The revision's Blob (or fallback bytes in tests), which the page-ops engine caches and rasterizes as pdftoppm does. */
+    source?: Blob;
+    data?: Uint8Array;
     /** Paints the pages the page-ops engine does not rasterize. */
     pdf: IPdfDocument;
 }
@@ -180,12 +186,38 @@ export async function renderPageRaster(
     },
     onEngineIdentity?: (sha256: string) => void,
 ): Promise<IPageRaster> {
+    const cacheable = isCacheableScanCleanupRaster(dpi, region);
+    const rasterCacheKey = cacheable
+        ? buildScanCleanupRasterCacheKey({
+            ref: source.ref,
+            revision: source.revision,
+            pageSize,
+            dpi,
+            ...(region ? {region} : {}),
+        })
+        : null;
+    if (rasterCacheKey !== null) {
+        const cached = browserScanCleanupRasterCache.get(rasterCacheKey);
+        if (cached !== null) {
+            if (cached.pageOpsEngineSha256 !== null) {
+                onEngineIdentity?.(cached.pageOpsEngineSha256);
+            }
+            return cached.raster;
+        }
+    }
     const tooLarge = (width: number, height: number) => new BrowserScanCleanupEngineError(
         'too-large',
         `Scan cleanup page raster ${String(width)}x${String(height)} exceeds the engine's limits`,
     );
+    let capturedEngineSha256: string | null = null;
+    const observeEngineIdentity = (sha256: string) => {
+        capturedEngineSha256 = sha256;
+        onEngineIdentity?.(sha256);
+    };
+    const documentCacheKey = `${source.ref}\u0000${source.revision}`;
     const rendered = await runBrowserPageOpsWorkerRequest('renderScanCleanupRaster', {
-        data: source.data,
+        ...(source.source !== undefined ? {source: source.source} : {data: source.data}),
+        cacheKey: documentCacheKey,
         request: {
             pageNumber: pageSize.pageNumber,
             dpi,
@@ -196,7 +228,7 @@ export async function renderPageRaster(
     }, {
         signal,
         requireWorker: true,
-        ...(onEngineIdentity === undefined ? {} : {onEngineIdentity}),
+        onEngineIdentity: observeEngineIdentity,
     }).catch((error: unknown) => {
         // Without a page-ops worker, PDF.js paints the page.
         if (error instanceof BrowserPageOpsWorkerUnavailableError) return null;
@@ -212,12 +244,16 @@ export async function renderPageRaster(
             throw new Error('Scan cleanup page raster does not match its size');
         }
         ppm.image.set(rendered.data, ppm.offset);
-        return {
+        const raster: IPageRaster = {
             ppm: ppm.image,
             width,
             height,
             dpi,
         };
+        if (rasterCacheKey !== null) {
+            browserScanCleanupRasterCache.set(rasterCacheKey, raster, capturedEngineSha256);
+        }
+        return raster;
     }
     signal.throwIfAborted();
     const page = await source.pdf.getPage(pageSize.pageNumber);
@@ -240,12 +276,16 @@ export async function renderPageRaster(
         const ppm = painted.image instanceof Uint8Array
             ? new Uint8Array(painted.image)
             : (await runBrowserScanCleanupWorkerRequest('assemble-raster', {image: painted.image}, signal)).ppm;
-        return {
+        const raster: IPageRaster = {
             ppm,
             width: region?.width ?? box.width,
             height: region?.height ?? box.height,
             dpi,
         };
+        if (rasterCacheKey !== null) {
+            browserScanCleanupRasterCache.set(rasterCacheKey, raster, capturedEngineSha256);
+        }
+        return raster;
     } finally {
         page.cleanup();
     }

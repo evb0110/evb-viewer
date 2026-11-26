@@ -163,6 +163,35 @@ pub(crate) fn append_incremental_page_revision(
     })
 }
 
+pub(crate) fn validate_page_crop_box_postcondition(
+    document: &impl PdfObjectSource,
+    page_number: u32,
+    page_id: ObjectId,
+    expectation: CropRevisionExpectation,
+) -> Result<()> {
+    let expected_crop_box = match expectation {
+        CropRevisionExpectation::Margins(margins) => margins.crop_box(document, page_id)?,
+        CropRevisionExpectation::RestoreMediaBox => {
+            resolve_inherited_box(document, page_id, b"MediaBox")?
+        }
+    };
+    let actual_crop_box = resolve_inherited_box(document, page_id, b"CropBox")?;
+    // Compare in the PDF number representation used by the writer. Real
+    // coordinates are stored as f32, while the margin arithmetic uses f64.
+    // Exact comparison against the unencoded result rejects ordinary crops.
+    for (actual, expected) in [
+        (actual_crop_box.x1, expected_crop_box.x1),
+        (actual_crop_box.y1, expected_crop_box.y1),
+        (actual_crop_box.x2, expected_crop_box.x2),
+        (actual_crop_box.y2, expected_crop_box.y2),
+    ] {
+        if actual != object_to_f64(&number_object(expected))? {
+            return Err(format!("Crop postcondition failed for page {page_number}").into());
+        }
+    }
+    Ok(())
+}
+
 fn validate_crop_revision_postconditions(
     incremental: &IncrementalDocument,
     pages: &[u32],
@@ -173,26 +202,7 @@ fn validate_crop_revision_postconditions(
 
     for &page_number in pages {
         let page_id = page_resolver.page_id(revision, page_number)?;
-        let expected_crop_box = match expectation {
-            CropRevisionExpectation::Margins(margins) => margins.crop_box(revision, page_id)?,
-            CropRevisionExpectation::RestoreMediaBox => {
-                resolve_inherited_box(revision, page_id, b"MediaBox")?
-            }
-        };
-        let actual_crop_box = resolve_inherited_box(revision, page_id, b"CropBox")?;
-        // Compare in the PDF number representation used by the writer. Real
-        // coordinates are stored as f32, while the margin arithmetic uses f64.
-        // Exact comparison against the unencoded result rejects ordinary crops.
-        for (actual, expected) in [
-            (actual_crop_box.x1, expected_crop_box.x1),
-            (actual_crop_box.y1, expected_crop_box.y1),
-            (actual_crop_box.x2, expected_crop_box.x2),
-            (actual_crop_box.y2, expected_crop_box.y2),
-        ] {
-            if actual != object_to_f64(&number_object(expected))? {
-                return Err(format!("Crop postcondition failed for page {page_number}").into());
-            }
-        }
+        validate_page_crop_box_postcondition(revision, page_number, page_id, expectation)?;
     }
 
     Ok(())
@@ -296,6 +306,65 @@ pub(crate) fn rotate_pages(
         document
             .dictionary_mut(page_id)?
             .set("Rotate", Object::Integer(rotation));
+    }
+    Ok(())
+}
+
+/// Applies page crops to a full or incremental document, preflighting every
+/// selected page before mutating any page dictionary.
+pub(crate) fn apply_page_crops(
+    document: &mut impl PdfObjectStore,
+    crops: &[PageCropMutation],
+) -> Result<()> {
+    for crop in crops {
+        validate_crop_margins(crop.margins())?;
+    }
+    let pages = PageLookup::new(document, document.located_pages())?;
+    let mut preflighted = Vec::new();
+    preflighted
+        .try_reserve_exact(crops.len())
+        .map_err(|_| "Too many pages selected for crop")?;
+    for crop in crops {
+        let page_number = crop
+            .page_index
+            .checked_add(1)
+            .ok_or("Page crop index is outside the supported range")?;
+        let page_id = pages.page_id(document, page_number)?;
+        let crop_box = crop
+            .margins()
+            .crop_box(document, page_id)
+            .map_err(|error| format!("{error} {page_number}"))?;
+        preflighted.push((page_id, crop_box));
+    }
+    for (page_id, crop_box) in preflighted {
+        let page = document.dictionary_mut(page_id)?;
+        set_page_crop_box_on_dictionary(page, crop_box);
+    }
+    Ok(())
+}
+
+/// Restores `/CropBox` to each selected page's effective `/MediaBox`,
+/// preflighting every selected page before mutating any page dictionary.
+pub(crate) fn apply_page_crop_removals(
+    document: &mut impl PdfObjectStore,
+    page_indices: &[u32],
+) -> Result<()> {
+    let pages = PageLookup::new(document, document.located_pages())?;
+    let mut preflighted = Vec::new();
+    preflighted
+        .try_reserve_exact(page_indices.len())
+        .map_err(|_| "Too many pages selected for crop removal")?;
+    for &page_index in page_indices {
+        let page_number = page_index
+            .checked_add(1)
+            .ok_or("Page crop removal index is outside the supported range")?;
+        let page_id = pages.page_id(document, page_number)?;
+        let media_box = resolve_inherited_box(document, page_id, b"MediaBox")?;
+        preflighted.push((page_id, media_box));
+    }
+    for (page_id, media_box) in preflighted {
+        let page = document.dictionary_mut(page_id)?;
+        set_page_crop_box_on_dictionary(page, media_box);
     }
     Ok(())
 }

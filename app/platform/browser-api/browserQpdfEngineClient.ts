@@ -1,13 +1,19 @@
 import {
     BROWSER_QPDF_ENGINE_ERROR_CODES,
-    BROWSER_QPDF_NORMALIZE_RESULT_SCHEMA,
+    BROWSER_QPDF_ENGINE_REVISION,
+    BROWSER_QPDF_MAX_INPUT_BYTES,
     BROWSER_QPDF_RUN_RESULT_SCHEMA,
     type IBrowserQpdfNormalizeResult,
     type IBrowserQpdfRunResult,
     type TBrowserQpdfCommand,
     type TBrowserQpdfEngineRequest,
 } from '@contracts/browserQpdfEngine';
+import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
 import {SerializableError} from '@contracts/serializableError';
+import {
+    BrowserPageOpsWorkerUnavailableError,
+    runBrowserPageOpsWorkerRequest,
+} from '@app/platform/browser-api/browserPageOpsWorkerClient';
 import {
     BrowserWorkerClient,
     BrowserWorkerRequestOwner,
@@ -18,13 +24,14 @@ import {
     type ITypedPendingBrowserWorkerRequest,
 } from '@app/platform/browser-api/settleBrowserWorkerResult';
 import {toTransferableUint8Array} from '@app/platform/browser-api/toTransferableUint8Array';
+import {getErrorMessage} from '@app/utils/error';
 import * as v from 'valibot';
 import {QPDF_LOSSLESS_REWRITE_TIMEOUT_MS} from '@pdf-core/qpdfCommands';
 
-// A job holds whole documents in Wasm memory and the file system, and the
-// document's own open needs that memory next, so the worker ends as soon as it
-// is idle. The browser keeps the compiled engine cached between workers.
-const ENGINE_IDLE_TTL_MS = 0;
+// Each command instantiates and drops its Emscripten FS/WASM memory when done,
+// keeping only the compiled module; a 15 s idle TTL avoids cold-booting the
+// worker and re-importing the module on sequential qpdf commands.
+const ENGINE_IDLE_TTL_MS = 15_000;
 // Desktop bounds a whole-file qpdf rewrite by ten minutes.
 const DEFAULT_TIMEOUT_MS = QPDF_LOSSLESS_REWRITE_TIMEOUT_MS;
 
@@ -60,6 +67,7 @@ export function isBrowserQpdfEngineUnavailableError(error: unknown) {
 function createEngineClient() {
     return new BrowserWorkerClient<TPendingEngineRequest>({
         idleTtlMs: ENGINE_IDLE_TTL_MS,
+        preloadWasmPaths: () => [`/wasm/evb-qpdf.wasm?revision=${BROWSER_QPDF_ENGINE_REVISION}`],
         createWorker: () => new Worker(
             new URL('./browserQpdfEngine.worker.ts', import.meta.url),
             {type: 'module'},
@@ -145,14 +153,80 @@ export function runBrowserQpdfCommand(
     }, BROWSER_QPDF_RUN_RESULT_SCHEMA, options);
 }
 
+async function readAppendAdmissionVerdict(
+    input: Uint8Array | Blob,
+    options: IBrowserQpdfRequestOptions,
+) {
+    const source = input instanceof Blob ? input : new Blob([input as Uint8Array<ArrayBuffer>]);
+    if (source.size === 0 || source.size > BROWSER_QPDF_MAX_INPUT_BYTES) {
+        throw new SerializableError({
+            code: BROWSER_QPDF_ENGINE_ERROR_CODES.failed,
+            message: 'Invalid browser qpdf engine request',
+        });
+    }
+    let result;
+    try {
+        result = await runBrowserPageOpsWorkerRequest('appendAdmission', {source}, {
+            requireWorker: true,
+            ...(options.signal ? {signal: options.signal} : {}),
+            ...(options.timeoutMs === undefined ? {} : {timeoutMs: options.timeoutMs}),
+        });
+    } catch (error) {
+        if (options.signal?.aborted) throw error;
+        if (error instanceof BrowserPageOpsWorkerUnavailableError) {
+            throw new BrowserQpdfEngineUnavailableError(error.message);
+        }
+        throw new BrowserQpdfEngineUnavailableError(getErrorMessage(error));
+    }
+    if (isBrowserPageOpsWasmFailure(result)) {
+        if (result.error.code === 'io' || result.error.code === 'timeout') {
+            throw new BrowserQpdfEngineUnavailableError(result.error.message);
+        }
+        throw new SerializableError({
+            code: BROWSER_QPDF_ENGINE_ERROR_CODES.failed,
+            message: result.error.message,
+        });
+    }
+    return result.verdict;
+}
+
 /**
- * Desktop's open-time append admission and repair: returns the qpdf rewrite
- * of a PDF whose cross-reference chain an edit cannot extend, or null output
- * when the PDF stands. The engine takes bytes over, and reads a Blob itself.
+ * Desktop's open-time append admission and repair: judges the PDF in the shared
+ * page-ops worker (eliminating a duplicate `evb-pdf-page-ops.wasm` instance
+ * inside the qpdf worker), and spawns qpdf only when the verdict is `repairable`.
  */
-export function normalizeBrowserPdfAppendBase(
+export async function normalizeBrowserPdfAppendBase(
     input: Uint8Array | Blob,
     options: IBrowserQpdfRequestOptions = {},
 ): Promise<IBrowserQpdfNormalizeResult> {
-    return requestEngine('normalize-append-base', {input}, BROWSER_QPDF_NORMALIZE_RESULT_SCHEMA, options);
+    options.signal?.throwIfAborted();
+    if (!canUseBrowserWorker()) {
+        throw new BrowserQpdfEngineUnavailableError('This browser cannot run the qpdf engine worker');
+    }
+    const verdict = await readAppendAdmissionVerdict(input, options);
+    if (verdict !== 'repairable') {
+        return {
+            verdict,
+            output: null,
+            stderr: '',
+        };
+    }
+    const rewrite = await runBrowserQpdfCommand('rewrite', input, options);
+    if (rewrite.output === null) {
+        throw new SerializableError({
+            code: BROWSER_QPDF_ENGINE_ERROR_CODES.rewriteFailed,
+            message: `qpdf exited with code ${rewrite.exitCode}: ${rewrite.stderr.trim()}`,
+        });
+    }
+    if (await readAppendAdmissionVerdict(rewrite.output, options) === 'repairable') {
+        throw new SerializableError({
+            code: BROWSER_QPDF_ENGINE_ERROR_CODES.rewriteFailed,
+            message: 'The rewritten PDF still cannot take an edit',
+        });
+    }
+    return {
+        verdict,
+        output: rewrite.output,
+        stderr: rewrite.stderr,
+    };
 }

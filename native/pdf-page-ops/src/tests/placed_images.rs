@@ -321,6 +321,8 @@
             text_boxes: Vec::new(),
             deletes: Vec::new(),
             page_rotations: Vec::new(),
+            page_crops: Vec::new(),
+            page_crop_removals: Vec::new(),
             page_labels: None,
             bookmarks: None,
             shapes: None,

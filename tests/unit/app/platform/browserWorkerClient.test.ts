@@ -320,6 +320,146 @@ describe('BrowserWorkerRequestOwner admission by worker key', () => {
         expect(FakeWorker.terminateCount).toBe(1);
         await busy.finish();
     });
+
+    it('keeps a warm worker alive on keepWarmOnCancel and reuses it for the next same-key request', async () => {
+        vi.useFakeTimers();
+        try {
+            const started: FakeWorker[] = [];
+            const drainedMessages: unknown[] = [];
+            const owner = new BrowserWorkerRequestOwner(() => new BrowserWorkerClient<IPendingTestRequest>({
+                idleTtlMs: 60_000,
+                createWorker: (key) => {
+                    const worker = new FakeWorker(key);
+                    started.push(worker);
+                    return worker;
+                },
+                createError: event => new Error(event.message),
+                handleMessage: () => {},
+                onDrainedMessage: data => drainedMessages.push(data),
+            }), 2);
+
+            const first = owner.run(1, (client, _isAdmitted, workerKey) => {
+                client.getWorker(workerKey);
+                return new Promise<string>((_resolve, reject) => {
+                    client.registerPendingRequest(1, {reject}, () => new Error('timeout'));
+                });
+            }, {
+                workerKey: () => 'threads-6',
+                keepWarmOnCancel: true,
+                drainTimeoutMs: 5_000,
+            });
+            await vi.advanceTimersByTimeAsync(0);
+            expect(started).toHaveLength(1);
+            const warmWorker = started[0]!;
+
+            owner.cancel(1, new Error('preview superseded'));
+            await expect(first).rejects.toThrow('preview superseded');
+
+            const secondStarted = Promise.withResolvers<FakeWorker>();
+            const second = owner.run(2, (client, _isAdmitted, workerKey) => {
+                const worker = client.getWorker(workerKey) as FakeWorker;
+                secondStarted.resolve(worker);
+                return Promise.resolve('second-ok');
+            }, {
+                workerKey: () => 'threads-6',
+            });
+
+            // Worker is draining, NOT terminated, and no duplicate threads-6 worker was spawned.
+            expect(FakeWorker.terminateCount).toBe(0);
+            expect(started).toHaveLength(1);
+
+            // Stale reply arrives: worker exits draining, callback observes drained payload, waiting request reuses it.
+            warmWorker.dispatchEvent(new MessageEvent('message', {data: {id: 1, stale: true}}));
+            await expect(second).resolves.toBe('second-ok');
+            expect(await secondStarted.promise).toBe(warmWorker);
+            expect(drainedMessages).toEqual([{id: 1, stale: true}]);
+            expect(FakeWorker.terminateCount).toBe(0);
+            expect(started).toHaveLength(1);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('terminates a draining worker if it fails to settle within drainTimeoutMs', async () => {
+        vi.useFakeTimers();
+        try {
+            const started: FakeWorker[] = [];
+            const owner = new BrowserWorkerRequestOwner(() => new BrowserWorkerClient<IPendingTestRequest>({
+                idleTtlMs: 60_000,
+                createWorker: (key) => {
+                    const worker = new FakeWorker(key);
+                    started.push(worker);
+                    return worker;
+                },
+                createError: event => new Error(event.message),
+                handleMessage: () => {},
+            }), 1);
+
+            const first = owner.run(1, (client, _isAdmitted, workerKey) => {
+                client.getWorker(workerKey);
+                return new Promise<string>((_resolve, reject) => {
+                    client.registerPendingRequest(1, {reject}, () => new Error('timeout'));
+                });
+            }, {
+                workerKey: () => 'threads-6',
+                keepWarmOnCancel: true,
+                drainTimeoutMs: 500,
+            });
+            await vi.advanceTimersByTimeAsync(0);
+            const second = owner.run(2, (client, _isAdmitted, workerKey) => {
+                client.getWorker(workerKey);
+                return Promise.resolve('recovered');
+            }, {workerKey: () => 'threads-6'});
+
+            owner.cancel(1, new Error('stuck'));
+            await expect(first).rejects.toThrow('stuck');
+            expect(FakeWorker.terminateCount).toBe(0);
+
+            await vi.advanceTimersByTimeAsync(500);
+            await expect(second).resolves.toBe('recovered');
+            expect(FakeWorker.terminateCount).toBe(1);
+            expect(started).toHaveLength(2);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('routes requests with an affinityKey to the idle worker that last served that key', async () => {
+        const workers: FakeWorker[] = [];
+        const owner = new BrowserWorkerRequestOwner(() => new BrowserWorkerClient<IPendingTestRequest>({
+            idleTtlMs: 60_000,
+            createWorker: () => {
+                const worker = new FakeWorker(`w${workers.length}`);
+                workers.push(worker);
+                return worker;
+            },
+            createError: event => new Error(event.message),
+            handleMessage: () => {},
+        }), 2);
+
+        const releaseA = Promise.withResolvers<void>();
+        const releaseB = Promise.withResolvers<void>();
+        let workerA = '';
+        let workerB = '';
+        const runA = owner.run(1, async (client) => {
+            workerA = (client.getWorker() as FakeWorker).name;
+            await releaseA.promise;
+        }, {affinityKey: 'doc-a'});
+        const runB = owner.run(2, async (client) => {
+            workerB = (client.getWorker() as FakeWorker).name;
+            await releaseB.promise;
+        }, {affinityKey: 'doc-b'});
+        await Promise.resolve();
+        releaseA.resolve();
+        releaseB.resolve();
+        await Promise.all([runA, runB]);
+
+        expect(workerA).not.toBe(workerB);
+        const followB = await owner.run(3, async client => (client.getWorker() as FakeWorker).name, {affinityKey: 'doc-b'});
+        const followA = await owner.run(4, async client => (client.getWorker() as FakeWorker).name, {affinityKey: 'doc-a'});
+        expect(followB).toBe(workerB);
+        expect(followA).toBe(workerA);
+    });
 });
 
 describe('BrowserWorkerBudget across pools', () => {

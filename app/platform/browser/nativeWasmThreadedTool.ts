@@ -1,15 +1,18 @@
 import { getErrorMessage } from '@app/utils/error';
-import {compileWasmWithDeadline} from '@app/platform/browser/loadWasmWithDeadline';
+import {
+    compileWasmWithDeadline,
+    resolveWasmUrl,
+} from '@app/platform/browser/loadWasmWithDeadline';
 import {
     createNativeWasmLineWriter,
     createNativeWasmThreadImports,
     createNativeWasmThreadMemory,
-} from '@app/platform/browser-api/nativeWasmThreadHost';
+} from '@app/platform/browser/nativeWasmThreadHost';
 import type {
     INativeWasmThreadLoadMessage,
     INativeWasmThreadStartMessage,
     TNativeWasmThreadReply,
-} from '@app/platform/browser-api/nativeWasmThread.worker';
+} from '@app/platform/browser/nativeWasmThread.worker';
 
 /** A tool's threaded build (`wasm32-wasip1-threads`) and the threads each instance runs. */
 export interface INativeWasmThreadsDescriptor {
@@ -114,7 +117,7 @@ export function createNativeWasmThreadedInstances({
     const writeOutput = createNativeWasmLineWriter(line => console.warn(`${label}: ${line}`));
 
     function compile() {
-        const current = compiled ??= compileWasmWithDeadline(new URL(threads.path, globalThis.location.href).toString());
+        const current = compiled ??= compileWasmWithDeadline(resolveWasmUrl(threads.path));
         current.catch(() => {
             if (compiled === current) compiled = null;
         });

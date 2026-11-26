@@ -122,11 +122,15 @@ class FakeWorker {
             return;
         }
         const request = message as {
-            id: number;
+            id?: number;
             type: string
         };
+        if (typeof request.id !== 'number') {
+            return;
+        }
+        const requestId = request.id;
         queueMicrotask(() => this.dispatchMessage({
-            id: request.id,
+            id: requestId,
             type: request.type,
             ok: true,
             data: {
@@ -385,11 +389,12 @@ describe('browserPageOpsWorkerClient', () => {
     });
 
     it('owns an unexpected worker failure and carries one receipt through rejection', async () => {
-        const request = runBrowserPageOpsWorkerRequest('rotate', {
+        FakeWorker.autoRespond = false;
+        const request = runBrowserPageOpsWorkerRequest('decrypt', {
             data: new Uint8Array([1]),
-            pages: [1],
-            angle: 90,
+            password: '',
         });
+        await vi.advanceTimersByTimeAsync(0);
         const worker = FakeWorker.lastInstance;
         if (!worker) {
             throw new Error('Expected a browser page operations worker');
@@ -444,10 +449,9 @@ describe('browserPageOpsWorkerClient', () => {
             return state;
         };
         // Desktop's two minutes plus a second per MiB: 130 s for 10 MiB.
-        const uncancellable = settle(runBrowserPageOpsWorkerRequest('rotate', {
+        const uncancellable = settle(runBrowserPageOpsWorkerRequest('decrypt', {
             data: new Uint8Array(10 * 1024 * 1024),
-            pages: [1],
-            angle: 90,
+            password: '',
         }));
         await vi.advanceTimersByTimeAsync(129_000);
         expect(uncancellable.outcome).toBe('pending');
@@ -455,10 +459,9 @@ describe('browserPageOpsWorkerClient', () => {
         expect(uncancellable.outcome).toContain('timed out after 130000ms');
 
         const controller = new AbortController();
-        const cancellable = settle(runBrowserPageOpsWorkerRequest('rotate', {
+        const cancellable = settle(runBrowserPageOpsWorkerRequest('decrypt', {
             data: new Uint8Array([1]),
-            pages: [1],
-            angle: 90,
+            password: '',
         }, {signal: controller.signal}));
         await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
         expect(cancellable.outcome).toBe('pending');
@@ -550,10 +553,9 @@ describe('browserPageOpsWorkerClient', () => {
     });
 
     it('does not report an idle worker termination', async () => {
-        const result = runBrowserPageOpsWorkerRequest('rotate', {
+        const result = runBrowserPageOpsWorkerRequest('decrypt', {
             data: new Uint8Array([1]),
-            pages: [1],
-            angle: 90,
+            password: '',
         });
         const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');
         await result;
@@ -818,10 +820,9 @@ describe('browserPageOpsWorkerClient', () => {
                     };
             const canceled = runBrowserPageOpsWorkerRequest(type, payload, {signal: controller.signal});
             await vi.advanceTimersByTimeAsync(0);
-            const sibling = runBrowserPageOpsWorkerRequest('rotate', {
-                data: new Uint8Array([4]),
-                pages: [1],
-                angle: 90,
+            const sibling = runBrowserPageOpsWorkerRequest('getPageGeometry', {
+                source: new Blob([new Uint8Array([4])]),
+                pageNumber: 1,
             });
             const reason = new Error('Document closed');
             const rejection = expect(canceled).rejects.toBe(reason);
@@ -830,19 +831,24 @@ describe('browserPageOpsWorkerClient', () => {
             const siblingWorker = FakeWorker.lastInstance;
             if (!siblingWorker) throw new Error('Missing sibling worker');
             const siblingRequest = siblingWorker.postMessageCalls[0]?.message as {id: number};
+            const geometry = {
+                mediaBox: {
+                    x: 0,
+                    y: 0,
+                    width: 200,
+                    height: 100,
+                },
+                cropBox: null,
+                rotation: 0,
+                userUnit: 1,
+            };
             siblingWorker.dispatchMessage({
                 id: siblingRequest.id,
-                type: 'rotate',
+                type: 'getPageGeometry',
                 ok: true,
-                data: {
-                    data: new Uint8Array([5]),
-                    pageCount: 1,
-                },
+                data: geometry,
             });
-            await expect(sibling).resolves.toEqual({
-                data: new Uint8Array([5]),
-                pageCount: 1,
-            });
+            await expect(sibling).resolves.toEqual(geometry);
             expect(input).toEqual(new Uint8Array([
                 1,
                 2,

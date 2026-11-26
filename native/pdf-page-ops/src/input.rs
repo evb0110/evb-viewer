@@ -557,6 +557,8 @@ pub(crate) fn validate_native_mutations(
         && parsed.text_boxes.is_empty()
         && parsed.deletes.is_empty()
         && parsed.page_rotations.is_empty()
+        && parsed.page_crops.is_empty()
+        && parsed.page_crop_removals.is_empty()
         && parsed.page_labels.is_none()
         && parsed.bookmarks.is_none()
         && parsed.shapes.is_none()
@@ -584,6 +586,22 @@ pub(crate) fn validate_native_mutations(
         }
         if !rotation_page_indices.insert(rotation.page_index) {
             return Err("Page rotation mutation contains a duplicate page index".into());
+        }
+    }
+    let mut crop_page_indices = HashSet::with_capacity(parsed.page_crops.len());
+    for crop in &parsed.page_crops {
+        validate_crop_margins(crop.margins())?;
+        if !crop_page_indices.insert(crop.page_index) {
+            return Err("Page crop mutation contains a duplicate page index".into());
+        }
+    }
+    let mut crop_removal_page_indices = HashSet::with_capacity(parsed.page_crop_removals.len());
+    for &page_index in &parsed.page_crop_removals {
+        if !crop_removal_page_indices.insert(page_index) {
+            return Err("Page crop removal mutation contains a duplicate page index".into());
+        }
+        if crop_page_indices.contains(&page_index) {
+            return Err("Page cannot be both cropped and uncropped in the same mutation".into());
         }
     }
     let note_count = parsed
@@ -623,6 +641,8 @@ pub(crate) fn validate_native_mutations(
         parsed.text_boxes.len(),
         parsed.deletes.len(),
         parsed.page_rotations.len(),
+        parsed.page_crops.len(),
+        parsed.page_crop_removals.len(),
         parsed.placed_images.len(),
         parsed.placed_image_geometry_updates.len(),
     ])?;
@@ -662,6 +682,8 @@ fn count_native_mutation_items(mutations: &NativeMutationsFile) -> usize {
     add(mutations.text_boxes.len());
     add(mutations.deletes.len());
     add(mutations.page_rotations.len());
+    add(mutations.page_crops.len());
+    add(mutations.page_crop_removals.len());
     if let Some(page_labels) = &mutations.page_labels {
         add(page_labels.ranges.len());
     }

@@ -32,6 +32,8 @@ import {
     type TRequestId,
 } from '@contracts/shared';
 import { isNativeLegacyDocumentRef } from '@contracts/documentRef';
+import type { IPdfNativeMutationSet } from '@contracts/electronApiDocuments';
+import { requirePageIndex } from '@contracts/pageNumbers';
 import { normalizeCropMargins } from '@contracts/shared';
 import type * as BrowserPageOpsCoreModule from '@app/platform/browser-api/browserPageOpsCore';
 import {
@@ -39,6 +41,7 @@ import {
     browserDocumentStore,
     getBrowserDocumentFileName,
 } from '@app/platform/browserDocumentStore';
+import { appendPdfMutationsToStoreFile } from '@app/platform/browser/browserStorePort';
 import type { IPickedBrowserFile } from '@app/platform/browser-api/browserFilePickerAdapter';
 import { buildPdfSaveTypes } from '@app/platform/browser-api/browserFileAccepts';
 import type { IFilePickerAcceptType } from '@app/platform/browser-api/browserFileAccepts';
@@ -46,22 +49,20 @@ import { ensurePdfExtension } from '@app/platform/browser-api/browserFileName';
 import {
     BrowserPageOpsWorkerUnavailableError,
     canUseBrowserPageOpsWorker,
+    evictBrowserPageOpsDocumentCache,
     runBrowserPageOpsWorkerRequest,
 } from '@app/platform/browser-api/browserPageOpsWorkerClient';
+import { browserScanCleanupRasterCache } from '@app/platform/browser-api/browserScanCleanupRasterCache';
 import type {
     IBrowserBatchOpenProgressOptions,
     ICombinedPdfDocument,
 } from '@app/platform/browser-api/createCombinedPdfFromPaths';
 import type { TPageStructureEdit } from '@app/platform/browser/pdfPageEngine';
-import type {
-    IBrowserPageOpsWorkerRequestMap,
-    IBrowserPageOpsWorkerResultMap,
-    TBrowserPageOpsWorkerRequestType,
+import {
+    isBrowserPageOpsWasmFailure,
+    type IBrowserPageOpsWasmFailure,
 } from '@contracts/browserPageOpsWorker';
-import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
-import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
-import {REQUEST_HEADER} from '@contracts/browserPageOpsWasm.generated';
 import { PdfPageOpsCapabilityError } from '@contracts/pageOpsErrors';
 import { NATIVE_ERROR_ENVELOPE_SCHEMA } from '@contracts/nativeErrors';
 import {
@@ -77,8 +78,11 @@ interface ISaveBytesResult {
     handle?: FileSystemFileHandle | null;
 }
 
-// Rotate, crop and the readers still send the whole document in one engine request.
-const BROWSER_PAGE_OP_INPUT_MAX_BYTES = BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - REQUEST_HEADER.bytes;
+function createNativeModifiedAt() {
+    const date = new Date();
+    const pad = (value: number, length = 2) => String(value).padStart(length, '0');
+    return `D:${pad(date.getUTCFullYear(), 4)}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}Z`;
+}
 
 interface IStoredPageMutationResult {
     success: true;
@@ -376,12 +380,6 @@ export function createBrowserPageOpsCapability(
         }
     }
 
-    async function readWorkingCopyBytes(path: string) {
-        assertBrowserPageOpsSource(path, 'Reading page-operation input');
-        await yieldToBrowser();
-        return browserDocumentStore.read(path, {maxBytes: BROWSER_PAGE_OP_INPUT_MAX_BYTES});
-    }
-
     /** The pages to insert as one PDF, and what to remove once they are inserted. */
     async function readInsertion(sourcePaths: string[], requestId: TRequestId | undefined, signal: AbortSignal) {
         for (const sourcePath of sourcePaths) {
@@ -430,40 +428,6 @@ export function createBrowserPageOpsCapability(
         return result;
     }
 
-    async function runWorkerBackedPdfOperation<K extends TBrowserPageOpsWorkerRequestType>(options: {
-        path: string;
-        // A cancellable call runs on its own worker, so canceling it stops
-        // only that engine.
-        signal?: AbortSignal;
-        type: K;
-        createPayload: (data: Uint8Array) => IBrowserPageOpsWorkerRequestMap[K];
-        runDirect: (data: Uint8Array) => Promise<IBrowserPageOpsWorkerResultMap[K]>;
-    }) {
-        const data = await readWorkingCopyBytes(options.path);
-        let directData = data;
-        if (canUseBrowserPageOpsWorker()) {
-            try {
-                return await runBrowserPageOpsWorkerRequest(
-                    options.type,
-                    options.createPayload(data),
-                    options.signal ? {
-                        dedicated: true,
-                        signal: options.signal,
-                        transferInput: true,
-                    } : {},
-                );
-            } catch (error) {
-                if (!(error instanceof BrowserPageOpsWorkerUnavailableError)) {
-                    throw error;
-                }
-                directData = await readWorkingCopyBytes(options.path);
-            }
-        }
-
-        // Without a worker the engine runs here, as one long task.
-        return runDirectPdfOperation(() => options.runDirect(directData));
-    }
-
     /** Rewrites the working copy with `edit` over its bytes and `extraSources`; returns the new page count. */
     async function rewriteWorkingCopy(
         operation: IActivePageOperation,
@@ -482,23 +446,10 @@ export function createBrowserPageOpsCapability(
             pageCount = result.pageCount;
             return result.data;
         });
+        evictBrowserPageOpsDocumentCache(`${operation.workingCopyPath}\u0000`);
+        browserScanCleanupRasterCache.invalidateByRef(operation.workingCopyPath);
         await options.clearSearchCaches();
         return pageCount;
-    }
-
-    async function writePageMutationResult(
-        operation: IActivePageOperation,
-        data: Uint8Array,
-        pageCount: number,
-        mutationOptions: IPageOpsMutationOptions | undefined,
-    ): Promise<IStoredPageMutationResult> {
-        beginPageOperationCommit(operation);
-        await browserDocumentStore.write(operation.workingCopyPath, data, mutationOptions ?? {});
-        await options.clearSearchCaches();
-        return {
-            success: true,
-            pageCount,
-        };
     }
 
     async function deletePages(
@@ -550,23 +501,55 @@ export function createBrowserPageOpsCapability(
         });
     }
 
-    async function rewriteSelectedPages<K extends 'rotate' | 'crop' | 'removeCrop'>(
+    /**
+     * Appends page rotation or crop edits directly onto the working copy's
+     * OPFS store file via incremental `save-mutations`, avoiding whole-PDF
+     * JS heap copies and supporting multi-GiB documents.
+     */
+    async function appendPageGeometryMutation(
         operation: IActivePageOperation,
-        selectedPages: number[],
         mutationOptions: IPageOpsMutationOptions | undefined,
-        type: K,
-        createPayload: (data: Uint8Array) => IBrowserPageOpsWorkerRequestMap[K],
-        runDirect: (data: Uint8Array) => Promise<IBrowserPageOpsWorkerResultMap[K]>,
+        mutations: IPdfNativeMutationSet,
+        operationName: string,
     ) {
+        assertBrowserPageOpsSource(operation.workingCopyPath, operationName);
         return serializeWorkingCopyMutation(operation, mutationOptions, async (revision) => {
-            const result = await runWorkerBackedPdfOperation({
-                path: operation.workingCopyPath,
-                signal: operation.controller.signal,
-                type,
-                createPayload,
-                runDirect,
+            const expectedToken = revision?.expectedDocumentRevisionToken;
+            let appended: Exclude<Awaited<ReturnType<typeof appendPdfMutationsToStoreFile>>, IBrowserPageOpsWasmFailure> | undefined;
+            let failure: IBrowserPageOpsWasmFailure | undefined;
+            const lease = await browserDocumentStore.stageAppend(operation.workingCopyPath, expectedToken, async (file, base) => {
+                operation.controller.signal.throwIfAborted();
+                const result = await appendPdfMutationsToStoreFile(file, base, {
+                    mutations,
+                    modifiedAt: createNativeModifiedAt(),
+                });
+                if (isBrowserPageOpsWasmFailure(result)) {
+                    failure = result;
+                    return null;
+                }
+                appended = result;
+                return result.length;
             });
-            return writePageMutationResult(operation, result.data, result.pageCount, revision);
+            if (lease === null || !appended) {
+                if (failure) {
+                    throw new SerializableError(failure.error);
+                }
+                throw new PdfPageOpsCapabilityError('native-failure', `${operationName} was not applied`, {operation: operationName});
+            }
+            try {
+                beginPageOperationCommit(operation);
+                await browserDocumentStore.commitAppend(operation.workingCopyPath, expectedToken, lease);
+            } catch (error) {
+                await browserDocumentStore.discardAppend(operation.workingCopyPath, lease).catch(() => undefined);
+                throw error;
+            }
+            evictBrowserPageOpsDocumentCache(`${operation.workingCopyPath}\u0000`);
+            browserScanCleanupRasterCache.invalidateByRef(operation.workingCopyPath);
+            await options.clearSearchCaches();
+            return {
+                success: true,
+                pageCount: appended.pageCount,
+            };
         });
     }
 
@@ -701,36 +684,32 @@ export function createBrowserPageOpsCapability(
         )),
         rotate: withUserCancel((operation, _workingCopyPath: string, pages: TPageOpsPageSelection, totalPages: number, angle: TPageOpsRotationAngle, mutationOptions?: IPageOpsMutationOptions) => {
             const selectedPages = materializePageSelection(pages, totalPages, 'Rotating pages');
-            return rewriteSelectedPages(operation, selectedPages, mutationOptions, 'rotate', data => ({
-                data,
-                pages: selectedPages,
-                angle,
-            }), async (data) => {
-                const { rotatePdfBytes } = await loadBrowserPageOpsCore();
-                return rotatePdfBytes(data, selectedPages, angle);
-            });
+            return appendPageGeometryMutation(operation, mutationOptions, {
+                pageRotations: selectedPages.map(page => ({
+                    pageIndex: requirePageIndex(page - 1),
+                    angle,
+                })),
+            }, 'Rotating pages');
         }),
         crop: withUserCancel((operation, _workingCopyPath: string, pages: TPageOpsPageSelection, totalPages: number, margins: ICropMargins, mutationOptions?: IPageOpsMutationOptions) => {
             const selectedPages = materializePageSelection(pages, totalPages, 'Cropping pages');
             const normalizedMargins = normalizeCropMargins(margins);
-            return rewriteSelectedPages(operation, selectedPages, mutationOptions, 'crop', data => ({
-                data,
-                pages: selectedPages,
-                margins: normalizedMargins,
-            }), async (data) => {
-                const { cropPdfBytes } = await loadBrowserPageOpsCore();
-                return cropPdfBytes(data, selectedPages, normalizedMargins);
-            });
+            return appendPageGeometryMutation(operation, mutationOptions, {
+                pageCrops: selectedPages.map(page => ({
+                    pageIndex: requirePageIndex(page - 1),
+                    top: normalizedMargins.top,
+                    bottom: normalizedMargins.bottom,
+                    left: normalizedMargins.left,
+                    right: normalizedMargins.right,
+                    ...(normalizedMargins.physical ? {physical: true} : {}),
+                })),
+            }, 'Cropping pages');
         }),
         removeCrop: withUserCancel((operation, _workingCopyPath: string, pages: TPageOpsPageSelection, totalPages: number, mutationOptions?: IPageOpsMutationOptions) => {
             const selectedPages = materializePageSelection(pages, totalPages, 'Removing crop');
-            return rewriteSelectedPages(operation, selectedPages, mutationOptions, 'removeCrop', data => ({
-                data,
-                pages: selectedPages,
-            }), async (data) => {
-                const { removeCropPdfBytes } = await loadBrowserPageOpsCore();
-                return removeCropPdfBytes(data, selectedPages);
-            });
+            return appendPageGeometryMutation(operation, mutationOptions, {
+                pageCropRemovals: selectedPages.map(page => requirePageIndex(page - 1)),
+            }, 'Removing crop');
         }),
         cancelActive(workingCopyPath) {
             let canceled = 0;

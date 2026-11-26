@@ -1,13 +1,16 @@
+import {
+    rm,
+    stat,
+    writeFile,
+} from 'fs/promises';
+import { join } from 'path';
 import type {
     ICropMargins,
     IPageGeometry,
 } from '@contracts/shared';
+import { normalizeCropMargins } from '@contracts/shared';
 import {decodePageGeometry} from '@contracts/decodePageGeometry';
 import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsync';
-import {
-    runNativeCropPages,
-    runNativeRemoveCrop,
-} from '@electron/features/page-ops/main/nativeCrop';
 import { getErrorMessage } from '@electron/utils/error';
 import { hasNativeErrorCode } from '@contracts/nativeErrors';
 import {
@@ -21,6 +24,8 @@ import {
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/main/resolveNativePageOpsPath';
+import { getAppTempDir } from '@electron/utils/appTempDir';
+import { createManagedScratchTempDir } from '@electron/utils/managedScratchTemp';
 import {
     PdfPageOpsCapabilityError,
     type TPdfPageOpsCapabilityErrorCode,
@@ -28,6 +33,12 @@ import {
 
 const PAGE_GEOMETRY_NATIVE_TIMEOUT_MS = 2 * 60 * 1000;
 const PAGE_GEOMETRY_MAX_OUTPUT_BYTES = 64 * 1024;
+
+function createNativeModifiedAt() {
+    const date = new Date();
+    const pad = (value: number, length = 2) => String(value).padStart(length, '0');
+    return `D:${pad(date.getUTCFullYear(), 4)}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}Z`;
+}
 
 function runBrokeredCropTask(
     type: 'crop' | 'removeCrop',
@@ -65,7 +76,7 @@ function throwIfAborted(signal?: AbortSignal) {
     }
 }
 
-function nativePageGeometryFailureCode(error: unknown): TPdfPageOpsCapabilityErrorCode {
+function nativeFailureCode(error: unknown): TPdfPageOpsCapabilityErrorCode {
     return hasNativeErrorCode(error) && error.code === 'too-large'
         ? 'too-large'
         : 'native-failure';
@@ -73,13 +84,88 @@ function nativePageGeometryFailureCode(error: unknown): TPdfPageOpsCapabilityErr
 
 function createNativePageGeometryFailure(error: unknown) {
     return new PdfPageOpsCapabilityError(
-        nativePageGeometryFailureCode(error),
+        nativeFailureCode(error),
         `Native page geometry failed: ${getErrorMessage(error)}`,
         {
             operation: 'get-page-geometry',
             cause: error,
         },
     );
+}
+
+/**
+ * Appends crop or remove-crop page dictionary updates directly onto `pdfPath`
+ * via `save-mutations --append --append-in-place`, matching `rotatePages` and
+ * avoiding full-file copies.
+ */
+async function appendPageCropMutations(
+    operation: 'crop' | 'remove-crop',
+    pdfPath: string,
+    mutations: Record<string, unknown>,
+    options: {
+        signal?: AbortSignal;
+        onTerminationProof?: TTerminationProofSink;
+    },
+) {
+    throwIfAborted(options.signal);
+    const binaryPath = resolveNativePageOpsPath();
+    if (!binaryPath) {
+        throw new PdfPageOpsCapabilityError(
+            'native-unavailable',
+            `Native page operation ${operation} is unavailable because evb-pdf-page-ops was not found`,
+            { operation },
+        );
+    }
+
+    const tempDir = await createManagedScratchTempDir('pdf-page-ops-', getAppTempDir());
+    const mutationsPath = join(tempDir, 'mutations.json');
+    try {
+        await writeFile(mutationsPath, JSON.stringify(mutations), 'utf8');
+        await runNativeToolCommand(binaryPath, [
+            'save-mutations',
+            '--input',
+            pdfPath,
+            '--output',
+            pdfPath,
+            '--mutations-file',
+            mutationsPath,
+            '--qpdf',
+            getPdfNativeToolPaths().qpdf,
+            '--modified-at',
+            createNativeModifiedAt(),
+            '--append',
+            '--append-in-place',
+        ], {
+            timeoutMs: PAGE_GEOMETRY_NATIVE_TIMEOUT_MS,
+            commandLabel: `evb-pdf-page-ops(${operation})`,
+            ...(options.signal ? { signal: options.signal } : {}),
+            ...(options.onTerminationProof ? { onTerminationProof: options.onTerminationProof } : {}),
+        });
+        const outputStat = await stat(pdfPath);
+        if (outputStat.size === 0) {
+            throw new Error('Native page crop produced an empty PDF');
+        }
+    } catch (error) {
+        if (isAbortError(error) || options.signal?.aborted) {
+            throw error;
+        }
+        if (error instanceof PdfPageOpsCapabilityError) {
+            throw error;
+        }
+        throw new PdfPageOpsCapabilityError(
+            nativeFailureCode(error),
+            `Native page operation ${operation} failed: ${getErrorMessage(error)}`,
+            {
+                operation,
+                cause: error,
+            },
+        );
+    } finally {
+        await rm(tempDir, {
+            recursive: true,
+            force: true,
+        }).catch(() => undefined);
+    }
 }
 
 export async function cropPages(
@@ -89,16 +175,31 @@ export async function cropPages(
     senderWebContentsId?: number,
     signal?: AbortSignal,
 ) {
+    const normalizedMargins = normalizeCropMargins(margins);
     await runBrokeredCropTask(
         'crop',
         workingCopyPath,
         pages.length,
         senderWebContentsId,
         signal,
-        onTerminationProof => runNativeCropPages(workingCopyPath, pages, margins, {
-            ...(signal ? { signal } : {}),
-            onTerminationProof,
-        }),
+        onTerminationProof => appendPageCropMutations(
+            'crop',
+            workingCopyPath,
+            {
+                pageCrops: pages.map(page => ({
+                    pageIndex: page - 1,
+                    top: normalizedMargins.top,
+                    bottom: normalizedMargins.bottom,
+                    left: normalizedMargins.left,
+                    right: normalizedMargins.right,
+                    ...(normalizedMargins.physical ? { physical: true } : {}),
+                })),
+            },
+            {
+                ...(signal ? { signal } : {}),
+                onTerminationProof,
+            },
+        ),
     );
 }
 
@@ -114,10 +215,17 @@ export async function removeCropFromPages(
         pages.length,
         senderWebContentsId,
         signal,
-        onTerminationProof => runNativeRemoveCrop(workingCopyPath, pages, {
-            ...(signal ? { signal } : {}),
-            onTerminationProof,
-        }),
+        onTerminationProof => appendPageCropMutations(
+            'remove-crop',
+            workingCopyPath,
+            {
+                pageCropRemovals: pages.map(page => page - 1),
+            },
+            {
+                ...(signal ? { signal } : {}),
+                onTerminationProof,
+            },
+        ),
     );
 }
 

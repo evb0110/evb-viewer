@@ -7,7 +7,6 @@ import {
 import {
     readFile, stat, writeFile,
 } from 'fs/promises';
-import {copyNewFile} from '@document-store/nodeStorePort';
 import {usingManagedScratchScope} from '@electron/utils/managedScratchTemp';
 import {isReservedTempPath} from '@electron/utils/pathValidator';
 import {showOpenDocumentDialogForContext} from '@electron/features/documents/public/showOpenDocumentDialogForContext';
@@ -834,10 +833,10 @@ async function handlePageOpsCrop(
         expectedTotalPages,
         operation,
         options,
-        strictStructureCheck: true,
-        mutate: async (source, target, pageCount) => {
+        skipPageMetadataRemap: true,
+        write: appendToDocument,
+        mutate: async (_source, target, pageCount) => {
             const ranges = validatePageOpsSelection(pages, pageCount, 'cropPages');
-            await copyNewFile(source, target);
             for (const batch of iteratePageRangeBatches(ranges, PAGE_MUTATION_BATCH_SIZE)) {
                 await cropPages(target, batch, normalizedMargins, context.senderId, operation.signal);
             }
@@ -874,10 +873,10 @@ async function handlePageOpsRemoveCrop(
         expectedTotalPages,
         operation,
         options,
-        strictStructureCheck: true,
-        mutate: async (source, target, pageCount) => {
+        skipPageMetadataRemap: true,
+        write: appendToDocument,
+        mutate: async (_source, target, pageCount) => {
             const ranges = validatePageOpsSelection(pages, pageCount, 'removeCrop');
-            await copyNewFile(source, target);
             for (const batch of iteratePageRangeBatches(ranges, PAGE_MUTATION_BATCH_SIZE)) {
                 await removeCropFromPages(target, batch, context.senderId, operation.signal);
             }

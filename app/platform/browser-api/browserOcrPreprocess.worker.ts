@@ -9,7 +9,8 @@ import {getBrowserPageOpsWorkerRequestId} from '@contracts/browserPageOpsWorker'
 import type {IScanCleanupWasmPlane} from '@contracts/scan-cleanup/browserScanCleanupWasm';
 import {assembleBrowserPdfRasterPpm} from '@app/platform/browser-api/assembleBrowserPdfRasterPpm';
 import {preprocessBrowserOcrPage} from '@app/platform/browser-api/browserScanCleanupWasm';
-import {NativeWasmThreadStartError} from '@app/platform/browser-api/nativeWasmThreadedTool';
+import {NativeWasmThreadStartError} from '@app/platform/browser/nativeWasmThreadedTool';
+import {handlePrecompiledWasmModuleMessage} from '@app/platform/browser/loadWasmWithDeadline';
 import {SCAN_CLEANUP_THREADED_ENGINE_UNAVAILABLE} from '@app/platform/browser-api/scanCleanupEngineWorkerName';
 import {getErrorMessage} from '@app/utils/error';
 import {
@@ -86,6 +87,7 @@ async function preprocess(payload: TBrowserOcrPreprocessRequest['payload']): Pro
 }
 
 self.addEventListener('message', async (event: MessageEvent<unknown>) => {
+    if (handlePrecompiledWasmModuleMessage(event.data)) return;
     const request = parseBrowserOcrEngineRequest(event.data);
     if (request === null || request.type !== 'preprocess') {
         const id = getBrowserPageOpsWorkerRequestId(event.data);

@@ -1,10 +1,8 @@
 import type {
-    ICropMargins,
     IPageGeometry,
     TPdfViewMode,
     TPrintOrientation,
 } from '@contracts/shared';
-import { normalizeCropMargins } from '@contracts/shared';
 import type {
     IBrowserPageOpsWorkerResultMap,
     IBrowserPdfCombineCatalog,
@@ -46,47 +44,6 @@ export function parsePdfAnnotations(source: Blob) {
     return requireBrowserPageOpsWasmResult<{data: Uint8Array}>(
         'annotation parsing',
         () => tryRunBrowserPageOpsWithWasm('parseAnnotations', {source}),
-    );
-}
-
-export function rotatePdfBytes(
-    data: Uint8Array,
-    pages: number[],
-    angle: 90 | 180 | 270,
-): Promise<IPageMutationWorkerResult> {
-    return requireBrowserPageOpsWasmResult('page rotation', () =>
-        tryRunBrowserPageOpsWithWasm('rotate', {
-            data,
-            pages,
-            angle,
-        }),
-    );
-}
-
-export function cropPdfBytes(
-    data: Uint8Array,
-    pages: number[],
-    margins: ICropMargins,
-): Promise<IPageMutationWorkerResult> {
-    const normalizedMargins = normalizeCropMargins(margins);
-    return requireBrowserPageOpsWasmResult('page cropping', () =>
-        tryRunBrowserPageOpsWithWasm('crop', {
-            data,
-            pages,
-            margins: normalizedMargins,
-        }),
-    );
-}
-
-export function removeCropPdfBytes(
-    data: Uint8Array,
-    pages: number[],
-): Promise<IPageMutationWorkerResult> {
-    return requireBrowserPageOpsWasmResult('crop removal', () =>
-        tryRunBrowserPageOpsWithWasm('removeCrop', {
-            data,
-            pages,
-        }),
     );
 }
 

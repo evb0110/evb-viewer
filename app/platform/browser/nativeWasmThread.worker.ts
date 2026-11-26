@@ -4,7 +4,7 @@ import {
     createNativeWasmLineWriter,
     createNativeWasmThreadImports,
     reportNativeWasmThreadFault,
-} from '@app/platform/browser-api/nativeWasmThreadHost';
+} from '@app/platform/browser/nativeWasmThreadHost';
 
 /**
  * One host thread of a threaded native WASM engine, nested in the engine's

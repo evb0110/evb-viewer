@@ -1,33 +1,19 @@
 /// <reference lib="webworker" />
 
 import {
-    BROWSER_APPEND_ADMISSION_VERDICTS,
     BROWSER_QPDF_ENGINE_ERROR_CODES,
     BROWSER_QPDF_ENGINE_REVISION,
     BROWSER_QPDF_MAX_DIAGNOSTIC_CHARACTERS,
     BROWSER_QPDF_MAX_INPUT_BYTES,
     parseBrowserQpdfEngineRequest,
-    type IBrowserQpdfNormalizeResult,
     type IBrowserQpdfRunResult,
     type TBrowserQpdfCommand,
 } from '@contracts/browserQpdfEngine';
+import {getBrowserPageOpsWorkerRequestId} from '@contracts/browserPageOpsWorker';
 import {
-    getBrowserPageOpsWorkerRequestId,
-    isBrowserPageOpsWasmFailure,
-} from '@contracts/browserPageOpsWorker';
-import {
-    BYTES_HEADER,
-    OPERATION_CODES,
-    RESPONSE_JSON,
-} from '@contracts/browserPageOpsWasm.generated';
-import {WASM_REQUEST_ALLOCATION_ABI_VERSION} from '@contracts/getCheckedWasmMemoryView';
-import {
-    blobSource,
-    createPageOpsHostImports,
-    runFileRequest,
-    withOpenFiles,
-    type IPdfPageOpsWasmExports,
-} from '@app/platform/browser/pdfPageEngine';
+    compileWasmWithDeadline,
+    handlePrecompiledWasmModuleMessage,
+} from '@app/platform/browser/loadWasmWithDeadline';
 import {
     getQpdfCheckArgs,
     getQpdfLosslessRewriteArgs,
@@ -80,33 +66,6 @@ type TQpdfModuleFactory = (options: {
     printErr: (line: string) => void;
 }) => Promise<IQpdfModule>;
 
-interface IAppendAdmissionExports {
-    memory: WebAssembly.Memory;
-    evb_pdf_page_ops_alloc(len: number): number;
-    evb_pdf_page_ops_free(pointer: number, len: number): void;
-    evb_pdf_page_ops_append_admission(pointer: number, len: number): number;
-}
-
-function hasAppendAdmissionExports(exports: WebAssembly.Exports): exports is WebAssembly.Exports & IAppendAdmissionExports {
-    return exports.memory instanceof WebAssembly.Memory
-        && typeof exports.evb_pdf_page_ops_alloc === 'function'
-        && typeof exports.evb_pdf_page_ops_free === 'function'
-        && typeof exports.evb_pdf_page_ops_append_admission === 'function';
-}
-
-function hasPageOpsRunExports(exports: WebAssembly.Exports): exports is WebAssembly.Exports & IPdfPageOpsWasmExports {
-    return exports.memory instanceof WebAssembly.Memory
-        && typeof exports.evb_wasm_request_allocation_abi_version === 'function'
-        && exports.evb_wasm_request_allocation_abi_version() === WASM_REQUEST_ALLOCATION_ABI_VERSION
-        && typeof exports.evb_pdf_page_ops_alloc === 'function'
-        && typeof exports.evb_pdf_page_ops_free === 'function'
-        && typeof exports.evb_pdf_page_ops_run === 'function'
-        && typeof exports.evb_pdf_page_ops_output_ptr === 'function'
-        && typeof exports.evb_pdf_page_ops_output_len === 'function'
-        && typeof exports.evb_pdf_page_ops_error_ptr === 'function'
-        && typeof exports.evb_pdf_page_ops_error_len === 'function';
-}
-
 const INPUT_PATH = '/work/input.pdf';
 const OUTPUT_PATH = '/work/output.pdf';
 // A Blob input is mounted read-only here, and `INPUT_PATH` links to it, so commands and their messages name one path.
@@ -133,7 +92,6 @@ const WRITING_COMMANDS: ReadonlySet<TBrowserQpdfCommand> = new Set([
 ]);
 
 class EngineUnavailableError extends Error {}
-class RewriteFailedError extends Error {}
 
 function cached<T>(load: () => Promise<T>) {
     let pending: Promise<T> | null = null;
@@ -153,16 +111,13 @@ const loadQpdf = cached(async () => {
         module,
     ] = await Promise.all([
         import(/* @vite-ignore */ new URL('/wasm/evb-qpdf.mjs', self.location.href).href) as Promise<{default: TQpdfModuleFactory}>,
-        WebAssembly.compileStreaming(fetch(new URL(`/wasm/evb-qpdf.wasm?revision=${BROWSER_QPDF_ENGINE_REVISION}`, self.location.href))),
+        compileWasmWithDeadline(new URL(`/wasm/evb-qpdf.wasm?revision=${BROWSER_QPDF_ENGINE_REVISION}`, self.location.href).href),
     ]);
     return {
         factory: imported.default,
         module,
     };
 });
-
-const loadAppendAdmission = cached(() =>
-    WebAssembly.compileStreaming(fetch(new URL('/wasm/evb-pdf-page-ops.wasm', self.location.href))));
 
 function appendBounded(text: string, line: string) {
     return text.length < BROWSER_QPDF_MAX_DIAGNOSTIC_CHARACTERS
@@ -316,134 +271,13 @@ async function runQpdf(command: TBrowserQpdfCommand, input: Uint8Array | Blob): 
     };
 }
 
-/** Desktop's append-admission verdict, from the page tool's own Rust function. */
-async function readAppendAdmission(bytes: Uint8Array) {
-    const module = await loadAppendAdmission();
-    // The page tool's file imports serve page-structure edits, which the admission never reaches.
-    const fileImports = WebAssembly.Module.imports(module).map(({name}) => [name, () => -1]);
-    const {exports} = await WebAssembly.instantiate(module, {evb_host: Object.fromEntries(fileImports)}).catch((error: unknown) => {
-        throw new EngineUnavailableError(getErrorMessage(error));
-    });
-    if (!hasAppendAdmissionExports(exports)) {
-        throw new EngineUnavailableError('The page tool has no append admission');
-    }
-    const pointer = exports.evb_pdf_page_ops_alloc(bytes.byteLength);
-    if (pointer === 0) {
-        throw new Error('The append admission could not hold the PDF');
-    }
-    try {
-        new Uint8Array(exports.memory.buffer, pointer, bytes.byteLength).set(bytes);
-        const verdict = BROWSER_APPEND_ADMISSION_VERDICTS[exports.evb_pdf_page_ops_append_admission(pointer, bytes.byteLength)];
-        if (verdict === undefined) {
-            throw new Error('The append admission could not judge the PDF');
-        }
-        return verdict;
-    } finally {
-        exports.evb_pdf_page_ops_free(pointer, bytes.byteLength);
-    }
-}
-
-const NO_ADMISSION_SINK = {
-    write: () => {
-        throw new Error('Append admission writes nothing');
-    },
-    read: () => {
-        throw new Error('Append admission reads no sink');
-    },
-};
-
-/**
- * Desktop's append-admission verdict over a Blob read by bounded ranges, so a
- * large PDF never copies its bytes into JS heap or Wasm memory on open.
- */
-async function readAppendAdmissionFromBlob(blob: Blob) {
-    const module = await loadAppendAdmission();
-    let memory: WebAssembly.Memory | null = null;
-    const {exports} = await WebAssembly.instantiate(
-        module,
-        createPageOpsHostImports(() => memory!),
-    ).catch((error: unknown) => {
-        throw new EngineUnavailableError(getErrorMessage(error));
-    });
-    if (!hasPageOpsRunExports(exports)) {
-        throw new EngineUnavailableError('The page tool has no range append admission');
-    }
-    memory = exports.memory;
-    const source = await blobSource(blob);
-    const output = await withOpenFiles({
-        sources: [source],
-        sink: NO_ADMISSION_SINK,
-        copy: () => Promise.reject(new Error('Append admission copies nothing')),
-    }, async () => runFileRequest(exports, {
-        operation: OPERATION_CODES.appendAdmission,
-        sourceCount: 1,
-    }));
-    if (isBrowserPageOpsWasmFailure(output)) {
-        throw new Error(output.error.message);
-    }
-    if (output.byteLength < BYTES_HEADER.bytes) {
-        throw new Error('The append admission returned malformed output');
-    }
-    const view = new DataView(output.buffer, output.byteOffset, output.byteLength);
-    if (
-        view.getUint32(BYTES_HEADER.kind, true) !== RESPONSE_JSON
-        || view.getUint32(BYTES_HEADER.dataLength, true) !== output.byteLength - BYTES_HEADER.bytes
-    ) {
-        throw new Error('The append admission returned malformed output');
-    }
-    let parsed: unknown;
-    try {
-        parsed = JSON.parse(new TextDecoder().decode(output.subarray(BYTES_HEADER.bytes)));
-    } catch {
-        throw new Error('The append admission returned invalid JSON');
-    }
-    const verdict = typeof parsed === 'object' && parsed !== null && 'verdict' in parsed
-        ? (parsed as {verdict: unknown}).verdict
-        : undefined;
-    if (typeof verdict !== 'string' || !(BROWSER_APPEND_ADMISSION_VERDICTS as readonly string[]).includes(verdict)) {
-        throw new Error('The append admission could not judge the PDF');
-    }
-    return verdict as (typeof BROWSER_APPEND_ADMISSION_VERDICTS)[number];
-}
-
-/**
- * Desktop's `normalizePdfAppendBase` for bytes or a Blob: a base whose
- * cross-reference chain an append cannot extend is rewritten through qpdf, and
- * the rewrite must take an append. Both the admission and qpdf read a Blob by
- * bounded ranges so large PDFs never copy whole into JS heap.
- */
-async function normalizeAppendBase(input: Uint8Array | Blob): Promise<IBrowserQpdfNormalizeResult> {
-    const verdict = input instanceof Blob
-        ? await readAppendAdmissionFromBlob(input)
-        : await readAppendAdmission(input);
-    if (verdict !== 'repairable') {
-        return {
-            verdict,
-            output: null,
-            stderr: '',
-        };
-    }
-    const rewrite = await runQpdf('rewrite', input);
-    if (rewrite.output === null) {
-        throw new RewriteFailedError(`qpdf exited with code ${rewrite.exitCode}: ${rewrite.stderr.trim()}`);
-    }
-    if (await readAppendAdmission(rewrite.output) === 'repairable') {
-        throw new RewriteFailedError('The rewritten PDF still cannot take an edit');
-    }
-    return {
-        verdict,
-        output: rewrite.output,
-        stderr: rewrite.stderr,
-    };
-}
-
 function getErrorCode(error: unknown) {
     if (error instanceof EngineUnavailableError) return BROWSER_QPDF_ENGINE_ERROR_CODES.unavailable;
-    if (error instanceof RewriteFailedError) return BROWSER_QPDF_ENGINE_ERROR_CODES.rewriteFailed;
     return BROWSER_QPDF_ENGINE_ERROR_CODES.failed;
 }
 
 self.addEventListener('message', async (event: MessageEvent<unknown>) => {
+    if (handlePrecompiledWasmModuleMessage(event.data)) return;
     const request = parseBrowserQpdfEngineRequest(event.data);
     if (request === null) {
         const id = getBrowserPageOpsWorkerRequestId(event.data);
@@ -457,9 +291,7 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
         return;
     }
     try {
-        const data = request.type === 'run'
-            ? await runQpdf(request.payload.command, request.payload.input)
-            : await normalizeAppendBase(request.payload.input);
+        const data = await runQpdf(request.payload.command, request.payload.input);
         self.postMessage({
             id: request.id,
             ok: true,

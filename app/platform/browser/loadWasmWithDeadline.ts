@@ -18,6 +18,132 @@ export const exceedsWasmMemoryHighWater = (memory: WebAssembly.Memory) => memory
 // provenance can name the bytes that actually run rather than a later download.
 const loadedWasmDigests = new Map<string, Promise<string>>();
 
+// Compiled modules cached per thread (or received via structured clone from
+// the main thread) so worker pools and post-high-water reloads instantiate
+// without re-fetching or recompiling.
+const precompiledWasmModules = new Map<string, WebAssembly.Module>();
+const sharedCompiledWasmPromises = new Map<string, Promise<{
+    module: WebAssembly.Module;
+    digest: string | null;
+}>>();
+
+export const PRECOMPILED_WASM_MODULE_MESSAGE_TYPE = 'evb:precompiled-wasm-module';
+
+export interface IPrecompiledWasmModuleMessage {
+    type: typeof PRECOMPILED_WASM_MODULE_MESSAGE_TYPE;
+    path: string;
+    module: WebAssembly.Module;
+    digest: string | null;
+}
+
+function isRealWasmModule(value: unknown): value is WebAssembly.Module {
+    return typeof WebAssembly !== 'undefined'
+        && typeof WebAssembly.Module === 'function'
+        && value instanceof WebAssembly.Module;
+}
+
+/** Registers a precompiled `WebAssembly.Module` for `path` in this thread. */
+export function registerPrecompiledWasmModule(
+    path: string,
+    module: WebAssembly.Module,
+    digest?: string | null,
+) {
+    const key = wasmPath(path);
+    precompiledWasmModules.set(key, module);
+    if (typeof digest === 'string' && digest.length > 0) {
+        loadedWasmDigests.set(key, Promise.resolve(digest));
+    }
+}
+
+/**
+ * Handles a main-thread preload message carrying a compiled `WebAssembly.Module`.
+ * Returns true when `data` was a preload message and has been consumed.
+ */
+export function handlePrecompiledWasmModuleMessage(data: unknown): boolean {
+    if (typeof data !== 'object' || data === null) return false;
+    const record = data as Record<string, unknown>;
+    if (record.type !== PRECOMPILED_WASM_MODULE_MESSAGE_TYPE) return false;
+    if (typeof record.path === 'string' && isRealWasmModule(record.module)) {
+        registerPrecompiledWasmModule(
+            record.path,
+            record.module,
+            typeof record.digest === 'string' ? record.digest : null,
+        );
+    }
+    return true;
+}
+
+export function resolveWasmUrl(path: string) {
+    const baseHref = globalThis.location?.href
+        ?? (globalThis as {self?: {location?: {href?: string}}}).self?.location?.href;
+    return baseHref ? new URL(path, baseHref).toString() : path;
+}
+
+/**
+ * Compiles `path` once in this context and caches the resulting `WebAssembly.Module`
+ * and SHA-256 digest for sharing across worker pool clones. A failed compile is
+ * evicted so the next caller retries.
+ */
+export function compileWasmModuleOnce(
+    path: string,
+    stallTimeoutMs = DEFAULT_WASM_STALL_TIMEOUT_MS,
+) {
+    const key = wasmPath(path);
+    const existing = sharedCompiledWasmPromises.get(key);
+    if (existing) return existing;
+    const pending = (async () => {
+        const url = resolveWasmUrl(path);
+        const module = await compileWasmWithDeadline(url, stallTimeoutMs);
+        const digest = await readLoadedWasmDigest(url)?.catch(() => null) ?? null;
+        if (isRealWasmModule(module)) {
+            registerPrecompiledWasmModule(key, module, digest);
+        }
+        return {
+            module,
+            digest,
+        };
+    })();
+    sharedCompiledWasmPromises.set(key, pending);
+    pending.catch(() => {
+        if (sharedCompiledWasmPromises.get(key) === pending) {
+            sharedCompiledWasmPromises.delete(key);
+        }
+    });
+    return pending;
+}
+
+/**
+ * Compiles each WASM `path` once on the caller's thread and posts the compiled
+ * `WebAssembly.Module` to `worker` via structured clone so worker clones never
+ * recompile. Failures are ignored so the worker falls back to its own load path.
+ */
+export function postPrecompiledWasmModules(worker: Worker, paths: readonly string[]) {
+    if (
+        typeof WebAssembly === 'undefined'
+        || typeof WebAssembly.Module !== 'function'
+        || typeof fetch !== 'function'
+        || typeof globalThis.location?.href !== 'string'
+        || !/^https?:/iu.test(globalThis.location.href)
+    ) {
+        return;
+    }
+    for (const path of paths) {
+        void compileWasmModuleOnce(path).then(({module, digest}) => {
+            if (!isRealWasmModule(module)) return;
+            try {
+                worker.postMessage({
+                    type: PRECOMPILED_WASM_MODULE_MESSAGE_TYPE,
+                    path,
+                    module,
+                    digest,
+                } satisfies IPrecompiledWasmModuleMessage);
+            } catch {
+                // Worker may already have terminated; safe to ignore.
+            }
+        }).catch(() => undefined);
+    }
+}
+
 async function sha256Hex(chunks: readonly Uint8Array[]) {
     const bytes = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.byteLength, 0));
     let offset = 0;
@@ -65,21 +191,44 @@ export function loadWasmWithDeadline(
     imports: WebAssembly.Imports = {},
     stallTimeoutMs = DEFAULT_WASM_STALL_TIMEOUT_MS,
 ) {
+    const key = wasmPath(url);
+    const precompiled = precompiledWasmModules.get(key);
+    if (precompiled) {
+        return WebAssembly.instantiate(precompiled, imports).then(instance => ({
+            instance,
+            module: precompiled,
+        }));
+    }
     return fetchWasmWithDeadline(url, stallTimeoutMs, {
         streaming: typeof WebAssembly.instantiateStreaming === 'function'
             ? response => WebAssembly.instantiateStreaming(response, imports)
             : undefined,
         buffered: bytes => WebAssembly.instantiate(bytes, imports),
+    }).then((result) => {
+        if ('module' in result && isRealWasmModule(result.module)) {
+            precompiledWasmModules.set(key, result.module);
+        }
+        return result;
     });
 }
 
 /** Fetches and compiles a WASM module under `loadWasmWithDeadline`'s stall deadline, for a host that instantiates it several times. */
 export function compileWasmWithDeadline(url: string, stallTimeoutMs = DEFAULT_WASM_STALL_TIMEOUT_MS) {
+    const key = wasmPath(url);
+    const precompiled = precompiledWasmModules.get(key);
+    if (precompiled) {
+        return Promise.resolve(precompiled);
+    }
     return fetchWasmWithDeadline(url, stallTimeoutMs, {
         streaming: typeof WebAssembly.compileStreaming === 'function'
             ? response => WebAssembly.compileStreaming(response)
             : undefined,
         buffered: bytes => WebAssembly.compile(bytes),
+    }).then((module) => {
+        if (isRealWasmModule(module)) {
+            precompiledWasmModules.set(key, module);
+        }
+        return module;
     });
 }
 

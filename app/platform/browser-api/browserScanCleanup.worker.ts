@@ -15,7 +15,8 @@ import {
     renderBrowserScanCleanupPage,
     renderBrowserScanCleanupPreview,
 } from '@app/platform/browser-api/browserScanCleanupWasm';
-import {NativeWasmThreadStartError} from '@app/platform/browser-api/nativeWasmThreadedTool';
+import {NativeWasmThreadStartError} from '@app/platform/browser/nativeWasmThreadedTool';
+import {handlePrecompiledWasmModuleMessage} from '@app/platform/browser/loadWasmWithDeadline';
 import {SCAN_CLEANUP_THREADED_ENGINE_UNAVAILABLE} from '@app/platform/browser-api/scanCleanupEngineWorkerName';
 import {toTransferableUint8Array} from '@app/platform/browser-api/toTransferableUint8Array';
 import {getErrorMessage} from '@app/utils/error';
@@ -81,6 +82,7 @@ function transferablesOf(value: unknown, found = new Set<ArrayBuffer>()): Set<Ar
 }
 
 self.addEventListener('message', (event: MessageEvent<unknown>) => {
+    if (handlePrecompiledWasmModuleMessage(event.data)) return;
     const request = parseBrowserScanCleanupWorkerRequest(event.data);
     if (request === null) {
         const id = getBrowserScanCleanupWorkerRequestId(event.data);

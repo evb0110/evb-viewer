@@ -10,7 +10,10 @@ import {
 } from '@evb/scan-cleanup/core/sourceRasterFacts';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 import {loadBrowserPdfjsDocument} from '@app/platform/browser-api/loadBrowserPdfjsDocument';
-import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
+import {
+    evictBrowserPageOpsDocumentCache,
+    runBrowserPageOpsWorkerRequest,
+} from '@app/platform/browser-api/browserPageOpsWorkerClient';
 import type {IBrowserScanCleanupSource} from '@app/platform/browser-api/browserScanCleanupJob';
 
 interface ISourceEntry {
@@ -52,6 +55,7 @@ const INSPECTED_PAGE_FACTS_SCHEMA = v.object({
 async function openSource(ref: string, revision: string, signal: AbortSignal): Promise<IBrowserScanCleanupSource> {
     const token = requireDocumentRevisionToken(revision);
     await browserDocumentStore.assertDocumentRevisionCurrent(ref, token);
+    const source = await browserDocumentStore.readableBlob(ref);
     const data = await browserDocumentStore.read(ref, {maxBytes: BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - REQUEST_HEADER.bytes});
     let pageOpsEngineSha256: string | null = null;
     const inspected = await runBrowserPageOpsWorkerRequest('inspectScanCleanupPdf', {
@@ -59,6 +63,7 @@ async function openSource(ref: string, revision: string, signal: AbortSignal): P
         pages: [],
     }, {
         dedicated: true,
+        transferInput: true,
         signal,
         onEngineIdentity: sha256 => {
             pageOpsEngineSha256 = sha256;
@@ -113,7 +118,7 @@ async function openSource(ref: string, revision: string, signal: AbortSignal): P
         pageOpsEngineSha256,
         rasterFacts: reduceScanCleanupRasterRows(rasterRows),
         annotatedPages,
-        data,
+        source,
         pdf,
     };
 }
@@ -162,6 +167,7 @@ export function borrowBrowserScanCleanupSource(ref: string, revision: string) {
             borrowed.borrowers -= 1;
             if (borrowed.borrowers > 0) return;
             retire(key, borrowed);
+            evictBrowserPageOpsDocumentCache(key);
             borrowed.controller.abort(new DOMException('Scan cleanup source was released.', 'AbortError'));
             void borrowed.promise.then(opened => opened.pdf.loadingTask.destroy()).catch(() => undefined);
         },

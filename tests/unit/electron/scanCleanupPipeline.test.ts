@@ -6518,7 +6518,7 @@ const missingThreadedEngines = [
 if (process.env.EVB_REQUIRE_SCAN_CLEANUP_NATIVE_TESTS === '1' && missingThreadedEngines.length > 0) {
     throw new Error(`Required threaded scan-cleanup WASM prerequisites missing: ${missingThreadedEngines.join(', ')}`);
 }
-const nativeWasmThreadHostUrl = new URL('../../../app/platform/browser-api/nativeWasmThreadHost.ts', import.meta.url).href;
+const nativeWasmThreadHostUrl = new URL('../../../app/platform/browser/nativeWasmThreadHost.ts', import.meta.url).href;
 // Node strips the host module's types itself, so these workers run the file
 // the browser's workers run. One pool thread:
 const NATIVE_WASM_THREAD_SOURCE = `
