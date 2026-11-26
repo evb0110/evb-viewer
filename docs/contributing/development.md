@@ -217,7 +217,7 @@ production renderer build, not the Nuxt dev server. Run one with
 `app/`, rebuild with `pnpm build` first, or the lane tests the old renderer.
 The generated-fixture nightly lanes run the same way: `e2e-large-pdf` (set
 `EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1`) and `e2e-search` (run
-`pnpm run build:pdf-search` first). The exact-fixture lane runs only on a
+`node scripts/build-wasm-tool.mjs pdf-search` first). The exact-fixture lane runs only on a
 machine with the private PDFs staged; set `EVB_EXACT_FIXTURE_PROFILE` to the
 manifest profile and set `EVB_E2E_LARGE_PDF_FIXTURE` to the staged 882-page PDF
 for `localZaliznyak882`. Run `pnpm run test:e2e e2e-exact-pdf` there. The

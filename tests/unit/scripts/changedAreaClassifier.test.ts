@@ -195,7 +195,9 @@ describe('changed-area classifier', () => {
             rust: {matched: false},
             desktop_build: {matched: false},
         });
-        expect(classifyChangedFiles(['native/pdf-search/src/main.rs'])).toMatchObject({
+        expect(classifyChangedFiles(['native/pdf-search/src/lib.rs'])).toMatchObject({
+            browser_integration: {matched: true},
+            electron_smoke: {matched: true},
             rust: {matched: true},
             desktop_build: {matched: true},
         });
@@ -227,7 +229,7 @@ describe('changed-area classifier', () => {
         }});
         expect(classifyChangedFiles(['electron/features/documents/main/documentFileWriteHandlers.ts']))
             .toMatchObject({electron_save_reopen: {matched: true}});
-        expect(classifyChangedFiles(['native/pdf-search/src/main.rs']))
+        expect(classifyChangedFiles(['native/pdf-search/src/lib.rs']))
             .toMatchObject({electron_save_reopen: {matched: false}});
         expect(classifyChangedFiles(['tests/integration/native/nativePdfSave.test.ts']))
             .toMatchObject({desktop_build: {matched: true}});
@@ -277,7 +279,7 @@ describe('changed-area classifier', () => {
         for (const file of [
             'docs/contributing/releasing.md',
             'electron/main.ts',
-            'native/pdf-search/src/main.rs',
+            'native/windows-job-launcher/src/main.rs',
         ]) {
             expect(classifyChangedFiles([file]).browser_integration?.matched, file).toBe(false);
         }
@@ -318,7 +320,7 @@ describe('changed-area classifier', () => {
             'docs/contributing/releasing.md',
             'electron/updater.ts',
             'landing/app/pages/index.vue',
-            'native/pdf-search/src/main.rs',
+            'native/pdf-search/src/lib.rs',
         ]) {
             expect(classifyChangedFiles([file]).scan_cleanup_export?.matched, file).toBe(false);
         }

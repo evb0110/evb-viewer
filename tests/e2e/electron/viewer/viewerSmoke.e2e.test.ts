@@ -102,9 +102,7 @@ import { startTrustedWheelFling } from '@tests/e2e/electron/helpers/startTrusted
 import { delay } from 'es-toolkit/promise';
 import { readElectronWindowMetrics } from '@scripts/electron-run/resizeElectronWindow';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
-import {
-    getNativeToolPathCandidates,resolveNativeToolPath,
-} from '@electron/native-tools/resolveNativeToolPath';
+import { getNativeToolPathCandidates } from '@electron/native-tools/resolveNativeToolPath';
 import { waitForFunctionInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 import { enablePdfDiagnosticSession } from '@tests/e2e/electron/helpers/pdfDiagnosticSession';
 import {
@@ -118,9 +116,41 @@ import { waitForAnimationFrames } from '@tests/e2e/electron/helpers/viewerVirtua
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import { expectWithinTimingBudget } from '@tests/e2e/electron/helpers/timingBudget';
 import { getActiveWorkspaceWorkingCopyPath } from '@tests/e2e/electron/helpers/electronApiHelpers';
+import {
+    encodePdfSearchPagesPayload,
+    SEARCH_INDEX_TEXT_BUDGET,
+    type TSearchIndexInputLine,
+} from '@contracts/searchIndexWire';
+import {
+    createPdfSearchWasmRunner,
+    loadPdfSearchWasmModule,
+} from '@electron/features/search/pdfSearchWasmRunner';
+import { executePdfSearchWorkerCommand } from '@electron/features/search/pdfSearchWorkerOps';
+
+async function writeControlledSearchIndex(
+    indexPath: string,
+    documentRevision: string,
+    pageCount: number,
+    pages: readonly TSearchIndexInputLine[],
+) {
+    const wasmModule = await loadPdfSearchWasmModule();
+    const runner = createPdfSearchWasmRunner(wasmModule);
+    try {
+        return await executePdfSearchWorkerCommand(runner, {
+            op: 'index',
+            indexPath,
+            documentRevision,
+            pageCount,
+            maxPageTextBytes: SEARCH_INDEX_TEXT_BUDGET.maxPageTextBytes,
+            maxTotalTextBytes: SEARCH_INDEX_TEXT_BUDGET.maxTotalTextBytes,
+            pagesBuffer: encodePdfSearchPagesPayload(pages),
+        });
+    } finally {
+        runner.dispose();
+    }
+}
 import {getWorkingCopyDerivedPath} from '@electron/file-access/documentStore';
 import { createCanonicalTextBoxWithPointer } from '@tests/e2e/electron/helpers/viewerAnnotations';
-import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {getDjvuNativeToolPaths} from '@electron/features/djvu/main/nativeToolPaths';
 
 interface IViewerSmokeSnapshot {
@@ -3838,26 +3868,11 @@ describe('Electron E2E - Viewer Smoke', () => {
         const indexPath = getWorkingCopyDerivedPath(await getActiveWorkspaceWorkingCopyPath(session.page), 'search-index');
         const index = await readFile(indexPath);
         const revision = index.subarray(32, 32 + index.readUInt32LE(20)).toString('utf8');
-        const binary = resolveNativeToolPath({
-            binaryName: process.platform === 'win32' ? 'evb-pdf-search.exe' : 'evb-pdf-search',
-            crateName: 'pdf-search',
-            currentDir: process.cwd(),
-            isPackaged: false,
-        });
-        if (!binary) throw new Error('Native PDF search is unavailable');
-        // Controlled extraction drift, using the existing native index boundary.
-        await runNativeToolCommand(binary, [
-            'index',
-            '--out',
-            indexPath,
-            '--document-revision',
-            revision,
-            '--page-count',
-            '1',
-        ], {stdin: (async function* () {yield `${JSON.stringify({
+        // Controlled extraction drift, using the unified WASM index boundary.
+        await writeControlledSearchIndex(indexPath, revision, 1, [{
             pageNumber: 1,
             text: 'X' + lines.join('\n'),
-        })}\n`;})()});
+        }]);
         await search('valve');
         await waitForFunctionInPage(session.page, () => document.querySelectorAll('.editor-pane.is-active .pdf-search-highlight').length >= 500, {timeout: 15_000});
         await session.page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
@@ -4069,34 +4084,19 @@ describe('Electron E2E - Viewer Smoke', () => {
         const indexPath = getWorkingCopyDerivedPath(await getActiveWorkspaceWorkingCopyPath(session.page), 'search-index');
         const index = await readFile(indexPath);
         const revision = index.subarray(32, 32 + index.readUInt32LE(20)).toString('utf8');
-        const binary = resolveNativeToolPath({
-            binaryName: process.platform === 'win32' ? 'evb-pdf-search.exe' : 'evb-pdf-search',
-            crateName: 'pdf-search',
-            currentDir: process.cwd(),
-            isPackaged: false,
-        });
-        if (!binary) throw new Error('Native PDF search is unavailable');
-        // Controlled admission setup: the same native over-budget page marker
+        // Controlled admission setup: the same over-budget page marker
         // exercised by searchNativeErrorMapping, rather than a giant PDF.
-        const partial = await runNativeToolCommand(binary, [
-            'index',
-            '--out',
-            indexPath,
-            '--document-revision',
-            revision,
-            '--page-count',
-            '4',
-        ], {stdin: (async function* () {
-            yield `${JSON.stringify({
+        const partial = await writeControlledSearchIndex(indexPath, revision, 4, [
+            {
                 pageNumber: 1,
                 text: 'Page 1 sample text',
-            })}\n`;
-            yield `${JSON.stringify({
+            },
+            {
                 pageNumber: 2,
                 overBudget: true,
-            })}\n`;
-        })()});
-        await writeFile(join(evidence, 'native-index.json'), partial.stdout);
+            },
+        ]);
+        await writeFile(join(evidence, 'native-index.json'), JSON.stringify(partial));
         const coverageText = 'Only 1 of 4 pages were searched because the text index reached its size limit.';
         for (const query of [
             'sample',

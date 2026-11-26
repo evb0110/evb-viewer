@@ -1,46 +1,39 @@
-import {existsSync} from 'node:fs';
-import {resolve} from 'node:path';
 import {
+    mkdtemp,
+    readdir,
+    rm,
+} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {
+    join,
+    resolve,
+} from 'node:path';
+import {
+    afterAll,
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
+import {
+    encodePdfSearchPagesPayload,
+    SEARCH_INDEX_TEXT_BUDGET,
+    type ISearchIndexCoverage,
+    type ISearchIndexResponse,
+} from '@contracts/searchIndexWire';
+import {
+    createPdfSearchWasmRunner,
+    loadPdfSearchWasmModule,
+} from '@electron/features/search/pdfSearchWasmRunner';
+import {executePdfSearchWorkerCommand} from '@electron/features/search/pdfSearchWorkerOps';
+import {
+    runPdfSearchWorkerCommand,
+    shutdownPdfSearchWorkers,
+} from '@electron/features/search/pdfSearchWorkerClient';
 import {streamPdfPageTexts} from '@electron/features/search/pdfPageTexts';
 import * as workerTasks from '@electron/utils/workerTask';
 import {findPdfSearchMatches} from '@pdf-core/pdfSearchAlgorithms';
-import {encodeSearchIndexInputLine} from '@contracts/searchIndexWire';
-import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {mainJobBroker} from '@electron/resources/jobBroker';
-
-function resolvePdfSearchPath() {
-    const path = resolve(
-        '.tmp',
-        'pdf-search',
-        `${process.platform}-${process.arch}`,
-        'bin',
-        `evb-pdf-search${process.platform === 'win32' ? '.exe' : ''}`,
-    );
-    if (!existsSync(path)) {
-        throw new Error(`${path} is missing; build it with pnpm run build:pdf-search`);
-    }
-    return path;
-}
-
-function searchWrittenPagesArgs(query: string) {
-    return [
-        'search',
-        '--pages-from-stdin',
-        '--document-revision',
-        'revision',
-        '--query',
-        query,
-        '--limit',
-        '500',
-        '--context',
-        '8',
-    ];
-}
 
 /** Every broker admission slot is free: no native command leases remain active or queued. */
 function expectNativeCommandSlotsFree() {
@@ -50,7 +43,11 @@ function expectNativeCommandSlotsFree() {
     });
 }
 
-describe('evb-pdf-search over written pages', () => {
+afterAll(() => {
+    shutdownPdfSearchWorkers();
+});
+
+describe('evb-pdf-search.wasm unified desktop worker', () => {
     it('matches a leading-space literal across blank layout space and multibyte text across a line break', async () => {
         const blank = ' '.repeat(256 * 1024);
         const pages = [
@@ -63,12 +60,17 @@ describe('evb-pdf-search over written pages', () => {
                 text: '\u{1D538} naïve café\nrésumé',
             },
         ];
-        const search = async (query: string) => JSON.parse((await runNativeToolCommand(resolvePdfSearchPath(), searchWrittenPagesArgs(query), {
-            commandLabel: 'evb-pdf-search(provisional search)',
-            stdin: (async function* () {
-                for (const page of pages) yield encodeSearchIndexInputLine(page);
-            })(),
-        })).stdout) as {results: Array<Record<string, unknown>>};
+        const search = async (query: string) => await runPdfSearchWorkerCommand({
+            op: 'searchPages',
+            documentRevision: 'revision',
+            query,
+            limit: 500,
+            contextChars: 8,
+            matchCase: false,
+            wholeWord: false,
+            useRegex: false,
+            pagesBuffer: encodePdfSearchPagesPayload(pages),
+        }) as ISearchIndexResponse;
 
         expect((await search(' needle')).results).toEqual([expect.objectContaining({
             pageNumber: 1,
@@ -87,66 +89,226 @@ describe('evb-pdf-search over written pages', () => {
         expectNativeCommandSlotsFree();
     });
 
-    it('ends the child and frees its command slot when a search is canceled mid-stream', async () => {
-        const controller = new AbortController();
-        const cancelReason = new Error('Search canceled');
-        const spawned = Promise.withResolvers<number>();
-        const firstPageSent = Promise.withResolvers<undefined>();
-        const releaseStdin = Promise.withResolvers<undefined>();
-        const closed = Promise.withResolvers<undefined>();
-        const search = runNativeToolCommand(resolvePdfSearchPath(), searchWrittenPagesArgs('needle'), {
-            commandLabel: 'evb-pdf-search(provisional search)',
-            signal: controller.signal,
-            onSpawn: pid => spawned.resolve(pid),
-            onClose: () => {
-                closed.resolve(undefined);
-            },
-            stdin: (async function* () {
-                yield encodeSearchIndexInputLine({
-                    pageNumber: 1,
-                    text: 'a needle',
-                });
-                firstPageSent.resolve(undefined);
-                // Keep stdin open past abort and child exit to verify cancellation does not wait on EOF.
-                await releaseStdin.promise;
-            })(),
-        });
-        const earlyFailure = search.then(
-            () => Promise.reject(new Error('Provisional search succeeded unexpectedly before cancellation')),
-            (error: unknown) => Promise.reject(error),
-        );
+    it('builds an EVBSIDX4 index in memory with no temp input files, supports full query modes, and detects stale revisions', async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'evb-pdf-search-wasm-'));
+        const indexPath = join(directory, 'doc.evb-search-index');
         try {
-            const pid = await Promise.race([
-                spawned.promise,
-                earlyFailure,
+            const pagesBuffer = encodePdfSearchPagesPayload([
+                {
+                    pageNumber: 1,
+                    text: 'Café naïve résumé\nneedle Needle',
+                },
+                {
+                    pageNumber: 2,
+                    text: 'Whole word: cat caterpillar cat',
+                },
             ]);
-            await Promise.race([
-                firstPageSent.promise,
-                earlyFailure,
-            ]);
-            controller.abort(cancelReason);
+            const coverage = await runPdfSearchWorkerCommand({
+                op: 'index',
+                indexPath,
+                documentRevision: 'rev-1',
+                pageCount: 2,
+                maxPageTextBytes: SEARCH_INDEX_TEXT_BUDGET.maxPageTextBytes,
+                maxTotalTextBytes: SEARCH_INDEX_TEXT_BUDGET.maxTotalTextBytes,
+                pagesBuffer,
+            }) as ISearchIndexCoverage;
 
-            await expect(search).rejects.toBe(cancelReason);
-            await closed.promise;
-            expect(() => process.kill(pid, 0)).toThrow();
-            expectNativeCommandSlotsFree();
+            expect(coverage).toEqual({
+                pageCount: 2,
+                pagesScanned: 2,
+                pagesWritten: 2,
+                truncated: false,
+                missingTextPageSample: [],
+            });
+            // Only the atomic final index file exists — no leftover temp or .input files.
+            expect(await readdir(directory)).toEqual(['doc.evb-search-index']);
+
+            const stat = await runPdfSearchWorkerCommand({
+                op: 'stat',
+                indexPath,
+                documentRevision: 'rev-1',
+            }) as ISearchIndexCoverage;
+            expect(stat).toEqual(coverage);
+
+            const exact = await runPdfSearchWorkerCommand({
+                op: 'search',
+                indexPath,
+                documentRevision: 'rev-1',
+                query: 'Needle',
+                limit: 50,
+                contextChars: 12,
+                matchCase: true,
+                wholeWord: false,
+                useRegex: false,
+            }) as ISearchIndexResponse;
+            expect(exact.results).toHaveLength(1);
+            expect(exact.results[0]).toMatchObject({
+                pageNumber: 1,
+                excerpt: expect.objectContaining({match: 'Needle'}),
+            });
+
+            const wholeWord = await runPdfSearchWorkerCommand({
+                op: 'search',
+                indexPath,
+                documentRevision: 'rev-1',
+                query: 'cat',
+                limit: 50,
+                contextChars: 12,
+                matchCase: false,
+                wholeWord: true,
+                useRegex: false,
+            }) as ISearchIndexResponse;
+            expect(wholeWord.results).toHaveLength(2);
+            expect(wholeWord.results.map(hit => hit.pageNumber)).toEqual([
+                2,
+                2,
+            ]);
+
+            const regexUnicodeNormalized = await runPdfSearchWorkerCommand({
+                op: 'search',
+                indexPath,
+                documentRevision: 'rev-1',
+                query: 'cafe\u0301\\s+nai\u0308ve',
+                limit: 50,
+                contextChars: 12,
+                matchCase: false,
+                wholeWord: false,
+                useRegex: true,
+            }) as ISearchIndexResponse;
+            expect(regexUnicodeNormalized.results).toHaveLength(1);
+            expect(regexUnicodeNormalized.results[0]).toMatchObject({
+                pageNumber: 1,
+                excerpt: expect.objectContaining({match: 'Café naïve'}),
+            });
+
+            const stale = await runPdfSearchWorkerCommand({
+                op: 'stat',
+                indexPath,
+                documentRevision: 'rev-2',
+            });
+            expect(stale).toEqual({stale: true});
         } finally {
-            releaseStdin.resolve(undefined);
+            await rm(directory, {
+                recursive: true,
+                force: true,
+            });
         }
     });
 
-    it('refuses a page cut off mid-line when its input closes, and frees its command slot', async () => {
-        const line = encodeSearchIndexInputLine({
+    it('cancels an aborted search without wedging the warm worker pool', async () => {
+        const controller = new AbortController();
+        const cancelReason = new Error('Search canceled');
+        controller.abort(cancelReason);
+
+        await expect(runPdfSearchWorkerCommand({
+            op: 'searchPages',
+            documentRevision: 'revision',
+            query: 'needle',
+            limit: 500,
+            contextChars: 8,
+            matchCase: false,
+            wholeWord: false,
+            useRegex: false,
+            pagesBuffer: encodePdfSearchPagesPayload([{
+                pageNumber: 1,
+                text: 'a needle',
+            }]),
+        }, controller.signal)).rejects.toBe(cancelReason);
+
+        const followUp = await runPdfSearchWorkerCommand({
+            op: 'searchPages',
+            documentRevision: 'revision',
+            query: 'needle',
+            limit: 500,
+            contextChars: 8,
+            matchCase: false,
+            wholeWord: false,
+            useRegex: false,
+            pagesBuffer: encodePdfSearchPagesPayload([{
+                pageNumber: 1,
+                text: 'a needle',
+            }]),
+        }) as ISearchIndexResponse;
+        expect(followUp.results).toHaveLength(1);
+        expectNativeCommandSlotsFree();
+    });
+
+    it('refuses a truncated binary page record and keeps the warm worker reusable', async () => {
+        const encoded = encodePdfSearchPagesPayload([{
             pageNumber: 1,
             text: 'a needle',
-        });
-        await expect(runNativeToolCommand(resolvePdfSearchPath(), searchWrittenPagesArgs('needle'), {
-            commandLabel: 'evb-pdf-search(provisional search)',
-            stdin: (async function* () {
-                yield line.slice(0, line.length / 2);
-            })(),
+        }]);
+        await expect(runPdfSearchWorkerCommand({
+            op: 'searchPages',
+            documentRevision: 'revision',
+            query: 'needle',
+            limit: 500,
+            contextChars: 8,
+            matchCase: false,
+            wholeWord: false,
+            useRegex: false,
+            pagesBuffer: encoded.subarray(0, Math.floor(encoded.byteLength / 2)),
         })).rejects.toThrow(/Invalid search index input page/u);
+
+        const recovered = await runPdfSearchWorkerCommand({
+            op: 'searchPages',
+            documentRevision: 'revision',
+            query: 'needle',
+            limit: 500,
+            contextChars: 8,
+            matchCase: false,
+            wholeWord: false,
+            useRegex: false,
+            pagesBuffer: encoded,
+        }) as ISearchIndexResponse;
+        expect(recovered.results).toHaveLength(1);
         expectNativeCommandSlotsFree();
+    });
+
+    it('reclaims WASM linear memory after crossing its high-water bound and keeps serving queries', async () => {
+        const wasmModule = await loadPdfSearchWasmModule();
+        // Set a small 2 MiB high-water threshold so a single large index request triggers instance recycling.
+        const runner = createPdfSearchWasmRunner(wasmModule, {highWaterBytes: 2 * 1024 * 1024});
+        const directory = await mkdtemp(join(tmpdir(), 'evb-pdf-search-highwater-'));
+        const indexPath = join(directory, 'large.evb-search-index');
+        try {
+            const largeText = `${'alpha beta gamma delta '.repeat(60_000)}unique-marker`;
+            const coverage = await executePdfSearchWorkerCommand(runner, {
+                op: 'index',
+                indexPath,
+                documentRevision: 'large-rev',
+                pageCount: 1,
+                maxPageTextBytes: SEARCH_INDEX_TEXT_BUDGET.maxPageTextBytes,
+                maxTotalTextBytes: SEARCH_INDEX_TEXT_BUDGET.maxTotalTextBytes,
+                pagesBuffer: encodePdfSearchPagesPayload([{
+                    pageNumber: 1,
+                    text: largeText,
+                }]),
+            }) as ISearchIndexCoverage;
+            expect(coverage.pagesWritten).toBe(1);
+            // Instance was reclaimed immediately after the large call exceeded highWaterBytes.
+            expect(runner.memoryBytes()).toBe(0);
+
+            const found = await executePdfSearchWorkerCommand(runner, {
+                op: 'search',
+                indexPath,
+                documentRevision: 'large-rev',
+                query: 'unique-marker',
+                limit: 10,
+                contextChars: 12,
+                matchCase: false,
+                wholeWord: false,
+                useRegex: false,
+            }) as ISearchIndexResponse;
+            expect(found.results).toHaveLength(1);
+            expect(found.results[0]?.excerpt.match).toBe('unique-marker');
+        } finally {
+            runner.dispose();
+            await rm(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
     });
 });
 

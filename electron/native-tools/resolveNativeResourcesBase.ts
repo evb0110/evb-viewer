@@ -8,7 +8,6 @@ const DEFAULT_NATIVE_RESOURCE_ROOTS = [
     'djvulibre',
     'pdf-image-combine',
     'pdf-page-ops',
-    'pdf-search',
     'scan-cleanup',
 ] as const;
 

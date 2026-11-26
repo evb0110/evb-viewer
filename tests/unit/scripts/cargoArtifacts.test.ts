@@ -395,7 +395,6 @@ describe('Cargo artifact staging', () => {
     });
 
     it.each([
-        'pdf-search',
         'scan-cleanup',
         'pdf-image-combine',
     ] as const)('applies static CRT only to the %s release binary, not its proc-macro dependencies', (toolId) => {
@@ -443,12 +442,12 @@ describe('Cargo artifact staging', () => {
                 arch: 'x64',
                 platform: 'linux',
             }),
-            tool: getGeneratedNativeToolResource('pdf-search'),
+            tool: getGeneratedNativeToolResource('scan-cleanup'),
         });
         expect(plan.cargoArgs).toEqual([
             'build',
             '--manifest-path',
-            'native/pdf-search/Cargo.toml',
+            'native/scan-cleanup/Cargo.toml',
             '--release',
             '--locked',
             '--target',
@@ -458,7 +457,7 @@ describe('Cargo artifact staging', () => {
             fileName: plan.binaryName,
             rustTarget: plan.rustTarget,
             targetDirectory: '/checkout/native/target',
-        })).toBe(path.join('/checkout/native/target', 'x86_64-unknown-linux-gnu', 'release', 'evb-pdf-search'));
+        })).toBe(path.join('/checkout/native/target', 'x86_64-unknown-linux-gnu', 'release', 'evb-scan-cleanup'));
     });
 
     it('keeps the PDF metadata host dynamically linked for qpdf exception recovery', () => {
@@ -647,7 +646,6 @@ describe('Cargo artifact staging', () => {
         for (const toolId of [
             'pdf-image-combine',
             'pdf-page-ops',
-            'pdf-search',
             'scan-cleanup',
         ]) {
             const tool = getGeneratedNativeToolResource(toolId);
@@ -678,19 +676,19 @@ describe('Cargo artifact staging', () => {
             expect(plan.rustTarget).toBe('aarch64-pc-windows-msvc');
         }
 
-        for (const toolId of [
+        for (const crateName of [
             'pdf-image-combine',
             'pdf-page-ops',
+            'pdf-search',
             'scan-cleanup',
         ]) {
-            const tool = getGeneratedNativeToolResource(toolId);
-            for (const artifact of getWasmArtifactsByCrateName(tool.crateName)) {
+            for (const artifact of getWasmArtifactsByCrateName(crateName)) {
                 const plan = createWasmToolBuildPlan({
                     artifact,
                     env: {RUSTFLAGS: '--cfg existing'},
                     projectRoot: '/repo',
                 });
-                expect(plan.manifestPath).toBe(`native/${tool.crateName}/Cargo.toml`);
+                expect(plan.manifestPath).toBe(`native/${crateName}/Cargo.toml`);
                 expect(plan.destinationPath).toBe(path.join('/repo', artifact.publicRelativePath));
                 expect(plan.requiredExports).toBe(artifact.requiredExports);
                 expect(plan.rustflags).toContain('--remap-path-prefix=/repo=/evb-viewer');
@@ -710,8 +708,17 @@ describe('Cargo artifact staging', () => {
                 'wasm32-wasip1-threads',
             ],
         ]);
-        expect(() => getWasmArtifactsByCrateName('pdf-search')).toThrow(
-            'Unknown WASM artifact crate: pdf-search',
+        expect(getWasmArtifactsByCrateName('pdf-search').map(artifact => [
+            artifact.publicRelativePath,
+            artifact.rustTarget,
+        ])).toEqual([
+            [
+                'public/wasm/evb-pdf-search.wasm',
+                'wasm32-unknown-unknown',
+            ],
+        ]);
+        expect(() => getWasmArtifactsByCrateName('not-a-crate')).toThrow(
+            'Unknown WASM artifact crate: not-a-crate',
         );
     });
 });

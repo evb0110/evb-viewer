@@ -114,7 +114,7 @@ function decodeSearchWorkerResult<K extends TBrowserSearchWorkerRequestType>(
     data: unknown,
 ): IBrowserSearchWorkerResultMap[K] | null {
     const result = v.safeParse(BROWSER_SEARCH_WORKER_RESULT_SCHEMAS[type], data, {abortEarly: true});
-    return result.success ? result.output : null;
+    return result.success ? result.output as IBrowserSearchWorkerResultMap[K] : null;
 }
 
 function settleSearchWorkerResponse(
@@ -251,7 +251,18 @@ export function createBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerR
             }, () => reportWorkerFailure(new BrowserSearchWorkerTimeoutError('Browser search worker request timed out')));
 
             try {
-                worker.postMessage(request);
+                const transfer: Transferable[] = [];
+                if (type === 'index') {
+                    const {pagesBuffer} = payload as IBrowserSearchWorkerRequestMap['index'];
+                    if (
+                        pagesBuffer.buffer instanceof ArrayBuffer
+                        && pagesBuffer.byteOffset === 0
+                        && pagesBuffer.byteLength === pagesBuffer.buffer.byteLength
+                    ) {
+                        transfer.push(pagesBuffer.buffer);
+                    }
+                }
+                worker.postMessage(request, transfer);
             } catch (error) {
                 client.cancelPendingRequest(
                     request.id,

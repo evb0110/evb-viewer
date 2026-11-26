@@ -1,5 +1,5 @@
 /**
- * @typedef {'pdf-text' | 'image-export-tiff' | 'djvu-pdf' | 'ocr-engine-host' | 'ocr-engine'} TWorkerBundleId
+ * @typedef {'pdf-search' | 'pdf-text' | 'image-export-tiff' | 'djvu-pdf' | 'ocr-engine-host' | 'ocr-engine'} TWorkerBundleId
  */
 
 /**
@@ -14,6 +14,13 @@
 
 /** @type {readonly IWorkerBundleEntry[]} */
 export const WORKER_BUNDLES = [
+    {
+        id: 'pdf-search',
+        entryPoint: 'electron/features/search/pdfSearchWorker.ts',
+        fileName: 'pdf-search-worker.js',
+        format: 'esm',
+        unpacked: true,
+    },
     {
         id: 'pdf-text',
         entryPoint: 'electron/features/search/pdfTextWorker.ts',
