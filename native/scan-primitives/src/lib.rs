@@ -1,5 +1,6 @@
 //! Deterministic image and geometry primitives for scanned-page cleanup.
 
+pub mod background;
 pub mod binary;
 pub mod blur;
 pub mod components;
@@ -8,6 +9,7 @@ pub mod geometry;
 pub mod gray;
 pub mod morphology;
 pub mod rgb;
+pub mod source_raster;
 pub mod threshold;
 
 pub use binary::BinaryImage;

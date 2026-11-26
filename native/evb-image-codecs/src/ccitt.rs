@@ -27,7 +27,7 @@ fn padded(bytes: impl Iterator<Item = io::Result<u8>>) -> impl Iterator<Item = i
 }
 
 /// Decodes `rows` Group 4 rows into `bitmap`, `row_stride` bytes per row.
-pub(crate) fn decode_g4_rows(
+pub fn decode_g4_rows(
     bytes: impl Iterator<Item = io::Result<u8>>,
     width: u32,
     row_stride: usize,
@@ -50,7 +50,7 @@ pub(crate) fn decode_g4_rows(
 /// Decodes `rows` Group 3 rows into `bitmap`. With `two_dimensional`, each
 /// row's EOL is followed by a tag bit that selects one-dimensional (1) or
 /// two-dimensional (0) coding against the previous row.
-pub(crate) fn decode_g3_rows(
+pub fn decode_g3_rows(
     bytes: impl Iterator<Item = io::Result<u8>>,
     width: u32,
     two_dimensional: bool,
@@ -81,7 +81,7 @@ pub(crate) fn decode_g3_rows(
 
 /// Decodes Modified Huffman rows (TIFF Compression 2): one-dimensional Group
 /// 3 rows without EOL codes, each starting on a byte boundary.
-pub(crate) fn decode_modified_huffman_rows(
+pub fn decode_modified_huffman_rows(
     bytes: impl Iterator<Item = io::Result<u8>>,
     width: u32,
     row_stride: usize,

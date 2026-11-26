@@ -560,12 +560,12 @@ fn recompress_image(
         1.0
     };
     let target = |size: u32| ((size as f64 * scale).ceil() as u32).clamp(1, size);
-    let recompressed = evb_pdf_image_combine::recompress_jpeg(
+    let recompressed = evb_image_codecs::recompress_jpeg(
         &source.bytes,
         target(width),
         target(height),
         instructions.quality,
-        evb_pdf_image_combine::DEFAULT_MAX_IMAGE_PIXELS,
+        evb_image_codecs::DEFAULT_MAX_IMAGE_PIXELS,
     );
     // A gray color space over a color JPEG is read differently by viewers;
     // such an image keeps its bytes.

@@ -518,19 +518,23 @@ pub(crate) fn render_page(
         None
     };
     let mut outputs = Vec::with_capacity(regions.len());
-    let [preserved, rejected] =
-        [faint_core.as_deref(), faint_stroke_masks[1].as_deref()].map(|mask| {
-            mask.map(|mask| crate::io::png::encode_gray(&binary_to_gray(mask)))
-                .transpose()
-        });
-    let encoded_faint_strokes = [preserved?, rejected?];
-    for (((region, half), canonical_routing_input), canonical_leaf_source) in regions
-        .into_iter()
-        .zip(canonical_routing_inputs.iter())
-        .zip(canonical_leaf_sources.iter())
-    {
+    let encoded_faint_strokes = if render_policy.encode_faint_stroke_masks {
+        let [preserved, rejected] =
+            [faint_core.as_deref(), faint_stroke_masks[1].as_deref()].map(|mask| {
+                mask.map(|mask| crate::io::png::encode_gray(&binary_to_gray(mask)))
+                    .transpose()
+            });
+        [preserved?, rejected?]
+    } else {
+        [None, None]
+    };
+    let render_half = |region: Rect,
+                       half: PageHalf,
+                       canonical_routing_input,
+                       canonical_leaf_source: &GrayImage,
+                       half_timings: &mut PageStageTimings| {
         let spread_plan = spread_plans.as_ref().map(|plans| plans.for_half(half));
-        let mut output = run(region_rendering::Input {
+        run(region_rendering::Input {
             source,
             routing_source: rotated_source.as_deref().unwrap_or(&normalized),
             normalized: &normalized,
@@ -569,12 +573,62 @@ pub(crate) fn render_page(
             create_mixed_layers: render_policy.create_mixed_layers,
             create_mixed_composite: render_policy.create_mixed_composite,
             render_policy,
-            timings,
+            timings: half_timings,
         })
-        .map(map_region_semantic_output)?;
-        output.metadata.faint_stroke_masks = encoded_faint_strokes.clone();
-        outputs.push(output);
+        .map(map_region_semantic_output)
+    };
+    if regions.len() == 2 {
+        let mut iter = regions.into_iter();
+        let (left_region, left_half) = iter.next().expect("two-region spread has left half");
+        let (right_region, right_half) = iter.next().expect("two-region spread has right half");
+        let mut left_timings = PageStageTimings::default();
+        let mut right_timings = PageStageTimings::default();
+        let (left_result, right_result) = rayon::join(
+            || {
+                render_half(
+                    left_region,
+                    left_half,
+                    &canonical_routing_inputs[0],
+                    &canonical_leaf_sources[0],
+                    &mut left_timings,
+                )
+            },
+            || {
+                render_half(
+                    right_region,
+                    right_half,
+                    &canonical_routing_inputs[1],
+                    &canonical_leaf_sources[1],
+                    &mut right_timings,
+                )
+            },
+        );
+        *timings += left_timings;
+        *timings += right_timings;
+        let mut left = left_result?;
+        let mut right = right_result?;
+        left.metadata.faint_stroke_masks = encoded_faint_strokes.clone();
+        right.metadata.faint_stroke_masks = encoded_faint_strokes;
+        outputs.push(left);
+        outputs.push(right);
         render_policy.check_canceled()?;
+    } else {
+        for (((region, half), canonical_routing_input), canonical_leaf_source) in regions
+            .into_iter()
+            .zip(canonical_routing_inputs.iter())
+            .zip(canonical_leaf_sources.iter())
+        {
+            let mut output = render_half(
+                region,
+                half,
+                canonical_routing_input,
+                canonical_leaf_source,
+                timings,
+            )?;
+            output.metadata.faint_stroke_masks = encoded_faint_strokes.clone();
+            outputs.push(output);
+            render_policy.check_canceled()?;
+        }
     }
     let before_blank_filter = outputs.len();
     if options.skip_blank_pages && options.render_crop.is_none() {

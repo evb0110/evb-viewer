@@ -700,7 +700,10 @@ mod tests {
     use serde_json::Value;
     use std::{fs, path::Path};
 
-    const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/source-raster");
+    const FIXTURES: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../scan-cleanup/tests/fixtures/source-raster"
+    );
 
     fn numbers(value: &Value) -> Vec<f64> {
         value

@@ -19,7 +19,7 @@ default = ["wasm-exports"]
 wasm-exports = []
 
 [dependencies]
-evb-scan-cleanup = { version = "0.1.0", path = "../scan-cleanup", default-features = false }
+evb-image-codecs = { version = "0.1.0", path = "../evb-image-codecs" }
 scan-primitives = { version = "0.1.0", path = "../scan-primitives" }
 evb-native-support = { version = "0.1.0", path = "../evb-native-support" }
 evb-raster-io = { version = "0.1.0", path = "../evb-raster-io" }
@@ -36,9 +36,7 @@ zune-jpeg = "0.5.15"
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 rayon = { workspace = true }
 
-[build-dependencies]
-serde_json = "1.0"
-sha2 = "0.11"
-
 [dev-dependencies]
 crc32fast = "1.5.2"
+gif = { version = "0.13", default-features = false, features = ["std"] }
+image-webp = "0.2"

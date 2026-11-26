@@ -205,7 +205,7 @@ impl LineStrokeBudget {
     fn from_binary(
         source: &BinaryImage,
         dpi: f64,
-    ) -> Option<(Self, Vec<InitialStrokeBudgetOffender>)> {
+    ) -> Option<(Self, Vec<InitialStrokeBudgetOffender>, ComponentMap)> {
         if source.width() == 0 || source.height() == 0 {
             return None;
         }
@@ -324,6 +324,7 @@ impl LineStrokeBudget {
                 lines,
             },
             offenders,
+            map,
         ))
     }
 
@@ -679,7 +680,7 @@ fn establish_line_stroke_budget(
     Option<LineStrokeBudget>,
     LineStrokeBudgetInterventions,
 ) {
-    let Some((budget, offenders)) = LineStrokeBudget::from_binary(source, dpi) else {
+    let Some((budget, offenders, initial_map)) = LineStrokeBudget::from_binary(source, dpi) else {
         let interventions = LineStrokeBudgetInterventions {
             raster_width: source.width(),
             raster_height: source.height(),
@@ -687,7 +688,6 @@ fn establish_line_stroke_budget(
         };
         return (source.clone(), None, interventions);
     };
-    let initial_map = ComponentMap::from_binary(source);
     let mut normalized = source.clone();
     let mut interventions = LineStrokeBudgetInterventions {
         raster_width: source.width(),
@@ -733,7 +733,8 @@ fn establish_line_stroke_budget(
 }
 
 fn line_stroke_budget_has_offenders(source: &BinaryImage, dpi: f64) -> bool {
-    LineStrokeBudget::from_binary(source, dpi).is_some_and(|(_, offenders)| !offenders.is_empty())
+    LineStrokeBudget::from_binary(source, dpi)
+        .is_some_and(|(_, offenders, _)| !offenders.is_empty())
 }
 
 fn inactive_line_stroke_budget_interventions(
@@ -994,7 +995,7 @@ fn cap_added_ink_to_stroke_budget(
         return candidate.clone();
     }
     let stage_budget =
-        LineStrokeBudget::from_binary(candidate, budget.dpi).map(|(budget, _)| budget);
+        LineStrokeBudget::from_binary(candidate, budget.dpi).map(|(budget, _, _)| budget);
     let comparison_budget = stage_budget.as_ref().unwrap_or(budget);
     let map = ComponentMap::from_binary(candidate);
     let mut output = candidate.clone();
@@ -2645,7 +2646,7 @@ pub(crate) fn rescue_component_scoped_faint_strokes(
     spread_fallback: bool,
 ) -> BinaryImage {
     let mut interventions = LineStrokeBudgetInterventions::default();
-    let budget = LineStrokeBudget::from_binary(damaged, dpi).map(|(budget, _)| budget);
+    let budget = LineStrokeBudget::from_binary(damaged, dpi).map(|(budget, _, _)| budget);
     rescue_component_scoped_faint_strokes_budgeted(
         damaged,
         raw,
@@ -4170,7 +4171,7 @@ mod tests {
             (&[4, 4, 4, 4, 4, 4, 4, 8], 8),
         ] {
             let base = solid_component_line(widths);
-            let (budget, _) = LineStrokeBudget::from_binary(&base, 300.0).unwrap();
+            let (budget, _, _) = LineStrokeBudget::from_binary(&base, 300.0).unwrap();
             let left = 10 + 7 * 28;
             let mut candidate = base.clone();
             for y in 14..34 {
@@ -5133,7 +5134,7 @@ mod tests {
             &mut expected_interventions,
         );
 
-        let (_, expected_offenders) = LineStrokeBudget::from_binary(&expected, options.dpi)
+        let (_, expected_offenders, _) = LineStrokeBudget::from_binary(&expected, options.dpi)
             .expect("niqqud fixture must have eligible lines");
         assert!(expected_offenders.is_empty());
         let (actual, _, _) = finish_thresholded_with_line_budget(

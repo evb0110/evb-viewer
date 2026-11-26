@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Builds the libjpeg-turbo decoder the browser engines link for PDF DCT
 # images: libjpeg-turbo's 8-bit decompressor and the adapter
-# native/pdf-image-combine/src/jpeg_wasm/evb_jpeg.c, compiled for wasm32 into
-# one static archive. pdf-image-combine's build script links it when the
+# native/evb-image-codecs/src/jpeg_wasm/evb_jpeg.c, compiled for wasm32 into
+# one static archive. evb-image-codecs's build script links it when the
 # target is wasm32; native builds keep their Rust decoder and need no C.
 #
-# Output: native/pdf-image-combine/src/jpeg_wasm/libevb_jpeg.a and SOURCE.json.
+# Output: native/evb-image-codecs/src/jpeg_wasm/libevb_jpeg.a and SOURCE.json.
 # Needs wasi-sdk $WASI_SDK_VERSION for this host at $WASI_SDK
 # (https://github.com/WebAssembly/wasi-sdk/releases/tag/wasi-sdk-27).
 # Rebuilding from the same inputs gives the same archive bytes.
@@ -16,7 +16,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 WASI_SDK_VERSION="27.0"
 LIBJPEG_TURBO_VERSION="3.1.2"
 LIBJPEG_TURBO_SHA256="8f0012234b464ce50890c490f18194f913a7b1f4e6a03d6644179fa0f867d0cf"
-OUT_DIR="$PROJECT_ROOT/native/pdf-image-combine/src/jpeg_wasm"
+OUT_DIR="$PROJECT_ROOT/native/evb-image-codecs/src/jpeg_wasm"
 TMP_ROOT="${TMPDIR:-$PROJECT_ROOT/.devkit/tmp}"
 mkdir -p "$TMP_ROOT"
 BUILD_DIR="$(mktemp -d "$TMP_ROOT/libjpeg-wasm32-XXXXXX")"
@@ -53,10 +53,10 @@ for unit in jdcoefct jddctmgr jdmerge jidctflt jidctfst jidctint jidctred jquant
   sources+=("wrapper/$unit-8.c" "wrapper/$unit-12.c")
 done
 
-# libjpeg's allocations go through the adapter's allocator. No SIMD, no
-# exceptions, no stack protector: the module stays import-free.
+# libjpeg's allocations go through the adapter's allocator. SIMD128 enabled,
+# no exceptions, no stack protector: the module stays import-free.
 flags=(
-  --target=wasm32-wasi -O3 -DNDEBUG -DNO_GETENV -mno-simd128
+  --target=wasm32-wasi -O3 -DNDEBUG -DNO_GETENV -msimd128
   -ffunction-sections -fdata-sections -fno-stack-protector
   -Dmalloc=evb_jpeg_malloc -Dfree=evb_jpeg_free
   "-ffile-prefix-map=$BUILD_DIR=/build" "-ffile-prefix-map=$PROJECT_ROOT=/project"

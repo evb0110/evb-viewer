@@ -104,6 +104,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "byteorder-lite"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f1fe948ff07f4bd06c30984e69f5b4899c516a3ef74f34df92a2df2ab535495"
+
+[[package]]
 name = "cbc"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -262,6 +268,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
+name = "evb-image-codecs"
+version = "0.1.0"
+dependencies = [
+ "evb-native-support",
+ "fax 0.3.0",
+ "gif",
+ "hayro-jpeg2000",
+ "image-webp",
+ "jbig2-codec",
+ "jpeg-encoder",
+ "serde_json",
+ "sha2",
+ "zune-jpeg",
+]
+
+[[package]]
 name = "evb-native-support"
 version = "0.1.0"
 dependencies = [
@@ -277,19 +299,20 @@ name = "evb-pdf-image-combine"
 version = "0.1.0"
 dependencies = [
  "crc32fast",
+ "evb-image-codecs",
  "evb-native-support",
  "evb-raster-io",
- "evb-scan-cleanup",
  "fax 0.3.0",
  "flate2",
+ "gif",
  "hayro-jpeg2000",
+ "image-webp",
  "jbig2-codec",
  "jpeg-encoder",
  "rayon",
  "scan-primitives",
  "serde",
  "serde_json",
- "sha2",
  "tiff",
  "zune-jpeg",
 ]
@@ -299,15 +322,15 @@ name = "evb-pdf-page-ops"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "evb-image-codecs",
  "evb-native-support",
- "evb-pdf-image-combine",
- "evb-scan-cleanup",
  "getrandom",
  "harfrust",
  "jpeg-encoder",
  "libc",
  "lopdf",
  "png",
+ "scan-primitives",
  "serde",
  "serde_json",
  "sha2",
@@ -424,6 +447,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "gif"
+version = "0.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ae047235e33e2829703574b54fdec96bfbad892062d97fed2f76022287de61b"
+dependencies = [
+ "weezl 0.1.12",
+]
+
+[[package]]
 name = "half"
 version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -466,6 +498,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "27f864f10dfb56725ce5ce5472bc52252c8f93a4ab86327122cebf62c5f59a17"
 dependencies = [
  "typenum",
+]
+
+[[package]]
+name = "image-webp"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "525e9ff3e1a4be2fbea1fdf0e98686a6d98b4d8f937e1bf7402245af1909e8c3"
+dependencies = [
+ "byteorder-lite",
+ "quick-error",
 ]
 
 [[package]]
@@ -747,6 +789,7 @@ version = "0.1.0"
 dependencies = [
  "rayon",
  "serde",
+ "serde_json",
  "ts-rs",
 ]
 
