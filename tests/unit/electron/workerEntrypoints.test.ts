@@ -30,10 +30,6 @@ vi.mock('worker_threads', () => ({
 }));
 const entrypoints = [
     [
-        () => import('@electron/features/djvu/main/pdfWorker'),
-        'Invalid DjVu PDF worker payload',
-    ],
-    [
         () => import('@electron/features/image-export/main/tiffCombineWorker'),
         'Invalid TIFF combine worker payload',
     ],
@@ -68,9 +64,6 @@ describe('Node worker entrypoints', () => {
             ok: false,
             error,
         })]));
-        expect(cancellationListeners).toEqual([
-            true,
-            true,
-        ]);
+        expect(cancellationListeners).toEqual([true]);
     });
 });

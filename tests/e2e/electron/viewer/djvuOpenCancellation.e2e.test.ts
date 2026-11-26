@@ -113,7 +113,11 @@ describe('Electron E2E - DjVu Open Cancellation', () => {
     }, 120_000);
 
     it('cancels an opening DjVu without showing an error', async () => {
-        const session = sessionFixture.getSession();
+        const session = await sessionFixture.restart({
+            clean: true,
+            extraEnv: {EVB_E2E_HOLD_DJVU_OPEN_MS: '10000'},
+            sessionName: () => `e2e-djvu-open-cancellation-abort-${Date.now()}`,
+        });
         const observer = await observeRendererErrors(session.page);
         try {
             const logPath = join(electronFileLogDir(session.name), 'app.ndjson');

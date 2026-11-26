@@ -31,12 +31,7 @@ import {
     type IDjvuConversionPageMetrics,
     type TDjvuCompactFidelityPreset,
 } from '@contracts/djvuConversionPolicy';
-import { buildDjvuRuntimeEnv } from '@electron/features/djvu/main/buildDjvuRuntimeEnv';
-import {
-    getDjvuNativeToolPaths,
-    runDjvuSourceCommand,
-} from '@electron/features/djvu/main/nativeToolPaths';
-import { parseDjvuInfoLine } from '@electron/features/djvu/main/metadata';
+import { runDjvuEngine } from '@electron/features/djvu/main/djvuEnginePool';
 import {
     renderDjvuPageToImage,
     runRegisteredDjvuProcess,
@@ -150,7 +145,6 @@ const djvuPageStructureSchema = v.object({
 type IDjvuPageInfo = v.InferOutput<typeof djvuPageInfoSchema>;
 type IDjvuLayerInfo = v.InferOutput<typeof djvuLayerInfoSchema>;
 type IDjvuPageStructure = v.InferOutput<typeof djvuPageStructureSchema>;
-interface IMutableDjvuPageStructure extends IDjvuPageStructure { hasPageChunk: boolean; }
 
 const logger = createLogger('djvu-compact-pdf');
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -164,10 +158,8 @@ const DJVU_COMPACT_PHOTO_JPEG_QUALITY = 85;
 const DJVU_COMPACT_PHOTO_PPI_CAP = 300;
 
 const DJVU_COMPACT_NETPBM_MAX_INPUT_BYTES = 192 * 1024 * 1024;
-const DJVU_COMPACT_DUMP_TIMEOUT_MS = 20_000;
-const DJVU_COMPACT_DUMP_MAX_STDOUT_BYTES = 64 * 1024;
+const DJVU_COMPACT_DUMP_TIMEOUT_MS = 60_000;
 const DJVU_COMPACT_DUMP_MAX_LINE_BYTES = 256 * 1024;
-const DJVU_COMPACT_DUMP_MAX_STDERR_BYTES = 1024 * 1024;
 const DJVU_COMPACT_PAGE_BATCH_SIZE = 32;
 const DJVU_COMPACT_RESULT_SPEC_LIMIT = 256;
 const COMPACT_MANIFEST_JSONL_FORMAT = 'evb-pdf-image-combine-jsonl';
@@ -176,22 +168,6 @@ const DJVU_NATIVE_LAYER_DEFAULT_SUBSAMPLE = 1;
 const DJVU_COMPACT_MIN_SUBSAMPLE = 1;
 const DJVU_COMPACT_MAX_SUBSAMPLE = 64;
 const DJVU_COMPACT_LAYER_DIMENSION_MATCH_TOLERANCE = 0.25;
-const DJVU_COMPACT_CHUNK_REGEX = /^\s+([A-Za-z0-9]{4})\s+\[(\d+)\]/u;
-const DJVU_COMPACT_DIMENSIONS_REGEX = /(\d+)x(\d+)/gu;
-const DJVU_COMPACT_FORM_PAGE_REGEX = /\bFORM:DJVU\b\s+\[(\d+)\](?:.*?\[P(\d+)\])?(?:.*?\((\d+)\))?/u;
-const DJVU_COMPACT_BACKGROUND_CHUNKS = new Set([
-    'BG44',
-    'BGjp',
-    'BG2k',
-    'PM44',
-]);
-const DJVU_COMPACT_FOREGROUND_CHUNKS = new Set([
-    'FG44',
-    'FGbz',
-    'FGjp',
-    'FG2k',
-]);
-const DJVU_COMPACT_MASK_CHUNKS = new Set(['Sjbz']);
 export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfExportOptions) {
     const selectedPages = normalizePages(options.pages, options.pageCount);
     const selectedPageCount = options.pages ? selectedPages.length : Math.max(0, options.pageCount);
@@ -227,12 +203,12 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
             jobId: options.jobId,
             kind: 'structure',
             ...(options.signal ? {signal: options.signal} : {}),
-            task: onTerminationProof => readDjvuPageStructures(
+            task: () => readDjvuPageStructures(
                 options.djvuPath,
                 options.jobId,
                 options.signal,
                 structurePath,
-                onTerminationProof,
+                options.pages ? selectedPages : undefined,
             ),
         });
         structureReady = true;
@@ -514,59 +490,78 @@ async function readDjvuPageStructures(
     jobId: string,
     signal: AbortSignal | undefined,
     outputPath: string,
-    onTerminationProof?: (proof: Promise<boolean>) => void,
+    pageNumbers?: readonly number[],
 ): Promise<string> {
     let fileDescriptor: number | null = null;
-    let structureCount = 0;
     try {
-        const { djvudump } = getDjvuNativeToolPaths();
+        const rawStructures = await runDjvuEngine<'getPageStructures'>({
+            type: 'getPageStructures',
+            djvuPath,
+            ...(pageNumbers ? { pageNumbers } : {}),
+        }, {
+            ...(signal ? { signal } : {}),
+            timeoutMs: DJVU_COMPACT_DUMP_TIMEOUT_MS,
+        });
         fileDescriptor = openSync(outputPath, 'w');
-        let carry = '';
-        const parser = createDjvuPageStructureParser(structure => {
+        for (const raw of rawStructures) {
+            const pageInfo = raw.info && raw.info.width > 0 && raw.info.height > 0 && raw.info.dpi > 0
+                ? {
+                    width: raw.info.width,
+                    height: raw.info.height,
+                    dpi: raw.info.dpi,
+                }
+                : null;
+            const background = raw.background
+                ? createDjvuLayerInfo(
+                    raw.background.kind,
+                    raw.background.bytes,
+                    raw.background.width !== null
+                        && raw.background.height !== null
+                        && raw.background.width > 0
+                        && raw.background.height > 0
+                        ? {
+                            width: raw.background.width,
+                            height: raw.background.height,
+                        }
+                        : null,
+                    pageInfo,
+                )
+                : null;
+            const foreground = raw.foreground
+                ? createDjvuLayerInfo(
+                    raw.foreground.kind,
+                    raw.foreground.bytes,
+                    raw.foreground.width !== null
+                        && raw.foreground.height !== null
+                        && raw.foreground.width > 0
+                        && raw.foreground.height > 0
+                        ? {
+                            width: raw.foreground.width,
+                            height: raw.foreground.height,
+                        }
+                        : null,
+                    pageInfo,
+                )
+                : null;
+            const structure: IDjvuPageStructure = {
+                pageNumber: raw.pageNumber,
+                pageBytes: raw.pageBytes,
+                info: pageInfo,
+                hasMask: raw.hasMask,
+                maskBytes: raw.maskBytes,
+                background,
+                foreground,
+            };
             const data = Buffer.from(`${JSON.stringify(structure)}\n`, 'utf8');
             let offset = 0;
             while (offset < data.length) {
-                offset += writeSync(fileDescriptor!, data, offset);
+                offset += writeSync(fileDescriptor, data, offset);
             }
-            structureCount += 1;
-        });
-        await runDjvuSourceCommand(djvudump, [djvuPath], 0, {
-            env: buildDjvuRuntimeEnv(),
-            timeoutMs: DJVU_COMPACT_DUMP_TIMEOUT_MS,
-            maxStdoutBytes: DJVU_COMPACT_DUMP_MAX_STDOUT_BYTES,
-            maxStderrBytes: DJVU_COMPACT_DUMP_MAX_STDERR_BYTES,
-            rejectOnStdoutTruncation: false,
-            commandLabel: 'djvudump',
-            defaultCwdToCommandDir: true,
-            prependCommandDirToPath: true,
-            includeProcessEnv: true,
-            windowsHide: true,
-            ...(signal ? { signal } : {}),
-            ...(onTerminationProof ? { onTerminationProof } : {}),
-            onStdout: chunk => {
-                if (fileDescriptor === null) {
-                    return;
-                }
-                carry += chunk;
-                let newline = carry.indexOf('\n');
-                while (newline >= 0) {
-                    parser.consumeLine(carry.slice(0, newline).replace(/\r$/u, ''));
-                    carry = carry.slice(newline + 1);
-                    newline = carry.indexOf('\n');
-                }
-                if (Buffer.byteLength(carry, 'utf8') > DJVU_COMPACT_DUMP_MAX_LINE_BYTES) {
-                    throw new Error('djvudump emitted an overlong structure record');
-                }
-            },
-        });
-        if (carry.length > 0) {
-            parser.consumeLine(carry);
         }
-        parser.finish();
         closeSync(fileDescriptor);
         fileDescriptor = null;
-        if (structureCount > 0) {
-            logger.debug(`[${jobId}] Read DjVu native layer structure for ${structureCount} page(s)`);
+        if (rawStructures.length > 0) {
+            logger.debug(`[${jobId}] Read DjVu native layer structure for ${rawStructures.length} page(s)`);
         }
         return outputPath;
     } catch (error) {
@@ -581,86 +576,6 @@ async function readDjvuPageStructures(
         }
         throw new Error(`DjVu layer structure inspection failed; compact export stopped without flattening the document: ${getErrorMessage(error)}`);
     }
-}
-
-function createDjvuPageStructureParser(onPage: (structure: IDjvuPageStructure) => void) {
-    let current: IMutableDjvuPageStructure | null = null;
-    let nextImplicitPageNumber = 1;
-    const flushCurrent = () => {
-        if (!current?.hasPageChunk) {
-            return;
-        }
-        onPage({
-            pageNumber: current.pageNumber,
-            pageBytes: current.pageBytes,
-            info: current.info,
-            hasMask: current.hasMask,
-            maskBytes: current.maskBytes,
-            background: current.background,
-            foreground: current.foreground,
-        });
-    };
-
-    return {
-        consumeLine(line: string) {
-            const pageMatch = line.match(DJVU_COMPACT_FORM_PAGE_REGEX);
-            if (pageMatch) {
-                flushCurrent();
-                const pageNumber = parsePositiveInteger(pageMatch[2])
-                ?? parsePositiveInteger(pageMatch[3])
-                ?? nextImplicitPageNumber;
-                nextImplicitPageNumber = Math.max(nextImplicitPageNumber, pageNumber + 1);
-                current = {
-                    pageNumber,
-                    pageBytes: parseBoundedInteger(pageMatch[1], 0, DJVU_COMPACT_MAX_PAGE_BYTES),
-                    info: null,
-                    hasMask: false,
-                    hasPageChunk: true,
-                    maskBytes: null,
-                    background: null,
-                    foreground: null,
-                };
-                return;
-            }
-
-            if (!current) {
-                return;
-            }
-
-            const info = parseDjvuInfoLine(line);
-            if (info) {
-                current.info = info;
-                return;
-            }
-
-            const chunkMatch = line.match(DJVU_COMPACT_CHUNK_REGEX);
-            if (!chunkMatch?.[1] || !chunkMatch[2]) {
-                return;
-            }
-
-            const chunkId = chunkMatch[1];
-            const chunkBytes = Number.parseInt(chunkMatch[2], 10);
-            if (!Number.isFinite(chunkBytes) || chunkBytes < 0) {
-                return;
-            }
-            const dimensions = lastDimensions(line);
-            const layer = createDjvuLayerInfo(chunkId, chunkBytes, dimensions, current.info);
-
-            if (DJVU_COMPACT_MASK_CHUNKS.has(chunkId)) {
-                current.hasMask = true;
-                current.maskBytes = chunkBytes;
-            } else if (DJVU_COMPACT_BACKGROUND_CHUNKS.has(chunkId)) {
-                // Only the first chunk of a progressive IW44 layer states its
-                // size; a later chunk refines that layer, not replaces it.
-                current.background = dimensions || !current.background ? layer : current.background;
-            } else if (DJVU_COMPACT_FOREGROUND_CHUNKS.has(chunkId)) {
-                current.foreground = dimensions || !current.foreground ? layer : current.foreground;
-            }
-        },
-        finish() {
-            flushCurrent();
-        },
-    };
 }
 
 async function* iterateDjvuPageStructureWindows(
@@ -750,26 +665,6 @@ function createDjvuLayerInfo(
     };
 }
 
-function lastDimensions(line: string) {
-    let match: RegExpExecArray | null;
-    let dimensions: {
-        width: number;
-        height: number
-    } | null = null;
-    DJVU_COMPACT_DIMENSIONS_REGEX.lastIndex = 0;
-    while ((match = DJVU_COMPACT_DIMENSIONS_REGEX.exec(line)) !== null) {
-        const width = parsePositiveInteger(match[1]);
-        const height = parsePositiveInteger(match[2]);
-        if (width !== null && height !== null) {
-            dimensions = {
-                width,
-                height,
-            };
-        }
-    }
-    return dimensions;
-}
-
 function deriveLayerSubsample(
     pageInfo: IDjvuPageInfo,
     dimensions: {
@@ -797,21 +692,6 @@ function hasRealForegroundMask(structure: IDjvuPageStructure) {
     return structure.hasMask
         && typeof structure.maskBytes === 'number'
         && structure.maskBytes >= DJVU_COMPACT_REAL_MASK_MIN_BYTES;
-}
-
-function parsePositiveInteger(value: string | undefined) {
-    return parseBoundedInteger(value, 1, Number.MAX_SAFE_INTEGER);
-}
-
-function parseBoundedInteger(value: string | undefined, minValue: number, maxValue: number) {
-    if (value === undefined) {
-        return null;
-    }
-    const parsed = Number.parseInt(value, 10);
-    if (!Number.isInteger(parsed) || parsed < minValue || parsed > maxValue) {
-        return null;
-    }
-    return parsed;
 }
 
 async function buildCompactPageSpec(

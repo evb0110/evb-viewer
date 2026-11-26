@@ -4,7 +4,6 @@ import {
     type WebContents,
 } from 'electron';
 import { randomUUID } from 'node:crypto';
-import type { Worker } from 'worker_threads';
 import { uniq } from 'es-toolkit/array';
 import {
     open,
@@ -50,13 +49,12 @@ import {
 } from '@electron/features/djvu/main/ddjvuConversion';
 import { buildCompactDjvuAwarePdfFromDjvu } from '@electron/features/djvu/main/buildCompactDjvuAwarePdfFromDjvu';
 import {
-    getDjvuOutline,
-    getDjvuPageComponentMap,
+    getDjvuOutlineBookmarks,
     getDjvuPageCount,
     getDjvuResolution,
 } from '@electron/features/djvu/main/metadata';
+import { shutdownDjvuEnginePool } from '@electron/features/djvu/main/djvuEnginePool';
 import {detectDjvuHasText} from '@electron/features/djvu/main/textSearch';
-import { parseDjvuOutline } from '@electron/features/djvu/main/parseDjvuOutline';
 import {
     estimateDjvuPdfConversionSource,
     evaluateDjvuPdfConversionPolicy,
@@ -79,10 +77,6 @@ import {
     atomicReplace,
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
-import {
-    createDjvuPdfBookmarkTask,
-    DjvuPdfWorkerStartupError,
-} from '@electron/features/djvu/main/pdfWorkerClient';
 import {getWorkerTaskFailureReceipt} from '@electron/utils/workerTask';
 import {PdfCombineCapabilityError} from '@electron/image/pdfCombineErrors';
 import { getErrorMessage } from '@electron/utils/error';
@@ -122,7 +116,6 @@ import {writeFileHandleFully} from '@electron/file-access/writeFileHandleFully';
 
 const logger = createLogger('djvu-pdfExport');
 interface IDjvuOperationContext extends IPlatformMainSenderContext<WebContents> {}
-const activePdfWorkerByJobId = new Map<TJobId, Worker>();
 const activeNativeJobCancels = new Map<TJobId, (reason: string) => boolean>();
 const activeDjvuJobSettled = new Map<TJobId, Promise<void>>();
 const DJVU_TERMINAL_RECORD_RETENTION_MS = 60 * 60 * 1_000;
@@ -206,16 +199,6 @@ async function requestDjvuNativeCancel(jobId: TJobId) {
     // accounted until the child processes exit or prove termination.
     mainJobBroker.cancelOwner(jobId, 'DjVu conversion canceled');
     await cancelConversion(jobId);
-}
-
-function setActivePdfWorker(jobId: TJobId, worker: Worker) {
-    activePdfWorkerByJobId.set(jobId, worker);
-}
-
-function clearActivePdfWorker(jobId: TJobId, worker: Worker) {
-    if (activePdfWorkerByJobId.get(jobId) === worker) {
-        activePdfWorkerByJobId.delete(jobId);
-    }
 }
 
 function formatEffectivePixels(pixels: number) {
@@ -806,50 +789,34 @@ async function embedPdfBookmarks(
     }
 
     return measureElectronPerfAsync('djvu:embed-bookmarks', async () => {
-        try {
-            return await mainJobBroker.run({
-                ownerId: jobId,
-                kind: 'djvu-bookmarks',
-                priority: 'user',
-                resources: {
-                    cpuTokens: 1,
-                    estimatedResidentBytes: 256 * 1024 * 1024,
-                    nativeProcesses: 1,
-                    ioWeight: 3,
-                },
-                signal,
-            }, async ({onTerminationProof}) => {
-                const task = createDjvuPdfBookmarkTask(inputPdfPath, outputPdfPath, bookmarks, {
+        await mainJobBroker.run({
+            ownerId: jobId,
+            kind: 'djvu-bookmarks',
+            priority: 'user',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 256 * 1024 * 1024,
+                nativeProcesses: 1,
+                ioWeight: 3,
+            },
+            signal,
+        }, async ({onTerminationProof}) => {
+            try {
+                await embedBookmarksIntoPdfFile(
+                    inputPdfPath,
+                    outputPdfPath,
+                    bookmarks,
                     signal,
                     onTerminationProof,
-                });
-                setActivePdfWorker(jobId, task.worker);
-                try {
-                    await task.promise;
-                    return;
-                } catch (error) {
-                    if (getUnprovenNativeTerminationDetail(error) !== undefined) {
-                        throw error;
-                    }
-                    if (signal.aborted) throw abortErrorFromSignal(signal);
+                );
+            } catch (error) {
+                if (getUnprovenNativeTerminationDetail(error) !== undefined) {
                     throw error;
-                } finally {
-                    clearActivePdfWorker(jobId, task.worker);
                 }
-            });
-        } catch (error) {
-            if (!(error instanceof DjvuPdfWorkerStartupError)) {
+                if (signal.aborted) throw abortErrorFromSignal(signal);
                 throw error;
             }
-            if (signal.aborted) {
-                throw signal.reason instanceof Error
-                    ? signal.reason
-                    : createAbortError('DjVu conversion canceled');
-            }
-
-            logger.warn(`[${jobId}] DjVu PDF worker unavailable, using path-backed native bookmark embedding: ${error.message}`);
-            await embedBookmarksIntoPdfFile(inputPdfPath, outputPdfPath, bookmarks, signal);
-        }
+        });
     }, {
         thresholdMs: 25,
         details: {
@@ -1046,8 +1013,6 @@ async function runDjvuPrintPath(
             jobId,
             error: canceled ? 'DjVu print preparation canceled' : errorMessage,
         };
-    } finally {
-        activePdfWorkerByJobId.delete(jobId);
     }
     if (requiresPrintLayout || !finalPdfHandedToPrint) {
         await rm(finalPdfPath, { force: true }).catch(() => undefined);
@@ -1186,18 +1151,10 @@ async function runDjvuConvertToPdf(
                 throwIfCanceled(job.signal);
 
                 const bookmarks = options.preserveBookmarks !== false
-                    ? await runDjvuMetadataWithSlot(jobId, job.signal, async (onTerminationProof) => {
-                        const outline = await getDjvuOutline(djvuPath, {
-                            signal: job.signal,
-                            onTerminationProof,
-                        });
-                        throwIfCanceled(job.signal);
-                        const components = await getDjvuPageComponentMap(djvuPath, {
-                            signal: job.signal,
-                            onTerminationProof,
-                        });
-                        return parseDjvuOutline(outline, components);
-                    })
+                    ? await runDjvuMetadataWithSlot(jobId, job.signal, onTerminationProof => getDjvuOutlineBookmarks(djvuPath, {
+                        signal: job.signal,
+                        onTerminationProof,
+                    }))
                     : [];
                 if (bookmarks.length > 0) {
                     throwIfCanceled(job.signal);
@@ -1284,8 +1241,6 @@ async function runDjvuConvertToPdf(
             error: errorMessage,
             ...(failure === undefined ? {} : {failure}),
         };
-    } finally {
-        activePdfWorkerByJobId.delete(jobId);
     }
 }
 
@@ -1466,22 +1421,13 @@ export async function handleDjvuCancel(
 }
 
 export async function shutdownDjvuConversions() {
-    const jobIds = uniq([
-        ...activeNativeJobCancels.keys(),
-        ...activePdfWorkerByJobId.keys(),
-    ]);
+    const jobIds = uniq([...activeNativeJobCancels.keys()]);
 
-    const workerTerminations: Array<Promise<unknown>> = [];
     if (jobIds.length > 0) {
         logger.info(`Canceling ${jobIds.length} active/queued DjVu conversion job(s) during shutdown`);
         for (const jobId of jobIds) {
             activeNativeJobCancels.get(jobId)?.('DjVu conversion canceled during shutdown');
             await requestDjvuNativeCancel(jobId);
-            const activePdfWorker = activePdfWorkerByJobId.get(jobId);
-            if (activePdfWorker) {
-                activePdfWorkerByJobId.delete(jobId);
-                workerTerminations.push(activePdfWorker.terminate().catch(() => undefined));
-            }
         }
     }
 
@@ -1489,10 +1435,7 @@ export async function shutdownDjvuConversions() {
     // before then would leave the directory behind.
     const jobSettlements = jobIds.map(jobId => activeDjvuJobSettled.get(jobId));
     activeNativeJobCancels.clear();
-    activePdfWorkerByJobId.clear();
 
-    await Promise.allSettled([
-        ...workerTerminations,
-        ...jobSettlements,
-    ]);
+    await Promise.allSettled(jobSettlements);
+    shutdownDjvuEnginePool();
 }

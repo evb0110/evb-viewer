@@ -25,7 +25,6 @@ type TNativeResourcePathType = 'directory' | 'file';
 export const NATIVE_TOOL_RESOURCE_FAMILY_IDS = [
     'poppler',
     'qpdf',
-    'djvulibre',
     'pdf-image-combine',
     'pdf-page-ops',
     'pdf-print-dialog',
@@ -206,20 +205,6 @@ export const NATIVE_TOOL_RESOURCE_FAMILIES: readonly INativeToolResourceFamily[]
             'qpdf',
         ],
         stagedRootSegments: ['qpdf'],
-    },
-    {
-        id: 'djvulibre',
-        label: 'DjVuLibre native tools',
-        packagedEntries: [
-            'ddjvu',
-            'djvused',
-            'djvudump',
-        ].map(binary => packagedBinary(binary)),
-        sourceRootSegments: [
-            'resources',
-            'djvulibre',
-        ],
-        stagedRootSegments: ['djvulibre'],
     },
     {
         id: 'pdf-print-dialog',

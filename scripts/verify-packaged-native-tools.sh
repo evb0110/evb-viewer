@@ -564,10 +564,6 @@ if [ "$platform" = "mac" ]; then
     exit 1
   fi
 
-  run_macos_packaged_tool_smoke "djvused" "$(packaged_entry_path djvused)" --help
-  run_macos_packaged_tool_smoke "djvudump" "$(packaged_entry_path djvudump)" --help
-  # ddjvu prints usage to stdout and exits 1 for --help on healthy builds.
-  run_macos_packaged_tool_smoke "ddjvu" "$(packaged_entry_path ddjvu)" --help
   run_macos_packaged_tool_smoke "qpdf" "$(packaged_entry_path qpdf)" --version
   # pdf-page-ops reads large documents' metadata through the libqpdf beside qpdf.
   qpdf_entry="$(packaged_entry_path qpdf)"

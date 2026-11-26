@@ -755,10 +755,12 @@ describe('browserSearchWorkerClient', () => {
         // A worker opened by createDjvuWorkerFromPath carries the page table it read.
         async function createDjvuTextWorkerForTest(pages: readonly string[]) {
             const worker = {
-                doc: {getPage: (pageNumber: number) => ({
-                    getText: () => ({run: async () => pages[pageNumber - 1] ?? ''}),
-                    getNormalizedTextZones: () => ({run: async () => null}),
-                })},
+                getPageText: async (pageNumber: number) => ({
+                    text: pages[pageNumber - 1] ?? '',
+                    pageWidth: 612,
+                    pageHeight: 792,
+                    zones: [],
+                }),
                 terminate: vi.fn(),
             };
             const {setDjvuWorkerPageSizes} = await import('@app/platform/browser-api/browserDjvuSource');

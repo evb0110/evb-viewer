@@ -8,16 +8,15 @@ import {
     isBrowserDocumentRef,
 } from '@app/platform/browserDocumentStore';
 import {
-    createDjvuWorker,
-    DJVU_COMPONENT_BASE_URL,
-    loadDjvuJs,
+    createBrowserDjvuWorker,
     type IDjvuComponentDirectory,
     type IDjvuComponentRequest,
-    type IDjvuContentsItem,
     type IDjvuNormalizedTextZone,
+    type IDjvuOutlineRawItem,
     type IDjvuPageSize,
+    type IDjvuPageTextRaw,
     type IDjvuWorker,
-} from '@app/platform/browser-api/djvujsLoader';
+} from '@app/platform/browser-api/browserDjvuWorkerClient';
 import {
     getDjvuWorkerPageSizes,
     isIndirectDjvuHeader,
@@ -106,18 +105,6 @@ function nativeDjvuCapabilityError(operation: string, message: string, cause?: u
 interface IDjvuRenderedPageObjectUrl {
     objectUrl: string;
     renderedPx: number;
-}
-
-function toOwnedArrayBuffer(bytes: Uint8Array) {
-    if (
-        bytes.buffer instanceof ArrayBuffer
-        && bytes.byteOffset === 0
-        && bytes.byteLength === bytes.buffer.byteLength
-    ) {
-        return bytes.buffer;
-    }
-
-    return bytes.slice().buffer;
 }
 
 interface IDjvuSourceReader {
@@ -286,7 +273,7 @@ async function readDjvuPageTable(
 }
 
 async function readDjvuComponentDirectory(worker: IDjvuWorker) {
-    const directory = await worker.doc.evbGetComponentDirectory().run();
+    const directory = await worker.getComponentDirectory();
     if (!directory) {
         throw new SerializableError({
             code: 'invalid-djvu',
@@ -370,9 +357,31 @@ function readCachedDjvuPageTable(
     });
 }
 
+function toNormalizedZones(pageText: IDjvuPageTextRaw, fallbackHeight: number): IDjvuNormalizedTextZone[] | null {
+    if (!pageText.zones || pageText.zones.length === 0) {
+        return null;
+    }
+    const pageHeight = pageText.pageHeight > 0 ? pageText.pageHeight : fallbackHeight;
+    return pageText.zones.flatMap((zone) => {
+        const width = Math.max(0, zone.xmax - zone.xmin);
+        const height = Math.max(0, zone.ymax - zone.ymin);
+        if (!zone.text) {
+            return [];
+        }
+        return [{
+            x: Math.max(0, zone.xmin),
+            y: pageHeight > 0 ? Math.max(0, pageHeight - zone.ymax) : Math.max(0, zone.ymin),
+            width,
+            height,
+            text: zone.text,
+        }];
+    });
+}
+
 function buildBrowserDjvuSearchPage(
     text: string,
     zones: IDjvuNormalizedTextZone[] | null,
+    rawZones?: IDjvuPageTextRaw['zones'],
 ) {
     if (text.length > DJVU_SEARCH_MAX_PAGE_TEXT_CHARS) {
         throw new Error(`DjVu page text exceeds the ${DJVU_SEARCH_MAX_PAGE_TEXT_CHARS}-character search limit`);
@@ -397,11 +406,20 @@ function buildBrowserDjvuSearchPage(
             throw new Error(`DjVu page text zones exceed the ${DJVU_SEARCH_MAX_PAGE_TEXT_CHARS}-character search limit`);
         }
     }
-    const assembled = assembleSearchablePageTextItems(zones.map(zone => ({
-        text: zone.text,
-        separatorAfter: 'space',
-        origin: zone,
-    })));
+    const assembled = assembleSearchablePageTextItems(zones.map((zone, index) => {
+        const currentLineId = rawZones?.[index]?.lineId ?? -1;
+        const nextLineId = rawZones?.[index + 1]?.lineId ?? -1;
+        const separatorAfter = index + 1 < zones.length
+            ? currentLineId >= 0 && nextLineId >= 0 && currentLineId !== nextLineId
+                ? 'line' as const
+                : 'space' as const
+            : 'none' as const;
+        return {
+            text: zone.text,
+            separatorAfter,
+            origin: zone,
+        };
+    }));
     return {
         text: assembled.text,
         offsets: assembled.itemOffsets.map(offset => ({
@@ -457,16 +475,17 @@ export async function searchDjvuWorkerText(
 
     for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
         options.signal.throwIfAborted();
-        const page = worker.doc.getPage(pageNumber);
-        const [
-            text,
-            zones,
-        ] = await Promise.all([
-            page.getText().run(),
-            page.getNormalizedTextZones().run().catch(() => null),
-        ]);
+        const pageSize = pageSizes[pageNumber - 1];
+        let pageText;
+        try {
+            pageText = await worker.getPageText(pageNumber, { includeZones: true });
+        } catch {
+            options.signal.throwIfAborted();
+            pageText = await worker.getPageText(pageNumber, { includeZones: false });
+        }
         options.signal.throwIfAborted();
-        const searchable = buildBrowserDjvuSearchPage(text, zones);
+        const zones = toNormalizedZones(pageText, pageSize?.height ?? 0);
+        const searchable = buildBrowserDjvuSearchPage(pageText.text, zones, pageText.zones);
         // Each page has its own regex budget, as the page-by-page scan did before
         // matching moved to the worker.
         const pageWindow = await matchBrowserSearchPageWindow(
@@ -588,7 +607,6 @@ export async function createDjvuWorkerFromPath(
     if (!isBrowserRef) {
         getDesktopDocumentsCapability(djvuPath);
     }
-    const djvuGlobal = await loadDjvuJs();
     throwIfCanceled(options.signal);
     let worker: IDjvuWorker | null = null;
     let abortHandler: (() => void) | null = null;
@@ -605,8 +623,6 @@ export async function createDjvuWorkerFromPath(
             signal: options.signal,
         });
         throwIfCanceled(options.signal);
-        // DjVu.js asks for components by name; the directory read after the
-        // document opens gives each name its position, before any page loads.
         let componentIndexes: Map<string, number> | null = null;
         const readComponent = (name: string) => {
             const index = componentIndexes?.get(name);
@@ -617,7 +633,7 @@ export async function createDjvuWorkerFromPath(
                     name,
                 });
         };
-        const openedWorker = createDjvuWorker(djvuGlobal, layout.hasComponents ? readComponent : undefined);
+        const openedWorker = createBrowserDjvuWorker(layout.hasComponents ? readComponent : undefined);
         worker = openedWorker;
         if (options.signal) {
             abortHandler = () => {
@@ -625,9 +641,9 @@ export async function createDjvuWorkerFromPath(
             };
             options.signal.addEventListener('abort', abortHandler, { once: true });
         }
-        await openedWorker.createDocument(
-            toOwnedArrayBuffer(layout.documentBytes),
-            layout.hasComponents ? {baseUrl: DJVU_COMPONENT_BASE_URL} : {},
+        await openedWorker.open(
+            layout.documentBytes.slice().buffer,
+            layout.hasComponents,
         );
         throwIfCanceled(options.signal);
         const directory = layout.hasComponents ? await readDjvuComponentDirectory(openedWorker) : null;
@@ -857,10 +873,7 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
             if (typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
                 URL.revokeObjectURL(url);
             }
-            return;
         }
-
-        worker.revokeObjectURL(url);
     };
 
     const createFallbackPreviewRequestId = (
@@ -895,7 +908,7 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
             throw new Error('DjVu conversion canceled');
         }
     };
-    const mapOutline = async (items: IDjvuContentsItem[]): Promise<IPagePreviewOutlineItem[]> => {
+    const mapOutline = async (items: IDjvuOutlineRawItem[]): Promise<IPagePreviewOutlineItem[]> => {
         const result: IPagePreviewOutlineItem[] = [];
         const stack = items.toReversed().map(item => ({
             depth: 1,
@@ -910,7 +923,7 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
                 break;
             }
             nodeCount += 1;
-            titleChars += entry.item.description.length;
+            titleChars += entry.item.title.length;
             if (
                 entry.depth > DJVU_OUTLINE_MAX_DEPTH
                 || nodeCount > DJVU_OUTLINE_MAX_NODES
@@ -919,8 +932,8 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
                 throw new Error('DjVu outline exceeds the interactive structure limit');
             }
             const mapped: IPagePreviewOutlineItem = {
-                title: entry.item.description,
-                pageNumber: await worker.doc.getPageNumberByUrl(entry.item.url).run(),
+                title: entry.item.title,
+                pageNumber: await worker.getPageNumberByUrl(entry.item.url),
                 children: [],
             };
             entry.target.push(mapped);
@@ -952,7 +965,7 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
     pageSizesPromise.catch(() => undefined);
 
     return {
-        fullResolutionDecodeBeforeScale: true,
+        fullResolutionDecodeBeforeScale: false,
         cancelPagePreview(pageNumber: number, requestId?: string) {
             const pageRequestIds = activePreviewRequestIdsByPage.get(pageNumber);
             const parsedRequestId = requestId === undefined ? null : parseRequestId(requestId);
@@ -984,11 +997,11 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
                 pageSize,
             };
         },
-        getPageText: (pageNumber: number) => worker.doc.getPage(pageNumber).getText().run(),
+        getPageText: async (pageNumber: number) => (await worker.getPageText(pageNumber, { includeZones: false })).text,
         searchText: nativeTextSearch?.searchText
             ?? ((request: IDjvuWorkerTextSearchOptions) => searchDjvuWorkerText(worker, request)),
         async getOutline() {
-            return mapOutline(await worker.doc.getContents().run() ?? []);
+            return mapOutline(await worker.getOutline());
         },
         async renderPageObjectUrl(
             pageNumber: number,

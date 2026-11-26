@@ -39,9 +39,11 @@ export const REQUIRED_ASAR_ENTRIES = [
     ...WASM_ARTIFACTS
         .map(artifact => `/nuxt-output/public/${artifact.publicRelativePath.replace('public/', '')}`)
         .filter(entry => !WEB_ONLY_WASM_ENTRIES.includes(entry)),
-    // Desktop OCR runs the same engine as the browser, in worker threads.
+    // Desktop OCR and DjVu run the same WASM engines as the browser, in worker threads.
     '/nuxt-output/public/wasm/evb-tesseract.mjs',
     '/nuxt-output/public/wasm/evb-tesseract.wasm',
+    '/nuxt-output/public/wasm/evb-djvulibre.mjs',
+    '/nuxt-output/public/wasm/evb-djvulibre.wasm',
 ];
 
 export const REQUIRED_ASAR_PREFIXES = ['/dist-electron/main-chunk-'];

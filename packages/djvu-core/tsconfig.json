@@ -1,0 +1,15 @@
+{
+    "extends": [
+        "../../tsconfig.base.json"
+    ],
+    "compilerOptions": {
+        "target": "ESNext",
+        "module": "ESNext",
+        "moduleResolution": "Bundler",
+        "noEmit": true,
+        "types": []
+    },
+    "include": [
+        "./**/*.ts"
+    ]
+}

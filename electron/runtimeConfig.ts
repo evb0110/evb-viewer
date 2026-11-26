@@ -109,6 +109,9 @@ export const runtimeConfig = {
             get e2eSaveDialogPath() { // unset; answer the native save dialog in automation
                 return process.env.EVB_E2E_SAVE_DIALOG_PATH?.trim();
             },
+            get holdDjvuOpenMs() { // 0; pause unpackaged DjVu open probes in cancellation tests
+                return integer(process.env.EVB_E2E_HOLD_DJVU_OPEN_MS, 0, 0, 60_000);
+            },
             get holdSelectedPageQpdfMarker() { // unset; pause the selected-page print child for cancellation tests
                 return process.env.EVB_E2E_HOLD_SELECTED_PAGE_QPDF_MARKER?.trim();
             },

@@ -102,6 +102,10 @@ export const REQUIRED_WEB_WASM_ASSETS = [
         relativePath: 'wasm/evb-qpdf.wasm',
         requiredExports: [],
     },
+    {
+        relativePath: 'wasm/evb-djvulibre.wasm',
+        requiredExports: [],
+    },
 ];
 
 const requiredExportsByRelativePath = new Map(
@@ -249,6 +253,21 @@ export const PREBUILT_WASM_FILES = [
         publicRelativePath: 'public/wasm/evb-qpdf.mjs',
         sha256: '588c8d50aba83da884a48dbcfb15cd74589403f2086f94ea3d8da5f1d2eb530d',
         url: `${PREBUILT_WASM_BASE_URL}/evb-qpdf-12.3.2-r1.mjs`,
+    },
+    // scripts/build-djvulibre-wasm.sh, the unified DjVuLibre engine for web and desktop.
+    {
+        bytes: 991767,
+        label: 'DjVuLibre engine WASM',
+        publicRelativePath: 'public/wasm/evb-djvulibre.wasm',
+        sha256: '00062edad0b74ef8b84c7d8b1103c45dbb2bf48238af4b127355422d35c4374c',
+        url: `${PREBUILT_WASM_BASE_URL}/evb-djvulibre-3.5.30-r1.wasm`,
+    },
+    {
+        bytes: 25350,
+        label: 'DjVuLibre engine module',
+        publicRelativePath: 'public/wasm/evb-djvulibre.mjs',
+        sha256: '33ecc6df4253452617f4169cb39168f3a75e3a9220a971fe1910fafeb15c005a',
+        url: `${PREBUILT_WASM_BASE_URL}/evb-djvulibre-3.5.30-r1.mjs`,
     },
 ];
 

@@ -326,6 +326,7 @@ export default defineNuxtConfig({
         '@contracts': fileURLToPath(new URL('./packages/contracts', import.meta.url)),
         '@document-store': fileURLToPath(new URL('./packages/document-store', import.meta.url)),
         '@pdf-core': fileURLToPath(new URL('./packages/pdf-core', import.meta.url)),
+        '@djvu-core': fileURLToPath(new URL('./packages/djvu-core', import.meta.url)),
         '@ocr-core': fileURLToPath(new URL('./packages/ocr-core', import.meta.url)),
         '@agent-core': fileURLToPath(new URL('./packages/agent-core', import.meta.url)),
         '@i18n-core': fileURLToPath(new URL('./packages/i18n-core', import.meta.url)),

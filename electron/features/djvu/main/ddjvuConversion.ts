@@ -1,35 +1,45 @@
-import { existsSync } from 'fs';
+import {
+    existsSync,
+} from 'node:fs';
 import {
     stat,
     unlink,
-} from 'fs/promises';
-import { limitAsync } from 'es-toolkit/promise';
-import { clamp } from 'es-toolkit/math';
-import {dirname} from 'node:path';
-import { buildDjvuRuntimeEnv } from '@electron/features/djvu/main/buildDjvuRuntimeEnv';
+    writeFile,
+} from 'node:fs/promises';
 import {
-    getDjvuNativeToolPaths,
-    runDjvuSourceCommand,
-} from '@electron/features/djvu/main/nativeToolPaths';
-import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
-import { createLogger } from '@electron/utils/createLogger';
-import { getErrorMessage } from '@electron/utils/error';
+    dirname,
+    join,
+} from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { clamp } from 'es-toolkit/math';
+import { limitAsync } from 'es-toolkit/promise';
+import type { THostResourceTier } from '@contracts/hostResourceProfile';
+import {
+    createFileBackedPdfCombineEnv,
+    createPdfCombineOutputTooLargeError,
+    isPdfCombineOutputTooLargeError,
+    PDF_COMBINE_OUTPUT_POLICY,
+} from '@contracts/pdfCombineOutputPolicy';
+import type { TDjvuRenderMode } from '@djvu-core/djvuLibreTypes';
+import { createDjvuDiskQuotaMonitor } from '@electron/features/djvu/main/djvuArtifactManifest';
+import { runDjvuEngine } from '@electron/features/djvu/main/djvuEnginePool';
+import type { TDjvuNetpbmFormat } from '@electron/features/djvu/main/djvuEngineProtocol';
+import { runPageStructureCommand } from '@electron/features/page-ops/publicNative';
+import { PdfCombineCapabilityError } from '@electron/image/pdfCombineErrors';
 import {
     cancelNativeCommandGroup,
     runNativeCommand,
+    type IRunCommandOptions,
 } from '@electron/native-tools/runNativeCommand';
-import type { IRunCommandOptions } from '@electron/native-tools/runNativeCommand';
-import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
-import { abortErrorFromSignal } from '@electron/utils/abort';
-import {
-    assertDjvuSourceIdentity,
-    createDjvuDiskQuotaMonitor,
-    openDjvuArtifactJob,
-} from '@electron/features/djvu/main/djvuArtifactManifest';
-import { mainJobBroker } from '@electron/resources/jobBroker';
-import type { THostResourceTier } from '@contracts/hostResourceProfile';
+import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
 import { getHostResourceProfileSnapshot } from '@electron/resources/hostResourceProfile';
-import { PdfCombineCapabilityError } from '@electron/image/pdfCombineErrors';
+import { mainJobBroker } from '@electron/resources/jobBroker';
+import { runtimeConfig } from '@electron/runtimeConfig';
+import { abortErrorFromSignal } from '@electron/utils/abort';
+import { getAppTempDir } from '@electron/utils/appTempDir';
+import { getErrorMessage } from '@electron/utils/error';
+import { usingManagedScratchScope } from '@electron/utils/managedScratchTemp';
+import { createPdfCombineProgressHandler } from '@evb/scan-cleanup/core/createPdfCombineProgressHandler';
 
 interface IDjvuConversionOptions {
     subsample?: number;
@@ -58,17 +68,122 @@ interface IDjvuConversionResult {
     cause?: unknown;
 }
 
+export interface IDjvuImageRenderOptions {
+    format?: TDjvuNetpbmFormat;
+    mode?: TDjvuRenderMode;
+    subsample?: number;
+    targetWidthPx?: number;
+    targetHeightPx?: number;
+    signal?: AbortSignal;
+    onTerminationProof?: (proof: Promise<boolean>) => void;
+}
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 const MAX_RANGE_WORKERS = 12;
-const MIN_PAGES_FOR_RANGE_PARALLELISM = 24;
-const PROGRESS_CAP = 90;
+const DJVU_DIRECT_PDF_JPEG_QUALITY = 92;
+const DJVU_DIRECT_PDF_PAGE_BATCH_SIZE = 24;
 const DJVU_PROCESS_TIMEOUT_MS = 4 * 60 * 1000;
 const DJVU_IMAGE_PROCESS_TIMEOUT_MS = 2 * 60 * 1000;
 const DJVU_KILL_GRACE_MS = 2_000;
 const DJVU_MAX_STDERR_BYTES = 262_144;
+const DJVU_CONVERSION_CANCELED_MESSAGE = 'DjVu conversion canceled';
+const COMPACT_MANIFEST_JSONL_FORMAT = 'evb-pdf-image-combine-jsonl';
+const COMPACT_MANIFEST_JSONL_SCHEMA_VERSION = 1;
+
 const activeProcessIds = new Set<string>();
 const canceledProcessIds = new Set<string>();
-const logger = createLogger('djvu-convert');
-const DJVU_CONVERSION_CANCELED_MESSAGE = 'DjVu conversion canceled';
+const activeJobAbortControllers = new Map<string, Set<AbortController>>();
+
+function registerJobAbortController(jobId: string, controller: AbortController) {
+    let set = activeJobAbortControllers.get(jobId);
+    if (!set) {
+        set = new Set();
+        activeJobAbortControllers.set(jobId, set);
+    }
+    set.add(controller);
+    return () => {
+        set?.delete(controller);
+        if (set && set.size === 0) {
+            activeJobAbortControllers.delete(jobId);
+        }
+    };
+}
+
+function createJobSignal(jobId: string, externalSignal?: AbortSignal) {
+    const controller = new AbortController();
+    const unregister = registerJobAbortController(jobId, controller);
+    if (externalSignal?.aborted) {
+        controller.abort(externalSignal.reason ?? new DOMException(DJVU_CONVERSION_CANCELED_MESSAGE, 'AbortError'));
+    }
+    const onExternalAbort = () => {
+        controller.abort(externalSignal?.reason ?? new DOMException(DJVU_CONVERSION_CANCELED_MESSAGE, 'AbortError'));
+    };
+    externalSignal?.addEventListener('abort', onExternalAbort, { once: true });
+    return {
+        signal: controller.signal,
+        cleanup() {
+            externalSignal?.removeEventListener('abort', onExternalAbort);
+            unregister();
+        },
+    };
+}
+
+function parsePageRangeSpec(pagesSpec: string | undefined, totalPages: number): number[] {
+    if (!pagesSpec || pagesSpec.trim().length === 0) {
+        return Array.from({ length: totalPages }, (_, index) => index + 1);
+    }
+    const selected: number[] = [];
+    const seen = new Set<number>();
+    for (const part of pagesSpec.split(',')) {
+        const trimmed = part.trim();
+        if (!trimmed) continue;
+        const dashIndex = trimmed.indexOf('-');
+        if (dashIndex >= 0) {
+            const start = Number.parseInt(trimmed.slice(0, dashIndex).trim(), 10);
+            const end = Number.parseInt(trimmed.slice(dashIndex + 1).trim(), 10);
+            if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 1 || end < start) {
+                continue;
+            }
+            for (let page = start; page <= Math.min(end, totalPages); page += 1) {
+                if (!seen.has(page)) {
+                    seen.add(page);
+                    selected.push(page);
+                }
+            }
+        } else {
+            const page = Number.parseInt(trimmed, 10);
+            if (Number.isSafeInteger(page) && page >= 1 && page <= totalPages && !seen.has(page)) {
+                seen.add(page);
+                selected.push(page);
+            }
+        }
+    }
+    return selected;
+}
+
+function resolveNativePdfImageCombinePath() {
+    const isPackaged = __dirname.includes('app.asar');
+    const binaryName = process.platform === 'win32'
+        ? 'evb-pdf-image-combine.exe'
+        : 'evb-pdf-image-combine';
+    return resolveNativeToolPath({
+        binaryName,
+        crateName: 'pdf-image-combine',
+        currentDir: __dirname,
+        envOverridePath: runtimeConfig.pdfImageCombinePath,
+        isPackaged,
+    });
+}
+
+async function cleanupPartialOutput(outputPath: string) {
+    try {
+        if (existsSync(outputPath)) {
+            await unlink(outputPath);
+        }
+    } catch {
+        // Ignore cleanup failures for partial outputs.
+    }
+}
 
 export async function withDjvuNativeResourceLease<T>(options: {
     jobId: string;
@@ -83,642 +198,359 @@ export async function withDjvuNativeResourceLease<T>(options: {
         resources: {
             cpuTokens: 1,
             estimatedResidentBytes: 64 * 1024 * 1024,
-            nativeProcesses: 1,
+            nativeProcesses: 0,
             ioWeight: 1,
         },
-        ...(options.signal ? {signal: options.signal} : {}),
-    }, ({onTerminationProof}) => options.task(onTerminationProof));
+        ...(options.signal ? { signal: options.signal } : {}),
+    }, ({ onTerminationProof }) => options.task(onTerminationProof));
 }
 
-function getDjvuQuotaFailureMessage(quotaMonitor: {failure: {message: string} | null}) {
-    return quotaMonitor.failure?.message;
-}
-
-interface IDjvuPageRangeChunk {
-    index: number;
-    startPage: number;
-    endPage: number;
-    outputPath: string;
-}
-
-async function cleanupPartialOutput(outputPath: string) {
-    try {
-        if (!existsSync(outputPath)) {
-            return;
-        }
-        await unlink(outputPath);
-    } catch {
-        // Ignore cleanup failures for partial outputs.
-    }
-}
-
-function throwIfAborted(signal?: AbortSignal) {
-    if (signal?.aborted) {
-        throw abortErrorFromSignal(signal);
-    }
-}
-
-async function _convertDjvuToPdfWithRanges(
+export async function renderDjvuPageToImage(
     inputPath: string,
     outputPath: string,
+    pageNumber: number,
     jobId: string,
-    options: IDjvuConversionOptions,
+    options: IDjvuImageRenderOptions = {},
 ): Promise<IDjvuConversionResult> {
-    const totalPages = options.pageCount ?? 0;
-    const workerCount = getRangeWorkerCount(totalPages);
-    if (workerCount < 2) {
-        return {
-            success: false,
-            outputPath,
-            fileSize: 0,
-            error: 'Parallel conversion is not applicable',
-        };
-    }
-
-    const pageRanges = createPageRanges(totalPages, workerCount);
-    const artifactJob = await openDjvuArtifactJob(inputPath, pageRanges, {...(options.subsample === undefined ? {} : {subsample: options.subsample})});
-    const chunks = artifactJob.manifest.ranges.map((range, index) => ({
-        index,
-        startPage: range.startPage,
-        endPage: range.endPage,
-        outputPath: range.outputPath,
-    }));
-    const chunkPaths = chunks.map(chunk => chunk.outputPath);
-    let completedPageCount = 0;
-    let firstError: unknown = null;
-    const quotaMonitor = await createDjvuDiskQuotaMonitor({
-        paths: [
-            artifactJob.directory,
-            outputPath,
-        ],
-        fileSystemPath: artifactJob.directory,
-        maxTotalBytes: artifactJob.maxTotalBytes,
-        ...(options.signal ? {signal: options.signal} : {}),
-    }).catch(async (error: unknown) => {
-        await artifactJob.close();
-        return error instanceof Error ? error : new Error(String(error));
-    });
-    if (quotaMonitor instanceof Error) {
-        return {
-            success: false,
-            outputPath,
-            fileSize: 0,
-            error: getErrorMessage(quotaMonitor),
-        };
-    }
-    const conversionSignal = quotaMonitor.signal;
+    const {
+        signal,
+        cleanup,
+    } = createJobSignal(jobId, options.signal);
     try {
-        const convertChunkWithLimit = limitAsync(async (chunk: IDjvuPageRangeChunk) => {
-            throwIfAborted(conversionSignal);
-            if (firstError) {
-                return firstError;
-            }
-
-            const checkpoint = artifactJob.manifest.ranges[chunk.index];
-            if (checkpoint?.status === 'verified') {
-                completedPageCount += chunk.endPage - chunk.startPage + 1;
-                options.onProgress?.(Math.min(
-                    PROGRESS_CAP,
-                    Math.round((completedPageCount / totalPages) * PROGRESS_CAP),
-                ));
-                return null;
-            }
-            await artifactJob.updateRange(chunk.index, {status: 'running'});
-
-            const rangeJobId = `${jobId}-range-${chunk.index + 1}-pages-${chunk.startPage}-${chunk.endPage}`;
-            let pageResult: Awaited<ReturnType<typeof convertPageRangeToPdf>> | null;
-            try {
-                pageResult = await mainJobBroker.run({
-                    ownerId: jobId,
-                    kind: 'djvu-range-conversion',
-                    priority: 'user',
-                    resources: {
-                        cpuTokens: 1,
-                        estimatedResidentBytes: 96 * 1024 * 1024,
-                        nativeProcesses: 1,
-                        ioWeight: 2,
-                    },
-                    signal: conversionSignal,
-                }, async ({onTerminationProof}) => {
-                    if (firstError) {
-                        return null;
-                    }
-                    const result = await convertPageRangeToPdf(
-                        inputPath,
-                        chunk.outputPath,
-                        rangeJobId,
-                        chunk.startPage,
-                        chunk.endPage,
-                        options.subsample,
-                        conversionSignal,
-                        onTerminationProof,
-                    );
-                    if (!result.success && getUnprovenNativeTerminationDetail(result.cause) !== undefined) {
-                        throw result.cause;
-                    }
-                    return result;
-                });
-            } catch (error) {
-                if (getUnprovenNativeTerminationDetail(error) !== undefined) {
-                    firstError = error;
-                    await cancelConversion(jobId);
-                    return error;
-                }
-                const quotaFailure = getDjvuQuotaFailureMessage(quotaMonitor);
-                if (quotaFailure !== undefined) {
-                    firstError ??= quotaFailure;
-                    return firstError;
-                }
-                if (firstError !== null || isDjvuConversionCancellationError(getErrorMessage(error))) {
-                    return firstError ?? getErrorMessage(error);
-                }
-                throw error;
-            }
-            if (pageResult === null) {
-                return firstError;
-            }
-
-            if (!pageResult.success) {
-                const pageError = getDjvuQuotaFailureMessage(quotaMonitor)
-                    ?? pageResult.error
-                    ?? `Failed to convert pages ${chunk.startPage}-${chunk.endPage}`;
-                await cleanupPartialOutput(chunk.outputPath);
-                await artifactJob.updateRange(chunk.index, {
-                    status: 'failed',
-                    error: pageError,
-                });
-                if (!firstError) {
-                    // Preserve the initiating failure before canceling sibling
-                    // processes, whose cancellation results must not suppress
-                    // the safe single-process fallback.
-                    firstError = pageError;
-                    await cancelConversion(jobId);
-                }
-                return firstError;
-            }
-
-            if (firstError) {
-                return firstError;
-            }
-
-            const artifact = await stat(chunk.outputPath);
-            if (artifact.size <= 0) {
-                await artifactJob.updateRange(chunk.index, {
-                    status: 'failed',
-                    error: 'Range artifact is empty',
-                });
-                firstError ??= `Converted pages ${chunk.startPage}-${chunk.endPage} produced an empty artifact`;
-                return firstError;
-            }
-            // A range read after the source changed renders another revision.
-            // It is not kept, and the export fails rather than fall back to
-            // rendering the changed source whole.
-            await assertDjvuSourceIdentity(inputPath, artifactJob.sourceIdentity, options.signal).catch(async (error: unknown) => {
-                await cleanupPartialOutput(chunk.outputPath);
-                await cancelConversion(jobId);
-                throw error;
-            });
-            try {
-                await quotaMonitor.checkNow();
-                await artifactJob.updateRange(chunk.index, {
-                    status: 'verified',
-                    size: artifact.size,
-                });
-            } catch (error) {
-                const verificationError = getErrorMessage(error);
-                firstError = firstError ?? verificationError;
-                await cancelConversion(jobId);
-                return firstError;
-            }
-
-            completedPageCount += chunk.endPage - chunk.startPage + 1;
-            if (options.onProgress) {
-                const percent = Math.min(
-                    PROGRESS_CAP,
-                    Math.round((completedPageCount / totalPages) * PROGRESS_CAP),
-                );
-                options.onProgress(percent);
-            }
-            return null;
-        }, workerCount);
-
-        const conversionErrors = await Promise.allSettled(chunks.map(convertChunkWithLimit));
-        const rejected = conversionErrors.find(result => result.status === 'rejected');
-        for (const result of conversionErrors) {
-            const error: unknown = result.status === 'rejected' ? result.reason : result.value;
-            if (getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
-            firstError ??= error;
+        if (signal.aborted) {
+            throw abortErrorFromSignal(signal);
         }
-        if (rejected?.status === 'rejected') throw rejected.reason;
-
-        if (firstError) {
-            await cleanupPartialOutput(outputPath);
-            return {
-                success: false,
-                outputPath,
-                fileSize: 0,
-                error: getErrorMessage(firstError),
-            };
-        }
-
-        throwIfAborted(conversionSignal);
-        let mergeResult: Awaited<ReturnType<typeof mergePdfChunks>>;
-        try {
-            mergeResult = await mergePdfChunks(
-                chunkPaths,
-                outputPath,
-                `${jobId}-merge`,
-                conversionSignal,
-            );
-        } catch (error) {
-            if (getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
-            await cleanupPartialOutput(outputPath);
-            throw error;
-        }
-        if (!mergeResult.success) {
-            if (getUnprovenNativeTerminationDetail(mergeResult.cause) !== undefined) throw mergeResult.cause;
-            await cleanupPartialOutput(outputPath);
-            return {
-                success: false,
-                outputPath,
-                fileSize: 0,
-                error: getDjvuQuotaFailureMessage(quotaMonitor)
-                    ?? mergeResult.error,
-            };
-        }
-
-        try {
-            await quotaMonitor.checkNow();
-            const s = await stat(outputPath);
-            if (options.onProgress) {
-                options.onProgress(PROGRESS_CAP + 5);
-            }
-            await artifactJob.cleanup?.().catch((error: unknown) => {
-                logger.debug(`Failed to cleanup successful DjVu range artifacts: ${getErrorMessage(error)}`);
-            });
-            return {
-                success: true,
-                outputPath,
-                fileSize: s.size,
-            };
-        } catch (err) {
-            return {
-                success: false,
-                outputPath,
-                fileSize: 0,
-                error: getDjvuQuotaFailureMessage(quotaMonitor)
-                    ?? `Output file not found after parallel conversion: ${getErrorMessage(err)}`,
-            };
-        }
-    } finally {
-        await quotaMonitor.stop();
-        // Verified range artifacts intentionally survive failures and process exits for resume.
-        await artifactJob.close();
-    }
-}
-
-async function _convertDjvuToPdfSingleProcess(
-    inputPath: string,
-    outputPath: string,
-    jobId: string,
-    options: IDjvuConversionOptions,
-    totalPages: number,
-): Promise<IDjvuConversionResult> {
-    const quotaMonitor = await createDjvuDiskQuotaMonitor({
-        paths: [outputPath],
-        fileSystemPath: dirname(outputPath),
-        ...(options.signal ? {signal: options.signal} : {}),
-    }).catch((error: unknown) => error instanceof Error ? error : new Error(String(error)));
-    if (quotaMonitor instanceof Error) {
-        return {
-            success: false,
+        await runDjvuEngine<'renderPageToFile'>({
+            type: 'renderPageToFile',
+            djvuPath: inputPath,
+            pageNumber,
             outputPath,
-            fileSize: 0,
-            error: getErrorMessage(quotaMonitor),
-        };
-    }
-
-    try {
-        const args = buildPdfArgs(inputPath, outputPath, options.subsample, options.pages);
-        // A single ddjvu process reports completed pages in ascending order. Keep
-        // only the last marker and a scalar count, so progress cannot grow a
-        // page-sized Set for very large documents. Repeated markers remain
-        // idempotent, which preserves the old progress behavior on noisy stderr.
-        let lastProgressPage = 0;
-        let completedPageCount = 0;
-        const result = await mainJobBroker.run({
-            ownerId: jobId,
-            kind: 'djvu-conversion',
-            priority: 'user',
-            resources: {
-                cpuTokens: 1,
-                estimatedResidentBytes: 128 * 1024 * 1024,
-                nativeProcesses: 1,
-                ioWeight: 2,
+            options: {
+                format: options.format ?? 'ppm',
+                ...(options.mode ? { mode: options.mode } : {}),
+                ...(options.subsample !== undefined && options.subsample > 1 ? { subsample: options.subsample } : {}),
+                ...(options.targetWidthPx !== undefined && options.targetHeightPx !== undefined
+                    ? {
+                        targetWidthPx: options.targetWidthPx,
+                        targetHeightPx: options.targetHeightPx,
+                    }
+                    : {}),
             },
-            signal: quotaMonitor.signal,
-        }, async ({onTerminationProof}) => {
-            const processResult = await runProcess(
-                jobId,
-                getDjvuNativeToolPaths().ddjvu,
-                args,
-                {
-                    env: buildDjvuRuntimeEnv(),
-                    signal: quotaMonitor.signal,
-                    sourceIndex: args.length - 2,
-                    onTerminationProof,
-                    onStderr: (chunk) => {
-                        if (!options.onProgress || totalPages <= 0) {
-                            return;
-                        }
-                        const pageMatches = chunk.matchAll(/-------- page (\d+)/g);
-                        for (const match of pageMatches) {
-                            const pageNum = parseInt(match[1] ?? '0', 10);
-                            if (!Number.isInteger(pageNum) || pageNum < 1 || pageNum > totalPages) {
-                                continue;
-                            }
-                            if (pageNum <= lastProgressPage) {
-                                continue;
-                            }
-                            lastProgressPage = pageNum;
-                            completedPageCount += 1;
-                            const percent = Math.min(
-                                PROGRESS_CAP,
-                                Math.round((completedPageCount / totalPages) * PROGRESS_CAP),
-                            );
-                            options.onProgress(percent);
-                        }
-                    },
-                },
-            );
-            if (!processResult.success && getUnprovenNativeTerminationDetail(processResult.cause) !== undefined) {
-                throw processResult.cause;
-            }
-            return processResult;
+        }, {
+            signal,
+            timeoutMs: DJVU_IMAGE_PROCESS_TIMEOUT_MS,
         });
-
-        if (!result.success) {
-            await cleanupPartialOutput(outputPath);
-            return {
-                success: false,
-                outputPath,
-                fileSize: 0,
-                error: getDjvuQuotaFailureMessage(quotaMonitor) ?? result.error,
-            };
+        const outputStat = await stat(outputPath);
+        if (signal.aborted) {
+            throw abortErrorFromSignal(signal);
         }
-
-        await quotaMonitor.checkNow();
-        const s = await stat(outputPath);
         return {
             success: true,
             outputPath,
-            fileSize: s.size,
+            fileSize: outputStat.size,
         };
-    } catch (err) {
-        if (getUnprovenNativeTerminationDetail(err) !== undefined) throw err;
+    } catch (error) {
         await cleanupPartialOutput(outputPath);
         return {
             success: false,
             outputPath,
             fileSize: 0,
-            error: getDjvuQuotaFailureMessage(quotaMonitor)
-                ?? `DjVu conversion failed: ${getErrorMessage(err)}`,
+            error: signal.aborted ? DJVU_CONVERSION_CANCELED_MESSAGE : getErrorMessage(error),
+            cause: error,
         };
     } finally {
-        await quotaMonitor.stop();
+        cleanup();
     }
 }
 
+export const convertDjvuPageToImage = renderDjvuPageToImage;
+
+/**
+ * Direct DjVu-to-PDF conversion powered by DjVuLibre WASM + native Rust
+ * `evb-pdf-image-combine` (replacing legacy `ddjvu -format=pdf` / libtiff).
+ */
 export async function convertDjvuToPdfFile(
     inputPath: string,
     outputPath: string,
     jobId: string,
     options: IDjvuConversionOptions = {},
 ): Promise<IDjvuConversionResult> {
-    const totalPages = options.pageCount ?? 0;
-    if (_shouldUseParallelRangeConversion(options)) {
-        const parallelResult = await _convertDjvuToPdfWithRanges(
-            inputPath,
-            outputPath,
-            jobId,
-            options,
-        );
-        if (parallelResult.success || shouldSkipSingleProcessFallback(parallelResult.error)) {
-            return parallelResult;
+    const {
+        signal,
+        cleanup,
+    } = createJobSignal(jobId, options.signal);
+    try {
+        if (signal.aborted) {
+            throw abortErrorFromSignal(signal);
         }
+        const nativeCombinePath = resolveNativePdfImageCombinePath();
+        if (!nativeCombinePath) {
+            throw new PdfCombineCapabilityError(
+                'native-unavailable',
+                'Native PDF image combiner is unavailable for DjVu PDF export',
+                { operation: 'djvu-convert' },
+            );
+        }
+        const docInfo = await runDjvuEngine<'getDocInfo'>({
+            type: 'getDocInfo',
+            djvuPath: inputPath,
+        }, { signal });
+        const totalPages = options.pageCount && options.pageCount > 0 ? options.pageCount : docInfo.pageCount;
+        const selectedPages = parsePageRangeSpec(options.pages, totalPages);
+        if (selectedPages.length === 0) {
+            return {
+                success: false,
+                outputPath,
+                fileSize: 0,
+                error: 'No DjVu pages selected for conversion',
+            };
+        }
+        const pageSizes = await runDjvuEngine<'getPageSizes'>({
+            type: 'getPageSizes',
+            djvuPath: inputPath,
+            pageNumbers: selectedPages,
+        }, { signal });
 
-        logger.warn(
-            `[${jobId}] Parallel DjVu range conversion failed, falling back to single process: ${parallelResult.error ?? 'unknown error'}`,
-        );
-        await cleanupPartialOutput(outputPath);
-    }
+        const subsample = options.subsample && options.subsample > 1 ? Math.trunc(options.subsample) : 1;
+        const workerConcurrency = getHostResourceProfileSnapshot().tier === 'low' ? 1 : 2;
 
-    return _convertDjvuToPdfSingleProcess(
-        inputPath,
-        outputPath,
-        jobId,
-        options,
-        totalPages,
-    );
-}
+        return await usingManagedScratchScope('djvu-export-', getAppTempDir(), async (scratchDir) => {
+            if (signal.aborted) {
+                throw abortErrorFromSignal(signal);
+            }
+            const quotaMonitor = await createDjvuDiskQuotaMonitor({
+                paths: [
+                    scratchDir,
+                    outputPath,
+                ],
+                fileSystemPath: scratchDir,
+                signal,
+            });
+            const effectiveSignal = quotaMonitor.signal;
+            try {
+                const batchCount = Math.ceil(selectedPages.length / DJVU_DIRECT_PDF_PAGE_BATCH_SIZE);
+                const chunkPaths: string[] = [];
+                let completedPages = 0;
 
-async function convertPageRangeToPdf(
-    inputPath: string,
-    outputPath: string,
-    pageJobId: string,
-    startPage: number,
-    endPage: number,
-    subsample: number | undefined,
-    signal?: AbortSignal,
-    onTerminationProof?: (proof: Promise<boolean>) => void,
-) {
-    const pages = startPage === endPage
-        ? String(startPage)
-        : `${startPage}-${endPage}`;
-    const args = buildPdfArgs(
-        inputPath,
-        outputPath,
-        subsample,
-        pages,
-    );
-    return runProcess(
-        pageJobId,
-        getDjvuNativeToolPaths().ddjvu,
-        args,
-        {
-            env: buildDjvuRuntimeEnv(),
-            sourceIndex: args.length - 2,
-            ...(signal ? { signal } : {}),
-            ...(onTerminationProof ? { onTerminationProof } : {}),
-        },
-    );
-}
+                for (let batchIndex = 0; batchIndex < batchCount; batchIndex += 1) {
+                    if (effectiveSignal.aborted) {
+                        throw abortErrorFromSignal(effectiveSignal);
+                    }
+                    const batchStart = batchIndex * DJVU_DIRECT_PDF_PAGE_BATCH_SIZE;
+                    const batchEnd = Math.min(selectedPages.length, batchStart + DJVU_DIRECT_PDF_PAGE_BATCH_SIZE);
+                    const batchLength = batchEnd - batchStart;
+                    const renderedEntries = new Array<{
+                        ppmPath: string;
+                        widthPoints: number;
+                        heightPoints: number;
+                    }>(batchLength);
+                    const renderAbortController = new AbortController();
+                    const renderSignal = AbortSignal.any([
+                        effectiveSignal,
+                        renderAbortController.signal,
+                    ]);
 
-async function mergePdfChunks(
-    chunkPaths: string[],
-    outputPath: string,
-    mergeJobId: string,
-    signal?: AbortSignal,
-) {
-    let qpdf: string;
-    try {
-        qpdf = getPdfNativeToolPaths().qpdf;
+                    const renderWithLimit = limitAsync(async (offset: number) => {
+                        if (renderSignal.aborted) {
+                            throw abortErrorFromSignal(renderSignal);
+                        }
+                        const index = batchStart + offset;
+                        const pageNumber = selectedPages[index]!;
+                        const size = pageSizes[index];
+                        const ppmPath = join(scratchDir, `page-${String(pageNumber).padStart(6, '0')}.ppm`);
+                        const rendered = await runDjvuEngine<'renderPageToFile'>({
+                            type: 'renderPageToFile',
+                            djvuPath: inputPath,
+                            pageNumber,
+                            outputPath: ppmPath,
+                            options: {
+                                format: 'ppm',
+                                mode: 'color',
+                                ...(subsample > 1 ? { subsample } : {}),
+                            },
+                        }, {
+                            signal: renderSignal,
+                            timeoutMs: DJVU_IMAGE_PROCESS_TIMEOUT_MS,
+                        });
+                        await quotaMonitor.checkNow();
+                        const dpi = size?.dpi && size.dpi > 0 ? size.dpi : docInfo.sourceDpi || 300;
+                        const nativeW = size?.width && size.width > 0 ? size.width : rendered.width * subsample;
+                        const nativeH = size?.height && size.height > 0 ? size.height : rendered.height * subsample;
+                        renderedEntries[offset] = {
+                            ppmPath,
+                            widthPoints: Math.max(1, (nativeW / dpi) * 72),
+                            heightPoints: Math.max(1, (nativeH / dpi) * 72),
+                        };
+                        if (!renderSignal.aborted) {
+                            completedPages += 1;
+                            const renderProgressCap = batchCount > 1 ? 84 : 85;
+                            options.onProgress?.(
+                                Math.min(renderProgressCap, Math.round((completedPages / selectedPages.length) * renderProgressCap)),
+                            );
+                        }
+                    }, workerConcurrency);
+
+                    const renderTasks = Array.from({ length: batchLength }, (_, offset) => renderWithLimit(offset));
+                    try {
+                        await Promise.all(renderTasks);
+                    } catch (error) {
+                        renderAbortController.abort(error);
+                        await Promise.allSettled(renderTasks);
+                        throw error;
+                    }
+                    if (effectiveSignal.aborted) {
+                        throw abortErrorFromSignal(effectiveSignal);
+                    }
+
+                    const manifestPath = join(scratchDir, `direct-manifest-${String(batchIndex + 1).padStart(4, '0')}.jsonl`);
+                    const manifestLines: string[] = [JSON.stringify({
+                        format: COMPACT_MANIFEST_JSONL_FORMAT,
+                        schemaVersion: COMPACT_MANIFEST_JSONL_SCHEMA_VERSION,
+                        pageCount: batchLength,
+                    })];
+                    for (const entry of renderedEntries) {
+                        manifestLines.push(
+                            subsample === 1
+                                ? [
+                                    'image',
+                                    entry.widthPoints.toFixed(4),
+                                    entry.heightPoints.toFixed(4),
+                                    entry.ppmPath,
+                                ].join('\t')
+                                : [
+                                    'image-jpeg',
+                                    entry.widthPoints.toFixed(4),
+                                    entry.heightPoints.toFixed(4),
+                                    String(DJVU_DIRECT_PDF_JPEG_QUALITY),
+                                    entry.ppmPath,
+                                ].join('\t'),
+                        );
+                    }
+                    await writeFile(manifestPath, `${manifestLines.join('\n')}\n`, 'utf8');
+
+                    const batchOutputPath = batchCount === 1
+                        ? outputPath
+                        : join(scratchDir, `direct-chunk-${String(batchIndex + 1).padStart(4, '0')}.pdf`);
+                    const onCombineStdout = createPdfCombineProgressHandler(
+                        batchLength,
+                        (processed, total) => {
+                            if (total > 0 && batchCount === 1) {
+                                options.onProgress?.(Math.min(94, 85 + Math.round((processed / total) * 9)));
+                            }
+                        },
+                    );
+                    const combineResult = await runRegisteredDjvuProcess(
+                        batchCount === 1 ? `${jobId}-combine` : `${jobId}-combine-${batchIndex + 1}`,
+                        nativeCombinePath,
+                        [
+                            '--output',
+                            batchOutputPath,
+                            '--json-progress',
+                            '--compact-manifest',
+                            manifestPath,
+                        ],
+                        {
+                            env: {
+                                ...process.env,
+                                ...createFileBackedPdfCombineEnv({ maxPages: batchLength }),
+                            },
+                            timeoutResetsOnStdout: true,
+                            onStdout: onCombineStdout,
+                            signal: effectiveSignal,
+                            timeoutMs: DJVU_PROCESS_TIMEOUT_MS,
+                        },
+                    );
+                    if (!combineResult.success) {
+                        const combineError = combineResult.error;
+                        const nativeCode = typeof combineResult.cause === 'object'
+                            && combineResult.cause !== null
+                            && 'code' in combineResult.cause
+                            ? combineResult.cause.code
+                            : undefined;
+                        if (
+                            nativeCode === PDF_COMBINE_OUTPUT_POLICY.tooLargeCode
+                            || isPdfCombineOutputTooLargeError(combineResult.cause)
+                            || isPdfCombineOutputTooLargeError(combineError)
+                        ) {
+                            throw createPdfCombineOutputTooLargeError(combineError);
+                        }
+                        if (quotaMonitor.failure) {
+                            throw new Error(quotaMonitor.failure.message, { cause: combineResult.cause ?? combineError });
+                        }
+                        await cleanupPartialOutput(outputPath);
+                        return {
+                            success: false,
+                            outputPath,
+                            fileSize: 0,
+                            error: combineError,
+                            cause: combineResult.cause,
+                        };
+                    }
+
+                    if (batchCount > 1) {
+                        chunkPaths.push(batchOutputPath);
+                        // Release uncompressed PPM rasters before starting the next batch
+                        // so multi-hundred-page exports never stage an entire book as raw PPMs.
+                        await Promise.allSettled([
+                            unlink(manifestPath),
+                            ...renderedEntries.map(entry => unlink(entry.ppmPath)),
+                        ]);
+                        await quotaMonitor.checkNow();
+                        options.onProgress?.(Math.min(88, 84 + Math.round(((batchIndex + 1) / batchCount) * 4)));
+                    }
+                }
+
+                if (chunkPaths.length > 1) {
+                    if (effectiveSignal.aborted) {
+                        throw abortErrorFromSignal(effectiveSignal);
+                    }
+                    const [
+                        firstChunk,
+                        ...restChunks
+                    ] = chunkPaths;
+                    await runPageStructureCommand(
+                        'merge-pages',
+                        firstChunk!,
+                        outputPath,
+                        { sources: restChunks },
+                        {
+                            signal: effectiveSignal,
+                            cancelGroup: `${jobId}-merge`,
+                        },
+                    );
+                    await quotaMonitor.checkNow();
+                    options.onProgress?.(94);
+                }
+
+                const outputStat = await stat(outputPath);
+                if (effectiveSignal.aborted) {
+                    throw abortErrorFromSignal(effectiveSignal);
+                }
+                return {
+                    success: true,
+                    outputPath,
+                    fileSize: outputStat.size,
+                };
+            } catch (error) {
+                if (quotaMonitor.failure && !signal.aborted) {
+                    throw new Error(quotaMonitor.failure.message, { cause: error });
+                }
+                throw error;
+            } finally {
+                await quotaMonitor.stop();
+            }
+        });
     } catch (error) {
-        throw createDjvuNativeCapabilityError(
-            'native-unavailable',
-            `DjVu PDF chunk merge cannot find qpdf: ${getErrorMessage(error)}`,
-            error,
-        );
-    }
-
-    const qpdfResult = await runProcess(
-        mergeJobId,
-        qpdf,
-        [
-            '--empty',
-            '--pages',
-            ...chunkPaths,
-            '--',
-            outputPath,
-        ],
-        signal ? { signal } : {},
-    );
-    if (!qpdfResult.success && getUnprovenNativeTerminationDetail(qpdfResult.cause) !== undefined) throw qpdfResult.cause;
-    if (qpdfResult.success) {
-        return { success: true as const };
-    }
-
-    if (isDjvuConversionCancellationError(qpdfResult.error)) {
-        return qpdfResult;
-    }
-
-    throw createDjvuNativeCapabilityError(
-        'native-failure',
-        `DjVu PDF chunk merge failed: ${qpdfResult.error}`,
-        qpdfResult.cause,
-    );
-}
-
-function createDjvuNativeCapabilityError(
-    code: 'native-unavailable' | 'native-failure',
-    message: string,
-    cause?: unknown,
-) {
-    return new PdfCombineCapabilityError(code, message, {
-        ...(cause === undefined ? {} : {cause}),
-        operation: 'djvu-pdf-merge',
-    });
-}
-
-function buildPdfArgs(
-    inputPath: string,
-    outputPath: string,
-    subsample?: number,
-    pages?: string,
-) {
-    const args = [
-        '-format=pdf',
-        '-verbose',
-    ];
-
-    if (subsample && subsample > 1) {
-        args.push(`-subsample=${subsample}`);
-    }
-
-    if (pages) {
-        args.push(`-page=${pages}`);
-    }
-
-    args.push(inputPath, outputPath);
-    return args;
-}
-
-type TImageFormat = 'pbm' | 'pgm' | 'ppm';
-type TDjvuRenderMode = 'background' | 'black' | 'foreground' | 'mask';
-
-export async function convertDjvuPageToImage(
-    inputPath: string,
-    outputPath: string,
-    pageNum: number,
-    jobId: string,
-    options: {
-        subsample?: number;
-        format?: TImageFormat;
-        signal?: AbortSignal;
-        onTerminationProof?: (proof: Promise<boolean>) => void;
-        targetHeightPx?: number;
-        targetWidthPx?: number;
-    } = {},
-): Promise<IDjvuConversionResult> {
-    return renderDjvuPageToImage(inputPath, outputPath, pageNum, jobId, options);
-}
-
-export async function renderDjvuPageToImage(
-    inputPath: string,
-    outputPath: string,
-    pageNum: number,
-    jobId: string,
-    options: {
-        subsample?: number;
-        format?: TImageFormat;
-        mode?: TDjvuRenderMode;
-        signal?: AbortSignal;
-        onTerminationProof?: (proof: Promise<boolean>) => void;
-        targetHeightPx?: number;
-        targetWidthPx?: number;
-    } = {},
-): Promise<IDjvuConversionResult> {
-    const { ddjvu } = getDjvuNativeToolPaths();
-    const format = options.format ?? 'ppm';
-
-    const args = [
-        `-format=${format}`,
-        `-page=${pageNum}`,
-    ];
-
-    if (options.mode) {
-        args.push(`-mode=${options.mode}`);
-    }
-
-    if (options.targetWidthPx && options.targetHeightPx) {
-        args.push(`-size=${options.targetWidthPx}x${options.targetHeightPx}`);
-    } else if (options.subsample && options.subsample > 1) {
-        args.push(`-subsample=${options.subsample}`);
-    }
-
-    args.push(inputPath, outputPath);
-
-    const result = await runProcess(jobId, ddjvu, args, {
-        env: buildDjvuRuntimeEnv(),
-        sourceIndex: args.length - 2,
-        ...(options.signal ? { signal: options.signal } : {}),
-        ...(options.onTerminationProof ? { onTerminationProof: options.onTerminationProof } : {}),
-        timeoutMs: DJVU_IMAGE_PROCESS_TIMEOUT_MS,
-    });
-    if (!result.success) {
+        await cleanupPartialOutput(outputPath);
         return {
             success: false,
             outputPath,
             fileSize: 0,
-            error: result.error,
-            cause: result.cause,
+            error: signal.aborted ? DJVU_CONVERSION_CANCELED_MESSAGE : getErrorMessage(error),
+            cause: error,
         };
-    }
-
-    try {
-        const s = await stat(outputPath);
-        return {
-            success: true,
-            outputPath,
-            fileSize: s.size,
-        };
-    } catch (err) {
-        return {
-            success: false,
-            outputPath,
-            fileSize: 0,
-            error: `Output file not found: ${getErrorMessage(err)}`,
-        };
+    } finally {
+        cleanup();
     }
 }
 
@@ -727,40 +559,6 @@ export async function runRegisteredDjvuProcess(
     command: string,
     args: string[],
     options: IRegisteredDjvuProcessOptions = {},
-) {
-    return runProcess(processId, command, args, options);
-}
-
-export async function cancelConversion(jobId: string) {
-    let canceled = false;
-    mainJobBroker.cancelOwner(jobId, DJVU_CONVERSION_CANCELED_MESSAGE);
-
-    if (activeProcessIds.has(jobId)) {
-        canceledProcessIds.add(jobId);
-        cancelNativeCommandGroup(jobId);
-        canceled = true;
-    }
-
-    for (const id of activeProcessIds) {
-        if (id.startsWith(`${jobId}-`)) {
-            canceledProcessIds.add(id);
-            cancelNativeCommandGroup(id);
-            canceled = true;
-        }
-    }
-
-    await Promise.resolve();
-    return canceled;
-}
-
-// `sourceIndex` is the position of the DjVu source in `args`, for commands that read one.
-interface IRunProcessOptions extends IRegisteredDjvuProcessOptions {sourceIndex?: number;}
-
-async function runProcess(
-    processId: string,
-    command: string,
-    args: string[],
-    options: IRunProcessOptions = {},
 ): Promise<{ success: true } | {
     success: false;
     error: string;
@@ -788,16 +586,13 @@ async function runProcess(
             commandOptions.onStderr = options.onStderr;
         }
         if (options.onStdout !== undefined) {
-            // The stream consumer owns stdout; this wrapper never returns it.
             commandOptions.longLived = true;
             commandOptions.onStdout = options.onStdout;
         }
         if (options.onTerminationProof !== undefined) {
             commandOptions.onTerminationProof = options.onTerminationProof;
         }
-        await (options.sourceIndex === undefined
-            ? runNativeCommand(command, args, commandOptions)
-            : runDjvuSourceCommand(command, args, options.sourceIndex, commandOptions));
+        await runNativeCommand(command, args, commandOptions);
         return { success: true };
     } catch (error) {
         return {
@@ -811,56 +606,40 @@ async function runProcess(
     }
 }
 
-function shouldSkipSingleProcessFallback(error: string | undefined) {
-    if (!error) {
-        return false;
-    }
-    return isDjvuConversionCancellationError(error)
-        || error.includes('timed out after')
-        || error.includes('disk ceiling')
-        || error.includes('DjVu disk quota exceeded')
-        || error.includes('free temporary disk space');
-}
+export async function cancelConversion(jobId: string) {
+    let canceled = false;
+    mainJobBroker.cancelOwner(jobId, DJVU_CONVERSION_CANCELED_MESSAGE);
 
-function isDjvuConversionCancellationError(error: string | undefined) {
-    return error?.includes(DJVU_CONVERSION_CANCELED_MESSAGE) ?? false;
-}
-
-function _shouldUseParallelRangeConversion(options: IDjvuConversionOptions) {
-    const totalPages = options.pageCount ?? 0;
-    if (options.pages) {
-        return false;
-    }
-    if (totalPages < MIN_PAGES_FOR_RANGE_PARALLELISM) {
-        return false;
-    }
-    return getRangeWorkerCount(totalPages) > 1;
-}
-
-function createPageRanges(
-    totalPages: number,
-    workerCount: number,
-) {
-    const chunkCount = Math.min(totalPages, workerCount);
-    const baseChunkSize = Math.floor(totalPages / chunkCount);
-    const remainder = totalPages % chunkCount;
-    const chunks: Array<{
-        startPage: number;
-        endPage: number
-    }> = [];
-    let startPage = 1;
-
-    for (let index = 0; index < chunkCount; index += 1) {
-        const pageCount = baseChunkSize + (index < remainder ? 1 : 0);
-        const endPage = startPage + pageCount - 1;
-        chunks.push({
-            startPage,
-            endPage,
-        });
-        startPage = endPage + 1;
+    for (const [
+        activeId,
+        controllers,
+    ] of activeJobAbortControllers.entries()) {
+        if (activeId === jobId || activeId.startsWith(`${jobId}-`)) {
+            for (const controller of controllers) {
+                if (!controller.signal.aborted) {
+                    controller.abort(new DOMException(DJVU_CONVERSION_CANCELED_MESSAGE, 'AbortError'));
+                    canceled = true;
+                }
+            }
+        }
     }
 
-    return chunks;
+    if (activeProcessIds.has(jobId)) {
+        canceledProcessIds.add(jobId);
+        cancelNativeCommandGroup(jobId);
+        canceled = true;
+    }
+
+    for (const id of activeProcessIds) {
+        if (id.startsWith(`${jobId}-`)) {
+            canceledProcessIds.add(id);
+            cancelNativeCommandGroup(id);
+            canceled = true;
+        }
+    }
+
+    await Promise.resolve();
+    return canceled;
 }
 
 export function resolveDjvuRangeWorkerCount(
@@ -874,8 +653,4 @@ export function resolveDjvuRangeWorkerCount(
     const cpuBound = Math.max(1, logicalCpuCount - 1);
     const desired = clamp(cpuBound, 1, MAX_RANGE_WORKERS);
     return Math.min(pageCount, desired);
-}
-
-function getRangeWorkerCount(pageCount: number) {
-    return resolveDjvuRangeWorkerCount(pageCount);
 }

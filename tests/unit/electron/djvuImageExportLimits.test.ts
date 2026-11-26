@@ -69,11 +69,10 @@ vi.mock('@electron/features/djvu/main/metadata', () => ({
     getDjvuPageCount: mocks.getPageCount,
     getDjvuResolution: async () => 300,
 }));
+vi.mock('@electron/features/djvu/main/buildOptimizedPdf', () => ({buildOptimizedPdf: mocks.estimateTask}));
 vi.mock('@electron/features/djvu/public', () => ({
     cancelConversion: vi.fn(async () => undefined),
     convertDjvuPageToImage: mocks.convertPage,
-    createDjvuPdfEstimateTask: mocks.estimateTask,
-    DjvuPdfWorkerStartupError: class extends Error {},
     getDjvuPageCount: mocks.getPageCount,
     getDjvuPageSizeForViewing: async () => ({
         width: 1000,
@@ -863,7 +862,7 @@ describe('DjVu size estimates', () => {
     beforeEach(async () => {
         estimateDir = await mkdtemp(join(tmpdir(), 'djvu-estimate-test-'));
         mocks.appTempDir = estimateDir;
-        mocks.estimateTask.mockImplementation(() => ({promise: Promise.resolve(1000)}));
+        mocks.estimateTask.mockImplementation(async () => new Uint8Array(1000));
         mocks.convertPage.mockImplementation(async (_source: string, outputPath: string) => writeSample(outputPath));
     });
 
@@ -959,9 +958,14 @@ describe('DjVu size estimates', () => {
                 4,
             ]);
             expect(mocks.estimateTask).toHaveBeenCalledTimes(3);
-            expect(mocks.estimateTask).toHaveBeenCalledWith(expect.any(String), expect.any(Number), expect.objectContaining({
-                combineThreads: 1,
-            }));
+            expect(mocks.estimateTask).toHaveBeenCalledWith(
+                [expect.any(String)],
+                expect.any(Number),
+                undefined,
+                expect.objectContaining({
+                    combineThreads: 1,
+                }),
+            );
             expect(mocks.broker.getSnapshot().active).toBe(0);
         } finally {
             blockerGate.resolve();
@@ -972,15 +976,20 @@ describe('DjVu size estimates', () => {
         mocks.broker = new JobBroker(LEASE_CAPACITY);
         mocks.estimateTask.mockReset();
         let callIndex = 0;
-        mocks.estimateTask.mockImplementation((_path: string, _dpi: number, options?: {
-            onTerminationProof?: (proof: Promise<boolean>) => void;
-        }) => {
+        mocks.estimateTask.mockImplementation(async (
+            _paths: string[],
+            _dpi: number,
+            _onPageProcessed?: unknown,
+            options?: {
+                onTerminationProof?: (proof: Promise<boolean>) => void;
+            },
+        ) => {
             callIndex += 1;
             if (callIndex === 2) {
                 options?.onTerminationProof?.(Promise.resolve(false));
-                return {promise: Promise.reject(markUnprovenNativeTermination(new Error('estimate hung'), 'child alive'))};
+                throw markUnprovenNativeTermination(new Error('estimate hung'), 'child alive');
             }
-            return {promise: Promise.resolve(1000)};
+            return new Uint8Array(1000);
         });
 
         const secondEstimates = await estimateSizes(freshDjvuPath(), 10);

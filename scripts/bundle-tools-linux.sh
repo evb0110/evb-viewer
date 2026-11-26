@@ -61,7 +61,6 @@ bash "$SCRIPT_DIR/ci/select-apt-mirrors.sh"
 run_apt_with_timeout "$APT_TIMEOUT_UPDATE_SECONDS" apt-get "${APT_RETRY_FLAGS[@]}" update -qq
 run_apt_with_timeout "$APT_TIMEOUT_INSTALL_SECONDS" apt-get "${APT_RETRY_FLAGS[@]}" install -y -qq \
   poppler-utils \
-  djvulibre-bin \
   build-essential \
   cmake \
   curl \
@@ -240,22 +239,6 @@ bundle_lib_deps "$QPDF_DIR/lib"
 fix_lib_rpaths "$QPDF_DIR/lib"
 
 # ==========================================
-# 3. DjVuLibre (ddjvu, djvused, djvudump)
-# ==========================================
-echo ""
-echo "=========================================="
-echo "3. Bundling DjVuLibre..."
-echo "=========================================="
-
-DJVU_DIR="$RESOURCES_DIR/djvulibre/$PLATFORM_ARCH"
-reset_bundle_dir "$DJVU_DIR"
-for tool in ddjvu djvused djvudump; do
-  bundle_tool "$tool" "$DJVU_DIR"
-done
-bundle_lib_deps "$DJVU_DIR/lib"
-fix_lib_rpaths "$DJVU_DIR/lib"
-
-# ==========================================
 # Verification
 # ==========================================
 echo ""
@@ -296,9 +279,6 @@ verify_tool "$POPPLER_DIR/bin/pdfimages" "pdfimages"
 verify_dir "$POPPLER_DIR/share/poppler" "poppler data directory"
 verify_dir "$POPPLER_DIR/etc/fonts" "fontconfig directory"
 verify_tool "$QPDF_DIR/bin/qpdf" "qpdf"
-verify_tool "$DJVU_DIR/bin/ddjvu" "ddjvu"
-verify_tool "$DJVU_DIR/bin/djvused" "djvused"
-verify_tool "$DJVU_DIR/bin/djvudump" "djvudump"
 
 if [ "$missing_count" -gt 0 ]; then
   echo ""
@@ -308,7 +288,7 @@ fi
 
 echo ""
 echo "Library counts:"
-for dir in "$POPPLER_DIR" "$QPDF_DIR" "$DJVU_DIR"; do
+for dir in "$POPPLER_DIR" "$QPDF_DIR"; do
   if [ -d "$dir/lib" ]; then
     count="$(find "$dir/lib" -name '*.so*' | wc -l)"
     echo "  $(basename "$(dirname "$dir")"): $count .so files"

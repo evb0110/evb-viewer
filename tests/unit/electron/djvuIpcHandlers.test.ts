@@ -1,8 +1,7 @@
-import type * as TViMockOriginalModule from '@electron/features/djvu/main/parseDjvuOutline';
 import type * as TDdjvuConversionModule from '@electron/features/djvu/main/ddjvuConversion';
+import type * as TEmbedBookmarksModule from '@electron/features/djvu/main/embedBookmarksIntoPdfFile';
 import type * as TPagePreviewModule from '@electron/features/djvu/main/pagePreview';
 import type * as TPdfExportModule from '@electron/features/djvu/main/pdfExport';
-import type * as TPdfWorkerClientModule from '@electron/features/djvu/main/pdfWorkerClient';
 import type * as TViewingModule from '@electron/features/djvu/main/viewing';
 
 import type { TRegisteredHandler } from '@tests/unit/electron/helpers/ipcRegistryHarness';
@@ -48,11 +47,10 @@ const mocks = vi.hoisted(() => ({
     estimateSizes: vi.fn(),
     getDjvuPageCount: vi.fn(),
     getDjvuResolution: vi.fn(),
-    getDjvuOutline: vi.fn(),
+    getDjvuOutlineBookmarks: vi.fn(),
     getDjvuPageComponentMap: vi.fn(),
     getDjvuHasText: vi.fn(),
     getDjvuMetadata: vi.fn(),
-    parseDjvuOutline: vi.fn(),
     handleDjvuConvertToPdf: vi.fn(),
     handleDjvuCancel: vi.fn(),
     handleDjvuOpenForViewing: vi.fn(),
@@ -75,9 +73,9 @@ const mocks = vi.hoisted(() => ({
     safeSendToWindow: vi.fn(),
     senderSend: vi.fn(),
     hostResourceTier: 'high' as 'low' | 'medium' | 'high',
-    createDjvuPdfBookmarkTask: null as ((
-        ...args: Parameters<typeof TPdfWorkerClientModule.createDjvuPdfBookmarkTask>
-    ) => ReturnType<typeof TPdfWorkerClientModule.createDjvuPdfBookmarkTask>) | null,
+    embedBookmarksIntoPdfFile: null as ((
+        ...args: Parameters<typeof TEmbedBookmarksModule.embedBookmarksIntoPdfFile>
+    ) => ReturnType<typeof TEmbedBookmarksModule.embedBookmarksIntoPdfFile>) | null,
 }));
 
 vi.mock('electron', () => ({
@@ -96,14 +94,10 @@ vi.mock('@electron/features/djvu/main/estimateSizes', () => ({estimateSizes: moc
 vi.mock('@electron/features/djvu/main/metadata', () => ({
     getDjvuPageCount: mocks.getDjvuPageCount,
     getDjvuResolution: mocks.getDjvuResolution,
-    getDjvuOutline: mocks.getDjvuOutline,
+    getDjvuOutlineBookmarks: mocks.getDjvuOutlineBookmarks,
     getDjvuPageComponentMap: mocks.getDjvuPageComponentMap,
     getDjvuHasText: mocks.getDjvuHasText,
     getDjvuMetadata: mocks.getDjvuMetadata,
-}));
-vi.mock('@electron/features/djvu/main/parseDjvuOutline', async (importOriginal) => ({
-    ...(await importOriginal<typeof TViMockOriginalModule>()),
-    parseDjvuOutline: mocks.parseDjvuOutline,
 }));
 vi.mock('@electron/features/djvu/main/pdfExport', () => ({
     handleDjvuConvertToPdf: mocks.handleDjvuConvertToPdf,
@@ -145,13 +139,13 @@ vi.mock('@electron/resources/hostResourceProfile', () => ({getHostResourceProfil
     performanceMode: 'auto',
     tier: mocks.hostResourceTier,
 })}));
-vi.mock('@electron/features/djvu/main/pdfWorkerClient', async (importOriginal) => {
-    const actual = await importOriginal<typeof TPdfWorkerClientModule>();
+vi.mock('@electron/features/djvu/main/embedBookmarksIntoPdfFile', async (importOriginal) => {
+    const actual = await importOriginal<typeof TEmbedBookmarksModule>();
     return {
         ...actual,
-        createDjvuPdfBookmarkTask: (
-            ...args: Parameters<typeof TPdfWorkerClientModule.createDjvuPdfBookmarkTask>
-        ) => (mocks.createDjvuPdfBookmarkTask ?? actual.createDjvuPdfBookmarkTask)(...args),
+        embedBookmarksIntoPdfFile: (
+            ...args: Parameters<typeof TEmbedBookmarksModule.embedBookmarksIntoPdfFile>
+        ) => (mocks.embedBookmarksIntoPdfFile ?? actual.embedBookmarksIntoPdfFile)(...args),
     };
 });
 
@@ -240,15 +234,14 @@ describe('registerDjvuIpcAdapter', () => {
         mocks.handlers.clear();
         vi.clearAllMocks();
         mocks.hostResourceTier = 'high';
-        mocks.createDjvuPdfBookmarkTask = null;
+        mocks.embedBookmarksIntoPdfFile = null;
 
         mocks.getDjvuPageCount.mockResolvedValue(1);
         mocks.getDjvuResolution.mockResolvedValue(300);
-        mocks.getDjvuOutline.mockResolvedValue('');
+        mocks.getDjvuOutlineBookmarks.mockResolvedValue([]);
         mocks.getDjvuPageComponentMap.mockResolvedValue(new Map());
         mocks.getDjvuHasText.mockResolvedValue(true);
         mocks.getDjvuMetadata.mockResolvedValue({});
-        mocks.parseDjvuOutline.mockReturnValue([]);
         mocks.readDjvuPageText.mockResolvedValue('');
         mocks.estimateSizes.mockReturnValue([]);
         mocks.handleDjvuConvertToPdf.mockResolvedValue({success: true});
@@ -373,13 +366,10 @@ describe('registerDjvuIpcAdapter', () => {
             const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
             const event = createIpcEvent(1);
             allowOpenPath(path, event.sender as never);
-            mocks.getDjvuOutline.mockRejectedValue(failure);
+            mocks.getDjvuOutlineBookmarks.mockRejectedValue(failure);
             registerDjvuIpcAdapter();
             await expect(getHandler('djvu:getInfo')(event, path)).rejects.toThrow(failure.message);
             await expect(getHandler('djvu:getOutline')(event, path)).rejects.toThrow(failure.message);
-            mocks.getDjvuOutline.mockResolvedValue('(bookmarks)');
-            mocks.getDjvuPageComponentMap.mockRejectedValue(failure);
-            await expect(getHandler('djvu:getOutline')(event, path)).rejects.toBe(failure);
         } finally {
             rmSync(directory, {
                 recursive: true,
@@ -396,7 +386,7 @@ describe('registerDjvuIpcAdapter', () => {
             const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
             const event = createIpcEvent(1);
             allowOpenPath(path, event.sender as never);
-            mocks.getDjvuOutline.mockRejectedValue(new Error('outline output exceeded limit'));
+            mocks.getDjvuOutlineBookmarks.mockRejectedValue(new Error('DjVu outline metadata exceeded 262144 bytes'));
             registerDjvuIpcAdapter();
             await expect(getHandler('djvu:getInfo')(event, path)).resolves.toMatchObject({
                 pageCount: 1,
@@ -420,8 +410,7 @@ describe('registerDjvuIpcAdapter', () => {
             const event = createIpcEvent(1);
             allowOpenPath(realPath, event.sender as never);
             mocks.readDjvuPageText.mockResolvedValue('Native page text');
-            mocks.getDjvuOutline.mockResolvedValue('(bookmarks)');
-            mocks.parseDjvuOutline.mockReturnValue([{
+            mocks.getDjvuOutlineBookmarks.mockResolvedValue([{
                 title: 'Chapter',
                 pageIndex: 0,
                 namedDest: null,
@@ -470,15 +459,15 @@ describe('registerDjvuIpcAdapter', () => {
             const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
             const event = createIpcEvent(1);
             allowOpenPath(path, event.sender as never);
-            const {parseDjvuOutline} = await vi.importActual<typeof TViMockOriginalModule>(
-                '@electron/features/djvu/main/parseDjvuOutline',
-            );
-            mocks.parseDjvuOutline.mockImplementationOnce(parseDjvuOutline);
-            mocks.getDjvuOutline.mockResolvedValue('(bookmarks ("Second" "#p0002.djvu"))');
-            mocks.getDjvuPageComponentMap.mockResolvedValue(new Map([[
-                'p0002.djvu',
-                1,
-            ]]));
+            mocks.getDjvuOutlineBookmarks.mockResolvedValue([{
+                title: 'Second',
+                pageIndex: 1,
+                namedDest: null,
+                bold: false,
+                italic: false,
+                color: null,
+                items: [],
+            }]);
             registerDjvuIpcAdapter();
 
             await expect(getHandler('djvu:getOutline')(event, path)).resolves.toEqual([{
@@ -486,42 +475,6 @@ describe('registerDjvuIpcAdapter', () => {
                 pageNumber: 2,
                 children: [],
             }]);
-        } finally {
-            rmSync(directory, {
-                recursive: true,
-                force: true,
-            });
-        }
-    });
-
-    it('keeps readable numeric bookmarks when optional component metadata fails', async () => {
-        const directory = mkdtempSync(join(tmpdir(), 'djvu-component-outline-failure-'));
-        try {
-            const path = join(directory, 'index.djvu');
-            writeFileSync(path, 'AT&TFORM');
-            const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
-            const event = createIpcEvent(1);
-            allowOpenPath(path, event.sender as never);
-            const {parseDjvuOutline} = await vi.importActual<typeof TViMockOriginalModule>(
-                '@electron/features/djvu/main/parseDjvuOutline',
-            );
-            mocks.parseDjvuOutline.mockImplementationOnce(parseDjvuOutline);
-            mocks.getDjvuOutline.mockResolvedValue('(bookmarks ("Numeric" "#2") ("Component" "#p0002.djvu"))');
-            mocks.getDjvuPageComponentMap.mockRejectedValue(new Error('djvused ls exceeded its output limit'));
-            registerDjvuIpcAdapter();
-
-            await expect(getHandler('djvu:getOutline')(event, path)).resolves.toEqual([
-                {
-                    title: 'Numeric',
-                    pageNumber: 2,
-                    children: [],
-                },
-                {
-                    title: 'Component',
-                    pageNumber: null,
-                    children: [],
-                },
-            ]);
         } finally {
             rmSync(directory, {
                 recursive: true,
@@ -2088,7 +2041,7 @@ describe('native DjVu open admission', async () => {
                 queued: 1,
                 used: {
                     cpuTokens: 1,
-                    nativeProcesses: 1,
+                    nativeProcesses: 0,
                     ioWeight: 1,
                 },
             });
@@ -2210,7 +2163,7 @@ describe('native DjVu open admission', async () => {
                 queued: 1,
                 used: {
                     cpuTokens: 1,
-                    nativeProcesses: 1,
+                    nativeProcesses: 0,
                     ioWeight: 1,
                 },
             });
@@ -2318,7 +2271,7 @@ describe('native DjVu open admission', async () => {
                 queued: 1,
                 used: {
                     cpuTokens: 1,
-                    nativeProcesses: 1,
+                    nativeProcesses: 0,
                     ioWeight: 1,
                 },
             });
@@ -2433,7 +2386,7 @@ describe('native DjVu open admission', async () => {
                 queued: 1,
                 used: {
                     cpuTokens: 1,
-                    nativeProcesses: 1,
+                    nativeProcesses: 0,
                     ioWeight: 1,
                 },
             });
@@ -2501,31 +2454,28 @@ describe('native DjVu open admission', async () => {
             };
         });
         mocks.detectDjvuHasText.mockResolvedValueOnce(true);
-        mocks.getDjvuOutline.mockResolvedValueOnce('(bookmarks ("Chapter 1" "#1"))');
-        mocks.parseDjvuOutline.mockReturnValueOnce([{
+        mocks.getDjvuOutlineBookmarks.mockResolvedValueOnce([{
             title: 'Chapter 1',
             pageIndex: 0,
+            namedDest: null,
+            bold: false,
+            italic: false,
+            color: null,
+            items: [],
         }]);
-        mocks.createDjvuPdfBookmarkTask = (_inputPdfPath, _outputPdfPath, _bookmarks, options) => {
-            const resolvedOptions = options instanceof AbortSignal
-                ? {signal: options}
-                : options ?? {};
+        mocks.embedBookmarksIntoPdfFile = (_inputPdfPath, _outputPdfPath, _bookmarks, signal, onTerminationProof) => {
             bookmarkStarted.resolve(undefined);
-            const promise = new Promise<void>((_resolve, reject) => {
+            return new Promise<number>((_resolve, reject) => {
                 const rejectUnproven = () => {
-                    resolvedOptions.onTerminationProof?.(delayedProof.promise);
+                    onTerminationProof?.(delayedProof.promise);
                     reject(bookmarkError);
                 };
-                if (resolvedOptions.signal?.aborted) {
+                if (signal?.aborted) {
                     rejectUnproven();
                     return;
                 }
-                resolvedOptions.signal?.addEventListener('abort', rejectUnproven, {once: true});
+                signal?.addEventListener('abort', rejectUnproven, {once: true});
             });
-            return {
-                worker: {} as never,
-                promise,
-            };
         };
 
         const competitorState: {lease: {release: () => boolean} | null} = {lease: null};

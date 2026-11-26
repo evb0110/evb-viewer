@@ -322,8 +322,6 @@ describe('native tool smoke policy', () => {
         expect(() => assertPackagedToolSmoke('evb-pdf-page-ops', 0, 'evb-pdf-page-ops 0.1.0')).not.toThrow();
         expect(() => assertPackagedToolSmoke('evb-scan-cleanup', 0, 'evb-scan-cleanup 0.1.0')).not.toThrow();
         expect(() => assertPackagedToolSmoke('evb-pdf-image-combine-compact-manifest', 1, 'Missing --compact-manifest value')).not.toThrow();
-        expect(() => assertPackagedToolSmoke('ddjvu', 1, 'ddjvu usage')).not.toThrow();
-        expect(() => assertPackagedToolSmoke('djvudump', 1, 'djvudump usage')).not.toThrow();
         expect(() => assertPackagedToolSmoke('qpdf', 2, 'qpdf version 12.0.0')).toThrow(
             'Packaged tool smoke test failed (qpdf) with exit code 2',
         );

@@ -5,7 +5,6 @@ const DEFAULT_NATIVE_RESOURCE_ROOTS = [
     'tesseract',
     'poppler',
     'qpdf',
-    'djvulibre',
     'pdf-image-combine',
     'pdf-page-ops',
     'scan-cleanup',

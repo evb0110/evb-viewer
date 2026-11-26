@@ -26,7 +26,7 @@ document work. This page is the map. The decisions behind it are in
 │   scan-cleanup · pdf-page-ops · pdf-image-combine ·      │
 │   pdf-search · jbig2-codec · evb-raster-io ·             │
 │   scan-primitives · evb-native-support                   │
-│   plus third-party: poppler, qpdf, djvulibre              │
+│   plus third-party: poppler, qpdf                         │
 └──────────────────────────────────────────────────────────┘
 ```
 

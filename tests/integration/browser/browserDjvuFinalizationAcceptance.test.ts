@@ -70,7 +70,6 @@ let djvuBytes: Buffer;
 let mixedDpiDjvuBytes: Buffer;
 let boundaryDjvuBytes: Buffer;
 let tiffDjvuBytes: Buffer;
-let djvuScriptBytes: Buffer;
 let combineWorkerBytes: Buffer;
 let combineWasmBytes: Buffer;
 
@@ -188,6 +187,7 @@ beforeAll(async () => {
     combineWorkerBytes = await readFile(workerPath);
     const saveWorkers = new Map<string, Buffer>();
     for (const name of [
+        'browserDjvuEngine.worker',
         'browserQpdfEngine.worker',
         'browserPageOps.worker',
     ]) {
@@ -207,7 +207,6 @@ beforeAll(async () => {
     mixedDpiDjvuBytes = await readFile(resolve(process.cwd(), 'tests/fixtures/djvu/sources/mixed-dpi.djvu'));
     boundaryDjvuBytes = await readFile(resolve(process.cwd(), 'tests/fixtures/djvu/sources/browser-boundary-501-pages.djvu'));
     tiffDjvuBytes = await readFile(resolve(process.cwd(), 'tests/fixtures/djvu/sources/browser-tiff-5-pages.djvu'));
-    djvuScriptBytes = await readFile(resolve(process.cwd(), 'public/vendor/djvujs/djvu.js'));
     server = createServer((_request, response) => {
         const pathname = new URL(_request.url ?? '/', 'http://localhost').pathname;
         const worker = saveWorkers.get(pathname);
@@ -216,7 +215,7 @@ beforeAll(async () => {
             response.end(worker);
             return;
         }
-        if (/^\/wasm\/(?:evb-qpdf\.(?:mjs|wasm)|evb-pdf-page-ops\.wasm)$/u.test(pathname)) {
+        if (/^\/wasm\/(?:evb-djvulibre\.(?:mjs|wasm)|evb-qpdf\.(?:mjs|wasm)|evb-pdf-page-ops\.wasm)$/u.test(pathname)) {
             void readFile(resolve(process.cwd(), 'public', pathname.slice(1))).then(bytes => {
                 response.writeHead(200, {'content-type': pathname.endsWith('.mjs') ? 'text/javascript' : 'application/wasm'});
                 response.end(bytes);
@@ -231,11 +230,6 @@ beforeAll(async () => {
         if (_request.url === '/wasm/evb-pdf-image-combine.wasm') {
             response.writeHead(200, {'content-type': 'application/wasm'});
             response.end(combineWasmBytes);
-            return;
-        }
-        if (_request.url === '/vendor/djvujs/djvu.js') {
-            response.writeHead(200, {'content-type': 'text/javascript'});
-            response.end(djvuScriptBytes);
             return;
         }
         if (_request.url === '/fixtures/bitonal-faint-pencil.djvu') {

@@ -1,10 +1,3 @@
-import { buildDjvuRuntimeEnv } from '@electron/features/djvu/main/buildDjvuRuntimeEnv';
-import {
-    getDjvuNativeToolPaths,
-    runDjvuSourceCommand,
-} from '@electron/features/djvu/main/nativeToolPaths';
-import { NativeProcessError } from '@electron/native-tools/processResult';
-import { mainJobBroker } from '@electron/resources/jobBroker';
 import { createHash } from 'node:crypto';
 import {
     mkdir,
@@ -12,42 +5,29 @@ import {
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { IPdfSearchResult } from '@contracts/search';
-import { assembleSearchablePageTextItems } from '@pdf-core';
 import type { IOcrWord } from '@contracts/shared';
-import {
-    abortErrorFromSignal,
-    createAbortError,
-    isAbortError,
-} from '@electron/utils/abort';
-import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
-import { getAppTempDir } from '@electron/utils/appTempDir';
+import type { IDjvuPageTextRaw } from '@djvu-core/djvuLibreTypes';
+import { assembleSearchablePageTextItems } from '@pdf-core';
+import { runDjvuEngine } from '@electron/features/djvu/main/djvuEnginePool';
 import {
     streamItems,
     type IPageText,
     type ISearchIndexedDocument,
 } from '@electron/features/search/public';
-import {decodeDjvuString} from '@electron/features/djvu/main/decodeDjvuString';
-const DJVU_TEXT_TIMEOUT_MS = 10 * 60 * 1_000;
+import { mainJobBroker } from '@electron/resources/jobBroker';
+import { abortErrorFromSignal } from '@electron/utils/abort';
+import { getAppTempDir } from '@electron/utils/appTempDir';
+
 const DJVU_PAGE_TEXT_TIMEOUT_MS = 30_000;
-// DjVuLibre indexes pages with a signed 32-bit int; larger numbers wrap or fail inside djvused.
 const DJVU_MAX_PAGE_NUMBER = 2_147_483_647;
 const DJVU_TEXT_MAX_PAGE_CHARS = 8 * 1024 * 1024;
-const DJVU_TEXT_MAX_PAGE_ZONES = 200_000;
-const DJVU_TEXT_MAX_TOKEN_CHARS = 1024 * 1024;
-const DJVU_TEXT_MAX_DEPTH = 64;
-const DJVU_TEXT_CAPTURED_STDERR_BYTES = 256 * 1024;
 const DJVU_SEARCH_MAX_WORDS_PER_MATCH = 256;
 const DJVU_PAGE_TEXT_BROKER_RESOURCES = {
     cpuTokens: 1,
     estimatedResidentBytes: 64 * 1024 * 1024,
-    nativeProcesses: 1,
+    nativeProcesses: 0,
     ioWeight: 1,
 };
-const INTERNAL_STOP_REASON = Symbol('djvu-text-internal-stop');
-const OPEN_PAREN = 0x28;
-const CLOSE_PAREN = 0x29;
-const QUOTE = 0x22;
-const BACKSLASH = 0x5c;
 
 interface IDjvuTextZone {
     lineId: number | null;
@@ -67,116 +47,72 @@ interface IDjvuParsedTextPage {
     }>;
 }
 
-interface IDjvuTextFrame {
-    childCount: number;
-    kind: string | null;
-    lineId: number | null;
-    numbers: number[];
-    text: string | null;
-}
+function buildParsedTextPage(pageNumber: number, raw: IDjvuPageTextRaw): IDjvuParsedTextPage {
+    const pageWidth = raw.pageWidth;
+    const pageHeight = raw.pageHeight;
+    const zones: IDjvuTextZone[] = [];
 
-interface IDjvuPageBuildState {
-    frame: IDjvuTextFrame;
-    height: number;
-    lineSequence: number;
-    pageNumber: number;
-    width: number;
-    zones: IDjvuTextZone[];
-}
-
-interface IDjvuTextParserOptions {
-    onPage?: ((page: IDjvuParsedTextPage) => false | undefined) | undefined;
-    onText?: ((text: string) => false | undefined) | undefined;
-}
-
-interface IDjvuTextStreamOptions extends IDjvuTextParserOptions {
-    commandLabel?: string;
-    /** A djvused script; the default prints every page. */
-    script?: string;
-    signal?: AbortSignal | undefined;
-    timeoutMs?: number;
-    onTerminationProof?: ((proof: Promise<boolean>) => void) | undefined;
-}
-
-/** `/\s/u` for the code point at `index`, without a string per ASCII character. */
-function isDjvuTextWhitespace(text: string, index: number) {
-    const code = text.charCodeAt(index);
-    return code < 0x80
-        ? code === 0x20 || (code >= 0x09 && code <= 0x0d)
-        : /\s/u.test(text[index]!);
-}
-
-function isDjvuTextDelimiter(text: string, index: number) {
-    const code = text.charCodeAt(index);
-    return code === OPEN_PAREN || code === CLOSE_PAREN || code === QUOTE || isDjvuTextWhitespace(text, index);
-}
-
-function positiveDimension(start: number | undefined, end: number | undefined) {
-    if (!Number.isFinite(start) || !Number.isFinite(end)) {
-        return 0;
+    for (const zone of raw.zones) {
+        if (!zone.text) {
+            continue;
+        }
+        const width = Math.max(0, zone.xmax - zone.xmin);
+        const height = Math.max(0, zone.ymax - zone.ymin);
+        const hasGeometry = width > 0 && height > 0 && pageHeight > 0;
+        zones.push({
+            lineId: zone.lineId >= 0 ? zone.lineId : null,
+            text: zone.text,
+            ...(hasGeometry
+                ? {
+                    word: {
+                        text: zone.text,
+                        x: Math.max(0, zone.xmin),
+                        y: Math.max(0, pageHeight - zone.ymax),
+                        width,
+                        height,
+                    },
+                }
+                : {}),
+        });
     }
-    return Math.max(0, (end ?? 0) - (start ?? 0));
-}
 
-function createZone(frame: IDjvuTextFrame, page: IDjvuPageBuildState): IDjvuTextZone | null {
-    if (frame.text === null || frame.text.length === 0) {
-        return null;
-    }
-    const [
-        x0,
-        y0,
-        x1,
-        y1,
-    ] = frame.numbers;
-    const width = positiveDimension(x0, x1);
-    const height = positiveDimension(y0, y1);
-    const hasGeometry = width > 0
-        && height > 0
-        && Number.isFinite(page.height)
-        && page.height > 0;
-    return {
-        lineId: frame.lineId,
-        text: frame.text,
-        ...(hasGeometry ? {word: {
-            text: frame.text,
-            x: Math.max(0, x0 ?? 0),
-            y: Math.max(0, page.height - (y1 ?? 0)),
-            width,
-            height,
-        }} : {}),
-    };
-}
-
-function buildParsedPage(page: IDjvuPageBuildState): IDjvuParsedTextPage {
-    const searchableItems = page.zones.map((zone, index) => {
-        const nextZone = page.zones[index + 1];
+    const searchableItems = zones.map((zone, index) => {
+        const nextZone = zones[index + 1];
         return {
             text: zone.text,
             separatorAfter: nextZone
-                ? zone.lineId !== null && nextZone.lineId !== zone.lineId ? 'line' as const : 'space' as const
+                ? zone.lineId !== null && nextZone.lineId !== zone.lineId
+                    ? 'line' as const
+                    : 'space' as const
                 : 'none' as const,
         };
     });
-    if (searchableItems.length === 0 && page.frame.text) {
-        searchableItems.push({
-            text: page.frame.text,
-            separatorAfter: 'none',
-        });
-        page.zones.push({
-            lineId: null,
-            text: page.frame.text,
-        });
+
+    if (searchableItems.length === 0 && raw.text.length > 0) {
+        const cleaned = raw.text.trimEnd();
+        if (cleaned.length > 0) {
+            searchableItems.push({
+                text: cleaned,
+                separatorAfter: 'none',
+            });
+            zones.push({
+                lineId: null,
+                text: cleaned,
+            });
+        }
     }
+
     const assembled = assembleSearchablePageTextItems(searchableItems);
     if (assembled.text.length > DJVU_TEXT_MAX_PAGE_CHARS) {
-        throw new Error(`DjVu page ${page.pageNumber} text exceeds the supported limit`);
+        throw new Error(`DjVu page ${pageNumber} text exceeds the supported limit`);
     }
+
     return {
-        pageNumber: page.pageNumber,
-        width: page.width,
-        height: page.height,
+        pageNumber,
+        width: pageWidth,
+        height: pageHeight,
         text: assembled.text,
-        zones: page.zones,
+        zones,
         zoneOffsets: assembled.itemOffsets.map(offset => ({
             startOffset: offset.startOffset,
             endOffset: offset.endOffset,
@@ -184,320 +120,39 @@ function buildParsedPage(page: IDjvuPageBuildState): IDjvuParsedTextPage {
     };
 }
 
-/** Incremental bounded parser for DjVuLibre `djvused -e print-txt` output. */
-export function createDjvuTextSExpressionParser(options: IDjvuTextParserOptions) {
-    const stack: IDjvuTextFrame[] = [];
-    let currentPage: IDjvuPageBuildState | null = null;
-    let atom = '';
-    let stringToken = '';
-    let inString = false;
-    let stringEscaped = false;
-    let pageCount = 0;
-    let failed: Error | null = null;
-    let stopped = false;
-
-    function assertHealthy() {
-        if (failed) {
-            throw failed;
-        }
-    }
-
-    function fail(message: string): never {
-        failed = new Error(message);
-        throw failed;
-    }
-
-    function currentFrame() {
-        const frame = stack.at(-1);
-        if (!frame) {
-            return fail('Malformed DjVu text output: token outside a list');
-        }
-        return frame;
-    }
-
-    function consumeAtom() {
-        if (!atom) {
-            return;
-        }
-        const frame = currentFrame();
-        if (frame.kind === null) {
-            frame.kind = atom;
-            if (atom === 'page') {
-                if (currentPage) {
-                    fail('Malformed DjVu text output: nested page');
-                }
-                currentPage = {
-                    frame,
-                    height: 0,
-                    lineSequence: 0,
-                    pageNumber: pageCount + 1,
-                    width: 0,
-                    zones: [],
-                };
-            } else if (atom === 'line' && currentPage) {
-                currentPage.lineSequence += 1;
-                frame.lineId = currentPage.lineSequence;
-            }
-        } else if (frame.numbers.length < 4) {
-            const numericValue = Number(atom);
-            if (Number.isFinite(numericValue)) {
-                frame.numbers.push(numericValue);
-                if (frame.kind === 'page' && currentPage?.frame === frame && frame.numbers.length === 4) {
-                    currentPage.width = positiveDimension(frame.numbers[0], frame.numbers[2]);
-                    currentPage.height = positiveDimension(frame.numbers[1], frame.numbers[3]);
-                }
-            }
-        }
-        atom = '';
-    }
-
-    function consumeString() {
-        const frame = currentFrame();
-        frame.text = decodeDjvuString(stringToken);
-        stringToken = '';
-        stopped = options.onText?.(frame.text) === false;
-    }
-
-    function openFrame() {
-        if (stack.length >= DJVU_TEXT_MAX_DEPTH) {
-            fail('DjVu text nesting exceeds the supported limit');
-        }
-        stack.push({
-            childCount: 0,
-            kind: null,
-            lineId: stack.at(-1)?.lineId ?? null,
-            numbers: [],
-            text: null,
-        });
-    }
-
-    function closeFrame() {
-        consumeAtom();
-        const frame = stack.pop();
-        if (!frame) {
-            fail('Malformed DjVu text output: unexpected closing parenthesis');
-        }
-        if (frame.kind === 'page') {
-            if (!currentPage || currentPage.frame !== frame) {
-                fail('Malformed DjVu text output: page ownership mismatch');
-            }
-            const parsedPage = buildParsedPage(currentPage);
-            currentPage = null;
-            pageCount += 1;
-            stopped = options.onPage?.(parsedPage) === false;
-        } else if (currentPage && frame.childCount === 0) {
-            const zone = createZone(frame, currentPage);
-            if (zone) {
-                if (currentPage.zones.length >= DJVU_TEXT_MAX_PAGE_ZONES) {
-                    fail(`DjVu page ${currentPage.pageNumber} text zones exceed the supported limit`);
-                }
-                currentPage.zones.push(zone);
-            }
-        }
-        const parent = stack.at(-1);
-        if (parent) {
-            parent.childCount += 1;
-        }
-    }
-
-    // Tokens are taken as slices of the chunk, not built a character at a
-    // time: the delimiters are ASCII, so no character needs its own string.
-    function push(chunk: string) {
-        assertHealthy();
-        try {
-            let index = 0;
-            while (index < chunk.length && !stopped) {
-                const runStart = index;
-                if (inString) {
-                    for (; index < chunk.length; index += 1) {
-                        const code = chunk.charCodeAt(index);
-                        if (stringEscaped) {
-                            stringEscaped = false;
-                        } else if (code === BACKSLASH) {
-                            stringEscaped = true;
-                        } else if (code === QUOTE) {
-                            break;
-                        }
-                    }
-                    stringToken += chunk.slice(runStart, index);
-                    if (stringToken.length > DJVU_TEXT_MAX_TOKEN_CHARS) {
-                        fail('DjVu text token exceeds the supported limit');
-                    }
-                    if (index < chunk.length) {
-                        index += 1;
-                        inString = false;
-                        consumeString();
-                    }
-                    continue;
-                }
-
-                const code = chunk.charCodeAt(index);
-                if (code === OPEN_PAREN) {
-                    consumeAtom();
-                    openFrame();
-                } else if (code === CLOSE_PAREN) {
-                    closeFrame();
-                } else if (code === QUOTE) {
-                    consumeAtom();
-                    inString = true;
-                } else if (isDjvuTextWhitespace(chunk, index)) {
-                    consumeAtom();
-                } else {
-                    while (index + 1 < chunk.length && !isDjvuTextDelimiter(chunk, index + 1)) {
-                        index += 1;
-                    }
-                    atom += chunk.slice(runStart, index + 1);
-                    if (atom.length > DJVU_TEXT_MAX_TOKEN_CHARS) {
-                        fail('DjVu text token exceeds the supported limit');
-                    }
-                }
-                index += 1;
-            }
-        } catch (error) {
-            failed = error instanceof Error ? error : new Error(String(error));
-            throw failed;
-        }
-    }
-
-    function finish() {
-        assertHealthy();
-        consumeAtom();
-        if (inString || stack.length > 0 || currentPage) {
-            fail('Malformed or incomplete DjVu text output');
-        }
-        return pageCount;
-    }
-
-    return {
-        finish,
-        push,
-        get stopped() {
-            return stopped;
-        },
-    };
-}
-
-async function streamDjvuTextPages(filePath: string, options: IDjvuTextStreamOptions) {
-    const { djvused } = getDjvuNativeToolPaths();
-    const internalController = new AbortController();
-    let internalStop = false as boolean;
-    const parseFailure: {error: Error | null} = {error: null};
-    const stop = () => {
-        internalStop = true;
-        internalController.abort(INTERNAL_STOP_REASON);
-    };
-    const relayAbort = () => internalController.abort(createAbortError());
-    options.signal?.addEventListener('abort', relayAbort, {once: true});
-    if (options.signal?.aborted) {
-        relayAbort();
-    }
-    const parser = createDjvuTextSExpressionParser(options);
-    try {
-        await runDjvuSourceCommand(djvused, [
-            filePath,
-            '-e',
-            options.script ?? 'print-txt',
-        ], 0, {
-            env: buildDjvuRuntimeEnv(),
-            timeoutMs: options.timeoutMs ?? DJVU_TEXT_TIMEOUT_MS,
-            longLived: true,
-            maxStderrBytes: DJVU_TEXT_CAPTURED_STDERR_BYTES,
-            commandLabel: options.commandLabel ?? 'djvused text stream',
-            defaultCwdToCommandDir: true,
-            prependCommandDirToPath: true,
-            includeProcessEnv: true,
-            windowsHide: true,
-            signal: internalController.signal,
-            ...(options.onTerminationProof ? {onTerminationProof: options.onTerminationProof} : {}),
-            onStdout(chunk) {
-                if (parseFailure.error || internalController.signal.aborted) {
-                    return;
-                }
-                try {
-                    parser.push(chunk);
-                    if (parser.stopped) {
-                        stop();
-                    }
-                } catch (error) {
-                    parseFailure.error = error instanceof Error ? error : new Error(String(error));
-                    internalController.abort(parseFailure.error);
-                }
-            },
-        });
-        if (options.signal?.aborted) {
-            throw abortErrorFromSignal(options.signal);
-        }
-        if (parseFailure.error) {
-            throw parseFailure.error;
-        }
-        parser.finish();
-    } catch (error) {
-        if (getUnprovenNativeTerminationDetail(error) !== undefined || options.signal?.aborted) {
-            throw error;
-        }
-        if (parseFailure.error) {
-            throw parseFailure.error;
-        }
-        if (!internalStop || !isAbortError(error)) {
-            throw error;
-        }
-    } finally {
-        options.signal?.removeEventListener('abort', relayAbort);
-    }
-    return {stop};
-}
-
-function isDjvuPageNotFoundError(error: unknown, pageNumber: number) {
-    if (!(error instanceof NativeProcessError) || error.exitCode === 0) {
-        return false;
-    }
-    return new RegExp(`\\bpage\\s+"?${pageNumber}"?\\s+not\\s+found\\b`, 'iu').test(error.stderr);
-}
-
 export async function readDjvuPageText(
     filePath: string,
     pageNumber: number,
     signal?: AbortSignal,
-) {
+): Promise<string> {
     if (!Number.isSafeInteger(pageNumber) || pageNumber < 1 || pageNumber > DJVU_MAX_PAGE_NUMBER) {
         return '';
     }
-    signal?.throwIfAborted();
     return mainJobBroker.run({
-        ownerId: 'djvu-page-text',
+        ownerId: `djvu-page-text:${filePath}`,
         kind: 'djvu-page-text',
-        priority: 'visible',
+        priority: 'foreground',
         admissionClass: 'interactive',
         resources: DJVU_PAGE_TEXT_BROKER_RESOURCES,
-        ...(signal === undefined ? {} : {signal}),
-    }, async ({onTerminationProof}) => {
-        let pageText = '';
+        ...(signal === undefined ? {} : { signal }),
+    }, async () => {
         try {
-            await streamDjvuTextPages(filePath, {
-                commandLabel: 'djvused page text',
-                script: `select ${pageNumber}; print-txt`,
-                signal,
-                onTerminationProof,
+            const raw = await runDjvuEngine<'getPageText'>({
+                type: 'getPageText',
+                djvuPath: filePath,
+                pageNumber,
+                includeZones: true,
+            }, {
+                ...(signal ? { signal } : {}),
                 timeoutMs: DJVU_PAGE_TEXT_TIMEOUT_MS,
-                onPage(page) {
-                    if (page.pageNumber === 1) {
-                        pageText = page.text;
-                        return undefined;
-                    }
-                    return false;
-                },
             });
+            return buildParsedTextPage(pageNumber, raw).text;
         } catch (error) {
-            if (
-                !signal?.aborted
-                && getUnprovenNativeTerminationDetail(error) === undefined
-                && isDjvuPageNotFoundError(error, pageNumber)
-            ) {
+            if (!signal?.aborted && error instanceof Error && error.message.includes('out of bounds')) {
                 return '';
             }
             throw error;
         }
-        return pageText;
     });
 }
 
@@ -529,20 +184,38 @@ function wordsForPageRange(page: IDjvuParsedTextPage, startOffset: number, endOf
 export async function djvuSearchDocument(djvuPath: string): Promise<ISearchIndexedDocument> {
     const source = await stat(djvuPath);
     const directory = join(getAppTempDir(), 'djvu-search');
-    await mkdir(directory, {recursive: true});
+    await mkdir(directory, { recursive: true });
     return {
         indexPath: join(directory, `${createHash('sha256').update(djvuPath).digest('hex')}.evb-search-index`),
         documentRevision: `djvu:${source.size}:${Math.trunc(source.mtimeMs)}`,
-        readPages: signal => streamItems<IPageText>((emit, commandSignal) => streamDjvuTextPages(djvuPath, {
-            signal: commandSignal,
-            onPage(page) {
-                emit({
-                    pageNumber: page.pageNumber,
-                    text: page.text,
+        readPages: signal => streamItems<IPageText>(async (emit, commandSignal) => {
+            const docInfo = await runDjvuEngine<'getDocInfo'>({
+                type: 'getDocInfo',
+                djvuPath,
+            }, {
+                signal: commandSignal,
+                timeoutMs: DJVU_PAGE_TEXT_TIMEOUT_MS,
+            });
+            for (let pageNumber = 1; pageNumber <= docInfo.pageCount; pageNumber += 1) {
+                if (commandSignal.aborted) {
+                    throw abortErrorFromSignal(commandSignal);
+                }
+                const raw = await runDjvuEngine<'getPageText'>({
+                    type: 'getPageText',
+                    djvuPath,
+                    pageNumber,
+                    includeZones: true,
+                }, {
+                    signal: commandSignal,
+                    timeoutMs: DJVU_PAGE_TEXT_TIMEOUT_MS,
                 });
-                return undefined;
-            },
-        }), signal),
+                const parsed = buildParsedTextPage(pageNumber, raw);
+                emit({
+                    pageNumber,
+                    text: parsed.text,
+                });
+            }
+        }, signal),
     };
 }
 
@@ -554,20 +227,20 @@ export async function addDjvuMatchGeometry(
 ): Promise<IPdfSearchResult[]> {
     const pageNumbers = [...new Set(results.map(result => result.pageNumber))];
     const pages = new Map<number, IDjvuParsedTextPage>();
-    if (pageNumbers.length > 0) {
-        let printed = 0;
-        await streamDjvuTextPages(djvuPath, {
-            script: pageNumbers.map(pageNumber => `select ${pageNumber}; print-txt`).join('; '),
-            signal,
-            onPage(page) {
-                const pageNumber = pageNumbers[printed];
-                printed += 1;
-                if (pageNumber !== undefined) {
-                    pages.set(pageNumber, page);
-                }
-                return undefined;
-            },
+    for (const pageNumber of pageNumbers) {
+        if (signal?.aborted) {
+            throw abortErrorFromSignal(signal);
+        }
+        const raw = await runDjvuEngine<'getPageText'>({
+            type: 'getPageText',
+            djvuPath,
+            pageNumber,
+            includeZones: true,
+        }, {
+            ...(signal ? { signal } : {}),
+            timeoutMs: DJVU_PAGE_TEXT_TIMEOUT_MS,
         });
+        pages.set(pageNumber, buildParsedTextPage(pageNumber, raw));
     }
     return results.map((result) => {
         const page = pages.get(result.pageNumber);
@@ -587,19 +260,13 @@ export async function addDjvuMatchGeometry(
 export async function detectDjvuHasText(
     filePath: string,
     signal?: AbortSignal,
-    onTerminationProof?: (proof: Promise<boolean>) => void,
+    _onTerminationProof?: (proof: Promise<boolean>) => void,
 ) {
-    let hasText = false as boolean;
-    await streamDjvuTextPages(filePath, {
-        signal,
-        onTerminationProof,
-        onText(text) {
-            if (text.trim().length > 0) {
-                hasText = true;
-                return false;
-            }
-            return undefined;
-        },
+    return runDjvuEngine<'hasText'>({
+        type: 'hasText',
+        djvuPath: filePath,
+    }, {
+        ...(signal ? { signal } : {}),
+        timeoutMs: 60_000,
     });
-    return hasText;
 }

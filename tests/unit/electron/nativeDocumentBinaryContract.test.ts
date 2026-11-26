@@ -40,12 +40,8 @@ const hostIsPackaged = [
 const nativeToolCommandTimeoutMs = 15_000;
 const nativeToolContractTestTimeoutMs = nativeToolCommandTimeoutMs + 5_000;
 
-function nativeToolPath(tool: 'ddjvu' | 'djvused' | 'pdftotext' | 'qpdf') {
-    const packageName = tool === 'qpdf'
-        ? 'qpdf'
-        : tool === 'pdftotext'
-            ? 'poppler'
-            : 'djvulibre';
+function nativeToolPath(tool: 'pdftotext' | 'qpdf') {
+    const packageName = tool === 'qpdf' ? 'qpdf' : 'poppler';
     return resolve(
         process.cwd(),
         'resources',
@@ -232,23 +228,5 @@ describe.skipIf(!hostIsPackaged)('shipped native document binary contracts', () 
                 force: true,
             });
         }
-    }, nativeToolContractTestTimeoutMs);
-
-    it('runs the shipped DjVuLibre command-line pair', async () => {
-        const captureStderr = (error: unknown) => ({stderr: error && typeof error === 'object' && 'stderr' in error
-            ? String(error.stderr)
-            : String(error)});
-        const [
-            ddjvuHelpResult,
-            djvusedVersionResult,
-        ] = await Promise.all([
-            execFileAsync(nativeToolPath('ddjvu'), ['--help'], {timeout: nativeToolCommandTimeoutMs}).catch((error: unknown) => ({stderr: error && typeof error === 'object' && 'stderr' in error
-                ? String(error.stderr)
-                : String(error)})),
-            execFileAsync(nativeToolPath('djvused'), ['--version'], {timeout: nativeToolCommandTimeoutMs}).catch(captureStderr),
-        ]);
-
-        expect(ddjvuHelpResult.stderr).toContain('Usage: ddjvu');
-        expect(djvusedVersionResult.stderr).toContain('DjVuLibre-');
     }, nativeToolContractTestTimeoutMs);
 });

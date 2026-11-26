@@ -790,46 +790,30 @@ async function exportBrowserDjvuPagesAsImages(
         });
         const destination = targetPages.length ? await chooseImageExportDestination(targetPages.length, targetPages[0]!) : null;
         if (!destination) return CANCELED_IMAGE_EXPORT;
-        // The decoder only produces PNG; the output name decides the encoding.
+        // DjVuLibre WASM returns upright full-resolution RGBA directly.
         return await writeBrowserImagePages(destination, 'djvu', targetPages, async (pageNumber, format) => {
             const pageSize = pageSizes[targetPages.indexOf(pageNumber)]!;
-            const rendered = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
+            const rendered = await worker.renderPage(pageNumber, {
+                mode: 'color',
+                pixelFormat: 'rgba',
+            });
+            const canvas = document.createElement('canvas');
             try {
-                const response = await fetch(rendered.url);
-                if (!response.ok) {
-                    throw new Error(`Failed to render DjVu page ${pageNumber}`);
-                }
-                const pngBytes = new Uint8Array(await response.arrayBuffer());
-                return format === 'png'
-                    ? addPngPhysicalResolution(pngBytes, pageSize.dpi)
-                    : await encodeDecodedPngAs(pngBytes, format, pageSize.dpi);
+                canvas.width = rendered.width;
+                canvas.height = rendered.height;
+                const context = canvas.getContext('2d', {willReadFrequently: true});
+                if (!context) throw new Error('Canvas 2D context is unavailable for DjVu image export');
+                const clamped = new Uint8ClampedArray(rendered.bytes.byteLength);
+                clamped.set(rendered.bytes);
+                context.putImageData(new ImageData(clamped, rendered.width, rendered.height), 0, 0);
+                return await encodeCanvasAs(canvas, format, pageSize.dpi);
             } finally {
-                worker.revokeObjectURL(rendered.url);
+                releaseCanvas(canvas);
             }
         }, requestId);
     } finally {
         worker.terminate();
     }
-}
-
-async function withDecodedPngCanvas<T>(bytes: Uint8Array, read: (canvas: HTMLCanvasElement, context: CanvasRenderingContext2D) => T | Promise<T>) {
-    const bitmap = await createImageBitmap(new Blob([new Uint8Array(bytes)], {type: 'image/png'}));
-    const canvas = document.createElement('canvas');
-    try {
-        canvas.width = bitmap.width;
-        canvas.height = bitmap.height;
-        const context = canvas.getContext('2d', {willReadFrequently: true});
-        if (!context) throw new Error('Canvas 2D context is unavailable for DjVu image export');
-        context.drawImage(bitmap, 0, 0);
-        return await read(canvas, context);
-    } finally {
-        bitmap.close();
-        releaseCanvas(canvas);
-    }
-}
-
-function encodeDecodedPngAs(pngBytes: Uint8Array, format: Exclude<TBrowserImageExportFormat, 'png'>, dpi: number) {
-    return withDecodedPngCanvas(pngBytes, canvas => encodeCanvasAs(canvas, format, dpi));
 }
 
 type TDjvuTiffWorker = Awaited<ReturnType<typeof createDjvuWorkerFromPath>>;
@@ -838,18 +822,15 @@ async function renderBrowserDjvuPage(
     worker: TDjvuTiffWorker,
     pageNumber: number,
 ) {
-    const rendered = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
-    try {
-        const response = await fetch(rendered.url);
-        if (!response.ok) throw new Error(`Failed to render DjVu page ${pageNumber}`);
-        return await withDecodedPngCanvas(new Uint8Array(await response.arrayBuffer()), (canvas, context) => ({
-            width: canvas.width,
-            height: canvas.height,
-            rgba: new Uint8Array(context.getImageData(0, 0, canvas.width, canvas.height).data.buffer),
-        }));
-    } finally {
-        worker.revokeObjectURL(rendered.url);
-    }
+    const rendered = await worker.renderPage(pageNumber, {
+        mode: 'color',
+        pixelFormat: 'rgba',
+    });
+    return {
+        width: rendered.width,
+        height: rendered.height,
+        rgba: rendered.bytes,
+    };
 }
 
 function buildDjvuTiffPageDescriptors(

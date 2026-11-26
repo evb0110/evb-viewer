@@ -54,8 +54,6 @@ import {createPdfjsNodeDocumentOptions} from '@electron/features/search/pdfjsPag
 import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
 import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
-import { prependDirectoryToPath } from '@electron/native-tools/toolRegistry';
-import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 import { MAX_EAGER_PDF_CONFORMANCE_BYTES } from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import type { IPdfNativeMutationSet } from '@contracts/electronApiDocuments';
@@ -467,107 +465,6 @@ export function createFixturePath(filename: string) {
     return join(getFixtureDir(), filename);
 }
 
-function prependFixtureLibraryPath(env: NodeJS.ProcessEnv, key: string, value: string) {
-    const current = env[key]?.trim();
-    const delimiter = process.platform === 'win32' ? ';' : ':';
-    env[key] = current ? `${value}${delimiter}${current}` : value;
-}
-
-function buildDjvusedFixtureEnv(command: string) {
-    let env: NodeJS.ProcessEnv = {
-        ...process.env,
-        LANG: 'C.UTF-8',
-        LC_ALL: 'C.UTF-8',
-        LC_CTYPE: 'C.UTF-8',
-    };
-    if (!command.includes('/') && !command.includes('\\')) {
-        return env;
-    }
-
-    const libDir = resolve(dirname(command), '..', 'lib');
-    if (!existsSync(libDir)) {
-        return env;
-    }
-    if (process.platform === 'win32') {
-        env = prependDirectoryToPath(libDir, env);
-    } else {
-        prependFixtureLibraryPath(env, 'DYLD_LIBRARY_PATH', libDir);
-        prependFixtureLibraryPath(env, 'LD_LIBRARY_PATH', libDir);
-    }
-    return env;
-}
-
-async function resolveDjvusedFixtureTool() {
-    const binaryName = process.platform === 'win32' ? 'djvused.exe' : 'djvused';
-    const bundledPath = resolveNativeToolPath({
-        binaryName,
-        binaryRelativePath: [
-            'bin',
-            binaryName,
-        ],
-        crateName: 'djvulibre',
-        currentDir: process.cwd(),
-        includeRustTargetCandidates: false,
-        isPackaged: false,
-        platformArch: resolvePlatformArchTag(),
-        projectRoot: process.cwd(),
-        resourcesBase: resolve(process.cwd(), 'resources'),
-    });
-    const attempts: string[] = [];
-    const candidates = Array.from(new Set([
-        ...(bundledPath ? [bundledPath] : []),
-        binaryName,
-    ]));
-
-    for (const command of candidates) {
-        const env = buildDjvusedFixtureEnv(command);
-        try {
-            const result = await runNativeCommand(command, [
-                TRACKED_DJVU_CORPUS_FIXTURE,
-                '-e',
-                'n',
-            ], {
-                commandLabel: 'djvused E2E fixture probe',
-                defaultCwdToCommandDir: true,
-                env,
-                maxStderrBytes: 16 * 1024,
-                maxStdoutBytes: 16 * 1024,
-                prependCommandDirToPath: true,
-                timeoutMs: 15_000,
-                windowsHide: true,
-            });
-            if (Number.parseInt(result.stdout.trim(), 10) === NATIVE_DJVU_SEARCH_FIXTURE_PAGE_COUNT) {
-                return {
-                    available: true as const,
-                    command,
-                    env,
-                };
-            }
-            attempts.push(`${command}: unexpected page count ${result.stdout.trim() || '(empty)'}`);
-        } catch (error) {
-            attempts.push(`${command}: ${error instanceof Error ? error.message : String(error)}`);
-        }
-    }
-
-    return {
-        available: false as const,
-        attempts,
-    };
-}
-
-function createLatePageDjvuTextScript() {
-    return [
-        `select ${NATIVE_DJVU_SEARCH_FIXTURE_LATE_PAGE}`,
-        'set-txt',
-        '(page 0 0 512 512',
-        '  (line 48 360 464 424',
-        `    (word 64 360 248 424 "${NATIVE_DJVU_SEARCH_FIXTURE_SENTINEL}")`,
-        `    (word 272 360 456 424 "${NATIVE_DJVU_SEARCH_FIXTURE_SENTINEL}")))`,
-        '.',
-        '',
-    ].join('\n');
-}
-
 export async function createNativeDjvuLatePageSearchFixture(
     targetFilename = `native-djvu-search-${Date.now()}.djvu`,
 ): Promise<INativeDjvuSearchFixtureAvailability> {
@@ -575,63 +472,47 @@ export async function createNativeDjvuLatePageSearchFixture(
         throw new Error(`Tracked native DjVu search fixture is missing: ${TRACKED_DJVU_CORPUS_FIXTURE}`);
     }
 
-    const resolvedTool = await resolveDjvusedFixtureTool();
-    if (!resolvedTool.available) {
-        return {
-            pageCount: NATIVE_DJVU_SEARCH_FIXTURE_PAGE_COUNT,
-            pageNumber: NATIVE_DJVU_SEARCH_FIXTURE_LATE_PAGE,
-            path: null,
-            reason: `djvused is unavailable for native DjVu search E2E: ${resolvedTool.attempts.join(' | ')}`,
-            required: false,
-            sentinel: NATIVE_DJVU_SEARCH_FIXTURE_SENTINEL,
-        };
-    }
-
+    const { setDjvuPageTextInFile } = await import('@tests/e2e/electron/helpers/djvuFixtureWriter');
     const targetPath = createFixturePath(targetFilename);
-    const scriptPath = createFixturePath(`${targetFilename}.dsed`);
     copyFileSync(TRACKED_DJVU_CORPUS_FIXTURE, targetPath);
-    writeFileSync(scriptPath, createLatePageDjvuTextScript(), 'ascii');
     try {
-        await runNativeCommand(resolvedTool.command, [
-            targetPath,
-            '-f',
-            scriptPath,
-            '-s',
-        ], {
-            commandLabel: 'djvused E2E late-page text injection',
-            defaultCwdToCommandDir: true,
-            env: resolvedTool.env,
-            maxStderrBytes: 32 * 1024,
-            maxStdoutBytes: 32 * 1024,
-            prependCommandDirToPath: true,
-            timeoutMs: 30_000,
-            windowsHide: true,
+        setDjvuPageTextInFile(targetPath, NATIVE_DJVU_SEARCH_FIXTURE_LATE_PAGE, {
+            type: 'page',
+            xmin: 0,
+            ymin: 0,
+            xmax: 512,
+            ymax: 512,
+            children: [
+                {
+                    type: 'line',
+                    xmin: 48,
+                    ymin: 360,
+                    xmax: 464,
+                    ymax: 424,
+                    children: [
+                        {
+                            type: 'word',
+                            xmin: 64,
+                            ymin: 360,
+                            xmax: 248,
+                            ymax: 424,
+                            text: NATIVE_DJVU_SEARCH_FIXTURE_SENTINEL,
+                        },
+                        {
+                            type: 'word',
+                            xmin: 272,
+                            ymin: 360,
+                            xmax: 456,
+                            ymax: 424,
+                            text: NATIVE_DJVU_SEARCH_FIXTURE_SENTINEL,
+                        },
+                    ],
+                },
+            ],
         });
-        const verification = await runNativeCommand(resolvedTool.command, [
-            targetPath,
-            '-e',
-            `select ${NATIVE_DJVU_SEARCH_FIXTURE_LATE_PAGE}; print-pure-txt`,
-        ], {
-            commandLabel: 'djvused E2E late-page text verification',
-            defaultCwdToCommandDir: true,
-            env: resolvedTool.env,
-            maxStderrBytes: 32 * 1024,
-            maxStdoutBytes: 32 * 1024,
-            prependCommandDirToPath: true,
-            timeoutMs: 30_000,
-            windowsHide: true,
-        });
-        const sentinelMatches = verification.stdout.match(
-            new RegExp(NATIVE_DJVU_SEARCH_FIXTURE_SENTINEL, 'gu'),
-        )?.length ?? 0;
-        if (sentinelMatches !== 2) {
-            throw new Error(`Injected DjVu sentinel verification found ${sentinelMatches} matches instead of 2`);
-        }
     } catch (error) {
         rmSync(targetPath, {force: true});
         throw error;
-    } finally {
-        rmSync(scriptPath, {force: true});
     }
 
     return {

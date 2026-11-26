@@ -53,13 +53,23 @@ beforeAll(async () => {
         sourcemap: false,
         tsconfig: resolve(process.cwd(), 'tsconfig.json'),
     });
-    // The export joins its pages in the page-ops worker.
+    // The export joins its pages in the page-ops worker and decodes DjVu in the DjVuLibre WASM worker.
     const pageOpsWorkerPath = join(temporaryDirectory, 'browserPageOps.worker.ts');
     await build({
         bundle: true,
         entryPoints: [resolve(process.cwd(), 'app/platform/browser-api/browserPageOps.worker.ts')],
         format: 'esm',
         outfile: pageOpsWorkerPath,
+        platform: 'browser',
+        sourcemap: false,
+        tsconfig: resolve(process.cwd(), 'tsconfig.json'),
+    });
+    const djvuWorkerPath = join(temporaryDirectory, 'browserDjvuEngine.worker.ts');
+    await build({
+        bundle: true,
+        entryPoints: [resolve(process.cwd(), 'app/platform/browser-api/browserDjvuEngine.worker.ts')],
+        format: 'esm',
+        outfile: djvuWorkerPath,
         platform: 'browser',
         sourcemap: false,
         tsconfig: resolve(process.cwd(), 'tsconfig.json'),
@@ -80,6 +90,13 @@ beforeAll(async () => {
             },
         ],
         [
+            '/browserDjvuEngine.worker.ts',
+            {
+                type: 'text/javascript',
+                bytes: await readFile(djvuWorkerPath),
+            },
+        ],
+        [
             '/wasm/evb-pdf-page-ops.wasm',
             {
                 type: 'application/wasm',
@@ -87,10 +104,17 @@ beforeAll(async () => {
             },
         ],
         [
-            '/vendor/djvujs/djvu.js',
+            '/wasm/evb-djvulibre.mjs',
             {
                 type: 'text/javascript',
-                bytes: await readFile(resolve(process.cwd(), 'public/vendor/djvujs/djvu.js')),
+                bytes: await readFile(resolve(process.cwd(), 'public/wasm/evb-djvulibre.mjs')),
+            },
+        ],
+        [
+            '/wasm/evb-djvulibre.wasm',
+            {
+                type: 'application/wasm',
+                bytes: await readFile(resolve(process.cwd(), 'public/wasm/evb-djvulibre.wasm')),
             },
         ],
         [
@@ -109,7 +133,8 @@ beforeAll(async () => {
         ],
     ]);
     server = createServer((request, response) => {
-        const asset = assets.get(request.url ?? '');
+        const pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
+        const asset = assets.get(pathname);
         response.writeHead(200, {'content-type': asset?.type ?? 'text/html'});
         response.end(asset?.bytes ?? '<!doctype html><title>DjVu scan pixel acceptance</title>');
     });

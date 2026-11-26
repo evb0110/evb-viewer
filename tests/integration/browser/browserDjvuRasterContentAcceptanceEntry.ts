@@ -93,11 +93,8 @@ async function installBrowserDjvuRasterContentAcceptance() {
             1,
             2,
         ]) {
-            const decoded = await worker.doc.getPage(page).getImageData().run();
-            if (!(decoded instanceof ImageData)) {
-                throw new Error('DjVu decoder did not return browser ImageData');
-            }
-            counts.push(countInkPixels(decoded.data));
+            const decoded = await worker.renderPage(page, { pixelFormat: 'rgba' });
+            counts.push(countInkPixels(new Uint8ClampedArray(decoded.bytes.buffer, decoded.bytes.byteOffset, decoded.bytes.byteLength)));
         }
         return counts;
     }, 'convert');
