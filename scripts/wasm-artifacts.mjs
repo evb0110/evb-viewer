@@ -106,6 +106,15 @@ function getRequiredExports(relativePath) {
     return requiredExports;
 }
 
+// The rustc wrapper passes these flags where Cargo cannot see them, so Cargo
+// would reuse a crate compiled under one artifact's flags for another artifact
+// of the same target; every artifact of a target takes that target's flags.
+// getrandom, which only pdf-page-ops depends on, reads its backend from a cfg.
+const WASM_TARGET_RUSTFLAGS = [
+    '--cfg',
+    'getrandom_backend="custom"',
+];
+
 /** @type {IWasmArtifact[]} */
 export const WASM_ARTIFACTS = [
     {
@@ -117,7 +126,7 @@ export const WASM_ARTIFACTS = [
         publicRelativePath: 'public/wasm/evb-pdf-image-combine.wasm',
         requiredExports: getRequiredExports('wasm/evb-pdf-image-combine.wasm'),
         rustTarget: WASM_TARGET,
-        rustflags: [],
+        rustflags: WASM_TARGET_RUSTFLAGS,
     },
     {
         builtFileName: 'evb_pdf_page_ops.wasm',
@@ -128,10 +137,7 @@ export const WASM_ARTIFACTS = [
         publicRelativePath: 'public/wasm/evb-pdf-page-ops.wasm',
         requiredExports: getRequiredExports('wasm/evb-pdf-page-ops.wasm'),
         rustTarget: WASM_TARGET,
-        rustflags: [
-            '--cfg',
-            'getrandom_backend="custom"',
-        ],
+        rustflags: WASM_TARGET_RUSTFLAGS,
     },
     {
         builtFileName: 'evb_scan_cleanup.wasm',
@@ -142,7 +148,7 @@ export const WASM_ARTIFACTS = [
         publicRelativePath: 'public/wasm/evb-scan-cleanup.wasm',
         requiredExports: getRequiredExports('wasm/evb-scan-cleanup.wasm'),
         rustTarget: WASM_TARGET,
-        rustflags: [],
+        rustflags: WASM_TARGET_RUSTFLAGS,
     },
     {
         builtFileName: 'evb_scan_cleanup.wasm',
