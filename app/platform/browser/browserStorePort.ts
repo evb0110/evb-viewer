@@ -125,7 +125,8 @@ export function createWorkerStorePort(worker: Worker): IStorePort & {probe(): Pr
 /** The storage port without durability: documents of a window whose browser refuses storage. */
 export function createMemoryStorePort(): IStorePort {
     // A file's bytes are `[0, length)` of a buffer that grows by doubling, so streamed writes stay linear. Its
-    // readers share one Blob of them until it changes: a copy per reader outgrows the memory a browser lends Blobs.
+    // readers share one Blob of them until it changes or closes: a copy per reader outgrows the memory a browser
+    // lends Blobs.
     const files = new Map<string, {buffer: Uint8Array; length: number; blob?: Blob}>();
     const children = (dir: string) => [...files.keys()].filter(path => path.startsWith(`${dir}/`));
     const bytesOf = (path: string) => {
@@ -167,7 +168,10 @@ export function createMemoryStorePort(): IStorePort {
                     delete file.blob;
                 },
                 flush: async () => undefined,
-                close: async () => undefined,
+                // A closed file, such as a revision kept for undo, keeps its bytes but lends no Blob until read again.
+                close: async () => {
+                    delete file.blob;
+                },
             };
             pdfAppenders.set(storeFile, (base, request) => appendPdfMutationsToSyncFile({
                 read(into, at) {
