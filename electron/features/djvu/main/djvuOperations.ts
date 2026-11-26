@@ -7,12 +7,10 @@ import { estimateSizes } from '@electron/features/djvu/main/estimateSizes';
 import {
     getDjvuHasText,
     getDjvuMetadata,
-    getDjvuOutline,
-    getDjvuPageComponentMap,
+    getDjvuOutlineBookmarks,
     getDjvuPageCount,
     getDjvuResolution,
 } from '@electron/features/djvu/main/metadata';
-import { parseDjvuOutline } from '@electron/features/djvu/main/parseDjvuOutline';
 import {
     handleDjvuCancel,
     handleDjvuPrintPath,
@@ -782,13 +780,13 @@ export function handleDjvuCancelTextSearch(
 }
 
 // Browsing can omit an unreadable optional outline; export preservation cannot.
-async function getOptionalDjvuOutline(filePath: string) {
+async function getOptionalDjvuOutlineBookmarks(filePath: string): Promise<IPdfBookmarkEntry[]> {
     try {
-        return await getDjvuOutline(filePath);
+        return await getDjvuOutlineBookmarks(filePath);
     } catch (error) {
         if (isAbortError(error) || getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
         logger.debug(`Failed to read optional DjVu outline for ${filePath}: ${String(error)}`);
-        return '';
+        return [];
     }
 }
 
@@ -806,18 +804,16 @@ export async function handleDjvuGetInfo(
     const [
         pageCount,
         sourceDpi,
-        outlineSexp,
+        bookmarks,
         hasText,
         metadata,
     ] = await Promise.all([
         getDjvuPageCount(normalizedDjvuPath),
         getDjvuResolution(normalizedDjvuPath),
-        getOptionalDjvuOutline(normalizedDjvuPath),
+        getOptionalDjvuOutlineBookmarks(normalizedDjvuPath),
         getDjvuHasText(normalizedDjvuPath),
         getDjvuMetadata(normalizedDjvuPath),
     ]);
-
-    const bookmarks = parseDjvuOutline(outlineSexp);
 
     return {
         pageCount,
@@ -909,19 +905,8 @@ export async function handleDjvuGetOutline(
     if (!isAllowedDjvuViewingPath(normalizedDjvuPath, context.senderId)) {
         throw new Error('DjVu viewing path is not active');
     }
-    // An indirect document's outline can name its pages by component file.
-    const [
-        outline,
-        components,
-    ] = await Promise.all([
-        getOptionalDjvuOutline(normalizedDjvuPath),
-        getDjvuPageComponentMap(normalizedDjvuPath).catch((error: unknown) => {
-            if (isAbortError(error) || getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
-            logger.debug(`Failed to read optional DjVu page components for ${normalizedDjvuPath}: ${String(error)}`);
-            return new Map<string, number>();
-        }),
-    ]);
-    return parseDjvuOutline(outline, components).map(mapDjvuOutlineItem);
+    const bookmarks = await getOptionalDjvuOutlineBookmarks(normalizedDjvuPath);
+    return bookmarks.map(mapDjvuOutlineItem);
 }
 
 export async function handleDjvuGetPageSourceInfo(

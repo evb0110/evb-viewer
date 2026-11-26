@@ -18,6 +18,7 @@ import {
     abortErrorFromSignal,
     isAbortError,
 } from '@electron/utils/abort';
+import { runtimeConfig } from '@electron/runtimeConfig';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
@@ -240,6 +241,30 @@ function isDjvuOpenCanceled(error: unknown, signal: AbortSignal | undefined) {
     return signal?.aborted === true || isAbortError(error);
 }
 
+async function waitForTestDjvuOpenHold(signal: AbortSignal | undefined) {
+    if (app.isPackaged) {
+        return;
+    }
+    const holdMs = runtimeConfig.test.holdDjvuOpenMs;
+    if (holdMs <= 0) {
+        return;
+    }
+    if (signal?.aborted) {
+        throw abortErrorFromSignal(signal);
+    }
+    await new Promise<void>((resolveHold, rejectHold) => {
+        const timer = setTimeout(() => {
+            signal?.removeEventListener('abort', onAbort);
+            resolveHold();
+        }, holdMs);
+        const onAbort = () => {
+            clearTimeout(timer);
+            rejectHold(abortErrorFromSignal(signal!));
+        };
+        signal?.addEventListener('abort', onAbort, { once: true });
+    });
+}
+
 export async function handleDjvuOpenForViewing(
     context: IDjvuOperationContext,
     djvuPath: TOpenPath,
@@ -255,6 +280,7 @@ export async function handleDjvuOpenForViewing(
         if (format !== 'djvu' && format !== 'invalid-djvu') {
             return failDjvuOpen(new Error(`This file is not a DjVu document (${format})`), 'not-djvu', format);
         }
+        await waitForTestDjvuOpenHold(signal);
         // A DjVu header whose container is shorter than it declares still goes
         // to DjVuLibre, which can show the pages it holds; only a failure
         // below is reported as a damaged document.

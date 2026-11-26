@@ -33,38 +33,6 @@ const PACKAGED_TOOL_SMOKE_POLICY = {
         allowedExitCodes: new Set([0]),
         expectedOutputTokens: ['evb-scan-cleanup'],
     },
-    ddjvu: {
-        allowedExitCodes: new Set([
-            0,
-            1,
-            10,
-        ]),
-        expectedOutputTokens: [
-            'ddjvu',
-            'djvu',
-        ],
-    },
-    djvused: {
-        allowedExitCodes: new Set([
-            0,
-            10,
-        ]),
-        expectedOutputTokens: [
-            'djvused',
-            'djvu',
-        ],
-    },
-    djvudump: {
-        allowedExitCodes: new Set([
-            0,
-            1,
-            10,
-        ]),
-        expectedOutputTokens: [
-            'djvudump',
-            'djvu',
-        ],
-    },
     pdfinfo: {
         allowedExitCodes: new Set([0]),
         expectedOutputTokens: [

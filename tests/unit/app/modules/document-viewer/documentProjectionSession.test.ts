@@ -19,11 +19,11 @@ import {
 } from '@app/modules/document-viewer/session/documentProjectionSession';
 import { createWorkspaceSurfaceBudgetController } from '@app/modules/document-viewer/runtime/workspaceSurfaceBudgetController';
 
-const djvuRouteMocks = vi.hoisted(() => ({loadDjvuJs: vi.fn()}));
+const djvuRouteMocks = vi.hoisted(() => ({createBrowserDjvuWorker: vi.fn()}));
 
-vi.mock(import('@app/platform/browser-api/djvujsLoader'), async importOriginal => ({
+vi.mock(import('@app/platform/browser-api/browserDjvuWorkerClient'), async importOriginal => ({
     ...await importOriginal(),
-    loadDjvuJs: djvuRouteMocks.loadDjvuJs,
+    createBrowserDjvuWorker: djvuRouteMocks.createBrowserDjvuWorker,
 }));
 
 describe('document page sources', () => {
@@ -197,19 +197,20 @@ describe('document page sources', () => {
             flags: Array.from({length: 501}, () => 1),
         }));
         const worker = {
-            worker: {postMessage: vi.fn()},
-            doc: {evbGetComponentDirectory: () => ({run: browserGetComponentDirectory})},
-            createDocument: vi.fn(async () => undefined),
+            open: vi.fn(async () => undefined),
+            getComponentDirectory: browserGetComponentDirectory,
+            getDocInfo: vi.fn(),
+            getPageInfo: vi.fn(),
+            getOutline: vi.fn(async () => []),
+            getMetadata: vi.fn(async () => ({})),
+            hasText: vi.fn(async () => false),
+            getPageText: vi.fn(),
+            renderPageRgba: vi.fn(),
+            renderPagePpm: vi.fn(),
+            renderPageCompactLayer: vi.fn(),
             terminate: vi.fn(),
-            revokeObjectURL: vi.fn(),
         };
-        function TestWorker() {
-            return worker;
-        }
-        djvuRouteMocks.loadDjvuJs.mockResolvedValue({
-            Worker: TestWorker,
-            DjVuScript: () => undefined,
-        });
+        djvuRouteMocks.createBrowserDjvuWorker.mockReturnValue(worker);
         const electronApi = createElectronPlatformApiFixture({
             documentFiles: {
                 readFile: vi.fn(async () => sourceBytes),
@@ -247,7 +248,7 @@ describe('document page sources', () => {
             expect(nativeGetInfo).toHaveBeenCalledTimes(2);
             expect(nativeGetPageSourceInfo).toHaveBeenCalledWith('/tmp/small-many-pages.djvu', 1);
             expect(nativeGetPageSizes).not.toHaveBeenCalled();
-            expect(djvuRouteMocks.loadDjvuJs).toHaveBeenCalledOnce();
+            expect(djvuRouteMocks.createBrowserDjvuWorker).toHaveBeenCalledOnce();
             source.dispose();
         } finally {
             vi.unstubAllGlobals();

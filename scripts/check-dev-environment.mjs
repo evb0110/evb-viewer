@@ -251,18 +251,6 @@ console.log(executablePath);
                 'qpdf',
                 join(projectRoot, 'resources', 'qpdf', hostTag, 'bin', process.platform === 'win32' ? 'qpdf.exe' : 'qpdf'),
             ],
-            [
-                'ddjvu',
-                join(projectRoot, 'resources', 'djvulibre', hostTag, 'bin', process.platform === 'win32' ? 'ddjvu.exe' : 'ddjvu'),
-            ],
-            [
-                'djvused',
-                join(projectRoot, 'resources', 'djvulibre', hostTag, 'bin', process.platform === 'win32' ? 'djvused.exe' : 'djvused'),
-            ],
-            [
-                'djvudump',
-                join(projectRoot, 'resources', 'djvulibre', hostTag, 'bin', process.platform === 'win32' ? 'djvudump.exe' : 'djvudump'),
-            ],
         ];
         const missingNativeResources = nativeResourcePaths
             .filter(([
@@ -284,9 +272,6 @@ console.log(executablePath);
             'pdftoppm',
             'pdftotext',
             'qpdf',
-            'ddjvu',
-            'djvused',
-            'djvudump',
             'patchelf',
         ]
             .filter(command => !commandPath(command));

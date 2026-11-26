@@ -21,12 +21,11 @@ if (!firstRuntimeEntry) throw new Error('Runtime manifest test requires one bina
 describe('runtime binary manifest', () => {
     it('covers every tracked runtime family on every currently packed target', () => {
         expect(validateRuntimeBinaryManifest(RUNTIME_BINARY_MANIFEST)).toBe(RUNTIME_BINARY_MANIFEST);
-        expect(RUNTIME_BINARY_MANIFEST_ENTRIES).toHaveLength(15);
+        expect(RUNTIME_BINARY_MANIFEST_ENTRIES).toHaveLength(10);
         expect(new Set(RUNTIME_BINARY_MANIFEST_ENTRIES.map(entry => entry.familyId))).toEqual(
             new Set([
                 'poppler',
                 'qpdf',
-                'djvulibre',
             ]),
         );
         expect(new Set(RUNTIME_BINARY_MANIFEST_ENTRIES.map(entry => entry.target.platformArch))).toEqual(

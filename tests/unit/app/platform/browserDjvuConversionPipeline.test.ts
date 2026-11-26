@@ -589,9 +589,9 @@ describe('browserDjvuConversionPipeline', () => {
             modifiedAt: 1,
         });
         mocks.createWorker.mockResolvedValueOnce({
-            doc: {getContents: () => ({run: async () => {
+            getOutline: async () => {
                 throw new Error('NAVM chunk could not be decoded');
-            }})},
+            },
             terminate: vi.fn(),
         });
         mocks.getPageSizes.mockResolvedValueOnce([{
@@ -660,10 +660,15 @@ describe('browserDjvuConversionPipeline', () => {
             dpi: 300,
         })));
         mocks.createWorker.mockResolvedValue({
-            doc: {
-                getContents: () => ({run: async () => null}),
-                getPage: (pageNumber: number) => ({getText: () => ({run: async () => pageTexts[pageNumber - 1] ?? ''})}),
-            },
+            getOutline: async () => [],
+            getMetadata: async () => ({}),
+            pageHasText: async (pageNumber: number) => (pageTexts[pageNumber - 1] ?? '').trim().length > 0,
+            getPageText: async (pageNumber: number) => ({
+                text: pageTexts[pageNumber - 1] ?? '',
+                pageWidth: 100,
+                pageHeight: 100,
+                zones: [],
+            }),
             terminate: vi.fn(),
         });
 

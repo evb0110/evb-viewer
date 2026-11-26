@@ -13,41 +13,8 @@ env:
   TSX_TSCONFIG_PATH: tsconfig.base.json
 
 jobs:
-  windows_djvulibre:
-    name: Windows DjVuLibre (cross-built)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: Build patched DjVuLibre for Windows x64 and arm64
-        shell: bash
-        run: |
-          mkdir -p .devkit/tmp
-          export TMPDIR="$PWD/.devkit/tmp"
-          bash scripts/build-djvulibre-windows.sh win32-x64
-          bash scripts/build-djvulibre-windows.sh win32-arm64
-
-      - name: Upload Windows DjVuLibre trees
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: windows-djvulibre
-          path: resources/djvulibre/
-          if-no-files-found: error
-          retention-days: 7
-
   build:
     name: Runtime binaries (${{ matrix.target }})
-    needs: windows_djvulibre
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     strategy:
@@ -125,7 +92,7 @@ jobs:
             "$image" bash scripts/bundle-tools-linux.sh
           sudo chown -R "$(id -u):$(id -g)" resources .devkit/tmp
 
-      - name: Build macOS PDF and DjVu tools from source
+      - name: Build macOS PDF tools from source
         if: matrix.target == 'darwin-arm64'
         shell: bash
         run: |
@@ -140,20 +107,13 @@ jobs:
           export TMPDIR="$PWD/.devkit/tmp"
           bash scripts/bundle-win-arm64-runtime-binaries.sh
 
-      - name: Use the cross-built Windows DjVuLibre
-        if: startsWith(matrix.target, 'win32-')
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: windows-djvulibre
-          path: resources/djvulibre
-
       - name: Pack target archives
         shell: bash
         run: |
           export TMPDIR="$PWD/.devkit/tmp"
           EVB_RUNTIME_BINARY_ARCHIVE_DIR="$PWD/.devkit/tmp/runtime-archives" \
             bash scripts/packRuntimeBinaryArchives.sh "${{ matrix.target }}"
-          for family in poppler qpdf djvulibre; do
+          for family in poppler qpdf; do
             archive="$(find .devkit/tmp/runtime-archives -maxdepth 1 -type f -name "$family-${{ matrix.target }}*.tar.gz" -print -quit)"
             test -n "$archive"
             tar -tzf "$archive" | awk -v root="$family/${{ matrix.target }}/" 'index($0, root) == 1 { found = 1 } END { exit !found }'
@@ -172,7 +132,7 @@ jobs:
             const target = process.argv[1];
             const archiveDirectory = join(process.cwd(), ".devkit/tmp/runtime-archives");
             const entries = RUNTIME_BINARY_MANIFEST.entries.filter(entry => entry.target.platformArch === target);
-            if (entries.length !== 3) process.exit(42);
+            if (entries.length !== 2) process.exit(42);
             for (const entry of entries) {
               const name = new URL(entry.archiveUrl).pathname.split("/").at(-1);
               const archivePath = join(archiveDirectory, name);
@@ -195,7 +155,7 @@ jobs:
             fi
             EVB_RUNTIME_BINARY_ARCHIVE_BASE_URL="$archive_base" \
               node --import tsx scripts/fetchRuntimeBinaries.ts --target "${{ matrix.target }}" \
-                --family poppler --family qpdf --family djvulibre
+                --family poppler --family qpdf
           fi
 
       - name: Summarize archive digests

@@ -391,13 +391,6 @@ describe('afterPack extraResources preflight', () => {
                 type: 'directory',
             }),
             expect.objectContaining({
-                label: 'DjVuLibre native tools (darwin-arm64)',
-                sourcePath: path.join('/repo', 'resources', 'djvulibre', 'darwin-arm64'),
-                stagedPath: path.join('/app/EVB Viewer.app/Contents/Resources', 'djvulibre', 'darwin-arm64'),
-                tag: 'darwin-arm64',
-                type: 'directory',
-            }),
-            expect.objectContaining({
                 label: 'macOS PDF print dialog helper (darwin-arm64)',
                 sourcePath: path.join('/repo', '.tmp', 'pdf-print-dialog', 'darwin-arm64'),
                 stagedPath: path.join(

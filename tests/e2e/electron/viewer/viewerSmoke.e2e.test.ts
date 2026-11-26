@@ -121,7 +121,7 @@ import { getActiveWorkspaceWorkingCopyPath } from '@tests/e2e/electron/helpers/e
 import {getWorkingCopyDerivedPath} from '@electron/file-access/documentStore';
 import { createCanonicalTextBoxWithPointer } from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
-import {getDjvuNativeToolPaths} from '@electron/features/djvu/main/nativeToolPaths';
+import {setDjvuPageTextInFile} from '@tests/e2e/electron/helpers/djvuFixtureWriter';
 
 interface IViewerSmokeSnapshot {
     hostHeight: number;
@@ -4131,15 +4131,49 @@ describe('Electron E2E - Viewer Smoke', () => {
             ].includes(message.type())) problems.push(message.text());
         });
         const fixturePath = createFixturePath('quoted-source.djvu');
-        const scriptPath = createFixturePath('quoted-source.dsed');
         await copyFile(resolve('tests/fixtures/djvu/sources/bookmark-component-ids.djvu'), fixturePath);
-        await writeFile(scriptPath, 'select 1\nset-txt\n(page 0 0 512 512 (line 40 300 470 360 (word 40 300 150 360 "before") (word 170 300 280 360 "hello") (word 300 300 410 360 "after")))\n.\n');
-        await execFileAsync(getDjvuNativeToolPaths().djvused, [
-            fixturePath,
-            '-f',
-            scriptPath,
-            '-s',
-        ]);
+        setDjvuPageTextInFile(fixturePath, 1, {
+            type: 'page',
+            xmin: 0,
+            ymin: 0,
+            xmax: 512,
+            ymax: 512,
+            children: [
+                {
+                    type: 'line',
+                    xmin: 40,
+                    ymin: 300,
+                    xmax: 470,
+                    ymax: 360,
+                    children: [
+                        {
+                            type: 'word',
+                            xmin: 40,
+                            ymin: 300,
+                            xmax: 150,
+                            ymax: 360,
+                            text: 'before',
+                        },
+                        {
+                            type: 'word',
+                            xmin: 170,
+                            ymin: 300,
+                            xmax: 280,
+                            ymax: 360,
+                            text: 'hello',
+                        },
+                        {
+                            type: 'word',
+                            xmin: 300,
+                            ymin: 300,
+                            xmax: 410,
+                            ymax: 360,
+                            text: 'after',
+                        },
+                    ],
+                },
+            ],
+        });
         await openDjvuInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForDjvuLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await clickAsUser(session.page, '.editor-pane.is-active .djvu-banner-close');

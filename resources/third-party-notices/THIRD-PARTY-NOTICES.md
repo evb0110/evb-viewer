@@ -35,21 +35,14 @@ texts are included in the `licenses/` directory alongside this file.
 - Upstream: https://djvu.sourceforge.net/
 - License: GNU General Public License, version 2 or later
   (`licenses/GPL-2.0.txt`)
-- Bundled as: `djvulibre/<platform>-<arch>` binaries and support libraries.
-- Windows builds are DjVuLibre 3.5.30 with one change, the patch
-  `scripts/patches/djvulibre-3.5.30-win32-monitor-owner.patch` in the EVB
-  Viewer repository, built by `scripts/build-djvulibre-windows.sh`. They
-  statically include libtiff, libjpeg-turbo and zlib.
-
-## libtiff, libjpeg-turbo and zlib (Windows DjVuLibre)
-
-- Upstream: https://libtiff.gitlab.io/libtiff/,
-  https://libjpeg-turbo.org/, https://zlib.net/
-- License: libtiff license (`licenses/libtiff.txt`), IJG and BSD licenses
-  (`licenses/libjpeg-turbo.txt`), zlib license (`licenses/zlib.txt`).
+- Bundled as: `evb-djvulibre.wasm` and `evb-djvulibre.mjs` in the application
+  archive, DjVuLibre 3.5.30 compiled to WebAssembly with Emscripten
+  (`licenses/Emscripten.txt`), statically including Emscripten's Independent
+  JPEG Group libjpeg port (`licenses/IJG-libjpeg.txt`). Built with the
+  single-threaded Emscripten patch
+  `scripts/patches/djvulibre-3.5.30-emscripten-nothreads.patch` by
+  `scripts/build-djvulibre-wasm.sh`.
 - This software is based in part on the work of the Independent JPEG Group.
-- libtiff's LZW codec includes software developed by the University of
-  California, Berkeley.
 
 ## libjpeg-turbo 3.1.2 (browser page tool engine)
 
@@ -90,12 +83,13 @@ texts are included in the `licenses/` directory alongside this file.
 ## Source availability
 
 Poppler and DjVuLibre are distributed under the GNU GPL. EVB Viewer bundles
-unmodified upstream builds of these tools, except the Windows DjVuLibre
-build described above, and invokes them as separate processes. Their complete
+unmodified upstream builds of Poppler invoked as separate processes, and builds
+the DjVuLibre WebAssembly engine with the patch and build script in the EVB
+Viewer repository (`scripts/build-djvulibre-wasm.sh` and
+`scripts/patches/djvulibre-3.5.30-emscripten-nothreads.patch`). Their complete
 corresponding source code is available from the upstream project pages listed
-above; the Windows DjVuLibre patch and build script are in the EVB Viewer
-repository. Requests about the exact source of the bundled builds can be filed
-at https://github.com/evb0110/evb-viewer.
+above. Requests about the exact source of the bundled builds can be filed at
+https://github.com/evb0110/evb-viewer.
 
 ## T3 Code provider handling and chat UI
 

@@ -325,13 +325,15 @@ function createProjectFixture() {
     writeFileSync(path.join(projectRoot, 'public', 'wasm', 'evb-pdf-page-ops.wasm'), 'wasm\n');
     writeFileSync(path.join(projectRoot, 'public', 'wasm', 'evb-scan-cleanup.wasm'), 'wasm\n');
     writeFileSync(path.join(projectRoot, 'public', 'wasm', 'evb-scan-cleanup-threads.wasm'), 'wasm\n');
-    // The OCR and qpdf engines are checked by their pinned digests, so the fixture
+    // The OCR, qpdf, and DjVuLibre engines are checked by their pinned digests, so the fixture
     // carries the fetched files (`pnpm test:unit` runs ensure-wasm-artifacts first).
     for (const fileName of [
         'evb-tesseract.wasm',
         'evb-tesseract.mjs',
         'evb-qpdf.wasm',
         'evb-qpdf.mjs',
+        'evb-djvulibre.wasm',
+        'evb-djvulibre.mjs',
     ]) {
         cpSync(resolve('public', 'wasm', fileName), path.join(projectRoot, 'public', 'wasm', fileName));
     }

@@ -290,7 +290,6 @@ export async function fetchRuntimeBinaries({
 const RUNTIME_FAMILIES = [
     'poppler',
     'qpdf',
-    'djvulibre',
 ] as const;
 
 function parseArguments(argv: readonly string[]) {

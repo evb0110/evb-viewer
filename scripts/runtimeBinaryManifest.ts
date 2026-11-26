@@ -8,33 +8,6 @@ import {parseNativeResourcePlatformArch} from '@scripts/nativeResourceManifest';
 const RUNTIME_ASSET_BASE_URL = 'https://github.com/evb0110/evb-viewer/releases/download';
 
 const RUNTIME_ARCHIVES = {
-    'djvulibre-darwin-arm64': {
-        releaseName: 'runtime-binaries-v3',
-        archiveBytes: 1174084,
-        archiveSha256: '036e07b7ce8e3da8c69aba2d559bc2daa57059e2287078465dc91a2bac54f8a7',
-    },
-    'djvulibre-linux-x64': {
-        archiveBytes: 1982130,
-        archiveSha256: '45279beb3d88ff4e1b8785313a2f5ad3ab6e277599828c6c51645128704a24fa',
-    },
-    'djvulibre-linux-arm64': {
-        releaseName: 'runtime-binaries-v2',
-        archiveBytes: 1898362,
-        archiveSha256: 'ad1a0b8ecf48e27a1d9ac9dcd8acc0a338794697e1647edc82cc6ba09d986a88',
-    },
-    'djvulibre-win32-x64': {
-        // DjVuLibre 3.5.30 with the Windows monitor ownership fix (#991).
-        releaseName: 'runtime-binaries-v2',
-        assetName: 'djvulibre-win32-x64-3.5.30-r2',
-        archiveBytes: 2347377,
-        archiveSha256: 'ccfe7b4c5615fdf380c4d783a70d52714ccbf7ac8a8b15caa7584cc93cbef7d9',
-    },
-    'djvulibre-win32-arm64': {
-        releaseName: 'runtime-binaries-v2',
-        assetName: 'djvulibre-win32-arm64-3.5.30-r2',
-        archiveBytes: 2118748,
-        archiveSha256: 'a675b31e4d01a8f25619c4e3f664de049022d4d92c93a9826422ac33209db836',
-    },
     'poppler-darwin-arm64': {
         releaseName: 'runtime-binaries-v3',
         archiveBytes: 7274975,
@@ -125,7 +98,6 @@ export const RUNTIME_BINARY_MANIFEST_ENTRIES: readonly IRuntimeBinaryManifestEnt
 ] as const).flatMap(target => [
     createRuntimeEntry('poppler', target, target.startsWith('win32') ? 'pdftoppm.exe' : 'pdftoppm'),
     createRuntimeEntry('qpdf', target, target.startsWith('win32') ? 'qpdf.exe' : 'qpdf'),
-    createRuntimeEntry('djvulibre', target, target.startsWith('win32') ? 'ddjvu.exe' : 'ddjvu'),
 ])];
 
 export const TESSDATA_RUNTIME_DATA_ENTRY: IRuntimeBinaryDataManifestEntry = {
@@ -139,5 +111,5 @@ export const TESSDATA_RUNTIME_DATA_ENTRY: IRuntimeBinaryDataManifestEntry = {
 export const RUNTIME_BINARY_MANIFEST: IRuntimeBinaryManifest = {
     entries: RUNTIME_BINARY_MANIFEST_ENTRIES,
     dataEntries: [TESSDATA_RUNTIME_DATA_ENTRY],
-    manifestSha256: '88c8715e7ff751bb69c3ad38ceeb5beecdb3967c8d9e41da8003126dd77e01d3',
+    manifestSha256: '1c5c5fe0a746c00b71120b6d291754fd064a56642b6ed78226d8f2f8faac1f24',
 };

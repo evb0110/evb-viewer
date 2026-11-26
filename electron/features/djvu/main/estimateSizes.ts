@@ -8,8 +8,6 @@ import { sortBy } from 'es-toolkit/array';
 import {
     cancelConversion,
     convertDjvuPageToImage,
-    createDjvuPdfEstimateTask,
-    DjvuPdfWorkerStartupError,
     getDjvuPageSizeForViewing,
 } from '@electron/features/djvu/public';
 import { getDjvuResolution } from '@electron/features/djvu/main/metadata';
@@ -28,7 +26,6 @@ import { abortErrorFromSignal } from '@electron/utils/abort';
 const logger = createLogger('djvu-estimate');
 const DJVU_ESTIMATE_MAX_SAMPLE_PIXELS = 12_000_000;
 const DJVU_ESTIMATE_MAX_SAMPLE_BYTES = 48 * 1024 * 1024;
-const DJVU_ESTIMATE_LOCAL_FALLBACK_MAX_BYTES = 8 * 1024 * 1024;
 const DJVU_ESTIMATE_CACHE_MAX_ENTRIES = 64;
 const DJVU_ESTIMATE_CACHE_TTL_MS = 10 * 60 * 1000;
 
@@ -59,45 +56,30 @@ async function estimatePdfSizeBytes(
         throwIfAborted(signal);
         const imageStat = await stat(imagePath);
         if (!imageStat.isFile() || imageStat.size > DJVU_ESTIMATE_MAX_SAMPLE_BYTES) {
-            throw new Error('DjVu estimate sample exceeds the bounded worker input limit');
+            throw new Error('DjVu estimate sample exceeds the bounded input limit');
         }
-        try {
-            return await mainJobBroker.run({
-                ownerId: `djvu-estimate:${imagePath}`,
-                kind: 'djvu-estimate',
-                priority: 'user',
-                resources: {
-                    cpuTokens: 1,
-                    estimatedResidentBytes: resolvePdfImageCombineResidentBytes(mainJobBroker.getSnapshot().capacity),
-                    nativeProcesses: 1,
-                    ioWeight: 2,
-                },
+        return mainJobBroker.run({
+            ownerId: `djvu-estimate:${imagePath}`,
+            kind: 'djvu-estimate',
+            priority: 'user',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: resolvePdfImageCombineResidentBytes(mainJobBroker.getSnapshot().capacity),
+                nativeProcesses: 1,
+                ioWeight: 2,
+            },
+            signal,
+        }, async ({
+            lease,
+            onTerminationProof,
+        }) => {
+            const pdfBytes = await buildOptimizedPdf([imagePath], dpi, undefined, {
                 signal,
-            }, async ({
-                lease,
+                combineThreads: resolvePdfImageCombineThreads(lease.resources),
                 onTerminationProof,
-            }) => {
-                const task = createDjvuPdfEstimateTask(imagePath, dpi, {
-                    signal,
-                    onTerminationProof,
-                    combineThreads: resolvePdfImageCombineThreads(lease.resources),
-                });
-                return await task.promise;
             });
-        } catch (error) {
-            if (!(error instanceof DjvuPdfWorkerStartupError)) {
-                throw error;
-            }
-            throwIfAborted(signal);
-
-            if (imageStat.size > DJVU_ESTIMATE_LOCAL_FALLBACK_MAX_BYTES) {
-                throw new Error('DjVu estimate worker unavailable and the sample is too large for main-process fallback');
-            }
-
-            logger.warn(`DjVu PDF worker unavailable, falling back to in-process estimate build: ${error.message}`);
-            const pdfBytes = await buildOptimizedPdf([imagePath], dpi, undefined, { signal });
             return pdfBytes.length;
-        }
+        });
     }, {
         thresholdMs: 25,
         details: { dpi },

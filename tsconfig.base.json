@@ -22,6 +22,7 @@
             "@node-runtime/*": ["./packages/node-runtime/*"],
             "@pdf-core": ["./packages/pdf-core/index.ts"],
             "@pdf-core/*": ["./packages/pdf-core/*"],
+            "@djvu-core/*": ["./packages/djvu-core/*"],
             "@ocr-core/*": ["./packages/ocr-core/*"],
             "@agent-core/*": ["./packages/agent-core/*"],
             "@electron-worker-bundles/*": ["./packages/electron-worker-bundles/*"],

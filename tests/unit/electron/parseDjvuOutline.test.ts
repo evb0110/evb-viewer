@@ -3,42 +3,54 @@ import {
     expect,
     it,
 } from 'vitest';
-import {parseDjvuOutline} from '@electron/features/djvu/main/parseDjvuOutline';
+import {
+    buildDjvuPageComponentMap,
+    normalizeDjvuOutlineTree,
+    resolveDjvuOutlineUrlToPageIndex,
+} from '@djvu-core/djvuOutline';
+import type { IDjvuOutlineRawItem } from '@djvu-core/djvuLibreTypes';
 
-describe('parseDjvuOutline', () => {
-    it.each([
-        {
-            label: 'octal UTF-8',
-            raw: String.raw`\320\223\320\273\320\260\320\262\320\260 caf\303\251`,
-            title: 'Глава café',
-        },
-        {
-            label: 'escaped controls, quotes and backslashes decoded once',
-            raw: String.raw`line\nnext\t\"quoted\" \\n \\folder`,
-            title: 'line\nnext\t"quoted" \\n \\folder',
-        },
-        {
-            label: 'literal Unicode mixed with escapes',
-            raw: String.raw`Глава 📖\t続き`,
-            title: 'Глава 📖\t続き',
-        },
-    ])('preserves $label in bookmark titles', ({
-        raw, title,
-    }) => {
-        expect(parseDjvuOutline(`(bookmarks ("${raw}" "#2"))`)).toMatchObject([{
-            title,
-            pageIndex: 1,
-            items: [],
-        }]);
-    });
+describe('djvuOutline', () => {
+    it('preserves Unicode and punctuation in bookmark titles', () => {
+        const raw: IDjvuOutlineRawItem[] = [
+            {
+                title: 'Глава café 📖 続き',
+                url: '#2',
+                children: [],
+            },
+            {
+                title: 'line\nnext\t"quoted" \\n \\folder',
+                url: '#1',
+                children: [],
+            },
+        ];
 
-    it('preserves literal Unicode without escape sequences', () => {
-        expect(parseDjvuOutline('(bookmarks ("Глава café 📖 続き" "#1"))')[0]?.title)
-            .toBe('Глава café 📖 続き');
+        expect(normalizeDjvuOutlineTree(raw)).toMatchObject([
+            {
+                title: 'Глава café 📖 続き',
+                pageIndex: 1,
+                items: [],
+            },
+            {
+                title: 'line\nnext\t"quoted" \\n \\folder',
+                pageIndex: 0,
+                items: [],
+            },
+        ]);
     });
 
     it('preserves nested bookmark structure and page destinations', () => {
-        expect(parseDjvuOutline('(bookmarks ("Part" "#2" ("Chapter" "#7")))')).toEqual([{
+        const raw: IDjvuOutlineRawItem[] = [{
+            title: 'Part',
+            url: '#2',
+            children: [{
+                title: 'Chapter',
+                url: '#7',
+                children: [],
+            }],
+        }];
+
+        expect(normalizeDjvuOutlineTree(raw)).toEqual([{
             title: 'Part',
             pageIndex: 1,
             namedDest: null,
@@ -58,26 +70,61 @@ describe('parseDjvuOutline', () => {
     });
 
     it('resolves component ID targets through the DjVu document page map', () => {
-        const pageComponents = new Map([
-            [
-                'p0001.djvu',
-                0,
-            ],
-            [
-                'p0002.djvu',
-                1,
-            ],
+        const pageComponents = buildDjvuPageComponentMap([
+            {
+                id: 'p0001.djvu',
+                name: 'p0001.djvu',
+                title: '',
+                pageNumber: 1,
+                size: 100,
+                type: 'page',
+            },
+            {
+                id: 'p0002.djvu',
+                name: 'p0002.djvu',
+                title: '',
+                pageNumber: 2,
+                size: 100,
+                type: 'page',
+            },
+            {
+                id: 'shared.djbz',
+                name: 'shared.djbz',
+                title: '',
+                pageNumber: null,
+                size: 50,
+                type: 'include',
+            },
+            {
+                id: 'nb0003.djvu',
+                name: 'nb0003.djvu',
+                title: '',
+                pageNumber: 3,
+                size: 100,
+                type: 'page',
+            },
         ]);
-        expect(parseDjvuOutline('(bookmarks ("Second" "#p0002.djvu"))', pageComponents)[0]?.pageIndex).toBe(1);
-        expect(parseDjvuOutline('(bookmarks ("Named" "#nb0003.djvu"))', new Map([[
-            'nb0003.djvu',
-            2,
-        ]]))[0]?.pageIndex).toBe(2);
+
+        expect(resolveDjvuOutlineUrlToPageIndex('#p0002.djvu', pageComponents)).toBe(1);
+        expect(resolveDjvuOutlineUrlToPageIndex('#nb0003.djvu', pageComponents)).toBe(2);
+        expect(resolveDjvuOutlineUrlToPageIndex('#shared.djbz', pageComponents)).toBeNull();
+        expect(resolveDjvuOutlineUrlToPageIndex('#99', pageComponents, 3)).toBeNull();
     });
 
     it('rejects outlines deeper than the interactive nesting limit', () => {
-        const outline = `${'('.repeat(65)}bookmarks${')'.repeat(65)}`;
+        let node: IDjvuOutlineRawItem = {
+            title: 'Leaf',
+            url: '#1',
+            children: [],
+        };
+        for (let depth = 0; depth < 65; depth += 1) {
+            node = {
+                title: `Level ${depth}`,
+                url: '#1',
+                children: [node],
+            };
+        }
 
-        expect(() => parseDjvuOutline(outline)).toThrow('nesting is capped at 64');
+        expect(() => normalizeDjvuOutlineTree([node])).toThrow('nesting is capped at 64');
     });
 });

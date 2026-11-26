@@ -39,10 +39,14 @@
   to the document and its revision. Models download from GitHub at the pinned
   tessdata_best revision into Cache Storage. Search and the text catalog read
   the saved PDF's text, as on desktop.
-- DjVu viewing and explicit PDF conversion are available in browser runtime
-  through the vendored DjVu.js worker path. The worker reads a document one
-  component at a time (`app/platform/browser-api/browserDjvuSource.ts`), so no
-  step holds the whole source; only memory bounds a page's decode. An
+- DjVu viewing and explicit PDF conversion are available in both browser and
+  desktop runtimes through the unified Emscripten DjVuLibre WebAssembly engine
+  (`public/wasm/evb-djvulibre.wasm` and `.mjs`, built by
+  `scripts/build-djvulibre-wasm.sh` and fetched by digest). For component-backed
+  documents (bundled and indirect `FORM:DJVM`), the worker reads one component
+  at a time (`packages/djvu-core/djvuSourceLayout.ts`) rather than holding the
+  whole source; standalone single-page `FORM:DJVU` files are read in full as
+  `documentBytes`. An
   indirect DjVu opens when its index is selected in Open together with the
   files beside it; each component name resolves to the selected file.
   Printing a DjVu converts the selected pages, lays them out with the

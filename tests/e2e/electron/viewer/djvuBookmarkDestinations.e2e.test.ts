@@ -25,7 +25,11 @@ import {
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
-import {getDjvuNativeToolPaths} from '@electron/features/djvu/main/nativeToolPaths';
+import {
+    OVERSIZED_OUTLINE_NAVM_CHUNK,
+    setDjvuNavmChunkInFile,
+    UNICODE_INDIRECT_NAVM_CHUNK,
+} from '@tests/e2e/electron/helpers/djvuFixtureWriter';
 
 const execFileAsync = promisify(execFile);
 const sourcePath = resolve('tests/fixtures/djvu/sources/bookmark-component-ids.djvu');
@@ -43,15 +47,7 @@ describe('DjVu converted bookmark destinations', () => {
             'Введение — café',
             '章二: Ελληνικά',
         ];
-        const quoted = (title: string) => Array.from(Buffer.from(title, 'utf8'), byte => `\\${byte.toString(8).padStart(3, '0')}`).join('');
-        const outlinePath = join(evidence, 'outline.txt');
-        await writeFile(outlinePath, `(bookmarks ("${quoted(titles[0]!)}" "#low-dpi.djvu") ("${quoted(titles[1]!)}" "#high-dpi.djvu"))`);
-        await execFileAsync(getDjvuNativeToolPaths().djvused, [
-            djvuPath,
-            '-e',
-            `set-outline "${outlinePath}"`,
-            '-s',
-        ]);
+        setDjvuNavmChunkInFile(djvuPath, UNICODE_INDIRECT_NAVM_CHUNK);
         const header = await readFile(djvuPath);
         expect(header.toString('ascii', 12, 20)).toBe('DJVMDIRM');
         expect(header[24]! & 0x80, 'indirect indexes select the native desktop preview').toBe(0);
@@ -94,11 +90,9 @@ describe('DjVu converted bookmark destinations', () => {
             force: true,
         }));
         const djvuPath = join(directory, 'large-outline.djvu');
-        const outlinePath = join(directory, 'outline.txt');
         const outputPath = join(directory, 'converted.pdf');
         const previousBytes = '%PDF-1.4\nprevious destination bytes\n';
         await copyFile(sourcePath, djvuPath);
-        await writeFile(outlinePath, `(bookmarks ("${'Large outline title '.repeat(16_000)}" "#1"))`);
         await writeFile(outputPath, previousBytes);
         const session = await sessions.restart({
             clean: true,
@@ -119,12 +113,7 @@ describe('DjVu converted bookmark destinations', () => {
             ?.getAttribute('aria-checked'))).toBe('true');
         // Make extraction fail only after the dialog offered preservation.
         // An outline unreadable at dialog load correctly offers no checkbox.
-        await execFileAsync(getDjvuNativeToolPaths().djvused, [
-            djvuPath,
-            '-e',
-            `set-outline "${outlinePath.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`,
-            '-s',
-        ]);
+        setDjvuNavmChunkInFile(djvuPath, OVERSIZED_OUTLINE_NAVM_CHUNK);
         await clickFoundAsUser(session.page, () => Array.from(Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
             .find(element => element.textContent?.includes('Convert DjVu to PDF'))
             ?.querySelectorAll<HTMLButtonElement>('button') ?? [])
@@ -139,7 +128,7 @@ describe('DjVu converted bookmark destinations', () => {
         expect(await hasFailure(), 'the failed preservation is visible').toBe(true);
         expect(await readFile(outputPath, 'utf8'), 'failure leaves previous destination bytes intact').toBe(previousBytes);
         const diagnostics = await readFile(join(process.cwd(), '.devkit', 'sessions', session.name, 'session.log'), 'utf8');
-        expect(diagnostics, 'the failure belongs to outline extraction').toContain('stdout exceeded 262144 bytes');
+        expect(diagnostics, 'the failure belongs to outline extraction').toContain('DjVu outline metadata exceeded 262144 bytes');
     });
 
     it('preserves component-ID bookmark targets in the saved PDF and navigates after reopening', async () => {

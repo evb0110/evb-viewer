@@ -9,7 +9,7 @@ case "$TARGET" in
   darwin-arm64|linux-x64|linux-arm64|win32-x64|win32-arm64) ;;
   *) echo "Usage: scripts/packRuntimeBinaryArchives.sh <platform-arch>" >&2; exit 2 ;;
 esac
-FAMILIES=(poppler qpdf djvulibre)
+FAMILIES=(poppler qpdf)
 TAR_BIN="${TAR_BIN:-tar}"
 if [ "$(uname -s)" = Darwin ] && [ "${TAR_BIN:-tar}" = tar ]; then
   TAR_BIN=gtar
@@ -26,10 +26,6 @@ pack_tree() {
   local family="$1"
   local relative_root="$family/$TARGET"
   local archive_name="$family-$TARGET"
-  # Versioned so the earlier unpatched Windows DjVuLibre assets stay byte-identical.
-  case "$family:$TARGET" in
-    djvulibre:win32-*) archive_name="djvulibre-$TARGET-3.5.30-r2" ;;
-  esac
   if [ ! -d "$PROJECT_ROOT/resources/$relative_root" ]; then
     echo "Error: runtime resource tree is missing: resources/$relative_root" >&2
     exit 1

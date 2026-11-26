@@ -1,5 +1,5 @@
 import type * as TNativeCommandModule from '@electron/native-tools/runNativeCommand';
-import type * as TDjvuNativeToolPathsModule from '@electron/features/djvu/main/nativeToolPaths';
+import type { IDjvuPageStructure } from '@djvu-core/djvuLibreTypes';
 import {
     mkdir,
     mkdtemp,
@@ -28,9 +28,8 @@ import {PDF_COMBINE_MAX_OUTPUT_BYTES} from '@contracts/pdfCombineOutputPolicy';
 import { markUnprovenNativeTermination } from '@electron/utils/nativeTerminationProof';
 
 const mocks = vi.hoisted(() => ({
-    getDjvuNativeToolPaths: vi.fn(),
+    runDjvuEngine: vi.fn(),
     renderDjvuPageToImage: vi.fn(),
-    runNativeCommand: vi.fn(),
     runRegisteredDjvuProcess: vi.fn(),
     resolveNativeToolPath: vi.fn(),
 }));
@@ -39,11 +38,7 @@ vi.mock('electron', () => ({app: {
     getPath: () => tmpdir(),
     isPackaged: false,
 }}));
-vi.mock('@electron/features/djvu/main/nativeToolPaths', async importOriginal => ({
-    ...await importOriginal<typeof TDjvuNativeToolPathsModule>(),
-    getDjvuNativeToolPaths: mocks.getDjvuNativeToolPaths,
-}));
-vi.mock('@electron/features/djvu/main/buildDjvuRuntimeEnv', () => ({buildDjvuRuntimeEnv: () => ({})}));
+vi.mock('@electron/features/djvu/main/djvuEnginePool', () => ({runDjvuEngine: mocks.runDjvuEngine}));
 vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({
     renderDjvuPageToImage: mocks.renderDjvuPageToImage,
     runRegisteredDjvuProcess: mocks.runRegisteredDjvuProcess,
@@ -65,7 +60,6 @@ vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({
         ...(options.signal ? {signal: options.signal} : {}),
     }, ({onTerminationProof}) => options.task(onTerminationProof)),
 }));
-vi.mock('@electron/native-tools/runNativeCommand', () => ({runNativeCommand: mocks.runNativeCommand}));
 vi.mock('@electron/native-tools/resolveNativeToolPath', () => ({resolveNativeToolPath: mocks.resolveNativeToolPath}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
@@ -97,11 +91,6 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
         denseMaskPages = new Set();
         tempDir = await mkdtemp(join(tmpdir(), 'compact-djvu-export-test-'));
         await writeFile(join(tempDir, 'input.djvu'), 'fixture');
-        mocks.getDjvuNativeToolPaths.mockReturnValue({
-            ddjvu: '/tools/ddjvu',
-            djvudump: '/tools/djvudump',
-            djvused: '/tools/djvused',
-        });
         setDjvuDump(Array.from({length: 44}, (_value, index) => ({
             pageNumber: index + 1,
             pageBytes: 32_705,
@@ -443,13 +432,12 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
         });
         expect(manifestLines).toHaveLength(pageCount + 1);
         expect(result.pageSpecs).toHaveLength(pageCount);
-        expect(mocks.runNativeCommand).toHaveBeenCalledWith(
-            '/tools/djvudump',
-            [join(tempDir, 'input.djvu')],
+        expect(mocks.runDjvuEngine).toHaveBeenCalledWith(
             expect.objectContaining({
-                maxStdoutBytes: 64 * 1024,
-                rejectOnStdoutTruncation: false,
+                type: 'getPageStructures',
+                djvuPath: join(tempDir, 'input.djvu'),
             }),
+            expect.anything(),
         );
         expect(mocks.runRegisteredDjvuProcess).toHaveBeenLastCalledWith(
             'job-all-pages-compact-combine',
@@ -750,7 +738,7 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
     });
 
     it('fails explicitly when native layer inspection fails instead of flattening every page', async () => {
-        mocks.runNativeCommand.mockRejectedValueOnce(new Error('djvudump unavailable'));
+        mocks.runDjvuEngine.mockRejectedValueOnce(new Error('djvulibre engine unavailable'));
 
         await expect(buildCompactDjvuAwarePdfFromDjvu({
             jobId: 'job-dump-failed',
@@ -764,74 +752,23 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
         expect(mocks.renderDjvuPageToImage).not.toHaveBeenCalled();
     });
 
-    it('preserves unproven termination during structure inspection and releases its lease when delayed proof resolves true', async () => {
-        const delayedProof = Promise.withResolvers<boolean>();
+    it('preserves unproven termination during structure inspection', async () => {
         const unprovenError = markUnprovenNativeTermination(
-            new Error('djvudump watchdog expired'),
-            'djvudump process tree not proven dead yet',
+            new Error('structure inspection failed'),
+            'unproven termination',
         );
-        mocks.runNativeCommand.mockImplementationOnce(async (
-            _command: string,
-            _args: string[],
-            options?: {onTerminationProof?: (proof: Promise<boolean>) => void},
-        ) => {
-            options?.onTerminationProof?.(delayedProof.promise);
-            throw unprovenError;
-        });
+        mocks.runDjvuEngine.mockRejectedValueOnce(unprovenError);
 
-        const competitorState: {lease: {release: () => boolean} | null} = {lease: null};
-        try {
-            await expect(buildCompactDjvuAwarePdfFromDjvu({
-                jobId: 'job-dump-unproven',
-                djvuPath: join(tempDir, 'input.djvu'),
-                outputPath: join(tempDir, 'unproven-dump.pdf'),
-                tempDir,
-                pageCount: 2,
-                sourceDpi: 300,
-                pageSizes: pageSizes(2),
-            })).rejects.toBe(unprovenError);
-
-            expect(mocks.renderDjvuPageToImage).not.toHaveBeenCalled();
-            const capacity = mainJobBroker.getSnapshot().capacity;
-            let competitorGranted = false;
-            const competitor = mainJobBroker.acquire({
-                ownerId: 'competitor-after-dump',
-                kind: 'djvu-structure',
-                priority: 'user',
-                resources: capacity,
-            }).then((lease) => {
-                competitorGranted = true;
-                competitorState.lease = lease;
-                return lease;
-            });
-            void competitor.catch(() => undefined);
-
-            await Promise.resolve();
-            expect(competitorGranted).toBe(false);
-            expect(mainJobBroker.getSnapshot()).toMatchObject({
-                active: 1,
-                queued: 1,
-                used: {
-                    cpuTokens: 1,
-                    nativeProcesses: 1,
-                    ioWeight: 1,
-                },
-            });
-
-            delayedProof.resolve(true);
-            const competitorLease = await competitor;
-            expect(competitorGranted).toBe(true);
-            expect(competitorLease.release()).toBe(true);
-            competitorState.lease = null;
-            expect(mainJobBroker.getSnapshot()).toMatchObject({
-                active: 0,
-                queued: 0,
-            });
-        } finally {
-            mainJobBroker.cancelOwner('competitor-after-dump');
-            competitorState.lease?.release();
-            delayedProof.resolve(true);
-        }
+        await expect(buildCompactDjvuAwarePdfFromDjvu({
+            jobId: 'job-dump-unproven',
+            djvuPath: join(tempDir, 'input.djvu'),
+            outputPath: join(tempDir, 'unproven-dump.pdf'),
+            tempDir,
+            pageCount: 2,
+            sourceDpi: 300,
+            pageSizes: pageSizes(2),
+        })).rejects.toBe(unprovenError);
+        expect(mocks.renderDjvuPageToImage).not.toHaveBeenCalled();
     });
 
     it('records the selected fidelity preset and effective page quality', async () => {
@@ -938,19 +875,43 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
 });
 
 function setDjvuDump(pages: ITestDumpPage[]) {
-    mocks.runNativeCommand.mockImplementation(async (
-        _command: string,
-        _args: string[],
-        options?: {onStdout?: (chunk: string) => void},
-    ) => {
-        const dump = djvuDump(pages);
-        options?.onStdout?.(dump.slice(0, Math.max(1, Math.floor(dump.length / 2))));
-        options?.onStdout?.(dump.slice(Math.max(1, Math.floor(dump.length / 2))));
-        return {
-            stdout: '',
-            stderr: '',
-            exitCode: 0,
-        };
+    mocks.runDjvuEngine.mockImplementation(async (request: {
+        type: string;
+        pageNumbers?: readonly number[];
+    }) => {
+        if (request.type === 'getPageStructures') {
+            return pages.map((page): IDjvuPageStructure => ({
+                pageNumber: page.pageNumber,
+                pageBytes: page.pageBytes ?? 32_705,
+                info: {
+                    width: 1200,
+                    height: 1600,
+                    dpi: 300,
+                },
+                rotation: 0,
+                hasMask: page.maskBytes !== null,
+                maskBytes: page.maskBytes === null ? null : (page.maskBytes ?? 512),
+                background: page.background
+                    ? {
+                        present: true,
+                        kind: 'BG44',
+                        bytes: 8674,
+                        width: 400,
+                        height: 533,
+                    }
+                    : null,
+                foreground: page.foreground
+                    ? {
+                        present: true,
+                        kind: 'FG44',
+                        bytes: 420,
+                        width: 100,
+                        height: 133,
+                    }
+                    : null,
+            }));
+        }
+        throw new Error(`Unexpected DjVu engine request in compactDjvuPdfExport test: ${request.type}`);
     });
 }
 
@@ -959,34 +920,6 @@ async function readCompactManifest(tempDir: string) {
         .trim()
         .split('\n');
     return lines.slice(1).join('\n');
-}
-
-function djvuDump(pages: ITestDumpPage[]) {
-    return [
-        '  FORM:DJVM [14712301]',
-        ...pages.flatMap(page => {
-            const lines = [
-                `    FORM:DJVU [${page.pageBytes ?? 32705}] {p${String(page.pageNumber).padStart(4, '0')}.djvu} [P${page.pageNumber}] (${page.pageNumber})`,
-                '      INFO [10]         DjVu 1200x1600, v24, 300 dpi, gamma=2.2',
-            ];
-            if (page.maskBytes !== null) {
-                lines.push(`      Sjbz [${page.maskBytes ?? 512}]          JB2 bilevel data`);
-            }
-            if (page.foreground) {
-                lines.push('      FG44 [420]        IW4 data #1, 12 slices, v1.2 (color), 100x133');
-            }
-            if (page.background) {
-                // A progressive background, as c44 writes it: only the first
-                // chunk states the layer's size.
-                lines.push(
-                    '      BG44 [8674]       IW4 data #1, 72 slices, v1.2 (color), 400x533',
-                    '      BG44 [1373]       IW4 data #2, 15 slices',
-                    '      BG44 [1416]       IW4 data #3, 10 slices',
-                );
-            }
-            return lines;
-        }),
-    ].join('\n');
 }
 
 function renderModesForPage(pageNumber: number) {

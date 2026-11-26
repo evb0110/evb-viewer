@@ -12,11 +12,6 @@ export {
     convertDjvuToPdfFile,
 } from '@electron/features/djvu/main/ddjvuConversion';
 export {
-    createDjvuPdfBookmarkTask,
-    createDjvuPdfEstimateTask,
-    DjvuPdfWorkerStartupError,
-} from '@electron/features/djvu/main/pdfWorkerClient';
-export {
     handleDjvuCancel,
     handleDjvuConvertToPdf,
     handleDjvuPrintPath,
@@ -33,9 +28,9 @@ export {
 export {pruneStaleDjvuArtifactJobs} from '@electron/features/djvu/main/djvuArtifactManifest';
 export {buildCompactDjvuAwarePdfFromDjvu} from '@electron/features/djvu/main/buildCompactDjvuAwarePdfFromDjvu';
 export {
-    getDjvuOutline,
+    getDjvuOutlineBookmarks,
     getDjvuPageCount,
     getDjvuResolution,
 } from '@electron/features/djvu/main/metadata';
-export {parseDjvuOutline} from '@electron/features/djvu/main/parseDjvuOutline';
+export {shutdownDjvuEnginePool} from '@electron/features/djvu/main/djvuEnginePool';
 export {allowDjvuWritePath} from '@electron/features/djvu/main/exportPaths';

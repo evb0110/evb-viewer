@@ -133,47 +133,6 @@ const manifest = JSON.parse(String.raw`{
         },
         {
             "binaryName": null,
-            "id": "djvulibre",
-            "label": "DjVuLibre native tools",
-            "packagedEntries": [
-                {
-                    "id": "ddjvu",
-                    "label": "ddjvu binary",
-                    "pathSegments": [
-                        "bin",
-                        "ddjvu{exeSuffix}"
-                    ],
-                    "type": "file"
-                },
-                {
-                    "id": "djvused",
-                    "label": "djvused binary",
-                    "pathSegments": [
-                        "bin",
-                        "djvused{exeSuffix}"
-                    ],
-                    "type": "file"
-                },
-                {
-                    "id": "djvudump",
-                    "label": "djvudump binary",
-                    "pathSegments": [
-                        "bin",
-                        "djvudump{exeSuffix}"
-                    ],
-                    "type": "file"
-                }
-            ],
-            "sourceRootSegments": [
-                "resources",
-                "djvulibre"
-            ],
-            "stagedRootSegments": [
-                "djvulibre"
-            ]
-        },
-        {
-            "binaryName": null,
             "id": "pdf-print-dialog",
             "label": "macOS PDF print dialog helper",
             "packagedEntries": [
@@ -378,9 +337,6 @@ const manifest = JSON.parse(String.raw`{
             ],
             [
                 "qpdf"
-            ],
-            [
-                "djvulibre"
             ],
             [
                 "pdf-print-dialog"

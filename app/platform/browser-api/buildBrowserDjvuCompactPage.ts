@@ -8,7 +8,8 @@ import {
     type TDjvuCompactFidelityPreset,
 } from '@contracts/djvuConversionPolicy';
 import type { IBrowserPdfCombineWasmPageSpec } from '@contracts/browserPdfCombineWorker';
-import type { IDjvuWorker } from '@app/platform/browser-api/djvujsLoader';
+import { encodePpmP6 } from '@djvu-core/djvuPnm';
+import type { IDjvuWorker } from '@app/platform/browser-api/browserDjvuWorkerClient';
 import { toBrowserDjvuDecodeError } from '@app/platform/browser-api/assertBrowserDjvuRasterDimensions';
 import {
     renderDjvuPageAsPpm,
@@ -29,18 +30,6 @@ function pointsFromPixels(pixels: number, dpi: number) {
 
 function pageFileName(pageNumber: number, layer: string, extension: string) {
     return `page-${String(pageNumber).padStart(5, '0')}-${layer}.${extension}`;
-}
-
-function rgbaToPpm(image: ImageData) {
-    const header = new TextEncoder().encode(`P6\n${image.width} ${image.height}\n255\n`);
-    const output = new Uint8Array(header.byteLength + (image.width * image.height * 3));
-    output.set(header, 0);
-    for (let source = 0, target = header.byteLength; source < image.data.length; source += 4, target += 3) {
-        output[target] = image.data[source]!;
-        output[target + 1] = image.data[source + 1]!;
-        output[target + 2] = image.data[source + 2]!;
-    }
-    return output;
 }
 
 /**
@@ -64,13 +53,12 @@ export async function buildBrowserDjvuCompactPage(
 ): Promise<IBrowserDjvuCompactPage> {
     throwIfDjvuCanceled(signal);
     const fidelity = getDjvuCompactFidelity(preset);
-    const page = worker.doc.getPage(pageNumber);
     const width = pageMetrics.width ?? 0;
     const height = pageMetrics.height ?? 0;
     const context = `DjVu page ${pageNumber}`;
     let layers;
     try {
-        layers = await page.evbGetLayerInfo(DJVU_COMPACT_FOREGROUND_SUBSAMPLE).run();
+        layers = await worker.getPageLayerSummary(pageNumber, DJVU_COMPACT_FOREGROUND_SUBSAMPLE);
     } catch (error) {
         throw toBrowserDjvuDecodeError(error, width, height, context);
     }
@@ -102,18 +90,23 @@ export async function buildBrowserDjvuCompactPage(
         widthPoints: pointsFromPixels(layers.width, layers.dpi),
         heightPoints: pointsFromPixels(layers.height, layers.dpi),
     };
-    const maskBuffer = await page.evbGetMaskPbm().run();
+    const maskBytes = await worker.renderMaskPbm(pageNumber);
     throwIfDjvuCanceled(signal);
-    if (!maskBuffer) {
+    if (!maskBytes) {
         return photo();
     }
     const mask = {
         fileName: pageFileName(pageNumber, 'mask', 'pbm'),
-        data: new Uint8Array(maskBuffer),
+        data: maskBytes,
     };
-    const background = layers.hasBackground ? await page.evbGetBackgroundImage().run() : null;
+    const background = layers.hasBackground ? await worker.renderBackgroundRgb(pageNumber) : null;
     throwIfDjvuCanceled(signal);
-    if (!background || isDjvuCompactFlatBackground(measureDjvuCompactRasterStats(background.data, background.width, background.height, 4))) {
+    if (
+        !background
+        || isDjvuCompactFlatBackground(
+            measureDjvuCompactRasterStats(background.rgb, background.width, background.height, 3),
+        )
+    ) {
         return {
             route: 'mask',
             spec: {
@@ -131,7 +124,7 @@ export async function buildBrowserDjvuCompactPage(
             jpegQuality: fidelity.backgroundQuality,
             background: {
                 fileName: pageFileName(pageNumber, 'background', 'ppm'),
-                data: rgbaToPpm(background),
+                data: encodePpmP6(background.width, background.height, background.rgb),
             },
             mask,
         },

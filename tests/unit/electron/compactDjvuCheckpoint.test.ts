@@ -15,25 +15,34 @@ import {
     it,
     vi,
 } from 'vitest';
-import type * as TDjvuNativeToolPathsModule from '@electron/features/djvu/main/nativeToolPaths';
 import {
     loadOrBuildCompactDjvuPage,
     openCompactDjvuCheckpointJob,
 } from '@electron/features/djvu/main/compactDjvuCheckpoint';
 import { assertDjvuSourceIdentity } from '@electron/features/djvu/main/djvuArtifactManifest';
 
-// `djvused index.djvu -e ls` on tests/fixtures/djvu/sources/indirect, so the
-// listing does not need the platform's DjVu tools.
-const runDjvuSourceCommand = vi.hoisted(() => vi.fn(async () => ({
-    stdout: '   1 P        0  low-dpi.djvu\n   2 P        0  high-dpi.djvu\n',
-    stderr: '',
-    exitCode: 0,
+const runDjvuEngine = vi.hoisted(() => vi.fn(async () => ({
+    pageCount: 2,
+    sourceDpi: 72,
+    isIndirect: true,
+    files: [
+        {
+            id: 'low-dpi.djvu',
+            name: 'low-dpi.djvu',
+            title: '',
+            pageIndex: 0,
+            type: 'page',
+        },
+        {
+            id: 'high-dpi.djvu',
+            name: 'high-dpi.djvu',
+            title: '',
+            pageIndex: 1,
+            type: 'page',
+        },
+    ],
 })));
-vi.mock('@electron/features/djvu/main/nativeToolPaths', async importOriginal => ({
-    ...await importOriginal<typeof TDjvuNativeToolPathsModule>(),
-    getDjvuNativeToolPaths: () => ({djvused: '/tools/djvused'}),
-    runDjvuSourceCommand,
-}));
+vi.mock('@electron/features/djvu/main/djvuEnginePool', () => ({runDjvuEngine}));
 
 describe('compact DjVu checkpoints', () => {
     let tempDir = '';
@@ -96,11 +105,10 @@ describe('compact DjVu checkpoints', () => {
         };
 
         const first = await convertPage();
-        expect(runDjvuSourceCommand).toHaveBeenCalledWith('/tools/djvused', [
-            sourcePath,
-            '-e',
-            'ls',
-        ], 0, expect.anything());
+        expect(runDjvuEngine).toHaveBeenCalledWith({
+            type: 'getDocInfo',
+            djvuPath: sourcePath,
+        }, expect.anything());
         expect(first.sourceIdentity.components.map(component => component.path)).toEqual([
             join(tempDir, 'low-dpi.djvu'),
             join(tempDir, 'high-dpi.djvu'),
@@ -151,25 +159,36 @@ describe('compact DjVu checkpoints', () => {
     it('refuses an indirect document whose index names a component outside its folder, and lists thousands', async () => {
         const {getDjvuIndirectComponentPaths} = await import('@electron/features/djvu/main/metadata');
         const index = join(process.cwd(), 'tests', 'fixtures', 'djvu', 'sources', 'indirect', 'index.djvu');
-        runDjvuSourceCommand.mockResolvedValueOnce({
-            stdout: '   1 P        0  ../outside.djvu\n',
-            stderr: '',
-            exitCode: 0,
+        runDjvuEngine.mockResolvedValueOnce({
+            pageCount: 1,
+            sourceDpi: 300,
+            isIndirect: true,
+            files: [{
+                id: '../outside.djvu',
+                name: '../outside.djvu',
+                title: '',
+                pageIndex: 0,
+                type: 'page',
+            }],
         });
         await expect(getDjvuIndirectComponentPaths(index)).rejects.toThrow('outside its folder');
 
-        runDjvuSourceCommand.mockResolvedValueOnce({
-            stdout: Array.from({length: 10_000}, (_, page) => `${String(page + 1).padStart(6)} P        0  page-${String(page + 1).padStart(5, '0')}.djvu`).join('\n'),
-            stderr: '',
-            exitCode: 0,
+        runDjvuEngine.mockResolvedValueOnce({
+            pageCount: 10_000,
+            sourceDpi: 300,
+            isIndirect: true,
+            files: Array.from({length: 10_000}, (_, page) => {
+                const name = `page-${String(page + 1).padStart(5, '0')}.djvu`;
+                return {
+                    id: name,
+                    name,
+                    title: '',
+                    pageIndex: page,
+                    type: 'page',
+                };
+            }),
         });
         await expect(getDjvuIndirectComponentPaths(index)).resolves.toHaveLength(10_000);
-        // The real tool stops at the 8 MiB component-list limit; this listing is 349,999 bytes.
-        const [
-            , , , commandOptions,
-        ] = (runDjvuSourceCommand.mock.lastCall ?? []) as unknown[];
-        expect(commandOptions).toMatchObject({maxStdoutBytes: expect.any(Number)});
-        expect((commandOptions as {maxStdoutBytes: number}).maxStdoutBytes).toBeGreaterThan(10_000 * 48);
     });
 
     it('rejects a checkpoint build that points at an artifact outside the job directory', async () => {

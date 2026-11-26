@@ -4,6 +4,7 @@ import { PdfCombineCapabilityError } from '@electron/image/pdfCombineErrors';
 interface IBuildOptimizedPdfOptions {
     combineThreads?: number;
     signal?: AbortSignal;
+    onTerminationProof?: (proof: Promise<boolean>) => void;
 }
 
 function throwIfAborted(signal: AbortSignal | undefined) {
@@ -27,11 +28,14 @@ export async function buildOptimizedPdf(
         imagePaths,
         dpi,
         onPageProcessed,
-        options.signal === undefined && options.combineThreads === undefined
+        options.signal === undefined
+        && options.combineThreads === undefined
+        && options.onTerminationProof === undefined
             ? undefined
             : {
                 ...(options.signal === undefined ? {} : {signal: options.signal}),
                 ...(options.combineThreads === undefined ? {} : {combineThreads: options.combineThreads}),
+                ...(options.onTerminationProof === undefined ? {} : {onTerminationProof: options.onTerminationProof}),
             },
     );
     throwIfAborted(options.signal);

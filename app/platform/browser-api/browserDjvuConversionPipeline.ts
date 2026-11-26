@@ -29,9 +29,9 @@ import {
     isBrowserDocumentRef,
 } from '@app/platform/browserDocumentStore';
 import type {
-    IDjvuContentsItem,
+    IDjvuOutlineRawItem,
     IDjvuWorker,
-} from '@app/platform/browser-api/djvujsLoader';
+} from '@app/platform/browser-api/browserDjvuWorkerClient';
 import {
     createDjvuWorkerFromPath,
     getDjvuWorkerPageSizes,
@@ -422,7 +422,7 @@ export async function withBrowserDjvuWorker<T>(
 
 async function mapDjvuContentsToPdfBookmarks(
     worker: IDjvuWorker,
-    items: IDjvuContentsItem[] | null | undefined,
+    items: IDjvuOutlineRawItem[] | null | undefined,
     pages: readonly IDjvuOutputPage[],
     signal?: AbortSignal,
 ): Promise<IPdfBookmarkEntry[]> {
@@ -436,7 +436,7 @@ async function mapDjvuContentsToPdfBookmarks(
     for (const item of items) {
         throwIfCanceled(signal);
         const pageNumber = item.url
-            ? await worker.doc.getPageNumberByUrl(item.url).run()
+            ? await worker.getPageNumberByUrl(item.url)
             : null;
         const children = await mapDjvuContentsToPdfBookmarks(
             worker,
@@ -451,7 +451,7 @@ async function mapDjvuContentsToPdfBookmarks(
             : -1;
 
         bookmarks.push({
-            title: item.description,
+            title: item.title,
             pageIndex: outputIndex >= 0
                 ? pageNumberToPageIndex(requirePageNumber(outputIndex + 1))
                 : null,
@@ -618,7 +618,7 @@ async function buildDjvuPdfWithWasm(options: {
         }
         let pdf = data;
         if (options.preserveBookmarks) {
-            const contents = await options.worker.doc.getContents().run();
+            const contents = await options.worker.getOutline();
             const bookmarks = await mapDjvuContentsToPdfBookmarks(options.worker, contents, options.pages, options.signal);
             if (bookmarks.length > 0) {
                 options.onBookmarksStart?.();
@@ -716,17 +716,23 @@ async function detectBrowserDjvuHasText(djvuPath: TDocumentRef, worker: IDjvuWor
         return cached;
     }
     let hasText = false;
+    let scanComplete = true;
     for (let pageNumber = 1; pageNumber <= pageCount && !hasText; pageNumber += 1) {
-        const text = await worker.doc.getPage(pageNumber).getText().run().catch(() => '');
-        hasText = text.trim().length > 0;
+        try {
+            hasText = await worker.pageHasText(pageNumber);
+        } catch {
+            scanComplete = false;
+        }
         if (pageNumber % DJVU_TEXT_SCAN_YIELD_PAGES === 0) {
             await yieldToBrowser();
         }
     }
-    textScanResults.set(versionKey, hasText);
-    for (const key of textScanResults.keys()) {
-        if (textScanResults.size <= DJVU_TEXT_SCAN_CACHE_ENTRIES) break;
-        textScanResults.delete(key);
+    if (hasText || scanComplete) {
+        textScanResults.set(versionKey, hasText);
+        for (const key of textScanResults.keys()) {
+            if (textScanResults.size <= DJVU_TEXT_SCAN_CACHE_ENTRIES) break;
+            textScanResults.delete(key);
+        }
     }
     return hasText;
 }
@@ -734,13 +740,19 @@ async function detectBrowserDjvuHasText(djvuPath: TDocumentRef, worker: IDjvuWor
 export async function getBrowserDjvuInfo(djvuPath: TDocumentRef): Promise<IDjvuInfo> {
     return withBrowserDjvuWorker(djvuPath, async (worker) => {
         const pageSizes = await getDjvuWorkerPageSizes(worker);
-        const contents = await worker.doc.getContents().run().catch(() => null);
+        const [
+            contents,
+            metadata,
+        ] = await Promise.all([
+            worker.getOutline().catch(() => null),
+            worker.getMetadata().catch(() => ({})),
+        ]);
         return {
             pageCount: pageSizes.length,
             sourceDpi: pageSizes[0]?.dpi ?? 300,
             hasBookmarks: Boolean(contents && contents.length > 0),
             hasText: await detectBrowserDjvuHasText(djvuPath, worker, pageSizes.length),
-            metadata: {},
+            metadata,
         };
     }, 'info');
 }

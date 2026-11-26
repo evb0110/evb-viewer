@@ -1,5 +1,5 @@
 /**
- * @typedef {'pdf-text' | 'image-export-tiff' | 'djvu-pdf' | 'ocr-engine-host' | 'ocr-engine'} TWorkerBundleId
+ * @typedef {'pdf-text' | 'image-export-tiff' | 'djvu-engine' | 'ocr-engine-host' | 'ocr-engine'} TWorkerBundleId
  */
 
 /**
@@ -29,9 +29,9 @@ export const WORKER_BUNDLES = [
         unpacked: true,
     },
     {
-        id: 'djvu-pdf',
-        entryPoint: 'electron/features/djvu/main/pdfWorker.ts',
-        fileName: 'djvu-pdfWorker.js',
+        id: 'djvu-engine',
+        entryPoint: 'electron/features/djvu/main/djvuEngineWorker.ts',
+        fileName: 'djvu-engine-worker.js',
         format: 'esm',
         unpacked: true,
     },

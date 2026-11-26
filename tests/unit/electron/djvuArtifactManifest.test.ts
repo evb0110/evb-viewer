@@ -186,17 +186,13 @@ describe('DjVu artifact manifests', () => {
         await resumed.cleanup?.();
     });
 
-    it.each([
-        '__EVB_NATIVE_BUILD_IDS__',
-        '__EVB_RUNTIME_ARCHIVE_IDS__',
-    ])('reuses saved bytes only with the same tool identity (%s)', async (identityName) => {
+    it('reuses saved bytes only with the same native build identity (__EVB_NATIVE_BUILD_IDS__)', async () => {
         const directory = mkdtempSync(join(tmpdir(), 'evb-djvu-recipe-test-'));
         directories.push(directory);
         const sourcePath = join(directory, 'source.djvu');
         writeFileSync(sourcePath, 'djvu-source');
-        const identityKey = identityName === '__EVB_NATIVE_BUILD_IDS__'
-            ? 'evb-pdf-image-combine'
-            : `djvulibre-${process.platform}-${process.arch}`;
+        const identityName = '__EVB_NATIVE_BUILD_IDS__';
+        const identityKey = 'evb-pdf-image-combine';
         const ranges = [{
             startPage: 1,
             endPage: 1,

@@ -38,7 +38,6 @@ fetch https://github.com/uclouvain/openjpeg/archive/refs/tags/v2.5.4.tar.gz a695
 fetch https://poppler.freedesktop.org/poppler-26.02.0.tar.xz dded8621f7b2f695c91063aab1558691c8418374cd583501e89ed39487e7ab77
 fetch https://poppler.freedesktop.org/poppler-data-0.4.12.tar.gz c835b640a40ce357e1b83666aabd95edffa24ddddd49b8daff63adb851cdab74
 fetch https://github.com/qpdf/qpdf/releases/download/v12.3.2/qpdf-12.3.2.tar.gz 6cba2f9f2cd887d905faeb99e0e51a307b217920d1bbf3e9cfbb2e8178a2deda
-fetch https://downloads.sourceforge.net/djvu/djvulibre-3.5.30.tar.gz ee5e457d4cfebe566f94b99e5e3d3cc7f5c79ddb741c2ac2ba2e456f00329644
 cmake_configure() {
   local source="$1"; shift
   cmake -S "$BUILD_DIR/$source" -B "$BUILD_DIR/$source/build" -G Ninja \
@@ -99,17 +98,9 @@ cmake_configure qpdf-12.3.2 -DBUILD_STATIC_LIBS=OFF \
   -DREQUIRE_CRYPTO_NATIVE=ON -DUSE_IMPLICIT_CRYPTO=OFF -DBUILD_DOC=OFF -DINSTALL_EXAMPLES=OFF
 cmake --build "$BUILD_DIR/qpdf-12.3.2/build" --parallel "$JOBS" --target qpdf
 find "$BUILD_DIR/qpdf-12.3.2/build/libqpdf" -maxdepth 1 -name 'libqpdf*.dylib' -exec cp -P {} "$PREFIX/lib/" \;
-(
-  cd "$BUILD_DIR/djvulibre-3.5.30"
-  ./configure --prefix="$PREFIX" --disable-static --enable-shared --disable-xmltools --disable-desktopfiles \
-    JPEG_LIBS="-L$PREFIX/lib -ljpeg" TIFF_LIBS="-L$PREFIX/lib -ltiff -ljpeg -lz"
-  make -j"$JOBS" -C libdjvu
-  make -j"$JOBS" -C tools ddjvu djvused djvudump
-  make -C libdjvu install
-)
 # shellcheck source=scripts/lib/macos-dylib-bundle.sh
 source "$SCRIPT_DIR/lib/macos-dylib-bundle.sh"
-for family in poppler qpdf djvulibre; do
+for family in poppler qpdf; do
   stage="$BUILD_DIR/$family-stage"
   mkdir -p "$stage/bin" "$stage/lib"
   case "$family" in
@@ -126,11 +117,6 @@ for family in poppler qpdf djvulibre; do
       # Fontconfig includes its conf.d snippets relatively within the bundle.
       ;;
     qpdf) cp "$BUILD_DIR/qpdf-12.3.2/build/qpdf/qpdf" "$stage/bin/" ;;
-    djvulibre)
-      for tool in ddjvu djvused djvudump; do
-        cp "$BUILD_DIR/djvulibre-3.5.30/tools/.libs/$tool" "$stage/bin/"
-      done
-      ;;
   esac
   macos_bundle_dylib_closure "$stage/lib" "$PREFIX" "$stage/bin/"*
   destination="$PROJECT_ROOT/resources/$family/darwin-arm64"
@@ -150,4 +136,3 @@ smoke_tool qpdf qpdf --version
 compgen -G "$PROJECT_ROOT/resources/qpdf/darwin-arm64/lib/libqpdf*.dylib" >/dev/null \
   || { echo "Error: the qpdf bundle has no libqpdf for pdf-page-ops" >&2; exit 1; }
 smoke_tool pdftoppm poppler -v
-smoke_tool ddjvu djvulibre --help

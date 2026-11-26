@@ -32,7 +32,7 @@ const SUBSYSTEM_MESSAGE_PATTERNS: Array<[TMainSubsystem, RegExp]> = [
     ],
     [
         'djvu',
-        /(?:ddjvu|djvm)/iu,
+        /(?:ddjvu|djvm|djvulibre|djvu engine)/iu,
     ],
     [
         'agent',

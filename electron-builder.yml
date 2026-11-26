@@ -13,14 +13,15 @@ extends: ./.tmp/generated-electron-builder-resources.yml
 asar: true
 asarUnpack:
   - dist-electron/package.json
-  - dist-electron/djvu-pdfWorker.js
+  - dist-electron/djvu-engine-worker.js
   - dist-electron/image-export-tiff-worker.js
   - dist-electron/runtime/@napi-rs/canvas/*.node
   - dist-electron/pdf-text-worker.js
   - dist-electron/ocr-engine-host.js
   - dist-electron/ocr-engine-worker.js
-  # The OCR engine the utility process's worker threads import and compile by path.
+  # The OCR and DjVuLibre WASM engines that worker threads import and compile by path.
   - nuxt-output/public/wasm/evb-tesseract.*
+  - nuxt-output/public/wasm/evb-djvulibre.*
 npmRebuild: false
 afterPack: ./scripts/afterPack.cjs
 afterSign: ./scripts/afterSign.cjs

@@ -1,9 +1,13 @@
-import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
-import type * as TDjvuNativeToolPathsModule from '@electron/features/djvu/main/nativeToolPaths';
-import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
-import type * as TDjvuArtifactManifestModule from '@electron/features/djvu/main/djvuArtifactManifest';
-
 import {
+    mkdtemp,
+    readFile,
+    rm,
+    writeFile,
+} from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -11,287 +15,30 @@ import {
     vi,
 } from 'vitest';
 
-type TMockListener = (...args: unknown[]) => void;
-
-const mocks = vi.hoisted(() => {
-    class MockEmitter {
-        private readonly listeners = new Map<string, Set<TMockListener>>();
-
-        on(event: string, listener: TMockListener) {
-            const eventListeners = this.listeners.get(event) ?? new Set<TMockListener>();
-            eventListeners.add(listener);
-            this.listeners.set(event, eventListeners);
-            return this;
-        }
-
-        removeListener(event: string, listener: TMockListener) {
-            this.listeners.get(event)?.delete(listener);
-            return this;
-        }
-
-        emit(event: string, ...args: unknown[]) {
-            for (const listener of this.listeners.get(event) ?? []) {
-                listener(...args);
-            }
-        }
-
-        unpipe = vi.fn();
-
-        destroy = vi.fn();
-    }
-
-    class MockProcess extends MockEmitter {
-        readonly stdout = new MockEmitter();
-
-        readonly stderr = new MockEmitter();
-
-        readonly pid: number;
-
-        readonly kill = vi.fn();
-
-        constructor(pid: number) {
-            super();
-            this.pid = pid;
-        }
-
-        close(code: number | null = 0) {
-            this.emit('close', code);
-        }
-    }
-
-    interface ISpawnCall {
-        command: string;
-        args: string[];
-        proc: MockProcess;
-    }
-    type TSpawnMode = 'success' | 'fail-ranges' | 'fail-merge' | 'hang-single' | 'hang-ranges' | 'hang-merge' | 'hang-registered' | 'million-page-progress';
-
-    const spawnCalls: ISpawnCall[] = [];
-    let spawnMode: TSpawnMode = 'success';
-    let quotaFailure: Error | null = null;
-    let sourceMtimeNs = 1n;
-    const publishedOutputs = new Set<string>();
-    const rangeOutputs = new Set<string>();
-    let nextPid = 1000;
-
-    function isRangeDdjvuCall(command: string, args: string[]) {
-        return command === '/tools/ddjvu' && args.some(arg => arg.startsWith('-page='));
-    }
-
-    function isQpdfCall(command: string) {
-        return command === '/tools/qpdf';
-    }
-
-    function isRegisteredCombineCall(command: string) {
-        return command === '/tools/evb-pdf-image-combine';
-    }
-
-    const spawn = vi.fn((command: string, args: string[]) => {
-        const proc = new MockProcess(nextPid++);
-        const call = {
-            command,
-            args,
-            proc,
-        };
-        spawnCalls.push(call);
-        if (isRangeDdjvuCall(command, args)) {
-            proc.on('close', (code) => {
-                if (code === 0) rangeOutputs.add(args.at(-1)!);
-            });
-        }
-
-        queueMicrotask(() => {
-            if (spawnMode === 'hang-single' && command === '/tools/ddjvu' && !isRangeDdjvuCall(command, args)) {
-                return;
-            }
-            if (spawnMode === 'hang-ranges' && isRangeDdjvuCall(command, args)) {
-                return;
-            }
-            if (spawnMode === 'hang-merge' && isQpdfCall(command)) {
-                return;
-            }
-            if (spawnMode === 'hang-registered' && isRegisteredCombineCall(command)) {
-                return;
-            }
-            if (spawnMode === 'million-page-progress' && command === '/tools/ddjvu' && args.includes('-page=1-1000000')) {
-                const totalPages = 1_000_000;
-                const pagesPerChunk = 4_096;
-                for (let startPage = 1; startPage <= totalPages; startPage += pagesPerChunk) {
-                    const endPage = Math.min(totalPages, startPage + pagesPerChunk - 1);
-                    let chunk = '';
-                    for (let page = startPage; page <= endPage; page += 1) {
-                        chunk += `-------- page ${page}\n`;
-                    }
-                    proc.stderr.emit('data', Buffer.from(chunk));
-                }
-                proc.close(0);
-                return;
-            }
-            if (spawnMode === 'fail-ranges' && isRangeDdjvuCall(command, args)) {
-                proc.stderr.emit('data', Buffer.from('range conversion failed'));
-                proc.close(1);
-                return;
-            }
-            if (spawnMode === 'fail-merge' && isQpdfCall(command)) {
-                proc.stderr.emit('data', Buffer.from('merge failed'));
-                proc.close(1);
-                return;
-            }
-            proc.close(0);
-            if (command === '/tools/qpdf' || (command === '/tools/ddjvu' && !isRangeDdjvuCall(command, args))) {
-                publishedOutputs.add(args.at(-1)!);
-            }
-        });
-
-        return proc;
-    });
-    const createDjvuDiskQuotaMonitor = vi.fn(async (options: {signal?: AbortSignal;}) => {
-        const controller = new AbortController();
-        const signal = options.signal
-            ? AbortSignal.any([
-                options.signal,
-                controller.signal,
-            ])
-            : controller.signal;
-        return {
-            signal,
-            async checkNow() {
-                if (quotaFailure) {
-                    controller.abort(quotaFailure);
-                    throw quotaFailure;
-                }
-            },
-            get failure() {
-                return quotaFailure;
-            },
-            stop: vi.fn(async () => undefined),
-        };
-    });
-
-    async function statFile(path: string) {
-        return path === '/input.djvu' ? {
-            size: 4096n,
-            mtimeNs: sourceMtimeNs,
-            ctimeNs: 1n,
-            dev: 1n,
-            ino: 1n,
-        } : {size: 4096};
-    }
-
-    return {
-        spawn,
-        statFile,
-        spawnCalls,
-        publishedOutputs,
-        rangeOutputs,
-        setSourceMtime: (value: bigint) => {
-            sourceMtimeNs = value;
-        },
-        setSpawnMode: (mode: TSpawnMode) => {
-            spawnMode = mode;
-        },
-        setQuotaFailure: (error: Error | null) => {
-            quotaFailure = error;
-        },
-        createDjvuDiskQuotaMonitor,
-        mkdtemp: vi.fn(async () => '/tmp/djvu-pages-test'),
-        readFile: vi.fn(),
-        rm: vi.fn(async () => undefined),
-        stat: vi.fn(statFile),
-        unlink: vi.fn(async (path: string) => {
-            rangeOutputs.delete(path);
-        }),
-        writeFile: vi.fn(async () => undefined),
-        existsSync: vi.fn(() => true),
-        terminateDetachedChildProcess: vi.fn(async (proc: MockProcess) => {
-            proc.close(143);
-            return true;
-        }),
-        loggerWarn: vi.fn(),
-    };
-});
-
-vi.mock('child_process', () => ({spawn: mocks.spawn}));
-vi.mock('fs', () => ({existsSync: mocks.existsSync}));
-vi.mock('fs/promises', () => ({
-    mkdtemp: mocks.mkdtemp,
-    readFile: mocks.readFile,
-    rm: mocks.rm,
-    stat: mocks.stat,
-    unlink: mocks.unlink,
-    writeFile: mocks.writeFile,
+const mocks = vi.hoisted(() => ({
+    runDjvuEngine: vi.fn(),
+    runNativeCommand: vi.fn(),
+    cancelNativeCommandGroup: vi.fn(),
+    resolveNativeToolPath: vi.fn(),
+    hostTier: 'high' as 'low' | 'medium' | 'high',
+    logicalCpus: 8,
 }));
-vi.mock('os', async importOriginal => ({
-    ...await importOriginal<Record<string, unknown>>(),
-    tmpdir: () => '/tmp',
+
+vi.mock('electron', () => ({app: {
+    getPath: () => tmpdir(),
+    isPackaged: false,
+}}));
+vi.mock('@electron/features/djvu/main/djvuEnginePool', () => ({runDjvuEngine: mocks.runDjvuEngine}));
+vi.mock('@electron/native-tools/runNativeCommand', () => ({
+    runNativeCommand: mocks.runNativeCommand,
+    cancelNativeCommandGroup: mocks.cancelNativeCommandGroup,
 }));
+vi.mock('@electron/native-tools/resolveNativeToolPath', () => ({resolveNativeToolPath: mocks.resolveNativeToolPath}));
 vi.mock('@electron/resources/hostResourceProfile', () => ({getHostResourceProfileSnapshot: () => ({
-    logicalCpus: 5,
-    totalRamBytes: 16 * 1024 * 1024 * 1024,
-    safeMode: false,
-    detectedTier: 'medium',
+    tier: mocks.hostTier,
+    logicalCpus: mocks.logicalCpus,
     performanceMode: 'auto',
-    tier: 'medium',
 })}));
-vi.mock('@electron/features/djvu/main/buildDjvuRuntimeEnv', () => ({buildDjvuRuntimeEnv: () => ({PATH: '/bin'})}));
-vi.mock('@electron/features/djvu/main/nativeToolPaths', async importOriginal => ({
-    ...await importOriginal<typeof TDjvuNativeToolPathsModule>(),
-    getDjvuNativeToolPaths: () => ({
-        ddjvu: '/tools/ddjvu',
-        djvused: '/tools/djvused',
-    }),
-}));
-vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal) => ({
-    ...(await importOriginal<typeof TViMockOriginalModule>()),
-    getPdfNativeToolPaths: () => ({qpdf: '/tools/qpdf'}),
-}));
-vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
-    debug: vi.fn(),
-    error: vi.fn(),
-    info: vi.fn(),
-    warn: mocks.loggerWarn,
-})}));
-vi.mock('@electron/utils/nativeChildProcess', () => ({
-    spawnNativeChildProcess: mocks.spawn,
-    getNativeChildProcessPid: (proc: {pid?: number}) => Promise.resolve(proc.pid ?? null),
-    getNativeChildProcessTerminationProof: () => undefined,
-    createDetachedChildProcessSpawnOptions: (options: unknown) => options,
-    terminateDetachedChildProcess: mocks.terminateDetachedChildProcess,
-}));
-vi.mock('@electron/features/djvu/main/djvuArtifactManifest', async importOriginal => ({
-    ...await importOriginal<typeof TDjvuArtifactManifestModule>(),
-    DJVU_ARTIFACT_MAX_TOTAL_BYTES: 4 * 1024 * 1024 * 1024,
-    createDjvuDiskQuotaMonitor: mocks.createDjvuDiskQuotaMonitor,
-    openDjvuArtifactJob: vi.fn(async (_sourcePath: string, ranges: Array<{
-        startPage: number;
-        endPage: number;
-    }>) => {
-        const manifest = {ranges: ranges.map(range => ({
-            ...range,
-            outputPath: `/tmp/djvu-pages-test/pages-${range.startPage}-${range.endPage}.pdf`,
-            status: 'pending' as const,
-        }))};
-        return {
-            sourceIdentity: {
-                size: 4096n,
-                mtimeNs: 1n,
-                ctimeNs: 1n,
-                dev: 1n,
-                ino: 1n,
-                sourceSha256: 'unchanged-source',
-                components: [],
-            } satisfies TDjvuArtifactManifestModule.IDjvuSourceIdentity,
-            directory: '/tmp/djvu-pages-test',
-            manifestPath: '/tmp/djvu-pages-test/manifest.json',
-            manifest,
-            maxTotalBytes: 4 * 1024 * 1024 * 1024,
-            close: vi.fn(async () => {}),
-            updateRange: vi.fn(async (index: number, update: object) => {
-                Object.assign(manifest.ranges[index]!, update);
-            }),
-        };
-    }),
-}));
 
 const {
     cancelConversion,
@@ -300,653 +47,197 @@ const {
     resolveDjvuRangeWorkerCount,
     runRegisteredDjvuProcess,
 } = await import('@electron/features/djvu/main/ddjvuConversion');
-const { PdfCombineCapabilityError } = await import('@electron/image/pdfCombineErrors');
-const {
-    configureMainJobBroker,
-    JobBroker,
-    mainJobBroker,
-} = await import('@electron/resources/jobBroker');
-
-configureMainJobBroker({
-    logicalCpus: 5,
-    totalRamBytes: 16 * 1024 * 1024 * 1024,
-    safeMode: false,
-    detectedTier: 'medium',
-    performanceMode: 'auto',
-    tier: 'medium',
-});
 
 describe('resolveDjvuRangeWorkerCount', () => {
     it('does not clamp a two-core host up to two conversion workers', () => {
-        expect(resolveDjvuRangeWorkerCount(25, 2, 'medium')).toBe(1);
-        expect(resolveDjvuRangeWorkerCount(25, 1, 'high')).toBe(1);
+        expect(resolveDjvuRangeWorkerCount(100, 2, 'high')).toBe(1);
     });
 
     it('keeps one core free and respects the page count', () => {
-        expect(resolveDjvuRangeWorkerCount(25, 5, 'medium')).toBe(4);
-        expect(resolveDjvuRangeWorkerCount(2, 16, 'high')).toBe(2);
+        expect(resolveDjvuRangeWorkerCount(4, 8, 'high')).toBe(4);
+        expect(resolveDjvuRangeWorkerCount(100, 8, 'high')).toBe(7);
+        expect(resolveDjvuRangeWorkerCount(100, 32, 'high')).toBe(12);
     });
 
     it('clamps low-tier range conversion to one worker', () => {
-        expect(resolveDjvuRangeWorkerCount(25, 16, 'low')).toBe(1);
-        expect(resolveDjvuRangeWorkerCount(0, 16, 'low')).toBe(0);
+        expect(resolveDjvuRangeWorkerCount(100, 8, 'low')).toBe(1);
     });
 });
 
-describe('convertDjvuToPdfFile', () => {
-    beforeEach(() => {
+describe('ddjvuConversion (DjVuLibre WASM + evb-pdf-image-combine)', () => {
+    let tempDir = '';
+
+    beforeEach(async () => {
         vi.clearAllMocks();
-        mocks.spawnCalls.length = 0;
-        mocks.setSpawnMode('success');
-        mocks.setQuotaFailure(null);
-        mocks.setSourceMtime(1n);
-        mocks.stat.mockImplementation(mocks.statFile);
-        mocks.publishedOutputs.clear();
-        mocks.rangeOutputs.clear();
+        mocks.hostTier = 'high';
+        mocks.logicalCpus = 8;
+        mocks.resolveNativeToolPath.mockReturnValue('/tools/evb-pdf-image-combine');
+        tempDir = await mkdtemp(join(tmpdir(), 'djvu-conversion-test-'));
     });
 
-    it('refuses a source changed between completed ranges without publishing a fallback PDF', async () => {
-        mocks.setSpawnMode('hang-ranges');
-        const progress = vi.fn();
-        const converting = convertDjvuToPdfFile('/input.djvu', '/output.pdf', 'source-changed', {
-            pageCount: 24,
-            onProgress: progress,
-        });
-        const outcome = converting.catch((error: unknown) => error);
-        try {
-            await vi.waitFor(() => expect(mocks.spawnCalls.length).toBeGreaterThanOrEqual(2));
-            mocks.spawnCalls[0]!.proc.close(0);
-            await vi.waitFor(() => expect(progress.mock.calls.some(([percent]) => percent > 0)).toBe(true));
-
-            mocks.setSourceMtime(2n);
-            mocks.setSpawnMode('success');
-            for (const call of mocks.spawnCalls.slice(1)) {
-                call.proc.close(0);
-            }
-
-            await expect(outcome).resolves.toMatchObject({message: 'DjVu source changed while a checkpoint export was in progress'});
-            expect(mocks.publishedOutputs.has('/output.pdf')).toBe(false);
-            expect(mocks.rangeOutputs).toEqual(new Set(['/tmp/djvu-pages-test/pages-1-6.pdf']));
-        } finally {
-            await cancelConversion('source-changed');
+    afterEach(async () => {
+        if (tempDir) {
+            await rm(tempDir, {
+                recursive: true,
+                force: true,
+            });
         }
     });
 
-    it('publishes a complete PDF when the source identity stays unchanged across ranges', async () => {
-        await expect(convertDjvuToPdfFile('/input.djvu', '/output.pdf', 'source-unchanged', {pageCount: 24}))
-            .resolves.toEqual({
-                success: true,
-                outputPath: '/output.pdf',
-                fileSize: 4096,
-            });
-        expect(mocks.publishedOutputs.has('/output.pdf')).toBe(true);
-    });
-
-    it('splits large full-document conversions into parallel native page ranges', async () => {
-        const progress = vi.fn();
-
-        const result = await convertDjvuToPdfFile('/input.djvu', '/output.pdf', 'job-1', {
-            pageCount: 25,
-            onProgress: progress,
-        });
-
-        expect(result).toEqual({
-            success: true,
-            outputPath: '/output.pdf',
-            fileSize: 4096,
-        });
-        const ddjvuCalls = mocks.spawnCalls.filter(call => call.command === '/tools/ddjvu');
-        expect(ddjvuCalls.map(call => call.args.find(arg => arg.startsWith('-page=')))).toEqual([
-            '-page=1-7',
-            '-page=8-13',
-            '-page=14-19',
-            '-page=20-25',
-        ]);
-        expect(mocks.spawnCalls.at(-1)).toMatchObject({
-            command: '/tools/qpdf',
-            args: [
-                '--empty',
-                '--pages',
-                '/tmp/djvu-pages-test/pages-1-7.pdf',
-                '/tmp/djvu-pages-test/pages-8-13.pdf',
-                '/tmp/djvu-pages-test/pages-14-19.pdf',
-                '/tmp/djvu-pages-test/pages-20-25.pdf',
-                '--',
-                '/output.pdf',
-            ],
-        });
-        expect(progress).toHaveBeenLastCalledWith(95);
-        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/djvu-pages-test', expect.anything());
-    });
-
-    it('keeps small conversions on the single native process path', async () => {
-        await convertDjvuToPdfFile('/input.djvu', '/output.pdf', 'job-2', {pageCount: 4});
-
-        expect(mocks.spawnCalls).toHaveLength(1);
-        expect(mocks.spawnCalls[0]).toMatchObject({
-            command: '/tools/ddjvu',
-            args: [
-                '-format=pdf',
-                '-verbose',
-                '/input.djvu',
-                '/output.pdf',
-            ],
-        });
-    });
-
-    it('reports million-page single-process progress without page-sized state', async () => {
-        mocks.setSpawnMode('million-page-progress');
-        const totalPages = 1_000_000;
-        let progressCalls = 0;
-        let lastProgress = 0;
-        let progressDecreased = false;
-
-        const result = await convertDjvuToPdfFile('/input.djvu', '/output.pdf', 'job-million-page-progress', {
-            pageCount: totalPages,
-            pages: `1-${totalPages}`,
-            onProgress: percent => {
-                progressCalls += 1;
-                progressDecreased ||= percent < lastProgress;
-                lastProgress = percent;
-            },
-        });
-
-        expect(result).toEqual({
-            success: true,
-            outputPath: '/output.pdf',
-            fileSize: 4096,
-        });
-        expect(progressCalls).toBe(totalPages);
-        expect(lastProgress).toBe(90);
-        expect(progressDecreased).toBe(false);
-        expect(mocks.spawnCalls).toHaveLength(1);
-    });
-
-    it('fails a small explicit-page conversion when the live output quota is crossed', async () => {
-        mocks.setQuotaFailure(new Error('DjVu disk quota exceeded: simulated ENOSPC'));
-
-        const result = await convertDjvuToPdfFile('/input.djvu', '/output.pdf', 'job-small-quota', {
-            pageCount: 24,
-            pages: '2',
-        });
-
-        expect(result).toMatchObject({
-            success: false,
-            error: 'DjVu disk quota exceeded: simulated ENOSPC',
-        });
-        expect(mocks.spawnCalls).toHaveLength(1);
-        expect(mocks.unlink).toHaveBeenCalledWith('/output.pdf');
-    });
-
-    it('retains the direct conversion broker lease across watchdog timeout until delayed termination proof arrives', async () => {
-        const proof = Promise.withResolvers<boolean>();
-        mocks.setSpawnMode('hang-single');
-        mocks.terminateDetachedChildProcess.mockImplementationOnce(async (proc) => {
-            const terminated = await proof.promise;
-            if (terminated) proc.close(143);
-            return terminated;
-        });
-
-        try {
-            const converting = convertDjvuToPdfFile('/input.djvu', '/output.pdf', 'direct-delayed-proof', {pageCount: 4});
-            const outcome = converting.catch((error: unknown) => error);
-            await vi.waitFor(() => expect(mocks.spawnCalls).toHaveLength(1));
-
-            vi.useFakeTimers({toFake: [
-                'setTimeout',
-                'clearTimeout',
-            ]});
-            await cancelConversion('direct-delayed-proof');
-            await vi.advanceTimersByTimeAsync(4_001);
-            expect(getUnprovenNativeTerminationDetail(await outcome)).toContain('not proven dead');
-
-            const capacity = mainJobBroker.getSnapshot().capacity;
-            let competitorGranted = false;
-            const competitor = mainJobBroker.acquire({
-                ownerId: 'competitor-direct',
-                kind: 'djvu-conversion',
-                priority: 'user',
-                resources: capacity,
-            }).then((lease) => {
-                competitorGranted = true;
-                return lease;
-            });
-
-            await Promise.resolve();
-            expect(competitorGranted).toBe(false);
-            expect(mainJobBroker.getSnapshot()).toMatchObject({
-                active: 1,
-                queued: 1,
-                used: {
-                    cpuTokens: 1,
-                    nativeProcesses: 1,
-                    ioWeight: 2,
+    it('renders requested DjVu page modes through the DjVuLibre WASM engine pool', async () => {
+        const outputPath = join(tempDir, 'mask.pbm');
+        mocks.runDjvuEngine.mockImplementationOnce(async (request: {
+            type: string;
+            outputPath: string;
+        }) => {
+            expect(request).toMatchObject({
+                type: 'renderPageToFile',
+                djvuPath: '/tmp/book.djvu',
+                pageNumber: 3,
+                outputPath,
+                options: {
+                    format: 'pbm',
+                    mode: 'mask',
+                    subsample: 2,
                 },
             });
-
-            proof.resolve(true);
-            const competitorLease = await competitor;
-            expect(competitorGranted).toBe(true);
-            expect(competitorLease.release()).toBe(true);
-            expect(mainJobBroker.getSnapshot()).toMatchObject({
-                active: 0,
-                queued: 0,
-            });
-        } finally {
-            proof.resolve(true);
-            vi.useRealTimers();
-        }
-    });
-
-    it('retains parallel range broker leases across watchdog timeout until delayed termination proofs arrive', async () => {
-        const proofs: Array<PromiseWithResolvers<boolean>> = [];
-        mocks.setSpawnMode('hang-ranges');
-        mocks.terminateDetachedChildProcess.mockImplementation(async (proc) => {
-            const deferred = Promise.withResolvers<boolean>();
-            proofs.push(deferred);
-            const terminated = await deferred.promise;
-            if (terminated) proc.close(143);
-            return terminated;
+            await writeFile(request.outputPath, Buffer.from('P4\n8 1\n\xff', 'binary'));
+            return {
+                width: 8,
+                height: 1,
+                present: true,
+            };
         });
 
-        const competitorState: {lease: {release: () => boolean} | null} = {lease: null};
-        try {
-            const converting = convertDjvuToPdfFile('/input.djvu', '/output.pdf', 'range-delayed-proof', {pageCount: 24});
-            const outcome = converting.catch((error: unknown) => error);
-            await vi.waitFor(() => expect(mocks.spawnCalls).toHaveLength(2));
-
-            vi.useFakeTimers({toFake: [
-                'setTimeout',
-                'clearTimeout',
-            ]});
-            await cancelConversion('range-delayed-proof');
-            await vi.advanceTimersByTimeAsync(4_001);
-            expect(getUnprovenNativeTerminationDetail(await outcome)).toContain('not proven dead');
-            expect(proofs).toHaveLength(2);
-
-            const capacity = mainJobBroker.getSnapshot().capacity;
-            let competitorGranted = false;
-            const competitor = mainJobBroker.acquire({
-                ownerId: 'competitor-range',
-                kind: 'djvu-conversion',
-                priority: 'user',
-                resources: capacity,
-            }).then((lease) => {
-                competitorGranted = true;
-                competitorState.lease = lease;
-                return lease;
-            });
-            void competitor.catch(() => undefined);
-
-            await Promise.resolve();
-            expect(competitorGranted).toBe(false);
-            expect(mainJobBroker.getSnapshot()).toMatchObject({
-                active: 2,
-                queued: 1,
-                used: {
-                    cpuTokens: 2,
-                    nativeProcesses: 2,
-                    ioWeight: 4,
-                },
-            });
-
-            proofs[0]!.resolve(true);
-            await vi.waitFor(() => expect(mainJobBroker.getSnapshot()).toMatchObject({
-                active: 1,
-                queued: 1,
-                used: {
-                    cpuTokens: 1,
-                    nativeProcesses: 1,
-                    ioWeight: 2,
-                },
-            }));
-            expect(competitorGranted).toBe(false);
-
-            proofs[1]!.resolve(true);
-            const competitorLease = await competitor;
-            expect(competitorGranted).toBe(true);
-            expect(competitorLease.release()).toBe(true);
-            competitorState.lease = null;
-            expect(mainJobBroker.getSnapshot()).toMatchObject({
-                active: 0,
-                queued: 0,
-            });
-        } finally {
-            mainJobBroker.cancelOwner('competitor-range');
-            competitorState.lease?.release();
-            for (const deferred of proofs) deferred.resolve(true);
-            mocks.terminateDetachedChildProcess.mockImplementation(async (proc) => {
-                proc.close(143);
-                return true;
-            });
-            vi.useRealTimers();
-        }
-    });
-
-    it('preserves unproven range termination over a concurrent empty-artifact sibling without single-process fallback', async () => {
-        const proof = Promise.withResolvers<boolean>();
-        const statStarted = Promise.withResolvers<void>();
-        const releaseEmptyStat = Promise.withResolvers<void>();
-        mocks.setSpawnMode('hang-ranges');
-        mocks.terminateDetachedChildProcess.mockImplementation(async (proc) => {
-            const terminated = await proof.promise;
-            if (terminated) proc.close(143);
-            return terminated;
-        });
-        mocks.stat.mockImplementation(async (path) => {
-            if (path.startsWith('/tmp/djvu-pages-test/')) {
-                statStarted.resolve(undefined);
-                await releaseEmptyStat.promise;
-                return {size: 0};
-            }
-            return mocks.statFile(path);
-        });
-        let cancelOwnerCalls = 0;
-        const cancelOwnerSpy = vi.spyOn(mainJobBroker, 'cancelOwner').mockImplementation((ownerId, reason) => {
-            if (ownerId === 'range-unproven-vs-empty') {
-                cancelOwnerCalls += 1;
-                if (cancelOwnerCalls === 2) {
-                    releaseEmptyStat.resolve(undefined);
-                }
-            }
-            return Object.getPrototypeOf(mainJobBroker).cancelOwner.call(mainJobBroker, ownerId, reason) as number;
-        });
-
-        try {
-            const converting = convertDjvuToPdfFile('/input.djvu', '/output.pdf', 'range-unproven-vs-empty', {pageCount: 24});
-            const outcome = converting.catch((error: unknown) => error);
-            await vi.waitFor(() => expect(mocks.spawnCalls).toHaveLength(2));
-
-            mocks.spawnCalls[1]!.proc.close(0);
-            await statStarted.promise;
-
-            vi.useFakeTimers({toFake: [
-                'setTimeout',
-                'clearTimeout',
-            ]});
-            await cancelConversion('range-unproven-vs-empty');
-            await vi.advanceTimersByTimeAsync(4_001);
-
-            const error = await outcome;
-            expect(cancelOwnerCalls).toBeGreaterThanOrEqual(2);
-            expect(getUnprovenNativeTerminationDetail(error)).toContain('not proven dead');
-            expect(mocks.spawnCalls.filter(call => (
-                call.command === '/tools/ddjvu'
-                && !call.args.some(arg => arg.startsWith('-page='))
-            ))).toHaveLength(0);
-            expect(mocks.loggerWarn).not.toHaveBeenCalledWith(expect.stringContaining('falling back to single process'));
-
-            proof.resolve(true);
-            await vi.waitFor(() => expect(mainJobBroker.getSnapshot()).toMatchObject({
-                active: 0,
-                queued: 0,
-            }));
-        } finally {
-            cancelOwnerSpy.mockRestore();
-            releaseEmptyStat.resolve(undefined);
-            proof.resolve(true);
-            mocks.terminateDetachedChildProcess.mockImplementation(async (proc) => {
-                proc.close(143);
-                return true;
-            });
-            vi.useRealTimers();
-        }
-    });
-
-    it('preserves unproven termination through canceled image rendering under the caller lease', async () => {
-        mocks.terminateDetachedChildProcess.mockResolvedValueOnce(false);
-        mocks.setSpawnMode('hang-ranges');
-        const resources = {
-            cpuTokens: 1,
-            estimatedResidentBytes: 128 * 1024 * 1024,
-            nativeProcesses: 1,
-            ioWeight: 2,
-        };
-        // A caller's own broker: the lease stays charged for good below.
-        const callerBroker = new JobBroker(resources);
-        const rendering = callerBroker.run({
-            ownerId: 'image-cancel',
-            kind: 'djvu-image-export-page',
-            priority: 'user',
-            resources,
-        }, async ({onTerminationProof}) => {
-            const result = await renderDjvuPageToImage('/input.djvu', '/page.ppm', 1, 'image-cancel', {onTerminationProof});
-            expect(result.success).toBe(false);
-            throw result.cause;
-        });
-        await vi.waitFor(() => expect(mocks.spawnCalls.length).toBe(1));
-        await cancelConversion('image-cancel');
-        const failure = await rendering.catch((error: unknown) => error);
-        expect(getUnprovenNativeTerminationDetail(failure)).toContain('not proven dead');
-        // The render ran under the caller's lease and took none of its own;
-        // that lease stays charged while its child may still be alive.
-        expect(callerBroker.getSnapshot()).toMatchObject({
-            active: 1,
-            used: resources,
-        });
-        expect(mainJobBroker.getSnapshot().active).toBe(0);
-    });
-
-    it('renders requested DjVu page modes through registered ddjvu processes', async () => {
-        const result = await renderDjvuPageToImage('/input.djvu', '/mask.pbm', 7, 'job-mask', {
+        const result = await renderDjvuPageToImage('/tmp/book.djvu', outputPath, 3, 'job-render', {
             format: 'pbm',
             mode: 'mask',
+            subsample: 2,
         });
 
         expect(result).toEqual({
             success: true,
-            outputPath: '/mask.pbm',
-            fileSize: 4096,
-        });
-        expect(mocks.spawnCalls).toHaveLength(1);
-        expect(mocks.spawnCalls[0]).toMatchObject({
-            command: '/tools/ddjvu',
-            args: [
-                '-format=pbm',
-                '-page=7',
-                '-mode=mask',
-                '/input.djvu',
-                '/mask.pbm',
-            ],
+            outputPath,
+            fileSize: 8,
         });
     });
 
-    it('falls back to the single process path when parallel range conversion fails', async () => {
-        mocks.setSpawnMode('fail-ranges');
+    it('converts selected pages via DjVuLibre WASM rasters and native evb-pdf-image-combine', async () => {
+        const outputPath = join(tempDir, 'direct.pdf');
+        const progressValues: number[] = [];
+        let capturedManifest = '';
 
-        const result = await convertDjvuToPdfFile('/input.djvu', '/output.pdf', 'job-3', {pageCount: 24});
-
-        expect(result.success, result.error).toBe(true);
-        expect(mocks.loggerWarn).toHaveBeenCalledWith(expect.stringContaining('falling back to single process'));
-        expect(mocks.unlink).toHaveBeenCalledWith('/output.pdf');
-        expect(mocks.spawnCalls.filter(call => call.command === '/tools/ddjvu')).toHaveLength(5);
-        expect(mocks.spawnCalls.at(-1)).toMatchObject({
-            command: '/tools/ddjvu',
-            args: [
-                '-format=pdf',
-                '-verbose',
-                '/input.djvu',
-                '/output.pdf',
-            ],
+        mocks.runDjvuEngine.mockImplementation(async (request: {
+            type: string;
+            pageNumber?: number;
+            outputPath?: string;
+        }) => {
+            if (request.type === 'getDocInfo') {
+                return {
+                    pageCount: 5,
+                    sourceDpi: 300,
+                    isIndirect: false,
+                    files: [],
+                };
+            }
+            if (request.type === 'getPageSizes') {
+                return [
+                    {
+                        width: 600,
+                        height: 900,
+                        dpi: 300,
+                    },
+                    {
+                        width: 1200,
+                        height: 1600,
+                        dpi: 150,
+                    },
+                ];
+            }
+            if (request.type === 'renderPageToFile') {
+                await writeFile(request.outputPath!, Buffer.from('P6\n2 2\n255\n0123456789ab', 'binary'));
+                return {
+                    width: 2,
+                    height: 2,
+                    present: true,
+                };
+            }
+            throw new Error(`Unexpected request: ${request.type}`);
         });
-    });
 
-    it('never falls back to an unbounded single process after a parallel quota failure', async () => {
-        mocks.setQuotaFailure(new Error('DjVu disk quota exceeded: simulated range growth'));
+        mocks.runNativeCommand.mockImplementationOnce(async (
+            _command: string,
+            args: string[],
+            options: { onStdout?: (chunk: string) => void },
+        ) => {
+            const manifestPath = args[args.indexOf('--compact-manifest') + 1]!;
+            capturedManifest = await readFile(manifestPath, 'utf8');
+            options.onStdout?.('{"type":"progress","processed":2,"total":2,"percent":100,"elapsedMs":1,"estimatedRemainingMs":0}\n');
+            await writeFile(args[args.indexOf('--output') + 1]!, '%PDF-1.4\n%%EOF\n', 'utf8');
+            return {
+                stdout: '',
+                stderr: '',
+                exitCode: 0,
+            };
+        });
 
-        const result = await convertDjvuToPdfFile('/input.djvu', '/output.pdf', 'job-range-quota', {pageCount: 24});
+        const result = await convertDjvuToPdfFile('/tmp/book.djvu', outputPath, 'job-direct', {
+            pages: '2,4',
+            subsample: 2,
+            onProgress: percent => progressValues.push(percent),
+        });
 
         expect(result).toMatchObject({
-            success: false,
-            error: 'DjVu disk quota exceeded: simulated range growth',
+            success: true,
+            outputPath,
         });
-        expect(mocks.spawnCalls.filter(call => (
-            call.command === '/tools/ddjvu'
-            && !call.args.some(arg => arg.startsWith('-page='))
-        ))).toHaveLength(0);
-        expect(mocks.loggerWarn).not.toHaveBeenCalledWith(expect.stringContaining('falling back to single process'));
+        expect(result.fileSize).toBeGreaterThan(0);
+        const lines = capturedManifest.trim().split('\n');
+        expect(lines).toHaveLength(3);
+        expect(JSON.parse(lines[0]!)).toMatchObject({ pageCount: 2 });
+        expect(lines[1]).toContain('image-jpeg\t144.0000\t216.0000');
+        expect(lines[2]).toContain('image-jpeg\t576.0000\t768.0000');
+        expect(progressValues.at(-1)).toBe(94);
     });
 
-    it('returns a quota failure when the live monitor aborts after a range finishes', async () => {
-        const controller = new AbortController();
-        const quotaError = new Error('DjVu disk quota exceeded: completed range growth');
-        mocks.createDjvuDiskQuotaMonitor.mockImplementationOnce(async () => ({
-            signal: controller.signal,
-            async checkNow() {
-                controller.signal.throwIfAborted();
-            },
-            get failure() {
-                return controller.signal.aborted ? quotaError : null;
-            },
-            stop: vi.fn(async () => undefined),
-        }));
-        mocks.stat.mockImplementation(async (path) => {
-            if (path.startsWith('/tmp/djvu-pages-test/')) controller.abort(quotaError);
-            return mocks.statFile(path);
-        });
+    it('cancels active WASM conversion jobs and registered child processes by parent job prefix', async () => {
+        const started = Promise.withResolvers<undefined>();
+        let observedSignal: AbortSignal | undefined;
 
-        await expect(convertDjvuToPdfFile('/input.djvu', '/output.pdf', 'completed-range-quota', {pageCount: 24}))
-            .resolves.toMatchObject({
-                success: false,
-                error: quotaError.message,
+        mocks.runDjvuEngine.mockImplementationOnce(async (_request: unknown, options?: { signal?: AbortSignal }) => {
+            observedSignal = options?.signal;
+            started.resolve(undefined);
+            await new Promise((_resolve, reject) => {
+                options?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true });
             });
-        expect(mocks.publishedOutputs.has('/output.pdf')).toBe(false);
-    });
-
-    it.each([
-        {
-            label: 'the former 256-page threshold',
-            pageCount: 256,
-            chunkSize: 4096,
-        },
-        {
-            label: 'the former 256 MiB threshold',
-            pageCount: 24,
-            chunkSize: 257 * 1024 * 1024,
-        },
-    ])('returns a typed native capability error at $label without a byte fallback', async ({
-        chunkSize,
-        pageCount,
-    }) => {
-        mocks.setSpawnMode('fail-merge');
-        mocks.stat.mockImplementation(async path => path === '/input.djvu'
-            ? mocks.statFile(path)
-            : {size: path.includes('/tmp/djvu-pages-test/') ? chunkSize : 4096});
-
-        const error = await convertDjvuToPdfFile('/input.djvu', '/output.pdf', 'job-large-merge', { pageCount })
-            .catch((caughtError: unknown) => caughtError);
-
-        expect(error).toBeInstanceOf(PdfCombineCapabilityError);
-        expect(error).toMatchObject({
-            code: 'native-failure',
-            name: 'PdfCombineCapabilityError',
-            operation: 'djvu-pdf-merge',
-            cause: expect.any(Error),
         });
 
-        expect(mocks.writeFile).not.toHaveBeenCalled();
-        expect(mocks.readFile).not.toHaveBeenCalled();
-        expect(mocks.spawnCalls.filter(call => (
-            call.command === '/tools/ddjvu'
-            && !call.args.some(arg => arg.startsWith('-page='))
-        ))).toHaveLength(0);
-        expect(mocks.spawnCalls.at(-1)).toMatchObject({command: '/tools/qpdf'});
-    });
+        const renderPromise = renderDjvuPageToImage('/tmp/book.djvu', join(tempDir, 'canceled.ppm'), 1, 'job-parent-page-1');
+        await started.promise;
 
-    it('does not restart a canceled parallel conversion as a single-process conversion', async () => {
-        mocks.setSpawnMode('hang-ranges');
-
-        const convertPromise = convertDjvuToPdfFile('/input.djvu', '/output.pdf', 'job-4', {pageCount: 24});
-        await vi.waitFor(() => {
-            expect(mocks.spawnCalls.length).toBeGreaterThan(0);
+        const processStarted = Promise.withResolvers<undefined>();
+        const releaseProcess = Promise.withResolvers<undefined>();
+        mocks.runNativeCommand.mockImplementationOnce(async () => {
+            processStarted.resolve(undefined);
+            await releaseProcess.promise;
+            throw new Error('killed');
         });
+        const procPromise = runRegisteredDjvuProcess('job-parent-combine', '/tools/evb-pdf-image-combine', []);
+        await processStarted.promise;
 
-        const canceled = await cancelConversion('job-4');
-        const result = await convertPromise;
+        const canceled = await cancelConversion('job-parent');
+        releaseProcess.resolve(undefined);
 
         expect(canceled).toBe(true);
-        expect(result).toEqual({
-            success: false,
-            outputPath: '/output.pdf',
-            fileSize: 0,
-            error: 'DjVu conversion canceled',
-        });
-        expect(mocks.spawnCalls.filter(call => (
-            call.command === '/tools/ddjvu'
-            && !call.args.some(arg => arg.startsWith('-page='))
-        ))).toHaveLength(0);
-    });
-
-    it('does not run a byte merge fallback after qpdf merge cancellation', async () => {
-        mocks.setSpawnMode('hang-merge');
-
-        const convertPromise = convertDjvuToPdfFile('/input.djvu', '/output.pdf', 'job-merge-cancel', {pageCount: 24});
-        await vi.waitFor(() => {
-            expect(mocks.spawnCalls.some(call => call.command === '/tools/qpdf')).toBe(true);
-        });
-
-        const canceled = await cancelConversion('job-merge-cancel');
-        const result = await convertPromise;
-
-        expect(canceled).toBe(true);
-        expect(result).toEqual({
-            success: false,
-            outputPath: '/output.pdf',
-            fileSize: 0,
-            error: 'DjVu conversion canceled',
-        });
-        expect(mocks.writeFile).not.toHaveBeenCalled();
-        expect(mocks.readFile).not.toHaveBeenCalled();
-        expect(mocks.spawnCalls.filter(call => (
-            call.command === '/tools/ddjvu'
-            && !call.args.some(arg => arg.startsWith('-page='))
-        ))).toHaveLength(0);
-    });
-
-    it('cancels registered compact child processes by parent job prefix', async () => {
-        mocks.setSpawnMode('hang-registered');
-
-        const processPromise = runRegisteredDjvuProcess(
-            'job-5-compact-combine',
-            '/tools/evb-pdf-image-combine',
-            [
-                '--compact-manifest',
-                '/tmp/manifest.tsv',
-            ],
-        );
-        await vi.waitFor(() => {
-            expect(mocks.spawnCalls.length).toBe(1);
-        });
-
-        const canceled = await cancelConversion('job-5');
-        const result = await processPromise;
-
-        expect(canceled).toBe(true);
-        expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledTimes(1);
-        expect(result).toEqual(expect.objectContaining({
+        expect(observedSignal?.aborted).toBe(true);
+        expect(mocks.cancelNativeCommandGroup).toHaveBeenCalledWith('job-parent-combine');
+        await expect(renderPromise).resolves.toMatchObject({
             success: false,
             error: 'DjVu conversion canceled',
-        }));
-    });
-
-    it('refuses a second conversion and retains outputs and broker charges after unproven range termination', async () => {
-        mocks.setSpawnMode('hang-ranges');
-        mocks.terminateDetachedChildProcess.mockResolvedValueOnce(false);
-        const converting = convertDjvuToPdfFile('/input.djvu', '/output.pdf', 'range-proof', {pageCount: 24});
-        const outcome = converting.catch((error: unknown) => error);
-        await vi.waitFor(() => expect(mocks.spawnCalls.length).toBeGreaterThan(0));
-        await cancelConversion('range-proof');
-        expect(getUnprovenNativeTerminationDetail(await outcome)).toContain('not proven dead');
-        expect(mainJobBroker.getSnapshot()).toMatchObject({
-            active: 1,
-            used: {
-                cpuTokens: 1,
-                nativeProcesses: 1,
-                ioWeight: 2,
-            },
         });
-        expect(mocks.spawnCalls.some(call => call.command === '/tools/ddjvu'
-            && !call.args.some(arg => arg.startsWith('-page=')))).toBe(false);
-        expect(mocks.unlink).not.toHaveBeenCalledWith('/output.pdf');
+        await expect(procPromise).resolves.toMatchObject({
+            success: false,
+            error: 'DjVu conversion canceled',
+        });
     });
 });

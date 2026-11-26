@@ -1,21 +1,19 @@
 import { createHash } from 'node:crypto';
-import { execFile } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
-    mkdtemp,
-    readFile,
-    rm,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import {
-    join,
-    resolve,
-} from 'node:path';
-import { promisify } from 'node:util';
-import {
+    beforeAll,
     describe,
     expect,
     it,
 } from 'vitest';
+import {
+    createDjvuLibreEngine,
+    type IDjvuLibreEngine,
+    type TDjvuLibreModuleFactory,
+} from '@djvu-core/djvuLibreEngine';
+import { encodePpmP6 } from '@djvu-core/djvuPnm';
 
 const expectedClasses = [
     'bitonal-faint-pencil',
@@ -28,27 +26,8 @@ const expectedClasses = [
     'browser-tiff',
     'browser-boundary',
 ] as const;
-const execFileAsync = promisify(execFile);
-const DJVU_TOOL_TIMEOUT_MS = 15_000;
-const DJVU_TEST_TIMEOUT_MS = DJVU_TOOL_TIMEOUT_MS + 5_000;
+const DJVU_TEST_TIMEOUT_MS = 20_000;
 const corpusDirectory = resolve(process.cwd(), 'tests/fixtures/djvu');
-const hostResourceDirectory = `${process.platform}-${process.arch}`;
-const executableSuffix = process.platform === 'win32' ? '.exe' : '';
-const hostHasDjvuTools = [
-    'darwin-arm64',
-    'linux-x64',
-    'win32-x64',
-].includes(hostResourceDirectory);
-
-function djvuToolPath(tool: 'ddjvu' | 'djvused') {
-    return resolve(
-        process.cwd(),
-        'resources/djvulibre',
-        hostResourceDirectory,
-        'bin',
-        `${tool}${executableSuffix}`,
-    );
-}
 
 async function loadManifest() {
     return JSON.parse(await readFile(resolve(corpusDirectory, 'corpus-manifest.json'), 'utf8')) as IDjvuCorpusManifest;
@@ -89,7 +68,27 @@ describe('DjVu fidelity corpus manifest', () => {
     });
 });
 
-describe.skipIf(!hostHasDjvuTools)('generated DjVu fidelity goldens', () => {
+describe('generated DjVu fidelity goldens (DjVuLibre WASM)', () => {
+    let engine: IDjvuLibreEngine;
+
+    beforeAll(() => {
+        engine = createDjvuLibreEngine({
+            loadEngine: async () => {
+                const [
+                    imported,
+                    wasmBytes,
+                ] = await Promise.all([
+                    import(pathToFileURL(resolve(process.cwd(), 'public/wasm/evb-djvulibre.mjs')).href) as Promise<{ default: TDjvuLibreModuleFactory }>,
+                    readFile(resolve(process.cwd(), 'public/wasm/evb-djvulibre.wasm')),
+                ]);
+                return {
+                    factory: imported.default,
+                    module: await WebAssembly.compile(wasmBytes),
+                };
+            },
+        });
+    });
+
     const goldenCases = [
         [
             'bitonal-faint-pencil.djvu',
@@ -133,67 +132,71 @@ describe.skipIf(!hostHasDjvuTools)('generated DjVu fidelity goldens', () => {
         golden,
         page,
     ] of goldenCases) {
-        it(`matches ${golden} at physical 72-DPI scale`, async () => {
-            const directory = await mkdtemp(join(tmpdir(), 'evb-djvu-golden-'));
-            const rendered = join(directory, golden);
+        it(`matches ${golden} byte-for-byte at physical 72-DPI scale`, async () => {
+            const bytes = new Uint8Array(await readFile(resolve(corpusDirectory, 'sources', source)));
+            const doc = await engine.openDocument({ initBytes: bytes });
             try {
-                await execFileAsync(djvuToolPath('ddjvu'), [
-                    '-format=ppm',
-                    '-scale=72',
-                    `-page=${page}`,
-                    resolve(corpusDirectory, 'sources', source),
-                    rendered,
-                ], {timeout: DJVU_TOOL_TIMEOUT_MS});
-                expect(await readFile(rendered)).toEqual(await readFile(resolve(corpusDirectory, 'goldens', golden)));
-            } finally {
-                await rm(directory, {
-                    force: true,
-                    recursive: true,
+                const pageInfo = await doc.getPageInfo(page);
+                // Exact ddjvu -scale=72 formula: floor((dim * 72) / dpi), then aspect clamp.
+                let targetWidth = Math.max(1, Math.floor((pageInfo.width * 72) / pageInfo.dpi));
+                let targetHeight = Math.max(1, Math.floor((pageInfo.height * 72) / pageInfo.dpi));
+                if (targetWidth * pageInfo.height > targetHeight * pageInfo.width) {
+                    targetWidth = Math.max(1, Math.floor((targetHeight * pageInfo.width) / pageInfo.height));
+                } else if (targetHeight * pageInfo.width > targetWidth * pageInfo.height) {
+                    targetHeight = Math.max(1, Math.floor((targetWidth * pageInfo.height) / pageInfo.width));
+                }
+                const rendered = await doc.renderPage(page, {
+                    mode: 'color',
+                    pixelFormat: 'rgb',
+                    targetWidth,
+                    targetHeight,
                 });
+                const ppm = Buffer.from(encodePpmP6(rendered.width, rendered.height, rendered.bytes));
+                expect(ppm).toEqual(await readFile(resolve(corpusDirectory, 'goldens', golden)));
+            } finally {
+                doc.close();
             }
         }, DJVU_TEST_TIMEOUT_MS);
     }
 
     it('proves the huge-page admission boundary and browser fixture page counts', async () => {
-        const [
-            {stdout: hugeSize},
-            {stdout: boundaryPages},
-            {stdout: tiffPages},
-        ] = await Promise.all([
-            execFileAsync(djvuToolPath('djvused'), [
-                resolve(corpusDirectory, 'sources/huge-page.djvu'),
-                '-e',
-                'size',
-            ], {timeout: DJVU_TOOL_TIMEOUT_MS}),
-            execFileAsync(djvuToolPath('djvused'), [
-                resolve(corpusDirectory, 'sources/browser-boundary-501-pages.djvu'),
-                '-e',
-                'n',
-            ], {timeout: DJVU_TOOL_TIMEOUT_MS}),
-            execFileAsync(djvuToolPath('djvused'), [
-                resolve(corpusDirectory, 'sources/browser-tiff-5-pages.djvu'),
-                '-e',
-                'n',
-            ], {timeout: DJVU_TOOL_TIMEOUT_MS}),
-        ]);
+        const openAndRead = async (fixtureName: string) => {
+            const bytes = new Uint8Array(await readFile(resolve(corpusDirectory, 'sources', fixtureName)));
+            const doc = await engine.openDocument({ initBytes: bytes });
+            try {
+                const docInfo = await doc.getDocInfo();
+                const page1 = await doc.getPageInfo(1);
+                return {
+                    docInfo,
+                    page1,
+                };
+            } finally {
+                doc.close();
+            }
+        };
 
-        expect(hugeSize).toContain('width=10000 height=8001');
-        expect(boundaryPages.trim()).toBe('501');
-        expect(tiffPages.trim()).toBe('5');
+        const huge = await openAndRead('huge-page.djvu');
+        const boundary = await openAndRead('browser-boundary-501-pages.djvu');
+        const tiff = await openAndRead('browser-tiff-5-pages.djvu');
+
+        expect(huge.page1.width).toBe(10000);
+        expect(huge.page1.height).toBe(8001);
+        expect(boundary.docInfo.pageCount).toBe(501);
+        expect(tiff.docInfo.pageCount).toBe(5);
     }, DJVU_TEST_TIMEOUT_MS);
 
     it('rejects the deterministic truncated DjVu fixture', async () => {
-        const directory = await mkdtemp(join(tmpdir(), 'evb-djvu-corrupt-'));
-        try {
-            await expect(execFileAsync(djvuToolPath('ddjvu'), [
-                resolve(corpusDirectory, 'sources/corrupt-truncated.djvu'),
-                join(directory, 'output.ppm'),
-            ], {timeout: DJVU_TOOL_TIMEOUT_MS})).rejects.toThrow();
-        } finally {
-            await rm(directory, {
-                force: true,
-                recursive: true,
-            });
-        }
+        const bytes = new Uint8Array(await readFile(resolve(corpusDirectory, 'sources/corrupt-truncated.djvu')));
+        await expect((async () => {
+            const doc = await engine.openDocument({ initBytes: bytes });
+            try {
+                await doc.renderPage(1, {
+                    mode: 'color',
+                    pixelFormat: 'rgb',
+                });
+            } finally {
+                doc.close();
+            }
+        })()).rejects.toThrow();
     }, DJVU_TEST_TIMEOUT_MS);
 });

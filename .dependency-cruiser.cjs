@@ -53,6 +53,7 @@ for (const [source, target] of [
 for (const [source, allowed] of [
     ['packages/contracts', ['contracts', 'i18n-core']],
     ['packages/pdf-core', ['pdf-core', 'contracts']],
+    ['packages/djvu-core', ['djvu-core', 'contracts']],
     ['packages/ocr-core', ['ocr-core', 'contracts']],
     ['packages/agent-core', ['agent-core', 'contracts']],
     ['packages/i18n-core', ['i18n-core']],
@@ -63,7 +64,7 @@ for (const [source, allowed] of [
     ['packages/chrome-extension', ['chrome-extension', 'contracts']],
     ['packages/document-store', ['document-store']],
 ]) addZone(source, 'packages', allowed.map(name => `./${name}`));
-addZone(belowExcept('packages', ['contracts', 'pdf-core', 'ocr-core', 'agent-core', 'release-selection', 'scan-cleanup', 'chrome-extension']), 'packages/contracts');
+addZone(belowExcept('packages', ['contracts', 'pdf-core', 'djvu-core', 'ocr-core', 'agent-core', 'release-selection', 'scan-cleanup', 'chrome-extension']), 'packages/contracts');
 
 for (const [prefix, allowed] of [
     ['app/modules', moduleEntrypoints],

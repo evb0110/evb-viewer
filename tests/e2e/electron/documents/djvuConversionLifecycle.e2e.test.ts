@@ -1,6 +1,4 @@
 import {createHash} from 'node:crypto';
-import {execFile} from 'node:child_process';
-import {promisify} from 'node:util';
 import {
     chmodSync,
     copyFileSync,
@@ -33,8 +31,7 @@ import {requireDocumentRef} from '@contracts/documentRef';
 import {createRequestId} from '@contracts/shared';
 import type {IDjvuOpenResult} from '@contracts/electronApiDjvu';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import {getDjvuNativeToolPaths} from '@electron/features/djvu/main/nativeToolPaths';
-import {buildDjvuRuntimeEnv} from '@electron/features/djvu/main/buildDjvuRuntimeEnv';
+import {setDjvuPageTextInFile} from '@tests/e2e/electron/helpers/djvuFixtureWriter';
 import {getSessionInfo} from '@scripts/electron-run/electronRunSessionArtifacts';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
@@ -280,38 +277,70 @@ describe('DjVu conversion lifecycle', () => {
         mkdirSync(directory, {recursive: true});
         const textSource = join(directory, 'text.djvu');
         const emptySource = join(directory, 'empty.djvu');
-        const textFile = join(directory, 'zones.txt');
         const corpusSource = resolve('tests/fixtures/djvu/sources/mixed-dpi.djvu');
         copyFileSync(corpusSource, textSource);
         copyFileSync(corpusSource, emptySource);
-        // DjVuLibre writes a real source text layer; the page images are the
+        // Embed a real DjVu TXTa source text layer; the page images are the
         // tracked mixed-DPI corpus. Words, a coarse line and page-only text
         // all mean that a compact export must report the omitted source text.
-        writeFileSync(textFile, '(page 0 0 640 480 (line 50 350 570 400 '
-            + '(word 50 350 200 400 "Latin") (word 220 350 390 400 "Предисловие") '
-            + '(word 410 350 570 400 "ܐܪܡܝܐ")) (line 50 270 570 320 "Ελληνικά 漢字 📖"))');
-        const djvused = getDjvuNativeToolPaths().djvused;
-        const runDjvused = promisify(execFile);
-        await runDjvused(djvused, [
-            textSource,
-            '-s',
-            '-e',
-            `select 1; set-txt "${textFile.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`,
-        ], {env: buildDjvuRuntimeEnv()});
-        writeFileSync(textFile, '(page 0 0 512 512 "Page-only source text")');
-        await runDjvused(djvused, [
-            textSource,
-            '-s',
-            '-e',
-            `select 2; set-txt "${textFile.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`,
-        ], {env: buildDjvuRuntimeEnv()});
-        const {stdout} = await runDjvused(djvused, [
-            textSource,
-            '-e',
-            'print-pure-txt',
-        ], {env: buildDjvuRuntimeEnv()});
-        expect(stdout).toContain('Предисловие');
-        expect(stdout).toContain('Page-only source text');
+        setDjvuPageTextInFile(textSource, 1, {
+            type: 'page',
+            xmin: 0,
+            ymin: 0,
+            xmax: 640,
+            ymax: 480,
+            children: [
+                {
+                    type: 'line',
+                    xmin: 50,
+                    ymin: 350,
+                    xmax: 570,
+                    ymax: 400,
+                    children: [
+                        {
+                            type: 'word',
+                            xmin: 50,
+                            ymin: 350,
+                            xmax: 200,
+                            ymax: 400,
+                            text: 'Latin',
+                        },
+                        {
+                            type: 'word',
+                            xmin: 220,
+                            ymin: 350,
+                            xmax: 390,
+                            ymax: 400,
+                            text: 'Предисловие',
+                        },
+                        {
+                            type: 'word',
+                            xmin: 410,
+                            ymin: 350,
+                            xmax: 570,
+                            ymax: 400,
+                            text: 'ܐܪܡܝܐ',
+                        },
+                    ],
+                },
+                {
+                    type: 'line',
+                    xmin: 50,
+                    ymin: 270,
+                    xmax: 570,
+                    ymax: 320,
+                    text: 'Ελληνικά 漢字 📖',
+                },
+            ],
+        });
+        setDjvuPageTextInFile(textSource, 2, {
+            type: 'page',
+            xmin: 0,
+            ymin: 0,
+            xmax: 512,
+            ymax: 512,
+            text: 'Page-only source text',
+        });
         const sourceHashes = [
             sha256(textSource),
             sha256(emptySource),
@@ -379,14 +408,14 @@ describe('DjVu conversion lifecycle', () => {
             ]).toEqual(sourceHashes);
         }
 
-        // Corrupt only the compressed text chunk written by DjVuLibre. Page
+        // Corrupt only the text chunk so DjVuText::decode fails with EOF while page
         // images remain readable. The optional notice probe must not refuse export.
         const sourceBytes = readFileSync(textSource);
-        const textChunk = sourceBytes.indexOf('TXTz');
+        const textChunk = sourceBytes.indexOf('TXTa');
         expect(textChunk).toBeGreaterThan(0);
         const textLength = sourceBytes.readUInt32BE(textChunk + 4);
         expect(textChunk + 8 + textLength).toBeLessThanOrEqual(sourceBytes.length);
-        sourceBytes.fill(0, textChunk + 8, textChunk + 8 + textLength);
+        sourceBytes.fill(0xff, textChunk + 8, textChunk + 8 + Math.min(textLength, 3));
         writeFileSync(textSource, sourceBytes);
         const boundedSourceSha = sha256(textSource);
         const savePath = join(directory, 'text-read-failure.pdf');

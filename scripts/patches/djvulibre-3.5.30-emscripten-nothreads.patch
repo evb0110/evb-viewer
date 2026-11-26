@@ -1,0 +1,100 @@
+--- a/libdjvu/GThreads.h
++++ b/libdjvu/GThreads.h
+@@ -92,6 +92,8 @@
+ // Known platforms
+ # ifdef _WIN32
+ #  define WINTHREADS 1
++# elif defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__)
++#  define NOTHREADS 1
+ # elif HAVE_PTHREAD
+ #  define POSIXTHREADS 1
+ # else
+@@ -274,6 +276,8 @@
+   CRITICAL_SECTION cs;
+   struct thr_waiting *head;
+   struct thr_waiting *tail;
++#elif NOTHREADS
++  int count;
+ #elif POSIXTHREADS
+   int ok;
+   int count;
+--- a/libdjvu/GThreads.cpp
++++ b/libdjvu/GThreads.cpp
+@@ -612,6 +612,77 @@
+     }      
+ }
+ 
++#elif NOTHREADS
++
++// ----------------------------------------
++// SINGLE-THREADED EMSCRIPTEN IMPLEMENTATION
++// ----------------------------------------
++
++GThread::GThread(int) : xentry(0), xarg(0) {}
++
++GThread::~GThread() {}
++
++int
++GThread::create(void (*entry)(void*), void *arg)
++{
++  if (xentry || xarg)
++    return -1;
++  xentry = entry;
++  xarg = arg;
++  if (entry)
++    entry(arg);
++  return 1;
++}
++
++void
++GThread::terminate() {}
++
++int
++GThread::yield()
++{
++  return 0;
++}
++
++void *
++GThread::current()
++{
++  return (void*)1;
++}
++
++GMonitor::GMonitor() : count(1) {}
++
++GMonitor::~GMonitor() {}
++
++void
++GMonitor::enter()
++{
++  count -= 1;
++}
++
++void
++GMonitor::leave()
++{
++  count += 1;
++}
++
++void
++GMonitor::signal() {}
++
++void
++GMonitor::broadcast() {}
++
++void
++GMonitor::wait()
++{
++  G_THROW( ERR_MSG("GThreads.co_wait") );
++}
++
++void
++GMonitor::wait(unsigned long)
++{
++  G_THROW( ERR_MSG("GThreads.co_wait") );
++}
++
+ #endif
+ 
+ 

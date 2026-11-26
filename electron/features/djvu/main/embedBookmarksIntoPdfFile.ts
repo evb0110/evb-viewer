@@ -29,6 +29,7 @@ const QPDF_OUTPUT_SUCCESS_EXIT_CODES = [
 interface IBookmarkNativeCommandOptions {
     signal?: AbortSignal | undefined;
     cancelGroup?: string | undefined;
+    onTerminationProof?: ((proof: Promise<boolean>) => void) | undefined;
 }
 
 function throwIfAborted(signal?: AbortSignal) {
@@ -52,6 +53,7 @@ function createNativeCommandCancellationOptions(options: IBookmarkNativeCommandO
     return {
         ...(options.signal ? { signal: options.signal } : {}),
         ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
+        ...(options.onTerminationProof ? { onTerminationProof: options.onTerminationProof } : {}),
     };
 }
 
@@ -99,6 +101,7 @@ async function tryEmbedBookmarksWithNativePageOps(
     outputPdfPath: string,
     bookmarks: IPdfBookmarkEntry[],
     signal?: AbortSignal,
+    onTerminationProof?: (proof: Promise<boolean>) => void,
 ) {
     throwIfAborted(signal);
 
@@ -125,6 +128,7 @@ async function tryEmbedBookmarksWithNativePageOps(
             const totalPages = await getBookmarkInputPdfPageCount(inputPdfPath, {
                 signal,
                 cancelGroup,
+                onTerminationProof,
             });
             throwIfAborted(signal);
             await copyFile(inputPdfPath, workingPath);
@@ -152,6 +156,7 @@ async function tryEmbedBookmarksWithNativePageOps(
                 ...createNativeCommandCancellationOptions({
                     signal,
                     cancelGroup,
+                    onTerminationProof,
                 }),
             });
             throwIfAborted(signal);
@@ -190,6 +195,7 @@ export async function embedBookmarksIntoPdfFile(
     outputPdfPath: string,
     bookmarks: IPdfBookmarkEntry[],
     signal?: AbortSignal,
+    onTerminationProof?: (proof: Promise<boolean>) => void,
 ) {
-    return tryEmbedBookmarksWithNativePageOps(inputPdfPath, outputPdfPath, bookmarks, signal);
+    return tryEmbedBookmarksWithNativePageOps(inputPdfPath, outputPdfPath, bookmarks, signal, onTerminationProof);
 }

@@ -13,6 +13,7 @@ export const vitestResolveAlias = {
     '@document-store': resolve(projectRoot, 'packages/document-store'),
     '@node-runtime': resolve(projectRoot, 'packages/node-runtime'),
     '@pdf-core': resolve(projectRoot, 'packages/pdf-core'),
+    '@djvu-core': resolve(projectRoot, 'packages/djvu-core'),
     '@ocr-core': resolve(projectRoot, 'packages/ocr-core'),
     '@agent-core': resolve(projectRoot, 'packages/agent-core'),
     '@evb/scan-cleanup': resolve(projectRoot, 'packages/scan-cleanup'),

@@ -27,10 +27,7 @@ import {hashFileSha256} from '@electron/utils/hashFileSha256';
 import {getAppTempDir} from '@electron/utils/appTempDir';
 import {getDjvuIndirectComponentPaths} from '@electron/features/djvu/main/metadata';
 import * as v from 'valibot';
-import {
-    getNativeToolBuildIdentity,
-    getRuntimeToolArchiveIdentity,
-} from '@electron/native-tools/runNativeToolCommand';
+import { getNativeToolBuildIdentity } from '@electron/native-tools/runNativeToolCommand';
 
 
 
@@ -420,10 +417,9 @@ export async function openDjvuArtifactJob(
         pageRanges,
         recipe: {
             // Bump when TypeScript compact representation/fidelity semantics change.
-            // 2: each page's own resolution and orientation size its page, and
-            // an indirect document's component files join its fingerprint.
-            version: 2,
-            djvulibre: getRuntimeToolArchiveIdentity('djvulibre'),
+            // 3: DjVuLibre 3.5.30 WASM runtime replaces platform-specific native binaries.
+            version: 3,
+            djvulibre: 'evb-djvulibre-3.5.30-r1',
             imageCombine: options.artifactKind === 'compact-page'
                 ? getNativeToolBuildIdentity('evb-pdf-image-combine') : null,
         },
