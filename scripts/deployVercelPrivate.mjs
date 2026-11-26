@@ -503,6 +503,43 @@ function parseVercelDeployment(output, {expectedProjectName} = {}) {
     };
 }
 
+function sanitizeVercelFailureText(text) {
+    return text
+        .replace(/(Bearer\s+)\S+/giu, '$1<redacted>')
+        .replace(/(--token(?:=|\s+))\S+/giu, '$1<redacted>')
+        .replace(/\b((?:VERCEL_)?TOKEN\s*=\s*)\S+/giu, '$1<redacted>')
+        .replace(/\s+/gu, ' ')
+        .trim();
+}
+
+function formatVercelCommandFailure(result) {
+    const stdout = typeof result?.stdout === 'string' ? result.stdout.trim() : '';
+    const stderr = typeof result?.stderr === 'string' ? result.stderr.trim() : '';
+    if (stdout) {
+        try {
+            const parsed = JSON.parse(stdout);
+            const message = typeof parsed?.message === 'string'
+                ? parsed.message.trim()
+                : typeof parsed?.error?.message === 'string'
+                    ? parsed.error.message.trim()
+                    : '';
+            const reason = typeof parsed?.reason === 'string'
+                ? parsed.reason.trim()
+                : typeof parsed?.error?.code === 'string'
+                    ? parsed.error.code.trim()
+                    : '';
+            if (message) {
+                const summary = sanitizeVercelFailureText(reason ? `${reason}: ${message}` : message);
+                return summary ? ` (${summary.slice(0, 300)})` : '';
+            }
+        } catch {
+            // Non-JSON stdout falls through to plain-text formatting.
+        }
+    }
+    const detail = sanitizeVercelFailureText(stderr || stdout);
+    return detail ? ` (${detail.slice(0, 300)})` : '';
+}
+
 function inspectDeployment({
     url, expectedProjectName, runCommand,
 }) {
@@ -513,7 +550,7 @@ function inspectDeployment({
         '--json',
     ]);
     if ((result.status ?? 1) !== 0) {
-        throw new Error(`Vercel inspect exited with ${result.status ?? 1}; refusing a production deploy without a rollback target.`);
+        throw new Error(`Vercel inspect exited with ${result.status ?? 1}; refusing a production deploy without a rollback target${formatVercelCommandFailure(result)}.`);
     }
     const deployment = parseVercelDeployment(result.stdout ?? '', {expectedProjectName});
     if (!deployment.id) {
@@ -682,7 +719,7 @@ async function runDeployAcceptanceChecks({
             '--write-out',
             '%{http_code}',
         ]);
-        if ((result.status ?? 1) !== 0) throw new Error(`Vercel acceptance request exited with ${result.status ?? 1}.`);
+        if ((result.status ?? 1) !== 0) throw new Error(`Vercel acceptance request exited with ${result.status ?? 1}${formatVercelCommandFailure(result)}.`);
         const status = Number(result.stdout?.trim());
         return {
             ok: status >= 200 && status < 300,
@@ -760,7 +797,7 @@ function rollBackPromotedDeployment({
             previous.id,
             '--yes',
         ]);
-        if ((result.status ?? 1) !== 0) throw new Error(`Vercel promote exited with ${result.status ?? 1}.`);
+        if ((result.status ?? 1) !== 0) throw new Error(`Vercel promote exited with ${result.status ?? 1}${formatVercelCommandFailure(result)}.`);
     } catch (error) {
         return `Rollback also failed: ${getCliErrorMessage(error)}`;
     }
@@ -887,7 +924,7 @@ export async function runPrivateVercelDeploy({
                 deployment.id,
                 '--yes',
             ]);
-            if ((promotion.status ?? 1) !== 0) throw new Error(`Vercel promote exited with ${promotion.status ?? 1}.`);
+            if ((promotion.status ?? 1) !== 0) throw new Error(`Vercel promote exited with ${promotion.status ?? 1}${formatVercelCommandFailure(promotion)}.`);
             await runDeployAcceptanceChecks({
                 acceptanceUrls,
                 deploymentUrl,

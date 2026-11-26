@@ -1367,8 +1367,21 @@ describe.skipIf(process.platform === 'win32')('private Vercel deployment source'
                 stdout: '',
                 status: 1,
             },
-            message: 'refusing a production deploy without a rollback target',
+            message: /refusing a production deploy without a rollback target \(inspect unavailable\)/u,
             name: 'a failed inspect command',
+        },
+        {
+            inspectResult: {
+                stderr: '',
+                stdout: JSON.stringify({
+                    status: 'error',
+                    reason: 'network_error',
+                    message: 'Couldn\'t reach api.vercel.com using Bearer secret-tok.sig during inspect. The connection timed out.',
+                }),
+                status: 1,
+            },
+            message: /refusing a production deploy without a rollback target \(network_error: Couldn't reach api\.vercel\.com using Bearer <redacted> during inspect\. The connection timed out\.\)/u,
+            name: 'a failed inspect command with JSON error output',
         },
         {
             inspectResult: {
