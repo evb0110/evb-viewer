@@ -43,8 +43,6 @@ export function createNativeToolBuildPlan({
 }) {
     const manifestPath = `native/${tool.crateName}/Cargo.toml`;
     const binaryName = `${tool.binaryName}${target.binaryExtension}`;
-    // libqpdf's C++ exception handling needs the host's dynamic libc/TLS.
-    staticLinuxCrt &&= tool.crateName !== 'pdf-page-ops';
     return {
         binaryName,
         cargoArgs: [

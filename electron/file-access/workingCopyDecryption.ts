@@ -18,6 +18,11 @@ import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativ
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { getErrorMessage } from '@electron/utils/error';
 import { createLogger } from '@electron/utils/createLogger';
+import {
+    PDF_DECRYPT_OUTCOME_FORMAT,
+    PDF_DECRYPT_OUTCOME_SCHEMA_VERSION,
+    type TPdfDecryptOutcomeWire,
+} from '@contracts/pdfPageOpsWire.generated';
 import * as v from 'valibot';
 
 const DECRYPT_TIMEOUT_MS = 2 * 60 * 1000;
@@ -46,8 +51,8 @@ export type TWorkingCopyDecryptionResult =
     };
 
 const decryptOutcomeBaseSchema = v.object({
-    format: v.literal('evb-pdf-decrypt'),
-    schemaVersion: v.literal(1),
+    format: v.literal(PDF_DECRYPT_OUTCOME_FORMAT),
+    schemaVersion: v.literal(PDF_DECRYPT_OUTCOME_SCHEMA_VERSION),
     outcome: v.picklist([
         'opened',
         'rewritten',
@@ -57,21 +62,21 @@ const decryptOutcomeBaseSchema = v.object({
 });
 const decryptOutcomeSchema = v.variant('outcome', [
     v.object({
-        format: v.literal('evb-pdf-decrypt'),
-        schemaVersion: v.literal(1),
+        format: v.literal(PDF_DECRYPT_OUTCOME_FORMAT),
+        schemaVersion: v.literal(PDF_DECRYPT_OUTCOME_SCHEMA_VERSION),
         outcome: v.literal('opened'),
         wasEncrypted: v.literal(false),
         revision: v.null(),
     }),
     v.object({
-        format: v.literal('evb-pdf-decrypt'),
-        schemaVersion: v.literal(1),
+        format: v.literal(PDF_DECRYPT_OUTCOME_FORMAT),
+        schemaVersion: v.literal(PDF_DECRYPT_OUTCOME_SCHEMA_VERSION),
         outcome: v.literal('rewritten'),
         wasEncrypted: v.literal(true),
         revision: v.pipe(v.number(), v.safeInteger(), v.minValue(1)),
     }),
 ]);
-type IDecryptOutcomeSidecar = v.InferOutput<typeof decryptOutcomeSchema>;
+type IDecryptOutcomeSidecar = TPdfDecryptOutcomeWire;
 
 /** Error used only inside the main-process open attempt. */
 export class PdfDecryptAttemptError extends Error {

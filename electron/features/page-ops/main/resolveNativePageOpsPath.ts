@@ -1,23 +1,15 @@
 import { dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
+import { resolvePdfPageOpsWasmPath } from '@node-runtime/pdfPageOpsWasmRunner';
 import {runtimeConfig} from '@electron/runtimeConfig';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const isPackaged = __dirname.includes('app.asar');
 
-function getBinaryName() {
-    return process.platform === 'win32'
-        ? 'evb-pdf-page-ops.exe'
-        : 'evb-pdf-page-ops';
-}
-
 export function resolveNativePageOpsPath() {
-    return resolveNativeToolPath({
-        binaryName: getBinaryName(),
-        crateName: 'pdf-page-ops',
+    return resolvePdfPageOpsWasmPath({
         currentDir: __dirname,
-        envOverridePath: runtimeConfig.pdfPageOpsPath,
+        ...(runtimeConfig.pdfPageOpsPath === undefined ? {} : {envOverridePath: runtimeConfig.pdfPageOpsPath}),
         isPackaged,
     });
 }

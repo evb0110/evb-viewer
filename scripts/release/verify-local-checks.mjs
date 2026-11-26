@@ -16,7 +16,6 @@ const SKIP_LIST_ENV_VAR = 'EVB_RELEASE_VERIFY_SKIP';
 const REUSE_BUILD_RECEIPT_ENV_VAR = 'EVB_RELEASE_VERIFY_REUSE_BUILD_RECEIPT';
 const STRICT_BUILD_DUPLICATE_GATES = new Set([
     'build:pdf-image-combine',
-    'build:pdf-page-ops',
     'build:scan-cleanup',
 ]);
 

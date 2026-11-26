@@ -469,6 +469,49 @@ pub(crate) fn recompress_images_bytes(data: &[u8], instructions: &[u8]) -> Resul
     })
 }
 
+/// Streaming host-file `recompress-images`: opens `source` by range, appends
+/// the revision via `write` when any image got smaller, and returns `(page_count, report_json)`.
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+pub(crate) fn recompress_images_to_source<S: ByteSource>(
+    source: S,
+    len: u64,
+    instructions: &[u8],
+    write: impl FnOnce(&[u8]) -> Result<Vec<u8>>,
+) -> Result<(u32, Vec<u8>)> {
+    let instructions = validate_recompress_images(parse_json_sidecar_bytes(
+        instructions,
+        "recompress-images instructions",
+    )?)?;
+    let mut pdf = SourcePdf::open_append_base(source, len)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    let mut incremental = pdf
+        .take_append_base()
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    let report = recompress_images_in(
+        &mut incremental,
+        Some(&pdf as StructuralSource),
+        &instructions,
+    )?;
+    let pages = page_count(&incremental.previous_document);
+    if report.changed {
+        let revision = build_incremental_revision(&mut incremental)?;
+        let expected_object_ids = collect_incremental_append_object_ids(&incremental);
+        validate_incremental_append_bytes(
+            &revision,
+            len,
+            incremental.previous_xref_start(),
+            &expected_object_ids,
+        )?;
+        validate_incremental_append_bytes(
+            &write(&revision)?,
+            len,
+            incremental.previous_xref_start(),
+            &expected_object_ids,
+        )?;
+    }
+    Ok((pages, serde_json::to_vec(&report.json)?))
+}
+
 /// A pass's JSON report and whether it left anything to append.
 pub(crate) struct PassReport {
     pub(crate) json: serde_json::Value,

@@ -344,19 +344,12 @@ async function rotateFirstPageCounterclockwise(session: IElectronE2ESession) {
 }
 
 const ROTATE_FAILURE_TEXT = 'Failed to rotate pages';
-const NATIVE_PDF_PAGE_OPS_PATH = join(
-    process.cwd(),
-    '.tmp',
-    'pdf-page-ops',
-    `${process.platform}-${process.arch}`,
-    'bin',
-    'evb-pdf-page-ops',
-);
+const PAGE_OPS_WASM_CLI_PATH = join(process.cwd(), 'scripts', 'runPdfPageOpsWasmCli.ts');
 
 /**
  * Stands in for the page-ops tool so a rotation stays in its native write
  * while the test holds it: canceling kills the held call, releasing lets it
- * run the real binary. Every other call goes straight to the real binary.
+ * run the real WASM engine. Every other call goes straight to the real WASM engine.
  */
 function createHeldPageOpsTool(name: string) {
     const toolPath = createFixturePath(`${name}-page-ops.sh`);
@@ -368,7 +361,7 @@ function createHeldPageOpsTool(name: string) {
         `    : > ${JSON.stringify(heldPath)}`,
         `    while [ -e ${JSON.stringify(armPath)} ]; do sleep 0.05; done`,
         'fi',
-        `exec ${JSON.stringify(NATIVE_PDF_PAGE_OPS_PATH)} "$@"`,
+        `cd ${JSON.stringify(process.cwd())} && exec ${JSON.stringify(process.execPath)} --import tsx ${JSON.stringify(PAGE_OPS_WASM_CLI_PATH)} "$@"`,
         '',
     ].join('\n'));
     chmodSync(toolPath, 0o755);

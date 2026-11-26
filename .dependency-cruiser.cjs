@@ -63,8 +63,9 @@ for (const [source, allowed] of [
     ['packages/scan-cleanup', ['scan-cleanup', 'contracts']],
     ['packages/chrome-extension', ['chrome-extension', 'contracts']],
     ['packages/document-store', ['document-store']],
+    ['packages/node-runtime', ['node-runtime', 'contracts']],
 ]) addZone(source, 'packages', allowed.map(name => `./${name}`));
-addZone(belowExcept('packages', ['contracts', 'pdf-core', 'djvu-core', 'ocr-core', 'agent-core', 'release-selection', 'scan-cleanup', 'chrome-extension']), 'packages/contracts');
+addZone(belowExcept('packages', ['contracts', 'pdf-core', 'djvu-core', 'ocr-core', 'agent-core', 'release-selection', 'scan-cleanup', 'chrome-extension', 'node-runtime']), 'packages/contracts');
 
 for (const [prefix, allowed] of [
     ['app/modules', moduleEntrypoints],

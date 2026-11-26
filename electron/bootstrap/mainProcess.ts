@@ -601,6 +601,13 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
             },
         },
         {
+            label: 'pdf-page-ops-workers',
+            run: async () => {
+                const {shutdownPdfPageOpsWorkers} = await import('@electron/native-tools/pdfPageOpsWorkerClient');
+                shutdownPdfPageOpsWorkers();
+            },
+        },
+        {
             label: 'mcp-server',
             run: async () => {
                 if (!loadedSubsystems.has('agent')) {

@@ -208,8 +208,9 @@ async function expectQuarterTurnedFitWidthReopenOnDrawnRect(
 // metadata page-size read and execs the tool for every other command, so
 // working copies still open. Each call is logged for the witness.
 function createMetadataRejectingPageOps(barrierPath?: string) {
-    const realPath = join(process.cwd(), '.tmp', 'pdf-page-ops', `${process.platform}-${process.arch}`, 'bin', 'evb-pdf-page-ops');
-    expect(existsSync(realPath), realPath).toBe(true);
+    const wasmPath = join(process.cwd(), 'public', 'wasm', 'evb-pdf-page-ops.wasm');
+    const cliPath = join(process.cwd(), 'scripts', 'runPdfPageOpsWasmCli.ts');
+    expect(existsSync(wasmPath), wasmPath).toBe(true);
     const dir = mkdtempSync(join(tmpdir(), 'page-ops-metadata-reject-'));
     const wrapperPath = join(dir, 'evb-pdf-page-ops');
     const callLog = join(dir, 'calls.log');
@@ -226,13 +227,13 @@ function createMetadataRejectingPageOps(barrierPath?: string) {
         '        fi',
         '    done',
         'fi',
-        `exec '${realPath}' "$@"`,
+        `cd '${process.cwd()}' && exec '${process.execPath}' --import tsx '${cliPath}' "$@"`,
         '',
     ].join('\n'));
     chmodSync(wrapperPath, 0o700);
     console.log(`[fallback-geometry] wrapper ${JSON.stringify({
-        realPath,
-        realSha256: sha256(realPath),
+        realPath: wasmPath,
+        realSha256: sha256(wasmPath),
         wrapperPath,
     })}`);
     return {

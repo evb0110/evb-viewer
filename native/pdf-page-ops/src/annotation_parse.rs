@@ -465,6 +465,50 @@ pub(crate) fn annotation_parse_from_source<S: ByteSource>(
     )
 }
 
+/// Streams the JSONL annotation parse of `source` into `write_chunk`, optionally
+/// restricted to one-based `pages`. Mirrors `write_annotation_parse_path`.
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+pub(crate) fn write_annotation_parse_from_source<S: ByteSource>(
+    source: S,
+    len: u64,
+    modified_at: &str,
+    pages: Option<&[u32]>,
+    mut write_chunk: impl FnMut(&[u8]) -> Result<()>,
+) -> Result<u32> {
+    let indexes = pages.map(|pages| {
+        pages
+            .iter()
+            .map(|page| page.saturating_sub(1))
+            .collect::<BTreeSet<_>>()
+    });
+    let incremental = annotation_parse_base(source, len, indexes.as_ref())
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    let page_count = u32::try_from(incremental.get_prev_documents().get_pages().len())
+        .map_err(|_| "PDF page count exceeds the WASM response range")?;
+    let mut total_bytes = 0_u64;
+    write_annotation_parse_stream(
+        &incremental,
+        modified_at,
+        incremental.located_pages.as_ref(),
+        ANNOTATION_PARSE_CHUNK_BYTES,
+        |bytes| {
+            let next_total = total_bytes
+                .checked_add(u64::try_from(bytes.len())?)
+                .ok_or("Annotation parse sidecar byte count overflow")?;
+            if next_total > u64::try_from(MAX_SIDECAR_BYTES)? {
+                return Err(domain_error(
+                    NativeErrorCode::TooLarge,
+                    "Annotation parse exceeds the sidecar byte limit",
+                ));
+            }
+            write_chunk(bytes)?;
+            total_bytes = next_total;
+            Ok(())
+        },
+    )?;
+    Ok(page_count)
+}
+
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 pub(crate) fn serialize_annotation_parse(
     document: &impl PdfObjectSource,
@@ -2500,6 +2544,7 @@ mod tests {
             &[PlacedImage {
                 author: None,
                 bytes_base64: None,
+                bytes_source_index: None,
                 page_index: 0,
                 stable_key: Some("stamp-stable".to_string()),
                 annotation_id: None,

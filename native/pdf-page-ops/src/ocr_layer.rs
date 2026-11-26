@@ -1091,6 +1091,76 @@ pub(crate) fn ocr_text_layer_to_source<S: ByteSource>(
     Ok(page_count)
 }
 
+/// Desktop host-file `ocr-text-layer`: streams `OCR_STREAMING_BATCH_PAGES`
+/// (64-page) batches onto the sink file with one shared `OcrFontCache`,
+/// matching native `write_ocr_text_layer_path`.
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+pub(crate) fn ocr_text_layer_to_source_batched<S: ByteSource, K: ByteSource>(
+    source: S,
+    len: u64,
+    sink_source: impl Fn() -> K,
+    instructions: &[u8],
+    page_pdf: impl Fn(usize) -> Result<Vec<u8>>,
+    mut write_at: impl FnMut(u64, &[u8]) -> Result<Vec<u8>>,
+) -> Result<u32> {
+    let instructions: OcrTextLayerFile<usize> =
+        parse_json_sidecar_bytes(instructions, "OCR text-layer instructions")?;
+    validate_ocr_text_layer(&instructions)?;
+    let mut batches = instructions.pages.chunks(OCR_STREAMING_BATCH_PAGES);
+    let first_batch = batches
+        .next()
+        .ok_or("ocr-text-layer requires at least one page")?;
+    let mut font_cache = OcrFontCache::default();
+    let load_page = |&index: &usize| -> Result<Document> {
+        let bytes = page_pdf(index)?;
+        if bytes.is_empty() || bytes.len() as u64 > MAX_OCR_SOURCE_PDF_BYTES {
+            return Err(ocr_source_length_error(
+                bytes.len() as u64,
+                format!("page PDF {index}"),
+            ));
+        }
+        checked_ocr_source(load_pdf_bytes(&bytes))
+    };
+    let (page_count, mut current_len) = {
+        let (mut first_incremental, page_count) =
+            ocr_text_layer_base(source, len, first_batch, &mut font_cache, load_page)?;
+        let first_revision = appended_revision_bytes(&mut first_incremental)?;
+        let first_written = write_at(len, &first_revision)?;
+        validate_incremental_append_bytes(
+            &first_written,
+            len,
+            first_incremental.previous_xref_start(),
+            &collect_incremental_append_object_ids(&first_incremental),
+        )?;
+        let next_len = len
+            .checked_add(first_revision.len() as u64)
+            .ok_or("OCR incremental output size overflow")?;
+        (page_count, next_len)
+    };
+
+    for batch in batches {
+        let (mut incremental, _) = ocr_text_layer_base(
+            sink_source(),
+            current_len,
+            batch,
+            &mut font_cache,
+            load_page,
+        )?;
+        let revision = appended_revision_bytes(&mut incremental)?;
+        let written = write_at(current_len, &revision)?;
+        validate_incremental_append_bytes(
+            &written,
+            current_len,
+            incremental.previous_xref_start(),
+            &collect_incremental_append_object_ids(&incremental),
+        )?;
+        current_len = current_len
+            .checked_add(revision.len() as u64)
+            .ok_or("OCR incremental output size overflow")?;
+    }
+    Ok(page_count)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

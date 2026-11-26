@@ -102,7 +102,6 @@ import { startTrustedWheelFling } from '@tests/e2e/electron/helpers/startTrusted
 import { delay } from 'es-toolkit/promise';
 import { readElectronWindowMetrics } from '@scripts/electron-run/resizeElectronWindow';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
-import { getNativeToolPathCandidates } from '@electron/native-tools/resolveNativeToolPath';
 import { waitForFunctionInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 import { enablePdfDiagnosticSession } from '@tests/e2e/electron/helpers/pdfDiagnosticSession';
 import {
@@ -6326,7 +6325,8 @@ describe('Electron E2E - Document Output', () => {
             });
         }
         const {resolveNativePageOpsPath} = await import('@electron/features/page-ops/public/nativePageOpsPath');
-        await execFileAsync(resolveNativePageOpsPath()!, [
+        const {runNativeToolCommand} = await import('@electron/native-tools/runNativeToolCommand');
+        await runNativeToolCommand(resolveNativePageOpsPath()!, [
             'print-layout',
             '--input',
             fixturePath,
@@ -6529,7 +6529,8 @@ describe('Electron E2E - Document Output', () => {
         await writeDevanagariPdf(devanagariPath, 18 * 1024 * 1024);
         await writeDevanagariPdf(join(printDirectory, 'devanagari-small.pdf'), 1);
         const {resolveNativePageOpsPath} = await import('@electron/features/page-ops/public/nativePageOpsPath');
-        await execFileAsync(resolveNativePageOpsPath()!, [
+        const {runNativeToolCommand} = await import('@electron/native-tools/runNativeToolCommand');
+        await runNativeToolCommand(resolveNativePageOpsPath()!, [
             'print-layout',
             '--input',
             join(printDirectory, 'devanagari-small.pdf'),
@@ -6894,13 +6895,10 @@ describe('Electron E2E - Document Output', () => {
         await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForViewerInteractive(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
-        const binary = process.platform === 'win32' ? 'evb-pdf-page-ops.exe' : 'evb-pdf-page-ops';
-        const paths = getNativeToolPathCandidates({
-            binaryName: binary,
-            crateName: 'pdf-page-ops',
-            currentDir: resolve('electron'),
-            isPackaged: false,
-        });
+        const paths = [
+            resolve('public', 'wasm', 'evb-pdf-page-ops.wasm'),
+            resolve('nuxt-output', 'public', 'wasm', 'evb-pdf-page-ops.wasm'),
+        ];
         const moved: string[] = [];
         try {
             for (const path of paths) {

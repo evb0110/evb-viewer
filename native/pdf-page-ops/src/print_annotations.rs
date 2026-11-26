@@ -5,6 +5,8 @@ use super::*;
 #[path = "print_appearances.rs"]
 mod appearances;
 use appearances::annotation_normal_appearance;
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+pub(crate) use appearances::write_print_appearances_to_source;
 pub(super) use appearances::{
     materialize_print_appearances, write_print_appearances_path, PrintFonts,
 };

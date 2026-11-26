@@ -312,6 +312,75 @@ pub(crate) fn write_embedded_shape_index_path(input_path: &Path, output_path: &P
     write_embedded_shape_index(&document, output_path)
 }
 
+/// Host-file streaming variant of `write_embedded_shape_index_path`: streams
+/// the JSONL shape index sidecar directly into `write_chunk`.
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+pub(crate) fn write_embedded_shape_index_to_sink<S: ByteSource>(
+    source: S,
+    len: u64,
+    mut write_chunk: impl FnMut(&[u8]) -> Result<()>,
+) -> Result<u32> {
+    let document = SourcePdf::open(source, len)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?
+        .document;
+    assert_plaintext_base(
+        &document,
+        "Encrypted PDFs are not supported by the embedded shape index operation",
+    )?;
+    let page_count = u64::try_from(document.page_ids().len())?;
+    let chunk_limit = EMBEDDED_SHAPE_INDEX_CHUNK_BYTES;
+    let header = format!(
+        "{{\"format\":\"{EMBEDDED_SHAPE_INDEX_FORMAT}\",\"schemaVersion\":{EMBEDDED_SHAPE_INDEX_SCHEMA_VERSION},\"pageCount\":{page_count},\"chunkBytes\":{chunk_limit}}}\n"
+    );
+    let mut total_bytes: u64 = 0;
+    let mut push_bytes = |bytes: &[u8]| -> Result<()> {
+        total_bytes = total_bytes
+            .checked_add(u64::try_from(bytes.len())?)
+            .ok_or("Embedded shape index sidecar byte count overflow")?;
+        if total_bytes > u64::try_from(MAX_SIDECAR_BYTES)? {
+            return Err(domain_error(
+                NativeErrorCode::TooLarge,
+                "Embedded shape index exceeds the sidecar byte limit",
+            ));
+        }
+        write_chunk(bytes)
+    };
+    push_bytes(header.as_bytes())?;
+    let mut chunk = EmbeddedShapeIndexChunk::new(0);
+    let mut next_chunk_index = 0_u64;
+    scan_embedded_shape_index(&document, |entry| {
+        let encoded_entry = serde_json::to_vec(&entry)?;
+        if !chunk.try_push(&encoded_entry, chunk_limit) {
+            if chunk.entry_count == 0 {
+                return Err(domain_error(
+                    NativeErrorCode::TooLarge,
+                    "Embedded shape index entry exceeds the 4 MiB chunk limit",
+                ));
+            }
+            let finished =
+                std::mem::replace(&mut chunk, EmbeddedShapeIndexChunk::new(next_chunk_index))
+                    .finish();
+            push_bytes(&finished)?;
+            next_chunk_index = next_chunk_index
+                .checked_add(1)
+                .ok_or("Embedded shape index chunk number overflow")?;
+            chunk = EmbeddedShapeIndexChunk::new(next_chunk_index);
+            if !chunk.try_push(&encoded_entry, chunk_limit) {
+                return Err(domain_error(
+                    NativeErrorCode::TooLarge,
+                    "Embedded shape index entry exceeds the 4 MiB chunk limit",
+                ));
+            }
+        }
+        Ok(())
+    })?;
+    if chunk.entry_count > 0 {
+        let finished = chunk.finish();
+        push_bytes(&finished)?;
+    }
+    Ok(u32::try_from(page_count)?)
+}
+
 fn shape_index_paths_alias(input_path: &Path, output_path: &Path) -> Result<bool> {
     if input_path == output_path {
         return Ok(true);

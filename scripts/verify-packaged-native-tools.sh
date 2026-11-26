@@ -565,19 +565,12 @@ if [ "$platform" = "mac" ]; then
   fi
 
   run_macos_packaged_tool_smoke "qpdf" "$(packaged_entry_path qpdf)" --version
-  # pdf-page-ops reads large documents' metadata through the libqpdf beside qpdf.
-  qpdf_entry="$(packaged_entry_path qpdf)"
-  if ! compgen -G "$(dirname "$(dirname "$qpdf_entry")")/lib/libqpdf*.dylib" >/dev/null; then
-    echo "Error: packaged qpdf for $platform_arch has no libqpdf beside it"
-    exit 1
-  fi
   run_macos_packaged_tool_smoke "pdfinfo" "$(packaged_entry_path pdfinfo)" -v
   run_macos_packaged_tool_smoke "pdftoppm" "$(packaged_entry_path pdftoppm)" -v
   run_macos_packaged_tool_smoke "pdftotext" "$(packaged_entry_path pdftotext)" -v
   run_macos_packaged_tool_smoke "pdf-print-dialog" "$(packaged_entry_path pdf-print-dialog)" --version
   run_macos_packaged_tool_smoke "evb-pdf-image-combine" "$(packaged_entry_path evb-pdf-image-combine)" --version
   run_macos_packaged_tool_smoke "evb-pdf-image-combine-compact-manifest" "$(packaged_entry_path evb-pdf-image-combine)" --compact-manifest
-  run_macos_packaged_tool_smoke "evb-pdf-page-ops" "$(packaged_entry_path evb-pdf-page-ops)" --version
   run_macos_packaged_tool_smoke "evb-scan-cleanup" "$(packaged_entry_path evb-scan-cleanup)" --version
   if is_macos_app_adhoc_signed "$mac_app_path"; then
     echo "Named gap: skipping the packaged sidecar fold-clip smoke for $platform_arch; an ad-hoc signed app is killed by provenance policy when run in place, and this smoke needs the packaged binary to write its own outputs."

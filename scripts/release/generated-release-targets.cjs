@@ -204,29 +204,6 @@ const manifest = JSON.parse(String.raw`{
             ]
         },
         {
-            "binaryName": "evb-pdf-page-ops",
-            "id": "pdf-page-ops",
-            "label": "PDF page ops native tool",
-            "packagedEntries": [
-                {
-                    "id": "evb-pdf-page-ops",
-                    "label": "evb-pdf-page-ops binary",
-                    "pathSegments": [
-                        "bin",
-                        "evb-pdf-page-ops{exeSuffix}"
-                    ],
-                    "type": "file"
-                }
-            ],
-            "sourceRootSegments": [
-                ".tmp",
-                "pdf-page-ops"
-            ],
-            "stagedRootSegments": [
-                "pdf-page-ops"
-            ]
-        },
-        {
             "binaryName": "evb-scan-cleanup",
             "id": "scan-cleanup",
             "label": "Scan cleanup native tool",
@@ -323,9 +300,6 @@ const manifest = JSON.parse(String.raw`{
             ],
             [
                 "pdf-image-combine"
-            ],
-            [
-                "pdf-page-ops"
             ],
             [
                 "scan-cleanup"

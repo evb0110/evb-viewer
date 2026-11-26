@@ -361,6 +361,67 @@ pub(crate) fn write_print_appearances_path(input_path: &Path, output_path: &Path
     })
 }
 
+/// Host-file variant of `write_print_appearances_path`: opens `source` by
+/// range, synthesizes missing printed annotation appearances, and calls `write`
+/// with the incremental revision bytes only when at least one annotation
+/// changed. Returns `(page_count, changed)`.
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+pub(crate) fn write_print_appearances_to_source<S: ByteSource>(
+    source: S,
+    len: u64,
+    write: impl FnOnce(&[u8]) -> Result<Vec<u8>>,
+) -> Result<(u32, bool)> {
+    let mut pdf = SourcePdf::open_append_base(source, len)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    let mut incremental = pdf
+        .take_append_base()
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    let base_max_id = incremental.previous_document.max_id;
+    let mut changed = Vec::new();
+    let page_ids = incremental.previous_document.get_pages();
+    let pages = u32::try_from(page_ids.len())?;
+    read_font_programs(&mut incremental, &pdf, &page_ids);
+    let mut fonts = PrintFonts::default();
+    for page_id in page_ids.into_values() {
+        changed.extend(materialize_print_appearances(
+            &mut incremental.previous_document,
+            page_id,
+            false,
+            &mut fonts,
+        )?);
+    }
+    fonts.embed(&mut incremental.previous_document)?;
+    if changed.is_empty() {
+        return Ok((pages, false));
+    }
+    let document = &mut incremental.previous_document;
+    let added = document.objects.split_off(&(base_max_id + 1, 0));
+    let revision = &mut incremental.new_document;
+    revision.objects.extend(added);
+    for id in changed {
+        revision
+            .objects
+            .insert(id, document.get_object(id)?.clone());
+    }
+    revision.max_id = document.max_id;
+    revision.version = document.version.clone();
+    let revision_bytes = build_incremental_revision(&mut incremental)?;
+    let expected_object_ids = collect_incremental_append_object_ids(&incremental);
+    validate_incremental_append_bytes(
+        &revision_bytes,
+        len,
+        incremental.previous_xref_start(),
+        &expected_object_ids,
+    )?;
+    validate_incremental_append_bytes(
+        &write(&revision_bytes)?,
+        len,
+        incremental.previous_xref_start(),
+        &expected_object_ids,
+    )?;
+    Ok((pages, true))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

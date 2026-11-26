@@ -96,6 +96,83 @@ pub(crate) fn write_annotation_name_index_path(
     write_annotation_name_index(&document, output_path)
 }
 
+/// Streams the JSONL annotation name index of `source` into `write_chunk`.
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+pub(crate) fn write_annotation_name_index_to_sink<S: ByteSource>(
+    source: S,
+    len: u64,
+    mut write_chunk: impl FnMut(&[u8]) -> Result<()>,
+) -> Result<u32> {
+    let document = SourcePdf::open(source, len)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?
+        .document;
+    assert_plaintext_base(
+        &document,
+        "Encrypted PDFs are not supported by the annotation index operation",
+    )?;
+    let page_ids = document.page_ids();
+    let page_count = u64::try_from(page_ids.len())?;
+    let page_count_u32 = u32::try_from(page_count)?;
+    let chunk_limit = ANNOTATION_INDEX_CHUNK_BYTES;
+    let header = format!(
+        "{{\"format\":\"{ANNOTATION_INDEX_FORMAT}\",\"schemaVersion\":{ANNOTATION_INDEX_SCHEMA_VERSION},\"pageCount\":{page_count},\"chunkBytes\":{chunk_limit}}}\n"
+    );
+    write_chunk(header.as_bytes())?;
+    let mut chunk = AnnotationIndexChunk::new(0);
+    let mut next_chunk_index = 0_u64;
+    for (page_number, page_id) in page_ids {
+        let page_index = u64::from(
+            page_number
+                .checked_sub(1)
+                .ok_or("PDF page numbering must start at one")?,
+        );
+        for object in get_page_annots(&document, page_id)? {
+            let entry = if let Ok(object_id) = object.as_reference() {
+                let Ok(annotation) = document.dictionary(object_id) else {
+                    continue;
+                };
+                annotation_index_entry(
+                    page_index,
+                    u64::from(object_id.0),
+                    u64::from(object_id.1),
+                    annotation,
+                )
+            } else if let Ok(annotation) = object.as_dict() {
+                annotation_index_entry(page_index, 0, 0, annotation)
+            } else {
+                continue;
+            };
+            let encoded = serde_json::to_vec(&entry)?;
+            if !chunk.try_push(&encoded, chunk_limit) {
+                if chunk.entry_count == 0 {
+                    return Err(domain_error(
+                        NativeErrorCode::TooLarge,
+                        "Annotation index entry exceeds the 4 MiB chunk limit",
+                    ));
+                }
+                let finished =
+                    std::mem::replace(&mut chunk, AnnotationIndexChunk::new(next_chunk_index))
+                        .finish();
+                write_chunk(&finished)?;
+                next_chunk_index = next_chunk_index
+                    .checked_add(1)
+                    .ok_or("Annotation index chunk number overflow")?;
+                chunk = AnnotationIndexChunk::new(next_chunk_index);
+                if !chunk.try_push(&encoded, chunk_limit) {
+                    return Err(domain_error(
+                        NativeErrorCode::TooLarge,
+                        "Annotation index entry exceeds the 4 MiB chunk limit",
+                    ));
+                }
+            }
+        }
+    }
+    if chunk.entry_count > 0 {
+        write_chunk(&chunk.finish())?;
+    }
+    Ok(page_count_u32)
+}
+
 pub(crate) fn annotation_index_paths_alias(input_path: &Path, output_path: &Path) -> Result<bool> {
     if input_path == output_path {
         return Ok(true);

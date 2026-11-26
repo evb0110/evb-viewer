@@ -38,6 +38,7 @@
         PlacedImage {
             author: None,
             bytes_base64: None,
+            bytes_source_index: None,
             page_index: 0,
             stable_key: None,
             annotation_id: None,

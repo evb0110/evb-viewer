@@ -2,11 +2,7 @@ import {
     mkdtempSync, readFileSync, rmSync, 
 } from 'fs';
 import { tmpdir } from 'os';
-import {
-    join, resolve, 
-} from 'path';
-import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
-import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
+import { join } from 'path';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 
 interface IPdfAnnotationObjectRef {
@@ -57,15 +53,9 @@ function parseObjectRef(value: unknown): IPdfAnnotationObjectRef | null {
  * `annotation-index` verb, the same scanner the app's annotation saves use.
  */
 export async function readPdfAnnotationIndex(filePath: string): Promise<IPdfAnnotationIndex> {
-    const pageOps = resolveNativeToolPath({
-        binaryName: process.platform === 'win32' ? 'evb-pdf-page-ops.exe' : 'evb-pdf-page-ops',
-        crateName: 'pdf-page-ops',
-        currentDir: process.cwd(),
-        envOverridePath: process.env.EVB_PDF_PAGE_OPS_PATH,
-        isPackaged: false,
-        projectRoot: process.cwd(),
-        resourcesBase: resolve(process.cwd(), 'resources'),
-    });
+    const {resolveNativePageOpsPath} = await import('@electron/features/page-ops/public/nativePageOpsPath');
+    const {runNativeToolCommand} = await import('@electron/native-tools/runNativeToolCommand');
+    const pageOps = resolveNativePageOpsPath();
     const qpdf = getPdfNativeToolPaths().qpdf;
     if (!pageOps) {
         throw new Error('pdf-page-ops is required to read a PDF annotation index');
@@ -73,7 +63,7 @@ export async function readPdfAnnotationIndex(filePath: string): Promise<IPdfAnno
     const directory = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), 'evb-annotation-index-'));
     const outputPath = join(directory, 'index.jsonl');
     try {
-        await runNativeCommand(pageOps, [
+        await runNativeToolCommand(pageOps, [
             'annotation-index',
             '--input',
             filePath,

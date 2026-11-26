@@ -6,11 +6,11 @@ const PDF_REFERENCE_LIMIT: usize = 128;
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PdfConformanceFacts {
-    is_signed: bool,
-    is_encrypted: bool,
-    is_tagged: bool,
-    has_acro_form: bool,
-    has_xfa: bool,
+    pub(crate) is_signed: bool,
+    pub(crate) is_encrypted: bool,
+    pub(crate) is_tagged: bool,
+    pub(crate) has_acro_form: bool,
+    pub(crate) has_xfa: bool,
 }
 
 fn resolved_object<'a>(document: &'a Document, object: &'a Object) -> Result<&'a Object> {
@@ -98,21 +98,16 @@ pub(crate) fn write_pdf_conformance(
     qpdf_path: Option<&Path>,
     output: &mut impl Write,
 ) -> Result<()> {
-    let qpdf_path = qpdf_path.ok_or_else(|| {
-        domain_error(
-            NativeErrorCode::InvalidRequest,
-            "PDF conformance requires the bundled qpdf structural reader",
-        )
-    })?;
-    let metadata = load_qpdf_metadata_pdf_path(input_path, qpdf_path)?;
-    let document;
-    let source = if let Some((metadata, _warned)) = &metadata {
-        metadata.get_prev_documents()
-    } else {
-        document = load_qpdf_structural_document(input_path, qpdf_path)?;
-        &document
+    let facts = match SourcePdf::open_conformance_path(input_path) {
+        Ok(source) => pdf_conformance_facts(&source.document)?,
+        Err(source_error) => {
+            let Some(qpdf_path) = qpdf_path else {
+                return Err(source_error);
+            };
+            let document = load_qpdf_structural_document(input_path, qpdf_path)?;
+            pdf_conformance_facts(&document)?
+        }
     };
-    let facts = pdf_conformance_facts(source)?;
     serde_json::to_writer(output, &facts)?;
     Ok(())
 }

@@ -254,9 +254,8 @@ export async function runSavePipelineBenchmark(rawOptions) {
     }
     const temporaryDirectory = await mkdtemp(join(tmpdir(), 'evb-save-pipeline-benchmark-'));
     try {
-        run(pnpmCommand(), [
-            'run',
-            'build:pdf-page-ops',
+        run(process.execPath, [
+            'scripts/ensure-wasm-artifacts.mjs',
         ]);
         run(pnpmCommand(), [
             'run',

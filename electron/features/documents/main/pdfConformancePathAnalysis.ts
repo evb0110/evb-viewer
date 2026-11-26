@@ -3,6 +3,7 @@ import {
     stat,
 } from 'node:fs/promises';
 import type {FileHandle} from 'node:fs/promises';
+import {join} from 'node:path';
 import type {detectPdfaLevelFromPdfText} from '@pdf-core/pdfConformanceHelpers';
 import {
     createPdfConformanceProfile,
@@ -11,9 +12,14 @@ import {
     PDF_CONFORMANCE_MARKER_SCAN_OVERLAP_BYTES,
 } from '@pdf-core/pdfConformanceHelpers';
 import type {IPdfConformanceProfile} from '@contracts/pdfConformance';
+import type {IPdfConformanceFactsWire} from '@contracts/pdfPageOpsWire.generated';
+import {hasNativeErrorCode} from '@contracts/nativeErrors';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
+import {getAppTempDir} from '@electron/utils/appTempDir';
+import {usingManagedScratchScope} from '@electron/utils/managedScratchTemp';
+import {QPDF_SUCCESS_EXIT_CODES} from '@pdf-core/qpdfCommands';
 import {
     abortErrorFromSignal,
     isAbortError,
@@ -47,7 +53,7 @@ const qpdfStructuralFactsSchema = v.object({
     hasXfa: v.boolean(),
 });
 
-type IQpdfStructuralFacts = v.InferOutput<typeof qpdfStructuralFactsSchema>;
+type IQpdfStructuralFacts = IPdfConformanceFactsWire;
 
 export interface IPdfConformancePathAnalysisOptions {
     signal?: AbortSignal;
@@ -218,25 +224,55 @@ async function readPdfStructuralFactsFromPath(
             'The bundled qpdf structural reader is unavailable',
         );
     }
+    const runConformanceCommand = (targetPath: string) => runNativeToolCommand(nativePath, [
+        'pdf-conformance',
+        '--input',
+        targetPath,
+        '--qpdf',
+        qpdfPath,
+    ], {
+        timeoutMs: options.timeoutMs ?? PDF_CONFORMANCE_STRUCTURAL_TIMEOUT_MS,
+        maxStdoutBytes: PDF_CONFORMANCE_FACTS_MAX_BYTES,
+        maxStderrBytes: PDF_CONFORMANCE_STRUCTURAL_DIAGNOSTIC_MAX_BYTES,
+        rejectOnStdoutTruncation: true,
+        allowedExitCodes: [0],
+        commandLabel: PDF_CONFORMANCE_NATIVE_COMMAND_LABEL,
+        ...(options.signal ? {signal: options.signal} : {}),
+        ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
+        ...(options.onTerminationProof ? {onTerminationProof: options.onTerminationProof} : {}),
+    });
+
     let stdout: string;
     try {
-        ({stdout} = await runNativeToolCommand(nativePath, [
-            'pdf-conformance',
-            '--input',
-            filePath,
-            '--qpdf',
-            qpdfPath,
-        ], {
-            timeoutMs: options.timeoutMs ?? PDF_CONFORMANCE_STRUCTURAL_TIMEOUT_MS,
-            maxStdoutBytes: PDF_CONFORMANCE_FACTS_MAX_BYTES,
-            maxStderrBytes: PDF_CONFORMANCE_STRUCTURAL_DIAGNOSTIC_MAX_BYTES,
-            rejectOnStdoutTruncation: true,
-            allowedExitCodes: [0],
-            commandLabel: PDF_CONFORMANCE_NATIVE_COMMAND_LABEL,
-            ...(options.signal ? {signal: options.signal} : {}),
-            ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
-            ...(options.onTerminationProof ? {onTerminationProof: options.onTerminationProof} : {}),
-        }));
+        try {
+            ({stdout} = await runConformanceCommand(filePath));
+        } catch (error) {
+            if (isAbortError(error) || !(hasNativeErrorCode(error) && error.code === 'corrupt-xref')) {
+                throw error;
+            }
+            // Damaged cross-reference tables that the WASM structural indexer refuses can still be
+            // recovered by qpdf without decrypting or decompressing streams.
+            ({stdout} = await usingManagedScratchScope('pdf-page-ops-', getAppTempDir(), async scratchDir => {
+                const repairedPath = join(scratchDir, 'repaired.pdf');
+                await runNativeToolCommand(qpdfPath, [
+                    '--warning-exit-0',
+                    '--preserve-unreferenced',
+                    '--stream-data=preserve',
+                    filePath,
+                    repairedPath,
+                ], {
+                    timeoutMs: options.timeoutMs ?? PDF_CONFORMANCE_STRUCTURAL_TIMEOUT_MS,
+                    maxStdoutBytes: PDF_CONFORMANCE_FACTS_MAX_BYTES,
+                    maxStderrBytes: PDF_CONFORMANCE_STRUCTURAL_DIAGNOSTIC_MAX_BYTES,
+                    allowedExitCodes: QPDF_SUCCESS_EXIT_CODES,
+                    commandLabel: 'qpdf(conformance-repair)',
+                    ...(options.signal ? {signal: options.signal} : {}),
+                    ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
+                    ...(options.onTerminationProof ? {onTerminationProof: options.onTerminationProof} : {}),
+                });
+                return runConformanceCommand(repairedPath);
+            }));
+        }
     } catch (error) {
         if (isAbortError(error)) {
             throw error;

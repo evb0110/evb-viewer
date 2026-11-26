@@ -8,10 +8,7 @@ import {
     writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {
-    join,
-    resolve,
-} from 'node:path';
+import {join} from 'node:path';
 import {promisify} from 'node:util';
 import {
     PDFDict,
@@ -29,25 +26,12 @@ import {
 } from 'vitest';
 import {normalizePdfNativeMutationSet} from '@contracts/nativePdfMutations';
 import {splitPdfNativeMutationSetIntoBoundedChunks} from '@pdf-core/nativePdfMutationPolicy';
+import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
+import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 
 const execFileAsync = promisify(execFile);
 const NATIVE_BOOKMARK_TIMEOUT_MS = 180_000;
-
-function nativeBinaryPath() {
-    const configured = process.env.EVB_PDF_PAGE_OPS_PATH?.trim();
-    if (configured) {
-        return resolve(configured);
-    }
-    const extension = process.platform === 'win32' ? '.exe' : '';
-    return resolve(
-        '.tmp',
-        'pdf-page-ops',
-        `${process.platform}-${process.arch}`,
-        'bin',
-        `evb-pdf-page-ops${extension}`,
-    );
-}
 
 function decodePdfText(value: unknown) {
     return value instanceof PDFString || value instanceof PDFHexString
@@ -70,9 +54,10 @@ describe('native bookmark continuation integration', () => {
 
     it('saves and reopens 10,001 flat bookmarks through bounded native appends', async () => {
         tempRoot = await mkdtemp(join(tmpdir(), 'evb-native-bookmarks-'));
-        const binaryPath = nativeBinaryPath();
+        const binaryPath = resolveNativePageOpsPath();
+        expect(binaryPath).not.toBeNull();
         const qpdfPath = getPdfNativeToolPaths().qpdf;
-        await access(binaryPath);
+        await access(binaryPath!);
         const inputPath = join(tempRoot, 'input.pdf');
         const workingPath = join(tempRoot, 'working.pdf');
         const source = await PDFDocument.create();
@@ -106,7 +91,7 @@ describe('native bookmark continuation integration', () => {
         ] of chunks.entries()) {
             const mutationsPath = join(tempRoot, `mutations-${index}.json`);
             await writeFile(mutationsPath, `${JSON.stringify(chunk)}\n`, 'utf8');
-            await execFileAsync(binaryPath, [
+            await runNativeToolCommand(binaryPath!, [
                 'save-mutations',
                 '--input',
                 workingPath,
@@ -120,9 +105,7 @@ describe('native bookmark continuation integration', () => {
                 qpdfPath,
                 '--append',
             ], {
-                encoding: 'utf8',
-                maxBuffer: 512 * 1024,
-                timeout: NATIVE_BOOKMARK_TIMEOUT_MS,
+                timeoutMs: NATIVE_BOOKMARK_TIMEOUT_MS,
             });
         }
 

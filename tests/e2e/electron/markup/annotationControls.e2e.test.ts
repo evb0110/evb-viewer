@@ -4,7 +4,6 @@ import {
 import {
     join, resolve,
 } from 'node:path';
-import {execFileSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {
     createCanvas, loadImage,
@@ -1977,7 +1976,8 @@ describe('Electron E2E - annotation controls', () => {
         expect.soft(unclipped.outside, `${script} saved layout keeps every glyph inside its box`).toBe(0);
         // EVB's print output draws the saved appearance as saved.
         const printed = join(evidence, 'printed.pdf');
-        execFileSync(resolveNativePageOpsPath()!, [
+        const {runNativeToolCommand} = await import('@electron/native-tools/runNativeToolCommand');
+        await runNativeToolCommand(resolveNativePageOpsPath()!, [
             'print-layout',
             '--input',
             saved,

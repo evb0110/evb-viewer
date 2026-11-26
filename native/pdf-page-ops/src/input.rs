@@ -509,6 +509,15 @@ pub(crate) fn validate_placed_images(images: &[PlacedImage]) -> Result<()> {
             return Err("Invalid placed image rotation".into());
         }
     }
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    if images
+        .iter()
+        .any(|image| image.bytes_source_index.is_some())
+    {
+        // Host-source placed images are validated (size, sha256, and decoded
+        // byte budget) and hydrated via `hydrate_placed_images_from_host_sources`.
+        return Ok(());
+    }
     let payloads = validate_placed_image_payloads(images)?;
     let mut decoded_bytes = 0_u64;
     for (image, bytes) in images.iter().zip(&payloads) {

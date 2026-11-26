@@ -460,27 +460,6 @@ describe('Cargo artifact staging', () => {
         })).toBe(path.join('/checkout/native/target', 'x86_64-unknown-linux-gnu', 'release', 'evb-scan-cleanup'));
     });
 
-    it('keeps the PDF metadata host dynamically linked for qpdf exception recovery', () => {
-        const plan = createNativeToolBuildPlan({
-            projectRoot: '/repo',
-            staticLinuxCrt: true,
-            target: {
-                binaryExtension: '',
-                cargoTargetArgs: [],
-                platform: 'linux',
-                platformArch: 'linux-x64',
-            },
-            tool: getGeneratedNativeToolResource('pdf-page-ops'),
-        });
-        expect(plan.cargoArgs).toEqual([
-            'build',
-            '--manifest-path',
-            'native/pdf-page-ops/Cargo.toml',
-            '--release',
-            '--locked',
-        ]);
-    });
-
     it('uses Cargo metadata as the authority for a shared workspace target directory', () => {
         const runCommand = vi.fn(() => ({
             status: 0,
@@ -645,7 +624,6 @@ describe('Cargo artifact staging', () => {
     it('derives every native and WASM staging plan from artifact manifests', async () => {
         for (const toolId of [
             'pdf-image-combine',
-            'pdf-page-ops',
             'scan-cleanup',
         ]) {
             const tool = getGeneratedNativeToolResource(toolId);

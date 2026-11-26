@@ -8,10 +8,7 @@ import {
     writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {
-    join,
-    resolve,
-} from 'node:path';
+import {join} from 'node:path';
 import {promisify} from 'node:util';
 import {
     PDFArray,
@@ -33,6 +30,8 @@ import {
 import type {TPdfNativeMutationSetNativeToolPayload} from '@contracts/nativePdfMutations';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {formatPdfJsAnnotationRef} from '@app/utils/pdfAnnotationRefs';
+import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
+import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 
 const execFileAsync = promisify(execFile);
@@ -43,21 +42,6 @@ const ONE_PIXEL_JPEG = Buffer.from([
     'AAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAA',
     'AAD/2gAIAQEAAD8AVN//2Q==',
 ].join(''), 'base64');
-
-function nativeBinaryPath() {
-    const configured = process.env.EVB_PDF_PAGE_OPS_PATH?.trim();
-    if (configured) {
-        return resolve(configured);
-    }
-    const extension = process.platform === 'win32' ? '.exe' : '';
-    return resolve(
-        '.tmp',
-        'pdf-page-ops',
-        `${process.platform}-${process.arch}`,
-        'bin',
-        `evb-pdf-page-ops${extension}`,
-    );
-}
 
 function decodePdfText(value: unknown) {
     return value instanceof PDFString || value instanceof PDFHexString
@@ -149,9 +133,10 @@ describe('native placed-image lifecycle integration', () => {
 
     it('places, reopens, updates, reopens, deletes, and reopens one stable live image graph', async () => {
         tempRoot = await mkdtemp(join(tmpdir(), 'evb-native-image-lifecycle-'));
-        const binaryPath = nativeBinaryPath();
+        const binaryPath = resolveNativePageOpsPath();
+        expect(binaryPath).not.toBeNull();
         const qpdfPath = getPdfNativeToolPaths().qpdf;
-        await access(binaryPath);
+        await access(binaryPath!);
         const pdfPath = join(tempRoot, 'lifecycle.pdf');
         const imagePath = join(tempRoot, 'pixel.jpg');
         const source = await PDFDocument.create();
@@ -175,7 +160,7 @@ describe('native placed-image lifecycle integration', () => {
         ) => {
             const mutationPath = join(tempRoot, `mutation-${sequence}.json`);
             await writeFile(mutationPath, `${JSON.stringify(mutation)}\n`, 'utf8');
-            await execFileAsync(binaryPath, [
+            await runNativeToolCommand(binaryPath!, [
                 'save-mutations',
                 '--input',
                 pdfPath,
@@ -189,9 +174,7 @@ describe('native placed-image lifecycle integration', () => {
                 qpdfPath,
                 '--append',
             ], {
-                encoding: 'utf8',
-                maxBuffer: 512 * 1024,
-                timeout: NATIVE_LIFECYCLE_TIMEOUT_MS,
+                timeoutMs: NATIVE_LIFECYCLE_TIMEOUT_MS,
             });
             await execFileAsync(qpdfPath, [
                 '--check',

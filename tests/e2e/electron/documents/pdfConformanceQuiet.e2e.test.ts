@@ -98,25 +98,15 @@ async function createLargeConformancePdf() {
 function createConformanceCancellationGate() {
     const directory = mkdtempSync(resolve(tmpdir(), 'evb-e2e-conformance-gate-'));
     const hook = resolve(directory, 'hold-conformance.cjs');
-    const child = resolve(directory, 'held-native-child.cjs');
     const armed = resolve(directory, 'armed');
     const ready = resolve(directory, 'ready');
-    writeFileSync(child, `const fs=require('node:fs');
-fs.watch(${JSON.stringify(directory)},()=>{});
-fs.writeFileSync(${JSON.stringify(ready)},String(process.pid));
-`);
-    writeFileSync(hook, `const fs=require('node:fs'),{basename}=require('node:path'),cp=require('node:child_process'),spawn=cp.spawn;
-cp.spawn=function(command,args,options){
- const isSupervisor=basename(String(command)).replace(/\\.exe$/i,'')==='evb-windows-job-launcher';
- const sepIndex=isSupervisor&&Array.isArray(args)?args.indexOf('--'):-1;
- const targetArgs=sepIndex>=0?args.slice(sepIndex+2):args;
- if(targetArgs?.[0]==='pdf-conformance'&&fs.existsSync(${JSON.stringify(armed)})){
-  if(sepIndex>=0){
-   return spawn.call(this,command,[...args.slice(0,sepIndex+1),${JSON.stringify(process.execPath)},${JSON.stringify(child)}],options);
-  }
-  return spawn.call(this,${JSON.stringify(process.execPath)},[${JSON.stringify(child)}],options);
+    writeFileSync(hook, `const fs=require('node:fs'),wt=require('node:worker_threads'),origPost=wt.Worker.prototype.postMessage;
+wt.Worker.prototype.postMessage=function(value,transferList){
+ if(value&&typeof value==='object'&&Array.isArray(value.args)&&value.args[0]==='pdf-conformance'&&fs.existsSync(${JSON.stringify(armed)})){
+  fs.writeFileSync(${JSON.stringify(ready)},String(process.pid));
+  return;
  }
- return spawn.call(this,command,args,options);
+ return origPost.call(this,value,transferList);
 };
 require('node:module').syncBuiltinESMExports();
 `);

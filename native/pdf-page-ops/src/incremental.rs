@@ -345,6 +345,11 @@ fn is_page_label_continuation(mutations: &NativeMutationsFile) -> bool {
 pub(crate) struct IndexedAppend {
     pub(crate) page_count: u32,
     pub(crate) identity_bindings: Vec<AnnotationIdentityBinding>,
+    #[cfg_attr(
+        not(all(target_family = "wasm", target_os = "unknown")),
+        allow(dead_code)
+    )]
+    pub(crate) annotation_delete_effects: Option<AnnotationDeleteEffects>,
 }
 
 /// The base an append of `mutations` extends: the PDF `source` holds, read
@@ -435,6 +440,7 @@ pub(crate) fn append_native_mutations_to_source<S: ByteSource>(
         incremental.located_pages.as_ref(),
     )?;
     validate_annotation_identity_bindings(&identity_bindings)?;
+    let annotation_delete_effects = annotation_delete_effects(&incremental)?;
     validate_incremental_append_bytes(
         &write(&revision)?,
         len,
@@ -444,6 +450,7 @@ pub(crate) fn append_native_mutations_to_source<S: ByteSource>(
     Ok(IndexedAppend {
         page_count,
         identity_bindings,
+        annotation_delete_effects,
     })
 }
 

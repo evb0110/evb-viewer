@@ -222,7 +222,7 @@ export function resolveCorpusNativeBinaryPaths(root, {
     return {
         scanCleanup: binary('scan-cleanup', 'evb-scan-cleanup'),
         combine: binary('pdf-image-combine', 'evb-pdf-image-combine'),
-        pageOps: binary('pdf-page-ops', 'evb-pdf-page-ops'),
+        pageOps: join(root, 'public', 'wasm', 'evb-pdf-page-ops.wasm'),
     };
 }
 const {
@@ -243,7 +243,7 @@ const nativeTools = [
     },
     {
         binaryPath: defaultPageOpsBinary,
-        buildCommand: 'pnpm run build:pdf-page-ops',
+        buildCommand: 'node scripts/ensure-wasm-artifacts.mjs',
         manifestPath: join(projectRoot, 'native/pdf-page-ops/Cargo.toml'),
     },
 ];
@@ -1826,7 +1826,7 @@ async function verifyFixture(fixture, expectedFixture, workRoot, sourceAdmission
             instructionsPath,
             serializeLegacyScanCleanupPageOpsInstructions(instructions),
         );
-        await run(defaultPageOpsBinary, [
+        const pageOpsArgs = [
             'split-pages',
             '--input',
             fixture.pdfPath,
@@ -1834,7 +1834,17 @@ async function verifyFixture(fixture, expectedFixture, workRoot, sourceAdmission
             preservedPdfPath,
             '--instructions-file',
             instructionsPath,
-        ]);
+        ];
+        if (defaultPageOpsBinary.toLowerCase().endsWith('.wasm')) {
+            await run(process.execPath, [
+                '--import',
+                'tsx',
+                join(projectRoot, 'scripts', 'runPdfPageOpsWasmCli.ts'),
+                ...pageOpsArgs,
+            ], {env: {EVB_PDF_PAGE_OPS_PATH: defaultPageOpsBinary}});
+        } else {
+            await run(defaultPageOpsBinary, pageOpsArgs);
+        }
         const qpdfArgs = [
             '--empty',
             '--coalesce-contents',

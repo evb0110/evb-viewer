@@ -1,3 +1,4 @@
+import {execFile} from 'node:child_process';
 import {
     statSync,
     type BigIntStats,
@@ -14,6 +15,7 @@ import {
     dirname,
     join,
 } from 'node:path';
+import {promisify} from 'node:util';
 import {
     contentWitness,
     sameWitness,
@@ -25,8 +27,7 @@ import type {
 } from '@document-store/documentDirectory';
 import {copyNewFile} from '@document-store/nodeStorePort';
 import {isErrnoException} from '@contracts/runtimeGuards';
-import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
-import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
+import {resolveNativeProcessSupervisorPath} from '@electron/native-tools/resolveNativeToolsBase';
 import {
     atomicReplace,
     fsyncParentDirectory,
@@ -196,21 +197,25 @@ function settleInterruptedPublish({destination, witness: published, temp}: IPend
     });
 }
 
+const execFileAsync = promisify(execFile);
+
 /**
- * Exchanges the staged copy with the PDF in one step through the page engine, so the PDF's path never goes missing;
+ * Exchanges the staged copy with the PDF in one step through the native supervisor, so the PDF's path never goes missing;
  * the staging name then holds the version it displaced. Whether that happened is read from the staging name, whatever
- * the engine reported. False, with nothing moved, where it did not happen for any reason: the present sequence runs.
+ * the supervisor reported. False, with nothing moved, where it did not happen for any reason: the present sequence runs.
  */
 async function exchangeIntoPlace(temp: string, destination: string) {
     const staged = metadataFact(statSync(temp, {bigint: true}));
-    const engine = resolveNativePageOpsPath();
-    let outcome = 'the page engine is missing';
-    if (engine) {
+    const supervisor = resolveNativeProcessSupervisorPath(import.meta.dirname);
+    let outcome = 'the native process supervisor is missing';
+    if (supervisor) {
         try {
-            outcome = (await runNativeToolCommand(engine, ['exchange-paths', temp, destination], {
-                commandLabel: 'evb-pdf-page-ops(exchange-paths)',
-                maxStdoutBytes: 4096,
-            })).stdout.trim();
+            const {stdout} = await execFileAsync(supervisor, ['--exchange-paths', temp, destination], {
+                maxBuffer: 4096,
+                timeout: 30_000,
+                windowsHide: true,
+            });
+            outcome = String(stdout).trim();
         } catch (error) {
             outcome = getErrorMessage(error);
         }

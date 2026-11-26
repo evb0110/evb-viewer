@@ -26,7 +26,6 @@ export const NATIVE_TOOL_RESOURCE_FAMILY_IDS = [
     'poppler',
     'qpdf',
     'pdf-image-combine',
-    'pdf-page-ops',
     'pdf-print-dialog',
     'scan-cleanup',
     'windows-job-launcher',
@@ -35,7 +34,7 @@ export const NATIVE_TOOL_RESOURCE_FAMILY_IDS = [
 export type TNativeToolResourceFamilyId = typeof NATIVE_TOOL_RESOURCE_FAMILY_IDS[number];
 type TGeneratedNativeToolResourceFamilyId = Extract<
     TNativeToolResourceFamilyId,
-    'pdf-image-combine' | 'pdf-page-ops' | 'scan-cleanup' | 'windows-job-launcher'
+    'pdf-image-combine' | 'scan-cleanup' | 'windows-job-launcher'
 >;
 
 export interface INativeResourceTarget {
@@ -96,10 +95,6 @@ const NATIVE_TOOLS = [
     {
         crateName: 'pdf-image-combine',
         label: 'PDF image combine native tool',
-    },
-    {
-        crateName: 'pdf-page-ops',
-        label: 'PDF page ops native tool',
     },
     {
         crateName: 'scan-cleanup',

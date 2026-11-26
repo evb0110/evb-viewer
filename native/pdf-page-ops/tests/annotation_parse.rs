@@ -1174,7 +1174,7 @@ fn nul_escaped_names_in_a_managed_note_keep_their_reader_view_through_save_and_u
 #[test]
 fn conformance_keeps_unreachable_signatures_and_validates_optional_catalog_dictionaries() {
     let input = temporary_path("metadata-conformance", "pdf");
-    let mut cleanup = RemoveOnDrop(vec![input.clone()]);
+    let _cleanup = RemoveOnDrop(vec![input.clone()]);
     let mut document = Document::with_version("1.7");
     let pages = document.new_object_id();
     let page = document.add_object(dictionary! {
@@ -1245,34 +1245,10 @@ fn conformance_keeps_unreachable_signatures_and_validates_optional_catalog_dicti
         .unwrap()
         .remove(b"AcroForm");
     document.save(&input).unwrap();
-    let bundle = temporary_path("metadata-invalid-runtime", "dir");
-    cleanup.0.push(bundle.clone());
-    let bin = bundle.join("bin");
-    fs::create_dir_all(&bin).unwrap();
-    let qpdf = bin.join(format!("qpdf{}", std::env::consts::EXE_SUFFIX));
-    fs::write(&qpdf, b"invalid executable").unwrap();
-    #[cfg(windows)]
-    let library = bin.join("qpdf30.dll");
-    #[cfg(target_os = "macos")]
-    let library = bundle.join("lib/libqpdf.30.dylib");
-    #[cfg(all(not(windows), not(target_os = "macos")))]
-    let library = bundle.join("lib/libqpdf.so.30");
-    fs::create_dir_all(library.parent().unwrap()).unwrap();
-    fs::write(library, b"invalid shared library").unwrap();
-    let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
-        .args(["pdf-conformance", "--input"])
-        .arg(&input)
-        .arg("--qpdf")
-        .arg(&qpdf)
-        .output()
-        .unwrap();
-    assert!(!result.status.success());
-    let error: Value = serde_json::from_slice(&result.stderr).unwrap();
-    assert_eq!(error["code"], "native-failure");
-    assert!(error["message"]
-        .as_str()
-        .unwrap()
-        .contains("Cannot load bundled qpdf library"));
+    // Conformance reads clean PDFs via SourcePdf without loading libqpdf.
+    let facts_without_libqpdf = metadata_command("pdf-conformance", &input, None);
+    assert_eq!(facts_without_libqpdf["isSigned"], false);
+    assert_eq!(facts_without_libqpdf["hasAcroForm"], false);
 
     let damaged_title = document.add_object(Stream::new(dictionary! {}, Vec::new()));
     let outline = document.add_object(dictionary! {"Title" => damaged_title, "Dest" => vec![Object::Reference(page), Object::Name(b"Fit".to_vec())]});

@@ -129,7 +129,7 @@ const {getAppTempDirPath} = await import('@electron/utils/appTempDir');
 const {markUnprovenNativeTermination} = await import('@contracts/nativeErrors');
 const {normalizePdfNativeMutationSet} = await import('@contracts/nativePdfMutations');
 const {clearWorkingCopyQuarantinesForTests, quarantineWorkingCopy} = await import('@electron/file-access/workingCopyQuarantine');
-const {resolveNativePageOpsPath} = await import('@electron/features/page-ops/public/nativePageOpsPath');
+const {resolveNativeProcessSupervisorPath} = await import('@electron/native-tools/resolveNativeToolsBase');
 const {
     isAllowedReadPath,
     isAllowedWritePath,
@@ -259,7 +259,7 @@ describe('desktop document store', () => {
         expect(entry.doc.state().dirty).toBe(true);
     });
 
-    it.runIf(process.platform !== 'win32' && resolveNativePageOpsPath() !== null)('keeps the PDF at its path throughout a Save on a volume that can exchange', async () => {
+    it.runIf(process.platform !== 'win32' && resolveNativeProcessSupervisorPath(import.meta.dirname) !== null)('keeps the PDF at its path throughout a Save on a volume that can exchange', async () => {
         const {pdf, entry} = await openPdf();
         const edited = await writeTemp('edited.pdf', EDITED);
         let missing = 0;

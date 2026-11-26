@@ -1,34 +1,26 @@
-//! `exchange-paths STAGED DESTINATION`: swaps two regular files in one
+//! `--exchange-paths STAGED DESTINATION`: swaps two regular files in one
 //! directory in a single atomic step, so a checked desktop Save never leaves
 //! the saved path missing (#353). It prints `{"status":"exchanged"}` or
-//! `{"status":"unsupported","reason":...}` on stdout; any other failure is the
-//! usual error envelope with nothing moved. It is not a general rename.
+//! `{"status":"unsupported","reason":"..."}` on stdout; any other failure
+//! returns an `io::Error` with nothing moved. It is not a general rename.
 
-use super::*;
+use std::{fs, io, path::Path};
 
-pub(crate) fn run_exchange_paths(args: &[String]) -> Result<()> {
-    let [staged, destination] = args else {
-        return Err(domain_error(
-            NativeErrorCode::InvalidRequest,
-            "exchange-paths takes exactly a staged file and a destination",
-        ));
-    };
-    let (staged, destination) = (Path::new(staged), Path::new(destination));
+pub(crate) fn run_exchange_paths(staged: &Path, destination: &Path) -> io::Result<()> {
     check_sibling_files(staged, destination)?;
-    let report = match exchange(staged, destination)? {
-        None => serde_json::json!({"status": "exchanged"}),
-        Some(reason) => serde_json::json!({"status": "unsupported", "reason": reason}),
-    };
-    println!("{report}");
+    match exchange(staged, destination)? {
+        None => println!(r#"{{"status":"exchanged"}}"#),
+        Some(reason) => println!(r#"{{"status":"unsupported","reason":"{reason}"}}"#),
+    }
     Ok(())
 }
 
 /// Both names must be existing regular files, not links, in one directory.
-fn check_sibling_files(staged: &Path, destination: &Path) -> Result<()> {
+fn check_sibling_files(staged: &Path, destination: &Path) -> io::Result<()> {
     for path in [staged, destination] {
         if !fs::symlink_metadata(path)?.file_type().is_file() {
-            return Err(domain_error(
-                NativeErrorCode::InvalidRequest,
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
                 format!("exchange-paths needs a regular file: {}", path.display()),
             ));
         }
@@ -38,8 +30,8 @@ fn check_sibling_files(staged: &Path, destination: &Path) -> Result<()> {
         _ => fs::canonicalize("."),
     };
     if staged.file_name() == destination.file_name() || folder(staged)? != folder(destination)? {
-        return Err(domain_error(
-            NativeErrorCode::InvalidRequest,
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
             "exchange-paths needs two different files in one directory",
         ));
     }
@@ -48,7 +40,7 @@ fn check_sibling_files(staged: &Path, destination: &Path) -> Result<()> {
 
 /// `None` once exchanged; the reason when this volume or platform has no exchange, with nothing moved.
 #[cfg(target_os = "macos")]
-fn exchange(staged: &Path, destination: &Path) -> Result<Option<&'static str>> {
+fn exchange(staged: &Path, destination: &Path) -> io::Result<Option<&'static str>> {
     let (from, to) = (c_path(staged)?, c_path(destination)?);
     // FAT volumes accept RENAME_SWAP and perform a plain rename over the
     // destination, so only an affirmative volume capability is trusted.
@@ -78,7 +70,7 @@ fn exchange(staged: &Path, destination: &Path) -> Result<Option<&'static str>> {
         )
     };
     if status != 0 {
-        return Err(std::io::Error::last_os_error().into());
+        return Err(io::Error::last_os_error());
     }
     // SAFETY: zero-initialized plain integers, filled by a successful call.
     let interfaces = unsafe { answer.assume_init() }.capabilities;
@@ -89,13 +81,13 @@ fn exchange(staged: &Path, destination: &Path) -> Result<Option<&'static str>> {
     }
     // SAFETY: both arguments are NUL-terminated paths that outlive the call.
     if unsafe { libc::renamex_np(from.as_ptr(), to.as_ptr(), libc::RENAME_SWAP) } != 0 {
-        return Err(std::io::Error::last_os_error().into());
+        return Err(io::Error::last_os_error());
     }
     Ok(None)
 }
 
 #[cfg(target_os = "linux")]
-fn exchange(staged: &Path, destination: &Path) -> Result<Option<&'static str>> {
+fn exchange(staged: &Path, destination: &Path) -> io::Result<Option<&'static str>> {
     const EXFAT_SUPER_MAGIC: u64 = 0x2011_BAB0;
     let (from, to) = (c_path(staged)?, c_path(destination)?);
     // FAT-family volumes number inodes in memory, so the staged file's
@@ -103,7 +95,7 @@ fn exchange(staged: &Path, destination: &Path) -> Result<Option<&'static str>> {
     let mut volume = std::mem::MaybeUninit::<libc::statfs>::zeroed();
     // SAFETY: a NUL-terminated path and a buffer of the type statfs fills.
     if unsafe { libc::statfs(to.as_ptr(), volume.as_mut_ptr()) } != 0 {
-        return Err(std::io::Error::last_os_error().into());
+        return Err(io::Error::last_os_error());
     }
     // SAFETY: zero-initialized plain integers, filled by a successful call.
     let kind = unsafe { volume.assume_init() }.f_type as u64;
@@ -125,29 +117,31 @@ fn exchange(staged: &Path, destination: &Path) -> Result<Option<&'static str>> {
     if status == 0 {
         return Ok(None);
     }
-    let error = std::io::Error::last_os_error();
+    let error = io::Error::last_os_error();
     match error.raw_os_error() {
         Some(libc::EINVAL | libc::ENOSYS | libc::EOPNOTSUPP) => {
             Ok(Some("filesystem-has-no-rename-exchange"))
         }
-        _ => Err(error.into()),
+        _ => Err(error),
     }
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-fn exchange(_staged: &Path, _destination: &Path) -> Result<Option<&'static str>> {
+fn exchange(_staged: &Path, _destination: &Path) -> io::Result<Option<&'static str>> {
     Ok(Some("platform-has-no-exchange"))
 }
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
-fn c_path(path: &Path) -> Result<std::ffi::CString> {
+fn c_path(path: &Path) -> io::Result<std::ffi::CString> {
     use std::os::unix::ffi::OsStrExt;
-    Ok(std::ffi::CString::new(path.as_os_str().as_bytes())?)
+    std::ffi::CString::new(path.as_os_str().as_bytes())
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     fn folder(label: &str) -> PathBuf {
         let path = std::env::temp_dir().join(format!(
@@ -198,17 +192,10 @@ mod tests {
         let staged = dir.join(".0123456789abcdef.tmp");
         fs::write(&staged, b"new").unwrap();
         fs::write(other.join("a.pdf"), b"old").unwrap();
-        let args = |destination: PathBuf| {
-            vec![
-                staged.display().to_string(),
-                destination.display().to_string(),
-            ]
-        };
-        assert!(run_exchange_paths(&args(dir.join("missing.pdf"))).is_err());
-        assert!(run_exchange_paths(&args(other.join("a.pdf"))).is_err());
-        assert!(run_exchange_paths(&args(dir.clone())).is_err());
-        assert!(run_exchange_paths(&args(staged.clone())).is_err());
-        assert!(run_exchange_paths(&[staged.display().to_string()]).is_err());
+        assert!(run_exchange_paths(&staged, &dir.join("missing.pdf")).is_err());
+        assert!(run_exchange_paths(&staged, &other.join("a.pdf")).is_err());
+        assert!(run_exchange_paths(&staged, &dir).is_err());
+        assert!(run_exchange_paths(&staged, &staged).is_err());
         assert_eq!(fs::read(&staged).unwrap(), b"new");
         assert!(!dir.join("missing.pdf").exists());
         assert_eq!(fs::read(other.join("a.pdf")).unwrap(), b"old");

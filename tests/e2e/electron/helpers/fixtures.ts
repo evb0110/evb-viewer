@@ -52,7 +52,6 @@ import { getE2ERunId } from '@scripts/electron-run/electronRunRunId';
 import { getCurrentSessionName } from '@scripts/electron-run/electronRunSessionPaths';
 import {createPdfjsNodeDocumentOptions} from '@electron/features/search/pdfjsPageTexts';
 import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
-import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { MAX_EAGER_PDF_CONFORMANCE_BYTES } from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
@@ -1423,16 +1422,9 @@ export function fixtureBookmark(title: string, pageIndex: number, items: IPdfBoo
 
 /** Writes catalog metadata into a fixture through the app's own writer. */
 async function writeFixtureCatalog(filePath: string, catalog: Pick<IPdfNativeMutationSet, 'bookmarks' | 'pageLabels'>) {
-    const binaryName = process.platform === 'win32' ? 'evb-pdf-page-ops.exe' : 'evb-pdf-page-ops';
-    const pageOps = resolveNativeToolPath({
-        binaryName,
-        crateName: 'pdf-page-ops',
-        currentDir: process.cwd(),
-        envOverridePath: process.env.EVB_PDF_PAGE_OPS_PATH,
-        isPackaged: false,
-        projectRoot: process.cwd(),
-        resourcesBase: resolve(process.cwd(), 'resources'),
-    });
+    const {resolveNativePageOpsPath} = await import('@electron/features/page-ops/public/nativePageOpsPath');
+    const {runNativeToolCommand} = await import('@electron/native-tools/runNativeToolCommand');
+    const pageOps = resolveNativePageOpsPath();
     const qpdf = getPdfNativeToolPaths().qpdf;
     if (!pageOps) {
         throw new Error(`pdf-page-ops is required to write fixture catalog metadata: ${filePath}`);
@@ -1440,7 +1432,7 @@ async function writeFixtureCatalog(filePath: string, catalog: Pick<IPdfNativeMut
     const mutationsPath = `${filePath}.catalog.json`;
     writeFileSync(mutationsPath, JSON.stringify(catalog));
     try {
-        await runNativeCommand(pageOps, [
+        await runNativeToolCommand(pageOps, [
             'save-mutations',
             '--input',
             filePath,

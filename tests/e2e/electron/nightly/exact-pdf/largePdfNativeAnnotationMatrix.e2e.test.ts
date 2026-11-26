@@ -62,8 +62,8 @@ import {
 } from '@scripts/ci/stageExactPdfFixture';
 import type {Page} from 'puppeteer-core';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
-import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
-import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
+import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
+import { resolvePdfPageOpsWasmPath } from '@node-runtime/pdfPageOpsWasmRunner';
 import { electronAppTempDirPath } from '@scripts/electron-run/electronRunSessionPaths';
 
 const MATRIX_TIMEOUT_MS = 15 * 60_000;
@@ -164,29 +164,19 @@ async function waitForCrashCheckpoint(sessionName: string, expectedPath: string)
 }
 
 async function readShapeIndex(page: Page, documentPath: string) {
-    const pageOps = resolveNativeToolPath({
-        binaryName: process.platform === 'win32' ? 'evb-pdf-page-ops.exe' : 'evb-pdf-page-ops',
-        crateName: 'pdf-page-ops',
-        currentDir: process.cwd(),
-        envOverridePath: process.env.EVB_PDF_PAGE_OPS_PATH,
-        isPackaged: false,
-        projectRoot: process.cwd(),
-        resourcesBase: join(process.cwd(), 'resources'),
-    });
+    const pageOps = resolvePdfPageOpsWasmPath({currentDir: process.cwd()});
     if (!pageOps) {
-        throw new Error('pdf-page-ops is required to read a PDF embedded shape index');
+        throw new Error('evb-pdf-page-ops.wasm is required to read a PDF embedded shape index');
     }
     const directory = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), 'evb-shape-index-'));
     const outputPath = join(directory, 'index.jsonl');
     try {
-        await runNativeCommand(pageOps, [
+        await runNativeToolCommand(pageOps, [
             'embedded-shape-index',
             '--input',
             documentPath,
             '--output',
             outputPath,
-            '--qpdf',
-            getPdfNativeToolPaths().qpdf,
         ], {commandLabel: 'pdf-page-ops E2E embedded shape index'});
         const [
             ,

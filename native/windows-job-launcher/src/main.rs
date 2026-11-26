@@ -2,7 +2,9 @@
 
 use std::ffi::OsString;
 use std::io;
+use std::path::PathBuf;
 
+mod exchange_paths;
 #[cfg(unix)]
 mod posix;
 #[cfg(windows)]
@@ -13,6 +15,10 @@ pub(crate) enum Mode {
     ProcessStartTimeHost,
     ProcessIdentity {
         pid: u32,
+    },
+    ExchangePaths {
+        staged: PathBuf,
+        destination: PathBuf,
     },
     #[cfg_attr(not(windows), allow(dead_code))]
     WindowsJob {
@@ -179,6 +185,19 @@ pub(crate) fn parse_mode(arguments: &[OsString]) -> io::Result<Mode> {
         }
         return Ok(Mode::ProcessIdentity {
             pid: parse_pid(&arguments[1])?,
+        });
+    }
+
+    if first == "--exchange-paths" {
+        if arguments.len() != 3 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "expected --exchange-paths <staged> <destination>",
+            ));
+        }
+        return Ok(Mode::ExchangePaths {
+            staged: PathBuf::from(&arguments[1]),
+            destination: PathBuf::from(&arguments[2]),
         });
     }
 
@@ -459,6 +478,13 @@ fn run_main() -> io::Result<i32> {
                 Ok(1)
             }
         }
+        Mode::ExchangePaths {
+            staged,
+            destination,
+        } => {
+            exchange_paths::run_exchange_paths(&staged, &destination)?;
+            Ok(0)
+        }
         Mode::WindowsJob {
             control_pipe,
             hide,
@@ -588,6 +614,14 @@ mod tests {
             parse_mode(&os(&["--process-identity", "4242"])).unwrap(),
             Mode::ProcessIdentity { pid: 4242 }
         );
+        assert_eq!(
+            parse_mode(&os(&["--exchange-paths", "staged.tmp", "dest.pdf"])).unwrap(),
+            Mode::ExchangePaths {
+                staged: PathBuf::from("staged.tmp"),
+                destination: PathBuf::from("dest.pdf"),
+            }
+        );
+        assert!(parse_mode(&os(&["--exchange-paths", "only-one.tmp"])).is_err());
         assert_eq!(
             parse_mode(&os(&[
                 r"\\.\pipe\test",

@@ -14,6 +14,8 @@ use page_geometry::write_page_geometry;
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 pub(crate) use page_sizes::read_page_geometry_table;
 use page_sizes::write_page_sizes_path;
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+pub(crate) use page_sizes::write_page_sizes_sidecar_to_sink;
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 use scan_cleanup_pdf::{inspect_scan_cleanup_pdf_bytes, render_scan_cleanup_raster_bytes};
 use serde::de::DeserializeOwned;
@@ -39,7 +41,6 @@ mod conformance;
 mod content_parse;
 mod decrypt;
 mod dispatcher;
-mod exchange_paths;
 mod incremental;
 mod incremental_document;
 mod input;
