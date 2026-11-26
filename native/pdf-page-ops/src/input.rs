@@ -800,7 +800,9 @@ fn validate_native_mutation_continuation(mutations: &NativeMutationsFile) -> Res
         NativeMutationContinuationFamily::TextBoxes => !mutations.text_boxes.is_empty(),
         NativeMutationContinuationFamily::PageRotations => !mutations.page_rotations.is_empty(),
         NativeMutationContinuationFamily::PageCrops => !mutations.page_crops.is_empty(),
-        NativeMutationContinuationFamily::PageCropRemovals => !mutations.page_crop_removals.is_empty(),
+        NativeMutationContinuationFamily::PageCropRemovals => {
+            !mutations.page_crop_removals.is_empty()
+        }
         NativeMutationContinuationFamily::PageLabels => mutations.page_labels.is_some(),
         NativeMutationContinuationFamily::Bookmarks => mutations.bookmarks.is_some(),
         NativeMutationContinuationFamily::Shapes => mutations.shapes.is_some(),
