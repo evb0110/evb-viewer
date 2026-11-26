@@ -11,6 +11,7 @@ import {
     writeFileSync,
 } from 'node:fs';
 import {
+    homedir,
     hostname,
     tmpdir,
 } from 'node:os';
@@ -124,7 +125,7 @@ function spawnedArg(arg: string) {
     return process.platform === 'win32' ? quoteWindowsShellArg(arg) : arg;
 }
 
-function restoreEnv(name: 'HOME' | 'TMPDIR' | 'USERPROFILE', value: string | undefined) {
+function restoreEnv(name: 'CARGO_HOME' | 'HOME' | 'RUSTUP_HOME' | 'TMPDIR' | 'USERPROFILE', value: string | undefined) {
     if (value === undefined) {
         Reflect.deleteProperty(process.env, name);
     } else {
@@ -150,6 +151,8 @@ function inHome<T>(home: string, run: () => T): T {
 let projectFixtureTemplate: string | undefined;
 let savedHome: string | undefined;
 let savedUserProfile: string | undefined;
+let savedCargoHome: string | undefined;
+let savedRustupHome: string | undefined;
 let lockHome: string | undefined;
 
 // A separate deploy process that holds the production lock until it is killed.
@@ -455,6 +458,12 @@ describe.skipIf(process.platform === 'win32')('private Vercel deployment source'
         projectFixtureTemplate = createProjectFixture();
         // The production deploy lock lives under the home directory: keep it out of the real one.
         lockHome = mkdtempSync(path.join(tmpdir(), 'evb-deploy-lock-home-'));
+        // The WASM build identity asks rustc for its sysroot: keep the installed
+        // toolchain visible, or rustup downloads one into the moved home.
+        savedCargoHome = process.env.CARGO_HOME;
+        savedRustupHome = process.env.RUSTUP_HOME;
+        process.env.CARGO_HOME ??= path.join(homedir(), '.cargo');
+        process.env.RUSTUP_HOME ??= path.join(homedir(), '.rustup');
         savedHome = process.env.HOME;
         savedUserProfile = process.env.USERPROFILE;
         process.env.HOME = lockHome;
@@ -470,6 +479,8 @@ describe.skipIf(process.platform === 'win32')('private Vercel deployment source'
         }
         restoreEnv('HOME', savedHome);
         restoreEnv('USERPROFILE', savedUserProfile);
+        restoreEnv('CARGO_HOME', savedCargoHome);
+        restoreEnv('RUSTUP_HOME', savedRustupHome);
         if (lockHome) {
             rmSync(lockHome, {
                 recursive: true,
