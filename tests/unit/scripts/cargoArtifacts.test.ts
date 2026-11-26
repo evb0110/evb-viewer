@@ -51,6 +51,12 @@ interface ICargoArtifactsModule {
         byteLength: number;
         sha256: string;
     }>;
+    discardCargoBuildFromOtherWrapperFlags: (options: {
+        env: NodeJS.ProcessEnv;
+        projectRoot: string;
+        rustTarget?: string;
+        targetDirectory: string;
+    }) => void;
     getCargoArtifactPath: (options: {
         fileName: string;
         profile?: string;
@@ -98,6 +104,7 @@ interface ICargoArtifactsModule {
 const {
     computeCargoInputFingerprint,
     copyCargoArtifactVerified,
+    discardCargoBuildFromOtherWrapperFlags,
     getCargoArtifactPath,
     parseCargoToolBuildRequest,
     parseCargoTargetDirectory,
@@ -249,6 +256,60 @@ describe('Cargo artifact staging', () => {
             '--cfg',
             'getrandom_backend="custom"',
         ]);
+    });
+
+    it('names installed standard library source by its /rustc commit path, as hosts without it do', () => {
+        const sysroot = path.resolve('/opt/rustup/toolchains/1.89.0-aarch64-apple-darwin');
+        const runCommand = vi.fn((_command: string, args: string[]) => ({
+            status: 0,
+            stdout: args[0] === '-vV'
+                ? 'rustc 1.89.0\ncommit-hash: 29483883eed69d5fb4db01964cdf2af4d86e9cb2\nhost: aarch64-apple-darwin\n'
+                : `${sysroot}\n`,
+        }));
+        const {env} = getCargoBuildEnvironment({
+            env: {RUSTUP_HOME: path.resolve('/opt/rustup')},
+            platform: 'linux',
+            projectRoot: '/work/evb viewer',
+            runCommand,
+        });
+        // rustc applies the last matching remap, so the source remap follows rustup's.
+        expect(JSON.parse(env.EVB_CARGO_RUSTFLAGS).slice(1)).toEqual([
+            `--remap-path-prefix=${path.resolve('/opt/rustup')}=/rustup-home`,
+            `--remap-path-prefix=${path.join(sysroot, 'lib', 'rustlib', 'src', 'rust')}=/rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2`,
+            '--remap-path-prefix=/work/evb viewer=/evb-viewer',
+        ]);
+    });
+
+    it('discards a target build compiled under other wrapper flags and keeps one compiled under the same', async () => {
+        const targetDirectory = await mkdtemp(path.join(tmpdir(), 'cargo-wrapper-flags-'));
+        try {
+            const crate = getCargoArtifactPath({
+                fileName: 'deps/libcrate.rlib',
+                rustTarget: 'wasm32-unknown-unknown',
+                targetDirectory,
+            });
+            const discard = (flags: string) => discardCargoBuildFromOtherWrapperFlags({
+                env: {EVB_CARGO_RUSTFLAGS: flags},
+                projectRoot: process.cwd(),
+                rustTarget: 'wasm32-unknown-unknown',
+                targetDirectory,
+            });
+            await mkdir(path.dirname(crate), {recursive: true});
+            await writeFile(crate, 'compiled before the wrapper recorded its flags');
+            discard('["--remap-path-prefix=/a=/b"]');
+            expect(existsSync(crate)).toBe(false);
+            await mkdir(path.dirname(crate), {recursive: true});
+            await writeFile(crate, 'compiled under the recorded flags');
+            discard('["--remap-path-prefix=/a=/b"]');
+            expect(await readFile(crate, 'utf8')).toBe('compiled under the recorded flags');
+            discard('["--remap-path-prefix=/a=/c"]');
+            expect(existsSync(crate)).toBe(false);
+        } finally {
+            await rm(targetDirectory, {
+                recursive: true,
+                force: true,
+            });
+        }
     });
 
     it.skipIf(process.platform !== 'win32')('forwards long Windows compiler arguments intact', async () => {

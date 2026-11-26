@@ -14,6 +14,7 @@ import {
     copyCargoArtifactVerified,
     collectCargoSourceInputs,
     computeCargoInputFingerprint,
+    discardCargoBuildFromOtherWrapperFlags,
     getCargoArtifactPath,
     parseCargoTargetDirectory,
     readValidCargoBuildReceipt,
@@ -262,6 +263,14 @@ export async function runNativeToolBuilder(argv = process.argv.slice(2)) {
     console.log(
         `Building ${missingPlans.length} native tool(s) with shared metadata preparation; sccache ${cargoEnvironment.sccache}.`,
     );
+    for (const rustTarget of new Set(missingPlans.map(plan => plan.rustTarget))) {
+        discardCargoBuildFromOtherWrapperFlags({
+            env: cargoEnvironment.env,
+            projectRoot,
+            rustTarget,
+            targetDirectory: cargoTargetDirectory,
+        });
+    }
     for (const plan of missingPlans) {
         const result = spawnSync('cargo', plan.cargoArgs, {
             cwd: projectRoot,

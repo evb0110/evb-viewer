@@ -20,6 +20,7 @@ import {
 } from './lib/lower-wasm-bulk-memory.mjs';
 import {
     copyCargoArtifactVerified,
+    discardCargoBuildFromOtherWrapperFlags,
     getCargoArtifactPath,
     parseCargoToolBuildRequest,
     resolveCargoTargetDirectory,
@@ -137,12 +138,19 @@ export async function buildWasmArtifact(artifact, {outputDir} = {}) {
         rustTarget: plan.rustTarget,
         targetDirectory: cargoTargetDirectory,
     });
+    const {env} = getCargoBuildEnvironment({
+        projectRoot,
+        extraRustflags: artifact.rustflags,
+    });
+    discardCargoBuildFromOtherWrapperFlags({
+        env,
+        projectRoot,
+        rustTarget: plan.rustTarget,
+        targetDirectory: cargoTargetDirectory,
+    });
     const result = spawnSync('cargo', plan.cargoArgs, {
         cwd: projectRoot,
-        env: getCargoBuildEnvironment({
-            projectRoot,
-            extraRustflags: artifact.rustflags,
-        }).env,
+        env,
         stdio: 'inherit',
     });
     if (result.status !== 0) {

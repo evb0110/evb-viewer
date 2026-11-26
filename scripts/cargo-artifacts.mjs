@@ -1,6 +1,12 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import {
+    existsSync,
+    mkdirSync,
+    readFileSync,
+    rmSync,
+    writeFileSync,
+} from 'node:fs';
 import {
     copyFile,
     mkdir,
@@ -102,6 +108,47 @@ export function getCargoArtifactPath({
         profile,
         fileName,
     );
+}
+
+const WRAPPER_FLAG_KEYS = [
+    'EVB_CARGO_RUSTFLAGS',
+    'EVB_CARGO_APPLE_RUSTFLAGS',
+    'EVB_CARGO_WASM_RUSTFLAGS',
+];
+const WRAPPER_FILES = [
+    'cargo-rustc-wrapper.mjs',
+    'cargo-rustc-wrapper.rs',
+    'cargo-rustc-launcher.mjs',
+];
+
+/**
+ * Cargo decides what is fresh without seeing the flags the rustc wrapper adds,
+ * so it keeps reusing crates compiled under other flags, such as ones from
+ * before the toolchain paths were remapped. A target's release folder is kept
+ * only while the wrapper and its flags are those it was built with.
+ * @param {{env: NodeJS.ProcessEnv, projectRoot: string, rustTarget?: string, targetDirectory: string}} options
+ */
+export function discardCargoBuildFromOtherWrapperFlags({
+    env, projectRoot, rustTarget, targetDirectory,
+}) {
+    const hash = createHash('sha256').update(JSON.stringify(WRAPPER_FLAG_KEYS.map(key => env[key] ?? null)));
+    for (const file of WRAPPER_FILES) {
+        hash.update(readFileSync(path.join(projectRoot, 'scripts', 'lib', file)));
+    }
+    const identity = hash.digest('hex');
+    const profileDirectory = path.dirname(getCargoArtifactPath({
+        fileName: 'wrapper-flags',
+        rustTarget,
+        targetDirectory,
+    }));
+    const stampPath = path.join(profileDirectory, '.evb-wrapper-flags');
+    if (existsSync(stampPath) && readFileSync(stampPath, 'utf8') === identity) return;
+    rmSync(profileDirectory, {
+        force: true,
+        recursive: true,
+    });
+    mkdirSync(profileDirectory, {recursive: true});
+    writeFileSync(stampPath, identity);
 }
 
 function sha256(bytes) {

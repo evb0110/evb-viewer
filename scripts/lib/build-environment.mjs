@@ -170,16 +170,54 @@ function getRustupHome(env, projectRoot) {
 }
 
 /**
+ * @typedef {(
+ *   command: string,
+ *   args: string[],
+ *   options: {cwd?: string, encoding: BufferEncoding, env?: NodeJS.ProcessEnv},
+ * ) => {status: number | null; stdout: string} | undefined} TRunCommand
+ */
+
+/** @type {Map<string, string[]>} */
+const rustSourceRemaps = new Map();
+
+/**
+ * With the rust-src component installed, rustc names standard library files by
+ * their path in the toolchain, which carries the host triple; without it, by
+ * /rustc/<commit>. Mapping the installed source back to /rustc/<commit> gives
+ * every host the same paths. A later remap wins, so this one follows rustup's.
+ * @param {NodeJS.ProcessEnv} env @param {string} projectRoot @param {TRunCommand} runCommand
+ */
+function getRustSourceRemap(env, projectRoot, runCommand) {
+    const key = JSON.stringify([projectRoot, env.RUSTC, getRustupHome(env, projectRoot), env.RUSTUP_TOOLCHAIN]);
+    const cached = runCommand === spawnSync ? rustSourceRemaps.get(key) : undefined;
+    if (cached) return cached;
+    const run = (/** @type {string[]} */ args) => runCommand(env.RUSTC || 'rustc', args, {
+        cwd: projectRoot,
+        encoding: 'utf8',
+        env,
+    });
+    const sysroot = run(['--print', 'sysroot']);
+    const version = run(['-vV']);
+    const commit = version?.status === 0 ? /^commit-hash: ([0-9a-f]{40})$/mu.exec(version.stdout)?.[1] : undefined;
+    const remap = sysroot?.status === 0 && sysroot.stdout.trim() && commit
+        ? [`--remap-path-prefix=${path.join(sysroot.stdout.trim(), 'lib', 'rustlib', 'src', 'rust')}=/rustc/${commit}`]
+        : [];
+    if (runCommand === spawnSync) rustSourceRemaps.set(key, remap);
+    return remap;
+}
+
+/**
  * Build-owned arguments, kept separate from Cargo's flag resolution.
- * @param {{env?: NodeJS.ProcessEnv, extraRustflags?: string[], projectRoot: string}} options
+ * @param {{env?: NodeJS.ProcessEnv, extraRustflags?: string[], projectRoot: string, runCommand?: TRunCommand}} options
  * @returns {string[]}
  */
 export function getCargoRustflags({
-    env = process.env, extraRustflags = [], projectRoot,
+    env = process.env, extraRustflags = [], projectRoot, runCommand = spawnSync,
 }) {
     return [
         `--remap-path-prefix=${getCargoHome(env, projectRoot)}=/cargo-home`,
         `--remap-path-prefix=${getRustupHome(env, projectRoot)}=/rustup-home`,
+        ...getRustSourceRemap(env, projectRoot, runCommand),
         `--remap-path-prefix=${projectRoot}=/evb-viewer`,
         ...extraRustflags,
     ];
@@ -191,11 +229,7 @@ export function getCargoRustflags({
  *   platform?: NodeJS.Platform;
  *   extraRustflags?: string[];
  *   projectRoot: string;
- *   runCommand?: (
- *     command: string,
- *     args: string[],
- *     options: {encoding: BufferEncoding},
- *   ) => {status: number | null; stdout: string};
+ *   runCommand?: TRunCommand;
  * }} options
  */
 export function getCargoBuildEnvironment({
@@ -220,6 +254,7 @@ export function getCargoBuildEnvironment({
             EVB_CARGO_RUSTFLAGS: JSON.stringify(getCargoRustflags({
                 env,
                 projectRoot,
+                runCommand,
             })),
             EVB_CARGO_APPLE_RUSTFLAGS: JSON.stringify(platform === 'darwin' ? [
                 '-C',
