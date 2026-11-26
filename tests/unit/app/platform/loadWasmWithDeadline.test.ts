@@ -10,6 +10,7 @@ import {
     compileWasmModuleOnce,
     handlePrecompiledWasmModuleMessage,
     loadWasmWithDeadline,
+    postPrecompiledWasmModules,
     PRECOMPILED_WASM_MODULE_MESSAGE_TYPE,
     readLoadedWasmDigest,
     wasmMemoryHighWaterBytes,
@@ -220,6 +221,19 @@ describe('loadWasmWithDeadline', () => {
         const rev1 = await compileWasmModuleOnce('/versioned-tool.wasm?rev=1');
         const rev2 = await compileWasmModuleOnce('/versioned-tool.wasm?rev=2');
         expect(rev1.module).not.toBe(rev2.module);
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+
+        // Posting precompiled modules to a worker sends cached modules synchronously
+        // without triggering a main-thread fetch/compile for cold paths.
+        const posted: unknown[] = [];
+        const fakeWorker = {postMessage: (message: unknown) => { posted.push(message); }} as unknown as Worker;
+        postPrecompiledWasmModules(fakeWorker, ['/compiled-once-test.wasm', '/never-compiled-cold.wasm']);
+        expect(posted).toHaveLength(1);
+        expect(posted[0]).toMatchObject({
+            type: PRECOMPILED_WASM_MODULE_MESSAGE_TYPE,
+            module: first.module,
+            digest: expectedDigest,
+        });
         expect(fetchMock).toHaveBeenCalledTimes(3);
     });
 });

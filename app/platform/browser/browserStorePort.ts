@@ -3,7 +3,10 @@ import type {
     IStoreFile,
     IStorePort,
 } from '@document-store/storePort';
-import { postPrecompiledWasmModules } from '@app/platform/browser/loadWasmWithDeadline';
+import {
+    handlePrecompiledWasmModuleMessage,
+    postPrecompiledWasmModules,
+} from '@app/platform/browser/loadWasmWithDeadline';
 import {
     PDF_PAGE_OPS_WASM_PATH,
     type IOcrTextLayerAppendRequest,
@@ -84,6 +87,7 @@ export function createWorkerStorePort(worker: Worker): IStorePort & {probe(): Pr
         pending.clear();
     };
     worker.addEventListener('message', (event: MessageEvent<IResponse>) => {
+        if (handlePrecompiledWasmModuleMessage(event.data)) return;
         const request = pending.get(event.data.id);
         if (!request) return;
         pending.delete(event.data.id);

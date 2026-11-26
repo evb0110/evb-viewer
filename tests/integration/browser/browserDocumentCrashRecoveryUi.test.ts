@@ -80,16 +80,16 @@ function readUserFile(page: Page) {
     }, FILE_NAME).then(bytes => Uint8Array.from(bytes));
 }
 
-/** Each store directory's committed revision, read from the page as recovery would read it. */
+/** Each store directory's committed revision (1 is the opened destination's bytes), read from the page as recovery would read it. */
 function readCommittedRevisions(page: Page) {
     return page.evaluate(async () => {
-        const revisions: Record<string, number | null> = {};
+        const revisions: Record<string, number> = {};
         const documents = await (await navigator.storage.getDirectory()).getDirectoryHandle('documents').catch(() => null);
         for await (const [id, dir] of documents?.entries() ?? []) {
             const manifest = await (dir as FileSystemDirectoryHandle).getFileHandle('manifest.json')
                 .then(async handle => JSON.parse(await (await handle.getFile()).text()) as {current?: {id: number}})
                 .catch(() => null);
-            revisions[id] = manifest?.current?.id ?? null;
+            revisions[id] = manifest?.current?.id ?? 1;
         }
         return JSON.stringify(revisions);
     });

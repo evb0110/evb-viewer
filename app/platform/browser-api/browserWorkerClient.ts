@@ -3,7 +3,10 @@ import {
     BrowserWorkerResetError,
 } from '@app/platform/browser-api/browserWorkerClientLifecycle';
 export {BrowserWorkerResetError} from '@app/platform/browser-api/browserWorkerClientLifecycle';
-import {postPrecompiledWasmModules} from '@app/platform/browser/loadWasmWithDeadline';
+import {
+    handlePrecompiledWasmModuleMessage,
+    postPrecompiledWasmModules,
+} from '@app/platform/browser/loadWasmWithDeadline';
 import {getPerformanceProfile} from '@app/utils/performanceProfile';
 import type {IResolvedStreamingRasterHandoffBudget} from '@evb/scan-cleanup/core/streamingRasterHandoff';
 
@@ -22,8 +25,9 @@ interface IBrowserWorkerClientOptions<TPendingRequest> {
      */
     createWorker: (key: string | undefined) => Worker;
     /**
-     * Public WASM paths to compile once on the main thread and share with each
-     * spawned worker via structured clone so worker clones never recompile.
+     * Public WASM paths whose compiled `WebAssembly.Module` instances (once
+     * reported back by the first worker that compiled them) are shared with each
+     * subsequently spawned worker via structured clone so clones never recompile.
      */
     preloadWasmPaths?: (key: string | undefined) => readonly string[];
     /** The page-wide budget a worker of a counted key holds a place in while it lives. */
@@ -203,6 +207,10 @@ export class BrowserWorkerClient<
         const workerEventListeners: IWorkerEventListeners = {
             message: event => {
                 if (this.worker !== worker || this.workerGeneration !== generation) {
+                    return;
+                }
+
+                if (handlePrecompiledWasmModuleMessage(event.data)) {
                     return;
                 }
 

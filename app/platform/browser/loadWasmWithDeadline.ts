@@ -112,52 +112,87 @@ export function compileWasmModuleOnce(
 }
 
 /**
- * Compiles each WASM `path` once on the caller's thread and posts the compiled
- * `WebAssembly.Module` to `worker` via structured clone so worker clones never
- * recompile. Already-compiled modules are posted synchronously before the
- * worker's first request message can be enqueued; cold modules compile in the
- * background and populate the cache for all subsequent worker clones.
+ * Posts already-compiled `WebAssembly.Module` instances for `paths` to `worker`
+ * synchronously via structured clone so subsequent worker clones never recompile.
+ * Cold modules compile off the main thread inside the first worker and report
+ * their compiled module back to the parent thread, keeping the UI thread free
+ * of fetch, SHA-256 hashing, and WASM compilation work.
  */
 export function postPrecompiledWasmModules(worker: Worker, paths: readonly string[]) {
     if (
         typeof WebAssembly === 'undefined'
         || typeof WebAssembly.Module !== 'function'
-        || typeof fetch !== 'function'
-        || typeof globalThis.location?.href !== 'string'
-        || !/^https?:/iu.test(globalThis.location.href)
     ) {
         return;
     }
     for (const path of paths) {
         const resolvedUrl = resolveWasmUrl(path);
         const ready = precompiledWasmModules.get(wasmCacheKey(resolvedUrl));
-        if (ready && isRealWasmModule(ready.module)) {
-            try {
-                worker.postMessage({
-                    type: PRECOMPILED_WASM_MODULE_MESSAGE_TYPE,
-                    path: resolvedUrl,
-                    module: ready.module,
-                    digest: ready.digest,
-                } satisfies IPrecompiledWasmModuleMessage);
-            } catch {
-                // Worker may already have terminated; safe to ignore.
-            }
-            continue;
+        if (!ready || !isRealWasmModule(ready.module)) continue;
+        try {
+            worker.postMessage({
+                type: PRECOMPILED_WASM_MODULE_MESSAGE_TYPE,
+                path: resolvedUrl,
+                module: ready.module,
+                digest: ready.digest,
+            } satisfies IPrecompiledWasmModuleMessage);
+        } catch {
+            // Worker may already have terminated; safe to ignore.
         }
-        void compileWasmModuleOnce(resolvedUrl).then(({module, digest}) => {
-            if (!isRealWasmModule(module)) return;
-            try {
-                worker.postMessage({
-                    type: PRECOMPILED_WASM_MODULE_MESSAGE_TYPE,
-                    path: resolvedUrl,
-                    module,
-                    digest,
-                } satisfies IPrecompiledWasmModuleMessage);
-            } catch {
-                // Worker may already have terminated; safe to ignore.
-            }
-        }).catch(() => undefined);
     }
+}
+
+function reportCompiledWasmModuleToParent(
+    url: string,
+    module: WebAssembly.Module,
+    digest: string | null,
+) {
+    if (
+        typeof window !== 'undefined'
+        || typeof self === 'undefined'
+        || typeof self.postMessage !== 'function'
+        || !isRealWasmModule(module)
+    ) {
+        return;
+    }
+    try {
+        self.postMessage({
+            type: PRECOMPILED_WASM_MODULE_MESSAGE_TYPE,
+            path: url,
+            module,
+            digest,
+        } satisfies IPrecompiledWasmModuleMessage);
+    } catch {
+        // Non-dedicated worker context or structured-clone unavailable; ignore.
+    }
+}
+
+function cacheAndShareCompiledWasmModule(
+    url: string,
+    key: string,
+    module: WebAssembly.Module,
+) {
+    if (!isRealWasmModule(module)) return;
+    const resolvedUrl = resolveWasmUrl(url);
+    const digestPromise = loadedWasmDigests.get(key);
+    if (digestPromise) {
+        void digestPromise.then((digest) => {
+            if (!precompiledWasmModules.has(key)) {
+                precompiledWasmModules.set(key, {module, digest});
+            }
+            reportCompiledWasmModuleToParent(resolvedUrl, module, digest);
+        }).catch(() => {
+            if (!precompiledWasmModules.has(key)) {
+                precompiledWasmModules.set(key, {module, digest: null});
+            }
+            reportCompiledWasmModuleToParent(resolvedUrl, module, null);
+        });
+        return;
+    }
+    if (!precompiledWasmModules.has(key)) {
+        precompiledWasmModules.set(key, {module, digest: null});
+    }
+    reportCompiledWasmModuleToParent(resolvedUrl, module, null);
 }
 
 async function sha256Hex(chunks: readonly Uint8Array[]) {
@@ -237,17 +272,8 @@ export function loadWasmWithDeadline(
             : undefined,
         buffered: bytes => WebAssembly.instantiate(bytes, imports),
     }).then((result) => {
-        if ('module' in result && isRealWasmModule(result.module)) {
-            const digestPromise = loadedWasmDigests.get(key);
-            if (digestPromise) {
-                void digestPromise.then((digest) => {
-                    if (!precompiledWasmModules.has(key)) {
-                        precompiledWasmModules.set(key, {module: result.module, digest});
-                    }
-                }).catch(() => undefined);
-            } else {
-                precompiledWasmModules.set(key, {module: result.module, digest: null});
-            }
+        if ('module' in result) {
+            cacheAndShareCompiledWasmModule(url, key, result.module);
         }
         return result;
     });
@@ -269,18 +295,7 @@ export function compileWasmWithDeadline(url: string, stallTimeoutMs = DEFAULT_WA
             : undefined,
         buffered: bytes => WebAssembly.compile(bytes),
     }).then((module) => {
-        if (isRealWasmModule(module)) {
-            const digestPromise = loadedWasmDigests.get(key);
-            if (digestPromise) {
-                void digestPromise.then((digest) => {
-                    if (!precompiledWasmModules.has(key)) {
-                        precompiledWasmModules.set(key, {module, digest});
-                    }
-                }).catch(() => undefined);
-            } else {
-                precompiledWasmModules.set(key, {module, digest: null});
-            }
-        }
+        cacheAndShareCompiledWasmModule(url, key, module);
         return module;
     });
 }
