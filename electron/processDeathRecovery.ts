@@ -26,35 +26,27 @@ interface IProcessDeathRecoveryOptions {
 
 /**
  * `serviceName` of every Electron utility process this app forks, read back
- * here to recognise the app's own teardown. The document fingerprint and save
- * utilities come from `runDocumentSaveUtilityProcess`; the OCR engine process
- * comes from `createOcrEngineHost`. Every other child process the app starts
- * is a Node `child_process`, which Chromium never reports through
- * `child-process-gone`.
+ * here to recognise the app's own teardown. The OCR engine process comes from
+ * `createOcrEngineHost`. Every other child process the app starts is a Node
+ * `child_process`, which Chromium never reports through `child-process-gone`.
  */
-export const DOCUMENT_FINGERPRINT_SERVICE_NAME = 'EVB document fingerprint';
-export const DOCUMENT_SAVE_SERVICE_NAME = 'EVB document save';
 export const OCR_ENGINE_SERVICE_NAME = 'EVB OCR engine';
 
 const APP_TERMINATED_UTILITY_IDENTITIES: ReadonlySet<string> = new Set([
-    DOCUMENT_FINGERPRINT_SERVICE_NAME,
-    DOCUMENT_SAVE_SERVICE_NAME,
     OCR_ENGINE_SERVICE_NAME,
 ]);
 
 /**
  * Whether this death is an app-owned utility process that the app itself ended.
  *
- * `runDocumentSaveUtilityProcess` kills its child as ordinary teardown the
- * moment the worker has answered, so `killed` carries no fault signal for those
- * two identities. The OCR engine process exits on its own when asked; main
- * kills it only when it has not exited within its grace time, or when it sent
- * a message main cannot read, and `createOcrEngineHost` reports both itself,
- * with the pages they failed. Its crashes, abnormal exits and out-of-memory
- * ends are not `killed` and stay reported here. The test is deliberately an allowlist rather than "any killed
- * non-GPU process": a Utility process the app did not fork, a Zygote, a sandbox
- * helper or a plugin host is only ever killed by something outside the app, and
- * that is worth reporting.
+ * The OCR engine process exits on its own when asked; main kills it only when
+ * it has not exited within its grace time, or when it sent a message main
+ * cannot read, and `createOcrEngineHost` reports both itself, with the pages
+ * they failed. Its crashes, abnormal exits and out-of-memory ends are not
+ * `killed` and stay reported here. The test is deliberately an allowlist rather
+ * than "any killed non-GPU process": a Utility process the app did not fork, a
+ * Zygote, a sandbox helper or a plugin host is only ever killed by something
+ * outside the app, and that is worth reporting.
  *
  * `utilityProcess.fork` documents its `serviceName` option as surfacing in the
  * `name` field of this event, while Chromium fills `serviceName` with the mojo

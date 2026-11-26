@@ -1,7 +1,11 @@
-import type * as TNodeFsPromises from 'node:fs/promises';
-import type * as TNativeToolCommand from '@electron/native-tools/runNativeToolCommand';
-import type * as TViMockOriginalModule from '@electron/resources/jobBroker';
-
+import type * as TJobBrokerModule from '@electron/resources/jobBroker';
+import {
+    mkdtemp,
+    rm,
+    writeFile,
+} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {
     afterEach,
     beforeEach,
@@ -10,728 +14,117 @@ import {
     it,
     vi,
 } from 'vitest';
-import {EventEmitter} from 'node:events';
 import {
-    fingerprintFileWithUtilityProcess,
-    getRetainedDocumentSaveUtilityCount,
-    retryRetainedDocumentSaveUtilityProcesses,
-    runDocumentSaveUtilityProcess,
-    shutdownRetainedDocumentSaveUtilityProcesses,
-} from '@electron/features/documents/main/fingerprintFileWithUtilityProcess';
-import {DOCUMENT_SAVE_SERVICE_NAME} from '@electron/processDeathRecovery';
-import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
+    getUnprovenNativeTerminationDetail,
+    markUnprovenNativeTermination,
+} from '@electron/utils/nativeTerminationProof';
 
 const mocks = vi.hoisted(() => ({
-    brokerAcquire: vi.fn(),
-    fork: vi.fn(),
-    stat: vi.fn(async () => ({size: 1024})),
-    terminateProcessTree: vi.fn(async () => true),
+    broker: null as TJobBrokerModule.JobBroker | null,
+    runNativeToolCommand: vi.fn(),
 }));
 
-vi.mock('electron', () => ({utilityProcess: {fork: mocks.fork}}));
-vi.mock('node:fs/promises', () => ({stat: mocks.stat}));
-vi.mock('@electron-worker-bundles/electronWorkerBundles.js', () => ({WORKER_BUNDLES_BY_ID: {'document-save-utility': {fileName: 'document-save-utility.mjs'}}}));
-vi.mock('@electron/utils/workerTask', () => ({resolveUnpackedWorkerPath: vi.fn(
-    () => '/tmp/document-save-utility.mjs',
-)}));
-vi.mock('@electron/resources/jobBroker', async (importOriginal) => ({
-    ...(await importOriginal<typeof TViMockOriginalModule>()),
-    mainJobBroker: {acquire: mocks.brokerAcquire},
+vi.mock('@electron/resources/jobBroker', async importOriginal => {
+    const actual = await importOriginal<typeof TJobBrokerModule>();
+    return {
+        ...actual,
+        mainJobBroker: {
+            run: <T>(
+                request: TJobBrokerModule.IJobBrokerRequest,
+                work: (context: TJobBrokerModule.IJobBrokerRunContext) => Promise<T>,
+            ) => mocks.broker!.run(request, work),
+        },
+    };
+});
+vi.mock('@electron/native-tools/runNativeToolCommand', () => ({
+    runNativeToolCommand: mocks.runNativeToolCommand,
 }));
-vi.mock('@electron/utils/processTree', () => ({terminateProcessTree: mocks.terminateProcessTree}));
+vi.mock('@electron/pdf/nativeToolPaths', () => ({
+    getPdfNativeToolPaths: () => ({qpdf: '/mock/qpdf'}),
+}));
 
-function createChild(pid: number | undefined, shutdownResponses: Array<boolean | undefined> = [true]) {
-    const child = Object.assign(new EventEmitter(), {
-        kill: vi.fn(() => true),
-        pid,
-        postMessage: vi.fn(),
-    });
-    child.postMessage.mockImplementation((value: unknown) => {
-        if (
-            typeof value === 'object'
-            && value !== null
-            && 'type' in value
-            && value.type === 'shutdown'
-            && 'requestId' in value
-            && typeof value.requestId === 'string'
-        ) {
-            const terminated = shutdownResponses.shift();
-            if (terminated !== undefined) {
-                const requestId = value.requestId;
-                queueMicrotask(() => child.emit('message', {
-                    type: 'shutdown-complete',
-                    requestId,
-                    terminated,
-                }));
-            }
-        }
-    });
-    return child;
-}
+const {
+    fingerprintFileWithUtilityProcess,
+    validateDocumentSaveStagingFile,
+} = await import('@electron/features/documents/main/fingerprintFileWithUtilityProcess');
+const {verifyPdfTempFile} = await import('@electron/features/documents/main/verifyPdfTempFile');
 
-describe('runDocumentSaveUtilityProcess cancellation', () => {
-    beforeEach(() => {
-        mocks.fork.mockReset();
-        mocks.terminateProcessTree.mockReset();
-        mocks.terminateProcessTree.mockResolvedValue(true);
+describe('in-process document save fingerprinting and validation', () => {
+    let dir: string;
+    let pdfPath: string;
+    const samplePdf = '%PDF-1.4\n1 0 obj <<>> endobj\n%%EOF\n';
+
+    beforeEach(async () => {
+        vi.clearAllMocks();
+        const {
+            JobBroker,
+            MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
+            MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
+        } = await vi.importActual<typeof TJobBrokerModule>('@electron/resources/jobBroker');
+        mocks.broker = new JobBroker({
+            cpuTokens: 4,
+            estimatedResidentBytes: 1024 * 1024 * 1024,
+            nativeProcesses: 4,
+            ioWeight: 8,
+        }, {
+            maxInteractiveJobResources: MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
+            interactiveReserve: MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
+        });
+        dir = await mkdtemp(join(tmpdir(), 'evb-doc-save-inproc-'));
+        pdfPath = join(dir, 'staged.pdf');
+        await writeFile(pdfPath, samplePdf);
     });
 
     afterEach(async () => {
-        await retryRetainedDocumentSaveUtilityProcesses();
-        vi.useRealTimers();
+        await rm(dir, {
+            recursive: true,
+            force: true,
+        });
     });
 
-    it('does not fork after cancellation has already been requested', async () => {
+    it('fingerprints a file asynchronously in main under an interactive broker slot', async () => {
+        const result = await fingerprintFileWithUtilityProcess(pdfPath);
+
+        expect(result.bytes).toBe(Buffer.byteLength(samplePdf));
+        expect(result.sha256).toMatch(/^[a-f0-9]{64}$/u);
+        expect(result.contentFingerprint).toMatch(/^sha256-full-v1:[a-f0-9]{64}$/u);
+        expect(mocks.broker!.getSnapshot()).toMatchObject({
+            active: 0,
+            queued: 0,
+        });
+    });
+
+    it('rejects immediately without running when already aborted', async () => {
         const controller = new AbortController();
-        controller.abort(new Error('save canceled before utility launch'));
+        controller.abort(new Error('save canceled before validation'));
 
-        await expect(runDocumentSaveUtilityProcess({
-            cwd: '/tmp',
-            serviceName: DOCUMENT_SAVE_SERVICE_NAME,
-            utilityName: 'Document save utility',
+        await expect(validateDocumentSaveStagingFile({
+            type: 'validate',
+            sourcePath: pdfPath,
+            expectedBytes: Buffer.byteLength(samplePdf),
+            validationBinary: '/mock/qpdf',
+        }, {
             timeoutMs: 1_000,
-            request: {
-                type: 'inspect',
-                sourcePath: '/tmp/source.pdf',
-                expectedBytes: 1,
-            },
             signal: controller.signal,
-        })).rejects.toThrow('save canceled before utility launch');
-
-        expect(mocks.fork).not.toHaveBeenCalled();
+        })).rejects.toThrow('save canceled before validation');
+        expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
     });
 
-    it('terminates the utility process by direct PID before reporting cancellation', async () => {
-        const child = createChild(8123);
-        mocks.fork.mockReturnValueOnce(child);
-        const controller = new AbortController();
-        const result = runDocumentSaveUtilityProcess({
-            cwd: '/tmp',
-            serviceName: DOCUMENT_SAVE_SERVICE_NAME,
-            utilityName: 'Document save utility',
-            timeoutMs: 1_000,
-            request: {
-                type: 'inspect',
-                sourcePath: '/tmp/source.pdf',
-                expectedBytes: 1,
-            },
-            signal: controller.signal,
-        });
-
-        child.emit('spawn');
-        controller.abort(new Error('save canceled while qpdf was running'));
-
-        await expect(result).rejects.toThrow('save canceled while qpdf was running');
-        expect(mocks.terminateProcessTree).toHaveBeenCalledWith(8123, expect.objectContaining({
-            graceMs: 2_500,
-            preferProcessGroup: false,
-        }));
-    });
-
-    it('keeps a false termination result on the cancellation failure', async () => {
-        const child = createChild(8124);
-        mocks.fork.mockReturnValueOnce(child);
-        mocks.terminateProcessTree.mockResolvedValueOnce(false);
-        const controller = new AbortController();
-        const result = runDocumentSaveUtilityProcess({
-            cwd: '/tmp',
-            serviceName: DOCUMENT_SAVE_SERVICE_NAME,
-            utilityName: 'Document save utility',
-            timeoutMs: 1_000,
-            request: {type: 'inspect'},
-            signal: controller.signal,
-        });
-
-        child.emit('spawn');
-        controller.abort(new Error('save cancellation'));
-
-        const error = await result.catch(value => value);
-        expect(error).toBeInstanceOf(Error);
-        expect(getUnprovenNativeTerminationDetail(error)).toContain('pid=8124');
-    });
-
-    it('retains the lease after a false proof until an owned retry proves termination', async () => {
-        const release = vi.fn();
-        const child = createChild(8125);
-        mocks.fork.mockReturnValueOnce(child);
-        mocks.terminateProcessTree.mockResolvedValueOnce(false);
-        const controller = new AbortController();
-        const result = runDocumentSaveUtilityProcess({
-            cwd: '/tmp',
-            serviceName: DOCUMENT_SAVE_SERVICE_NAME,
-            utilityName: 'Document save utility',
-            timeoutMs: 1_000,
-            request: {type: 'inspect'},
-            signal: controller.signal,
-            resourceLease: {
-                token: 'utility-lease',
-                resources: {
-                    cpuTokens: 1,
-                    estimatedResidentBytes: 1,
-                    nativeProcesses: 1,
-                    ioWeight: 1,
-                },
-                release,
-                shrink: () => false,
-            },
-        });
-
-        child.emit('spawn');
-        controller.abort(new Error('save cancellation'));
-
-        const error = await result.catch(value => value);
-        expect(error).toBeInstanceOf(Error);
-        expect(getUnprovenNativeTerminationDetail(error)).toContain('pid=8125');
-        expect(release).not.toHaveBeenCalled();
-        expect(getRetainedDocumentSaveUtilityCount()).toBe(1);
-
-        mocks.terminateProcessTree.mockResolvedValueOnce(true);
-        await expect(retryRetainedDocumentSaveUtilityProcesses()).resolves.toBe(true);
-        expect(release).toHaveBeenCalledOnce();
-        expect(getRetainedDocumentSaveUtilityCount()).toBe(0);
-    });
-
-    it('returns a valid result before pending termination settles and retains its lease on false proof', async () => {
-        const release = vi.fn();
-        const termination = Promise.withResolvers<boolean>();
-        const child = createChild(8126);
-        mocks.fork.mockReturnValueOnce(child);
-        mocks.terminateProcessTree.mockReturnValueOnce(termination.promise);
-        const result = runDocumentSaveUtilityProcess({
-            cwd: '/tmp',
-            serviceName: DOCUMENT_SAVE_SERVICE_NAME,
-            utilityName: 'Document save utility',
-            timeoutMs: 1_000,
-            request: {type: 'inspect'},
-            resourceLease: {
-                token: 'utility-lease',
-                resources: {
-                    cpuTokens: 1,
-                    estimatedResidentBytes: 1,
-                    nativeProcesses: 1,
-                    ioWeight: 1,
-                },
-                release,
-                shrink: () => false,
-            },
-        });
-
-        child.emit('spawn');
-        child.emit('message', {
-            type: 'result',
-            ok: true,
-            bytes: 1024,
-            sha256: 'a'.repeat(64),
-        });
-
-        await expect(result).resolves.toEqual({
-            bytes: 1024,
-            sha256: 'a'.repeat(64),
-        });
-        expect(release).not.toHaveBeenCalled();
-        termination.resolve(false);
-        await vi.waitFor(() => expect(getRetainedDocumentSaveUtilityCount()).toBe(1));
-        expect(release).not.toHaveBeenCalled();
-
-        await Promise.resolve();
-        mocks.terminateProcessTree.mockResolvedValueOnce(true);
-        await retryRetainedDocumentSaveUtilityProcesses();
-        expect(release).toHaveBeenCalledOnce();
-    });
-
-    it('does not treat a late direct-child exit as descendant termination proof', async () => {
-        const release = vi.fn();
-        const child = createChild(8126);
-        mocks.fork.mockReturnValueOnce(child);
-        mocks.terminateProcessTree.mockResolvedValueOnce(false);
-        const controller = new AbortController();
-        const result = runDocumentSaveUtilityProcess({
-            cwd: '/tmp',
-            serviceName: DOCUMENT_SAVE_SERVICE_NAME,
-            utilityName: 'Document save utility',
-            timeoutMs: 1_000,
-            request: {type: 'inspect'},
-            signal: controller.signal,
-            resourceLease: {
-                token: 'utility-lease',
-                resources: {
-                    cpuTokens: 1,
-                    estimatedResidentBytes: 1,
-                    nativeProcesses: 1,
-                    ioWeight: 1,
-                },
-                release,
-                shrink: () => false,
-            },
-        });
-
-        child.emit('spawn');
-        controller.abort(new Error('save cancellation'));
-        await expect(result).rejects.toThrow('save cancellation');
-        child.emit('exit', 0);
-
-        expect(release).not.toHaveBeenCalled();
-        expect(getRetainedDocumentSaveUtilityCount()).toBe(1);
-
-        mocks.terminateProcessTree.mockResolvedValueOnce(true);
-        await expect(retryRetainedDocumentSaveUtilityProcesses()).resolves.toBe(true);
-        expect(release).toHaveBeenCalledOnce();
-        expect(getRetainedDocumentSaveUtilityCount()).toBe(0);
-    });
-
-    it('reports unproven retained cleanup during shutdown without releasing its lease', async () => {
-        const release = vi.fn();
-        const child = createChild(8127);
-        mocks.fork.mockReturnValueOnce(child);
-        mocks.terminateProcessTree.mockResolvedValueOnce(false);
-        mocks.terminateProcessTree.mockResolvedValueOnce(false);
-        const controller = new AbortController();
-        const result = runDocumentSaveUtilityProcess({
-            cwd: '/tmp',
-            serviceName: DOCUMENT_SAVE_SERVICE_NAME,
-            utilityName: 'Document save utility',
-            timeoutMs: 1_000,
-            request: {type: 'inspect'},
-            signal: controller.signal,
-            resourceLease: {
-                token: 'utility-lease',
-                resources: {
-                    cpuTokens: 1,
-                    estimatedResidentBytes: 1,
-                    nativeProcesses: 1,
-                    ioWeight: 1,
-                },
-                release,
-                shrink: () => false,
-            },
-        });
-
-        child.emit('spawn');
-        controller.abort(new Error('save cancellation'));
-        await expect(result).rejects.toThrow('save cancellation');
-
-        await expect(shutdownRetainedDocumentSaveUtilityProcesses())
-            .rejects.toThrow('cleanup remains unproven (1 retained process)');
-        expect(release).not.toHaveBeenCalled();
-        expect(getRetainedDocumentSaveUtilityCount()).toBe(1);
-
-        mocks.terminateProcessTree.mockResolvedValueOnce(true);
-        await expect(shutdownRetainedDocumentSaveUtilityProcesses()).resolves.toBeUndefined();
-        expect(release).toHaveBeenCalledOnce();
-        expect(getRetainedDocumentSaveUtilityCount()).toBe(0);
-    });
-
-    it('retains ownership when the worker cannot prove native descendants are gone', async () => {
-        const release = vi.fn();
-        const child = createChild(8131, [false]);
-        mocks.fork.mockReturnValueOnce(child);
-        const controller = new AbortController();
-        const result = runDocumentSaveUtilityProcess({
-            cwd: '/tmp',
-            serviceName: DOCUMENT_SAVE_SERVICE_NAME,
-            utilityName: 'Document save utility',
-            timeoutMs: 1_000,
-            request: {type: 'inspect'},
-            signal: controller.signal,
-            resourceLease: {
-                token: 'utility-lease',
-                resources: {
-                    cpuTokens: 1,
-                    estimatedResidentBytes: 1,
-                    nativeProcesses: 1,
-                    ioWeight: 1,
-                },
-                release,
-                shrink: () => false,
-            },
-        });
-
-        child.emit('spawn');
-        controller.abort(new Error('native descendant cancellation'));
-
-        const error = await result.catch(value => value);
-        expect(getUnprovenNativeTerminationDetail(error)).toContain('pid=8131');
-        expect(release).not.toHaveBeenCalled();
-        expect(getRetainedDocumentSaveUtilityCount()).toBe(1);
-        expect(mocks.terminateProcessTree).toHaveBeenCalledWith(8131, expect.any(Object));
-
-        const retry = retryRetainedDocumentSaveUtilityProcesses();
-        await Promise.resolve();
-        child.emit('message', {
-            type: 'shutdown-complete',
-            requestId: child.postMessage.mock.calls.at(-1)?.[0].requestId,
-            terminated: true,
-        });
-        await expect(retry).resolves.toBe(true);
-        expect(release).toHaveBeenCalledOnce();
-    });
-
-    it('bounds a retry after a failed proof and accepts a later correlated proof', async () => {
-        vi.useFakeTimers();
-        const release = vi.fn();
-        const child = createChild(8132, [
-            false,
-            undefined,
-        ]);
-        mocks.fork.mockReturnValueOnce(child);
-        mocks.terminateProcessTree
-            .mockResolvedValueOnce(false)
-            .mockResolvedValueOnce(false)
-            .mockResolvedValueOnce(true);
-        const controller = new AbortController();
-        const result = runDocumentSaveUtilityProcess({
-            cwd: '/tmp',
-            serviceName: DOCUMENT_SAVE_SERVICE_NAME,
-            utilityName: 'Document save utility',
-            timeoutMs: 1_000,
-            request: {type: 'inspect'},
-            signal: controller.signal,
-            resourceLease: {
-                token: 'utility-lease',
-                resources: {
-                    cpuTokens: 1,
-                    estimatedResidentBytes: 1,
-                    nativeProcesses: 1,
-                    ioWeight: 1,
-                },
-                release,
-                shrink: () => false,
-            },
-        });
-
-        child.emit('spawn');
-        controller.abort(new Error('native descendant cancellation'));
-        await expect(result).rejects.toThrow('native descendant cancellation');
-        expect(getRetainedDocumentSaveUtilityCount()).toBe(1);
-
-        const retry = retryRetainedDocumentSaveUtilityProcesses();
-        await vi.advanceTimersByTimeAsync(2_500);
-        await expect(retry).resolves.toBe(false);
-        expect(getRetainedDocumentSaveUtilityCount()).toBe(1);
-        expect(release).not.toHaveBeenCalled();
-
-        const successfulRetry = retryRetainedDocumentSaveUtilityProcesses();
-        await Promise.resolve();
-        const requestId = child.postMessage.mock.calls.at(-1)?.[0].requestId;
-        child.emit('message', {
-            type: 'shutdown-complete',
-            requestId,
-            terminated: true,
-        });
-        await expect(successfulRetry).resolves.toBe(true);
-        expect(release).toHaveBeenCalledOnce();
-        expect(getRetainedDocumentSaveUtilityCount()).toBe(0);
-    });
-
-    it('waits for the spawned utility PID before attempting termination', async () => {
-        const assignedPid = {value: undefined as number | undefined};
-        const child = createChild(undefined);
-        Object.defineProperty(child, 'pid', {get: () => assignedPid.value});
-        mocks.fork.mockReturnValueOnce(child);
-        const result = runDocumentSaveUtilityProcess({
-            cwd: '/tmp',
-            serviceName: DOCUMENT_SAVE_SERVICE_NAME,
-            utilityName: 'Document save utility',
-            timeoutMs: 1_000,
-            request: {type: 'inspect'},
-        });
-
-        child.emit('message', {
-            type: 'result',
-            ok: true,
-            bytes: 1024,
-            sha256: 'a'.repeat(64),
-        });
-        await Promise.resolve();
-        expect(mocks.terminateProcessTree).not.toHaveBeenCalled();
-
-        assignedPid.value = 8127;
-        child.emit('spawn');
-        await expect(result).resolves.toEqual({
-            bytes: 1024,
-            sha256: 'a'.repeat(64),
-        });
-        expect(mocks.terminateProcessTree).toHaveBeenCalledWith(8127, expect.any(Object));
-    });
-
-    it('does not terminate an exposed pre-spawn PID when the spawn event never arrives', async () => {
-        vi.useFakeTimers();
-        const release = vi.fn();
-        const child = createChild(8128);
-        mocks.fork.mockReturnValueOnce(child);
-        const controller = new AbortController();
-        const result = runDocumentSaveUtilityProcess({
-            cwd: '/tmp',
-            serviceName: DOCUMENT_SAVE_SERVICE_NAME,
-            utilityName: 'Document save utility',
-            timeoutMs: 1_000,
-            request: {type: 'inspect'},
-            signal: controller.signal,
-            resourceLease: {
-                token: 'utility-lease',
-                resources: {
-                    cpuTokens: 1,
-                    estimatedResidentBytes: 1,
-                    nativeProcesses: 1,
-                    ioWeight: 1,
-                },
-                release,
-                shrink: () => false,
-            },
-        });
-        const rejection = result.catch(value => value);
-
-        controller.abort(new Error('cancel before utility spawn'));
-        await vi.advanceTimersByTimeAsync(2_500);
-        const error = await rejection;
-
-        expect(getUnprovenNativeTerminationDetail(error)).toContain('pid=8128');
-        expect(mocks.terminateProcessTree).not.toHaveBeenCalled();
-        expect(release).not.toHaveBeenCalled();
-        expect(getRetainedDocumentSaveUtilityCount()).toBe(1);
-
-        child.emit('exit', 0);
-        await expect(retryRetainedDocumentSaveUtilityProcesses()).resolves.toBe(true);
-        expect(release).toHaveBeenCalledOnce();
-    });
-
-    it('does not publish a request when cancellation wins before a delayed spawn', async () => {
-        const child = createChild(8129);
-        mocks.fork.mockReturnValueOnce(child);
-        const controller = new AbortController();
-        const result = runDocumentSaveUtilityProcess({
-            cwd: '/tmp',
-            serviceName: DOCUMENT_SAVE_SERVICE_NAME,
-            utilityName: 'Document save utility',
-            timeoutMs: 1_000,
-            request: {type: 'inspect'},
-            signal: controller.signal,
-        });
-
-        controller.abort(new Error('cancel before request publication'));
-        child.emit('spawn');
-
-        await expect(result).rejects.toThrow('cancel before request publication');
-        expect(child.postMessage).not.toHaveBeenCalledWith({type: 'inspect'});
-        expect(child.postMessage).toHaveBeenCalledWith(expect.objectContaining({type: 'shutdown'}));
-        expect(mocks.terminateProcessTree).toHaveBeenCalledWith(8129, expect.any(Object));
-    });
-
-    it('retains an unproven lease when timeout settles before a late spawn', async () => {
-        vi.useFakeTimers();
-        const release = vi.fn();
-        const child = createChild(8130);
-        mocks.fork.mockReturnValueOnce(child);
-        const result = runDocumentSaveUtilityProcess({
-            cwd: '/tmp',
-            serviceName: DOCUMENT_SAVE_SERVICE_NAME,
-            utilityName: 'Document save utility',
-            timeoutMs: 1,
-            request: {type: 'inspect'},
-            resourceLease: {
-                token: 'utility-lease',
-                resources: {
-                    cpuTokens: 1,
-                    estimatedResidentBytes: 1,
-                    nativeProcesses: 1,
-                    ioWeight: 1,
-                },
-                release,
-                shrink: () => false,
-            },
-        });
-        const rejection = result.catch(value => value);
-
-        await vi.advanceTimersByTimeAsync(2_500 + 1);
-        await vi.advanceTimersByTimeAsync(0);
-        const error = await rejection;
-        expect(getUnprovenNativeTerminationDetail(error)).toContain('pid=8130');
-        expect(release).not.toHaveBeenCalled();
-        expect(getRetainedDocumentSaveUtilityCount()).toBe(1);
-
-        child.emit('spawn');
-        expect(child.postMessage).not.toHaveBeenCalled();
-        mocks.terminateProcessTree.mockResolvedValueOnce(true);
-        await expect(retryRetainedDocumentSaveUtilityProcesses()).resolves.toBe(true);
-        expect(release).toHaveBeenCalledOnce();
-    });
-
-    it('prices fingerprint admission as one bounded interactive utility slot', async () => {
-        mocks.brokerAcquire.mockRejectedValueOnce(new Error('stop after admission'));
-
-        await expect(fingerprintFileWithUtilityProcess('/tmp/source.pdf'))
-            .rejects.toThrow('stop after admission');
-        expect(mocks.brokerAcquire).toHaveBeenCalledWith(expect.objectContaining({
-            ownerId: 'document-fingerprint:/tmp/source.pdf',
-            kind: 'document-save-utility',
-            priority: 'foreground',
-            admissionClass: 'interactive',
-            resources: {
-                cpuTokens: 1,
-                estimatedResidentBytes: 256 * 1024 * 1024,
-                nativeProcesses: 1,
-                ioWeight: 1,
-            },
-        }));
-        expect(mocks.fork).not.toHaveBeenCalled();
-    });
-});
-
-
-// Child-module harness: real staged bytes and the real targeted loop.
-// doMock is deliberately scoped so the parent-adapter harness above keeps its seams.
-describe('document save utility child shutdown proof', () => {
-    async function childHarness() {
-        const fs = await vi.importActual<typeof TNodeFsPromises>('node:fs/promises');
-        const {join} = await import('node:path');
-        const {tmpdir} = await import('node:os');
-        const directory = await fs.mkdtemp(join(tmpdir(), 'save-child-shutdown-'));
-        const sourcePath = join(directory, 'staged.pdf');
-        const source = '%PDF-1.4\n1 0 obj <<>> endobj\n%%EOF\n';
-        await fs.writeFile(sourcePath, source);
-        const parent = Object.assign(new EventEmitter(), {postMessage: vi.fn()});
-        const descriptor = Object.getOwnPropertyDescriptor(process, 'parentPort');
-        const termHandlers = new Set(process.listeners('SIGTERM'));
-        const tool = vi.fn<typeof TNativeToolCommand.runNativeToolCommand>();
-        vi.resetModules();
-        vi.doMock('node:fs/promises', () => fs);
-        vi.doMock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: tool}));
-        vi.doMock('@electron/native-tools/runNativeCommand', () => ({
-            runNativeCommand: tool,
-            cancelNativeCommandGroupAndWait: async () => true,
-        }));
-        vi.doMock('@electron/utils/processIdentity', () => ({getOwnStartTime: async () => 'child-start'}));
-        Object.defineProperty(process, 'parentPort', {
-            value: parent,
-            configurable: true,
-        });
-        await import('@electron/features/documents/main/documentSaveUtilityProcess');
-        return {
-            fs,
-            tool,
-            parent,
-            sourcePath,
-            validate() {
-                parent.emit('message', {data: {
-                    type: 'validate',
-                    sourcePath,
-                    expectedBytes: Buffer.byteLength(source),
-                    validationBinary: '/qpdf',
-                    changedObjectRefs: [
-                        '3 0 R',
-                        '4 0 R',
-                    ],
-                }});
-            },
-            shutdown(requestId: string) { parent.emit('message', {data: {
-                type: 'shutdown',
-                requestId,
-            }}); },
-            async close() {
-                for (const handler of process.listeners('SIGTERM')) {
-                    if (!termHandlers.has(handler)) process.removeListener('SIGTERM', handler);
-                }
-                if (descriptor) Object.defineProperty(process, 'parentPort', descriptor);
-                else Reflect.deleteProperty(process, 'parentPort');
-                vi.doMock('node:fs/promises', () => ({stat: mocks.stat}));
-                vi.doUnmock('@electron/native-tools/runNativeToolCommand');
-                vi.doUnmock('@electron/native-tools/runNativeCommand');
-                vi.doUnmock('@electron/utils/processIdentity');
-                vi.resetModules();
-                await fs.rm(directory, {
-                    recursive: true,
-                    force: true,
-                });
-            },
-        };
-    }
-
-    it.each([
-        false,
-        true,
-    ])('waits for targeted native settlement and preserves false proof (%s)', async marked => {
-        const h = await childHarness();
-        const pending = Promise.withResolvers<{
-            exitCode: number;
-            stdout: string;
-            stderr: string
-        }>();
-        const started = Promise.withResolvers<AbortSignal | undefined>();
-        const {markUnprovenNativeTermination} = await import('@electron/utils/nativeTerminationProof');
-        const failure = markUnprovenNativeTermination(new Error('native timeout'), 'qpdf still owns staged bytes');
-        const commands: string[][] = [];
-        h.tool.mockImplementation((_binary, args, options) => {
-            if (args[0] === '--check') return Promise.resolve({
-                exitCode: 0,
-                stdout: '',
-                stderr: '',
-            });
-            commands.push(args);
-            started.resolve(options?.signal);
-            return pending.promise;
-        });
-        try {
-            h.validate();
-            const signal = await started.promise;
-            h.shutdown('first');
-            expect(signal?.aborted).toBe(true);
-            await Promise.resolve();
-            expect(h.parent.postMessage.mock.calls.some(([frame]) => frame.type === 'shutdown-complete')).toBe(false);
-            if (marked) pending.reject(failure);
-            else pending.resolve({
-                exitCode: 0,
-                stdout: '<< /Type /Page >>',
-                stderr: '',
-            });
-            await vi.waitFor(() => expect(h.parent.postMessage).toHaveBeenCalledWith({
-                type: 'shutdown-complete',
-                requestId: 'first',
-                terminated: !marked,
-            }));
-            h.shutdown('second');
-            await vi.waitFor(() => expect(h.parent.postMessage).toHaveBeenCalledWith({
-                type: 'shutdown-complete',
-                requestId: 'second',
-                terminated: !marked,
-            }));
-            expect(commands).toEqual([[
-                '--show-object=3,0',
-                h.sourcePath,
-            ]]);
-            expect(await h.fs.readFile(h.sourcePath, 'utf8')).toContain('%%EOF');
-        } finally { await h.close(); }
-    });
-
-    it('acknowledges an empty shutdown and refuses later validation', async () => {
-        const h = await childHarness();
-        try {
-            h.shutdown('empty');
-            await vi.waitFor(() => expect(h.parent.postMessage).toHaveBeenCalledWith({
-                type: 'shutdown-complete',
-                requestId: 'empty',
-                terminated: true,
-            }));
-            h.validate();
-            await vi.waitFor(() => expect(h.parent.postMessage).toHaveBeenCalledWith(expect.objectContaining({
-                type: 'result',
-                ok: false,
-            })));
-        } finally { await h.close(); }
-    });
-
-    it('validates a targeted save with an object between 256 KiB and 1 MiB', async () => {
-        const h = await childHarness();
+    it('validates a targeted save with an object between 256 KiB and 1 MiB and passes lease proof sink', async () => {
         const object = `<< /Payload (${'.'.repeat(300 * 1024)}) >>`;
-        h.tool.mockImplementation(async (_binary, args, options) => {
-            if (args[0] === '--check') return {
-                exitCode: 0,
-                stdout: '',
-                stderr: '',
-            };
+        mocks.runNativeToolCommand.mockImplementation(async (_binary, args, options) => {
+            if (args[0] === '--check') {
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            }
             expect(options).toMatchObject({
                 timeoutMs: 60_000,
                 maxStdoutBytes: 1024 * 1024,
                 maxStderrBytes: 256 * 1024,
+                onTerminationProof: expect.any(Function),
             });
             return {
                 exitCode: 0,
@@ -739,18 +132,62 @@ describe('document save utility child shutdown proof', () => {
                 stderr: '',
             };
         });
-        try {
-            h.validate();
-            await vi.waitFor(() => expect(h.parent.postMessage).toHaveBeenCalledWith(expect.objectContaining({
-                type: 'result',
-                ok: true,
-            })));
-            h.shutdown('normal');
-            await vi.waitFor(() => expect(h.parent.postMessage).toHaveBeenCalledWith({
-                type: 'shutdown-complete',
-                requestId: 'normal',
-                terminated: true,
-            }));
-        } finally { await h.close(); }
+
+        const result = await verifyPdfTempFile(pdfPath, {
+            changedObjectRefs: ['1 0 R'],
+        });
+
+        expect(result).toMatchObject({
+            bytes: Buffer.byteLength(samplePdf),
+            sha256: expect.stringMatching(/^[a-f0-9]{64}$/u),
+        });
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledTimes(2);
+        expect(mocks.broker!.getSnapshot()).toMatchObject({
+            active: 0,
+            queued: 0,
+        });
+    });
+
+    it('retains the broker lease when native validation termination is unproven on cancellation', async () => {
+        const failure = markUnprovenNativeTermination(new Error('native timeout'), 'qpdf still owns staged bytes');
+        const started = Promise.withResolvers<AbortSignal | undefined>();
+        const pending = Promise.withResolvers<{
+            exitCode: number;
+            stdout: string;
+            stderr: string;
+        }>();
+        mocks.runNativeToolCommand.mockImplementation((_binary, args, options) => {
+            if (args[0] === '--check') {
+                return Promise.resolve({
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                });
+            }
+            options?.onTerminationProof?.(Promise.resolve(false));
+            started.resolve(options?.signal);
+            return pending.promise;
+        });
+
+        const controller = new AbortController();
+        const task = verifyPdfTempFile(pdfPath, {
+            signal: controller.signal,
+            changedObjectRefs: ['3 0 R'],
+        });
+        const signal = await started.promise;
+        controller.abort(new Error('save canceled while qpdf was running'));
+        expect(signal?.aborted).toBe(true);
+        pending.reject(failure);
+
+        const observed = await task.catch((error: unknown) => error);
+        expect(observed).toBe(failure);
+        expect(getUnprovenNativeTerminationDetail(observed)).toBe('qpdf still owns staged bytes');
+        expect(mocks.broker!.getSnapshot()).toMatchObject({
+            active: 1,
+            used: {
+                cpuTokens: 1,
+                nativeProcesses: 1,
+            },
+        });
     });
 });

@@ -773,7 +773,6 @@ describe('main process termination signals', () => {
             pruneStaleDjvuArtifactJobs: vi.fn(),
         }));
         vi.doMock('@electron/features/documents/public', () => ({
-            shutdownRetainedDocumentSaveUtilityProcesses: vi.fn(),
             sweepStalePdfAnnotationParseArtifacts: vi.fn(),
             sweepStaleDefaultAppTempPdfs: vi.fn(),
             sweepStaleOcrTempArtifacts: vi.fn(),

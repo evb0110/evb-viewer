@@ -119,9 +119,8 @@ operation:
   sheet, one per sheet or two per spread.
 
 The browser build runs the same two crates as WASM, including their page
-operations and print layout; its streaming DjVu export
-(`app/platform/browser-api/streamingImagePdfWriter.ts`) is the one browser-only
-writer. Desktop native mutation saves, OCR text-layer writes, and structural
+operations, print layout, and both compact and direct DjVu PDF export (the old
+JS `streamingImagePdfWriter.ts` writer is retired). Desktop native mutation saves, OCR text-layer writes, and structural
 page edits (rotation, deletion, reordering, and insertion)—along with
 annotation, shape, catalog, and OCR-visibility reads—and browser native
 mutation saves and OCR text-layer writes share the indexed `SourcePdf`

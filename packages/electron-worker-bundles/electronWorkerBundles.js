@@ -1,5 +1,5 @@
 /**
- * @typedef {'pdf-conformance' | 'document-save-utility' | 'scan-cleanup' | 'pdf-text' | 'image-export-tiff' | 'djvu-pdf' | 'ocr-engine-host' | 'ocr-engine'} TWorkerBundleId
+ * @typedef {'pdf-text' | 'image-export-tiff' | 'djvu-pdf' | 'ocr-engine-host' | 'ocr-engine'} TWorkerBundleId
  */
 
 /**
@@ -14,27 +14,6 @@
 
 /** @type {readonly IWorkerBundleEntry[]} */
 export const WORKER_BUNDLES = [
-    {
-        id: 'pdf-conformance',
-        entryPoint: 'electron/features/documents/main/pdfConformanceWorker.ts',
-        fileName: 'pdfConformanceWorker.js',
-        format: 'esm',
-        unpacked: true,
-    },
-    {
-        id: 'document-save-utility',
-        entryPoint: 'electron/features/documents/main/documentSaveUtilityProcess.ts',
-        fileName: 'document-save-utility.js',
-        format: 'esm',
-        unpacked: true,
-    },
-    {
-        id: 'scan-cleanup',
-        entryPoint: 'electron/features/scan-cleanup/worker/main.ts',
-        fileName: 'scan-cleanup-worker.js',
-        format: 'esm',
-        unpacked: true,
-    },
     {
         id: 'pdf-text',
         entryPoint: 'electron/features/search/pdfTextWorker.ts',

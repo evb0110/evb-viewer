@@ -7,8 +7,6 @@ import {
 import {
     configureProcessSafeMode,
     createProcessDeathRecovery,
-    DOCUMENT_FINGERPRINT_SERVICE_NAME,
-    DOCUMENT_SAVE_SERVICE_NAME,
     OCR_ENGINE_SERVICE_NAME,
     PROCESS_SAFE_MODE_ARGUMENT,
 } from '@electron/processDeathRecovery';
@@ -117,7 +115,7 @@ describe('processDeathRecovery', () => {
             type: 'Utility',
             reason: 'killed',
             exitCode: 15,
-            name: DOCUMENT_SAVE_SERVICE_NAME,
+            name: OCR_ENGINE_SERVICE_NAME,
         });
 
         expect(fixture.captureFailure).not.toHaveBeenCalled();
@@ -192,49 +190,6 @@ describe('processDeathRecovery', () => {
         ]);
     });
 
-    // The app kills its own utility processes as their ordinary teardown, and
-    // error level is what the renderer turns into a user-visible diagnostic
-    // report. Reporting those killed a successful document fingerprint's exit
-    // as a fault, and the resulting report card covered the toolbar it is
-    // anchored over.
-    it('keeps a utility process the app terminated out of the error channel', () => {
-        const fixture = createFixture();
-
-        expect(fixture.recovery.handleChildProcessGone({
-            type: 'Utility',
-            reason: 'killed',
-            exitCode: 15,
-            name: DOCUMENT_FINGERPRINT_SERVICE_NAME,
-        }).action).toBe('logged');
-
-        expect(fixture.logger.error).not.toHaveBeenCalled();
-        expect(fixture.logger.warn).not.toHaveBeenCalled();
-        expect(fixture.logger.debug).toHaveBeenCalledWith(
-            '[process-death] Utility process gone (EVB document fingerprint, reason=killed, exitCode=15)',
-        );
-    });
-
-    // `utilityProcess.fork` documents its `serviceName` option as arriving in
-    // the `name` field, and Chromium fills `serviceName` with the mojo service
-    // identity, so the rule reads both rather than betting on one Electron
-    // build's field.
-    it('recognises the app\'s own utility teardown reported under serviceName', () => {
-        const fixture = createFixture();
-
-        expect(fixture.recovery.handleChildProcessGone({
-            type: 'Utility',
-            reason: 'killed',
-            exitCode: 15,
-            serviceName: DOCUMENT_SAVE_SERVICE_NAME,
-        }).action).toBe('logged');
-
-        expect(fixture.logger.error).not.toHaveBeenCalled();
-        expect(fixture.logger.warn).not.toHaveBeenCalled();
-        expect(fixture.logger.debug).toHaveBeenCalledWith(
-            '[process-death] Utility process gone (EVB document save, reason=killed, exitCode=15)',
-        );
-    });
-
     // Main kills the OCR engine process only when it would not exit or sent a
     // message main cannot read, and reports that itself.
     it.each(['name', 'serviceName'] as const)('keeps the OCR engine process the app killed out of the error channel (%s)', (field) => {
@@ -275,23 +230,6 @@ describe('processDeathRecovery', () => {
             message: `[process-death] Utility process gone (EVB OCR engine, reason=${reason}, exitCode=134)`,
         });
         expect(fixture.logger.debug).not.toHaveBeenCalled();
-    });
-
-    it('still reports a utility process that failed on its own', () => {
-        const fixture = createFixture();
-
-        expect(fixture.recovery.handleChildProcessGone({
-            type: 'Utility',
-            reason: 'crashed',
-            exitCode: 133,
-            name: DOCUMENT_FINGERPRINT_SERVICE_NAME,
-        }).action).toBe('logged');
-
-        expect(fixture.logger.error).toHaveBeenCalledWith(
-            '[process-death] Utility process gone (EVB document fingerprint, reason=crashed, exitCode=133)',
-            {code: 'MAIN_PROCESS_RECOVERY_FAILED'},
-        );
-        expect(fixture.logger.warn).not.toHaveBeenCalled();
     });
 
     // Only named utility processes that the app forks are expected to be

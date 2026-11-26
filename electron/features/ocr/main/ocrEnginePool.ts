@@ -5,10 +5,7 @@ import {
 import {fileURLToPath} from 'node:url';
 import * as electron from 'electron';
 import {WORKER_BUNDLES_BY_ID} from '@electron-worker-bundles/electronWorkerBundles.js';
-import type {
-    IOcrEngineRequest,
-    IOcrEngineResult,
-} from '@ocr-core/tesseractEngine';
+import type {IOcrEngineResult} from '@ocr-core/tesseractEngine';
 import {
     createOcrEngineHost,
     type IOcrEngineLane,
@@ -21,7 +18,10 @@ import {
     sumOcrModelBytes,
 } from '@electron/features/ocr/main/ocrRuntimePolicy';
 import type {TOcrModelCode} from '@contracts/ocrLanguages';
-import type {IOcrEngineLaneReply} from '@electron/features/ocr/main/ocrEngineHostProtocol';
+import type {
+    IOcrEngineLaneReply,
+    TDesktopOcrEngineRequest,
+} from '@electron/features/ocr/main/ocrEngineHostProtocol';
 import {
     mainJobBroker,
     type IJobBrokerLease,
@@ -300,7 +300,7 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
     };
 
     return {
-        async run(request: IOcrEngineRequest, signal: AbortSignal, ownerId = 'ocr-engine'): Promise<IOcrEngineResult> {
+        async run(request: TDesktopOcrEngineRequest, signal: AbortSignal, ownerId = 'ocr-engine'): Promise<IOcrEngineResult> {
             const {capacity} = broker.getSnapshot();
             const modelSizes = await readModelBytes(request.models);
             const workingBytes = resolveOcrLaneResources(
@@ -378,10 +378,13 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
                     onAbort();
                     return;
                 }
+                const transfer = request.image instanceof Uint8Array && request.image.buffer instanceof ArrayBuffer
+                    ? [request.image.buffer]
+                    : [];
                 worker.postMessage({
                     id,
                     request,
-                }, [request.image.buffer as ArrayBuffer]);
+                }, transfer);
             });
         },
         terminate() {
@@ -407,7 +410,7 @@ function resolveOcrEngineDir() {
  * Runs one page's passes on the app's engine pool, sized like desktop's OCR
  * page slots, whose lanes are worker threads in the OCR utility process.
  */
-export function runOcrEngine(request: IOcrEngineRequest, signal: AbortSignal, ownerId?: string) {
+export function runOcrEngine(request: TDesktopOcrEngineRequest, signal: AbortSignal, ownerId?: string) {
     if (!appPool) {
         const tessdataDir = getRuntimeTessdataDir();
         const host = createOcrEngineHost({

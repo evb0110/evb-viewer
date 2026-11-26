@@ -89,9 +89,12 @@ parentPort.on('message', ({data}) => {
             // main has its exit already.
             const worker = lanes.get(message.lane);
             if (!worker) return;
-            const {buffer} = message.message.request.image;
+            const {image} = message.message.request;
+            const transfer = image instanceof Uint8Array && image.buffer instanceof ArrayBuffer
+                ? [image.buffer]
+                : [];
             try {
-                worker.postMessage(message.message, buffer instanceof ArrayBuffer ? [buffer] : []);
+                worker.postMessage(message.message, transfer);
             } catch (error) {
                 // Only this lane's page fails; main ends the lane.
                 laneFailed(message.lane, error);

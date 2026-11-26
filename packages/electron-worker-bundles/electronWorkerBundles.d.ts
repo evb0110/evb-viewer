@@ -1,7 +1,4 @@
 export type TWorkerBundleId =
-    | 'pdf-conformance'
-    | 'document-save-utility'
-    | 'scan-cleanup'
     | 'pdf-text'
     | 'image-export-tiff'
     | 'djvu-pdf'

@@ -5,11 +5,13 @@ import {
     parentPort,
     workerData,
 } from 'node:worker_threads';
+import {decode as decodePng} from 'fast-png';
+import {encodePnm} from '@ocr-core/ppmRaster';
 import {
     createTesseractEngine,
-    type IOcrEngineRequest,
     type TTesseractModuleFactory,
 } from '@ocr-core/tesseractEngine';
+import type {TDesktopOcrEngineRequest} from '@electron/features/ocr/main/ocrEngineHostProtocol';
 
 /** Where the engine and the installed models are; the pool passes it to each worker. */
 export interface IOcrEngineWorkerData {
@@ -24,6 +26,18 @@ const {
 async function readBytes(path: string) {
     const buffer = await readFile(path);
     return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+}
+
+async function readRasterAsPnm(path: string) {
+    const bytes = await readBytes(path);
+    if (bytes[0] === 0x50) {
+        return bytes;
+    }
+    const png = decodePng(bytes);
+    if (png.depth !== 8 || (png.channels !== 1 && png.channels !== 3)) {
+        throw new Error(`OCR raster is an unsupported ${png.depth}-bit, ${png.channels}-channel PNG`);
+    }
+    return encodePnm(png.width, png.height, png.channels, png.data as Uint8Array);
 }
 
 /** Desktop's host for the browser's engine: the same module and models, read from disk. */
@@ -48,10 +62,16 @@ parentPort!.on('message', async ({
     id, request,
 }: {
     id: number;
-    request: IOcrEngineRequest
+    request: TDesktopOcrEngineRequest;
 }) => {
     try {
-        const result = await recognize(request);
+        const image = request.image instanceof Uint8Array
+            ? request.image
+            : await readRasterAsPnm(request.image.path);
+        const result = await recognize({
+            ...request,
+            image,
+        });
         parentPort!.postMessage({
             id,
             ok: true,

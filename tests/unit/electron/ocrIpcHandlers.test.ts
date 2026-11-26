@@ -1735,11 +1735,15 @@ describe('OCR engine utility process', () => {
     });
 });
 
-// An engine worker thread that answers every page with the image it was given.
+// An engine worker thread that answers every page with the image bytes (or file contents) it was given.
 const ECHO_ENGINE_WORKER_SOURCE = `
+import {readFile} from 'node:fs/promises';
 import {parentPort} from 'node:worker_threads';
-parentPort.on('message', ({id, request}) => {
-    parentPort.postMessage({id, ok: true, result: {passes: [{stderr: '', outputs: [request.image]}]}});
+parentPort.on('message', async ({id, request}) => {
+    const bytes = request.image instanceof Uint8Array
+        ? request.image
+        : new Uint8Array(await readFile(request.image.path));
+    parentPort.postMessage({id, ok: true, result: {passes: [{stderr: '', outputs: [bytes]}]}});
 });
 `;
 
@@ -1769,6 +1773,8 @@ describe('OCR engine utility process entry', () => {
         await import('@electron/features/ocr/main/ocrEngineHost');
 
         const post = (data: TOcrEngineHostRequest) => port.emit('message', {data});
+        const rasterPath = join(dir, 'page-1.ppm');
+        await writeFile(rasterPath, new Uint8Array([9, 8, 7]));
         post({type: 'start', lane: 7, workerPath, workerData});
         post({type: 'start', lane: 8, workerPath, workerData});
         post({type: 'run', lane: 7, message: {id: 3, request: {image: new Uint8Array([1, 2, 3]), models: ['eng'], passes: ENGINE_PASSES}}});
@@ -1776,6 +1782,12 @@ describe('OCR engine utility process entry', () => {
             type: 'reply',
             lane: 7,
             reply: {id: 3, ok: true, result: {passes: [{stderr: '', outputs: [new Uint8Array([1, 2, 3])]}]}},
+        }));
+        post({type: 'run', lane: 7, message: {id: 6, request: {image: {kind: 'file', path: rasterPath, width: 100, height: 100}, models: ['eng'], passes: ENGINE_PASSES}}});
+        await vi.waitFor(() => expect(events).toContainEqual({
+            type: 'reply',
+            lane: 7,
+            reply: {id: 6, ok: true, result: {passes: [{stderr: '', outputs: [new Uint8Array([9, 8, 7])]}]}},
         }));
         // Main reads what the utility process sent with the engine's result contract.
         expect(events.map(decodeOcrEngineHostEvent)).not.toContain(null);
