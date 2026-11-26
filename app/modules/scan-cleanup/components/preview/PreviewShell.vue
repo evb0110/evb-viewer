@@ -349,17 +349,17 @@
                     </div>
                     <span
                         class="preview-viewport-caption"
-                        :class="{'is-cleaning': liveStageStatus !== null}"
-                        :data-processing-stage="liveStageStatus?.stage"
+                        :class="{'is-cleaning': skeletonLiveStageStatus !== null}"
+                        :data-processing-stage="skeletonLiveStageStatus?.stage"
                     >
-                        <template v-if="liveStageStatus !== null">
+                        <template v-if="skeletonLiveStageStatus !== null">
                             <UIcon name="i-ph-circle-notch" class="preview-viewport-spinner is-spinning" aria-hidden="true" />
-                            <span class="preview-viewport-stage">{{ liveStageStatus.label }}</span>
+                            <span class="preview-viewport-stage">{{ skeletonLiveStageStatus.label }}</span>
                             <span
-                                v-if="liveStageStatus.elapsed"
+                                v-if="skeletonLiveStageStatus.elapsed"
                                 class="preview-viewport-elapsed"
                                 aria-hidden="true"
-                            >{{ liveStageStatus.elapsed }}</span>
+                            >{{ skeletonLiveStageStatus.elapsed }}</span>
                         </template>
                         <template v-else>
                             {{ t('scanCleanup.preview.loading') }}
@@ -1003,6 +1003,11 @@ const liveStageStatus = computed(() => {
         elapsed,
     };
 });
+// Keep the initial preview skeleton's "Building cleanup preview…" caption during
+// background detection; only replace it when an active cleanup run is underway.
+const skeletonLiveStageStatus = computed(() => (
+    props.activity?.run === true ? liveStageStatus.value : null
+));
 const viewModes = computed(() => props.lossless ? [{
     value: 'original' as const,
     label: t('scanCleanup.preview.preview'),

@@ -4215,6 +4215,42 @@ describe('Scan cleanup components', () => {
         }
     });
 
+    it('keeps the preview skeleton loading caption while background detection reports sub-page stages', () => {
+        const detectionActivity = resolveScanCleanupActivity({
+            detection: {
+                pending: true,
+                progress: {
+                    stage: 'detecting',
+                    completedUnits: 1,
+                    totalUnits: 4,
+                    percent: 25,
+                    activeSubPageStage: 'background',
+                },
+                analyzedPages: 1,
+                totalPages: 4,
+                calibrating: false,
+            },
+            run: null,
+        });
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result: null,
+            loading: true,
+            error: '',
+            viewMode: 'cleaned',
+            matchPageSize: true,
+            alignment: 'top-center',
+            pageNumber: 1,
+            totalPages: 4,
+            manualSplit: null,
+            readingOrder: 'ltr',
+            activity: detectionActivity,
+        })}));
+
+        const caption = harness.host.querySelector<HTMLElement>('.preview-viewport-caption');
+        expect(caption?.textContent?.trim()).toBe('Building cleanup preview…');
+        expect(caption?.classList.contains('is-cleaning')).toBe(false);
+    });
+
     it('removes visual half labels while preserving each output half in image alternatives', () => {
         const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
             result: spreadPreviewResult(2),
