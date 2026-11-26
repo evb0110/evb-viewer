@@ -773,7 +773,7 @@ pub(crate) fn render_scan_cleanup_raster(
     document: &Document,
     request: ScanRasterRequest,
 ) -> Result<ScanRaster> {
-    use evb_scan_cleanup::io::source_raster::{
+    use scan_primitives::source_raster::{
         page_grid, rasterize, PageBox, Resolution, Slice, SourceRasterError,
     };
 
@@ -862,7 +862,7 @@ pub(crate) fn render_scan_cleanup_raster_bytes(
 }
 
 struct ScanPaintProgram {
-    paints: Vec<evb_scan_cleanup::io::source_raster::Paint>,
+    paints: Vec<scan_primitives::source_raster::Paint>,
     compatibility: SampleCompatibility,
 }
 
@@ -886,10 +886,10 @@ impl Default for Matrix {
 fn scan_paint_program(
     document: &Document,
     page_id: ObjectId,
-    grid: &evb_scan_cleanup::io::source_raster::PageGrid,
+    grid: &scan_primitives::source_raster::PageGrid,
     max_pixels: u64,
 ) -> Result<std::result::Result<ScanPaintProgram, &'static str>> {
-    use evb_scan_cleanup::io::source_raster::Paint;
+    use scan_primitives::source_raster::Paint;
 
     let (direct_resources, resource_ids) = document
         .get_page_resources(page_id)
@@ -1096,10 +1096,7 @@ fn normal_opaque_state(document: &Document, state: &Dictionary) -> bool {
 }
 
 /// Whether an image placement's integer rectangle covers the whole bitmap.
-fn covers_bitmap(
-    grid: &evb_scan_cleanup::io::source_raster::PageGrid,
-    placement: [f64; 6],
-) -> bool {
+fn covers_bitmap(grid: &scan_primitives::source_raster::PageGrid, placement: [f64; 6]) -> bool {
     let [da, db, dc, dd, de, df] = grid.device;
     let [a, b, c, d, e, f] = placement;
     let device = [
@@ -1129,8 +1126,8 @@ fn image_paint(
     fill: Option<[u8; 3]>,
     max_pixels: u64,
     compatibility: &mut SampleCompatibility,
-) -> Result<std::result::Result<evb_scan_cleanup::io::source_raster::Paint, &'static str>> {
-    use evb_scan_cleanup::io::source_raster::Paint;
+) -> Result<std::result::Result<scan_primitives::source_raster::Paint, &'static str>> {
+    use scan_primitives::source_raster::Paint;
 
     let dictionary = &stream.dict;
     let (stencil, bits) = image_bits(document, dictionary, 8);
@@ -1290,8 +1287,8 @@ fn image_samples(
     bits: u8,
     max_pixels: u64,
     compatibility: &mut SampleCompatibility,
-) -> Result<Option<evb_pdf_image_combine::pdf_image_samples::DecodedSamples>> {
-    use evb_pdf_image_combine::pdf_image_samples::{
+) -> Result<Option<evb_image_codecs::pdf_image_samples::DecodedSamples>> {
+    use evb_image_codecs::pdf_image_samples::{
         decode_ccitt_g4, decode_dct, decode_dct_rust, decode_jbig2_generic, decode_jpx,
         DecodedSamples,
     };
@@ -1427,10 +1424,10 @@ fn image_samples(
 
 /// An 8-bit plane in kernel layout.
 fn plane_of(
-    samples: &evb_pdf_image_combine::pdf_image_samples::DecodedSamples,
+    samples: &evb_image_codecs::pdf_image_samples::DecodedSamples,
     components: usize,
-) -> evb_scan_cleanup::io::source_raster::Plane {
-    evb_scan_cleanup::io::source_raster::Plane {
+) -> scan_primitives::source_raster::Plane {
+    scan_primitives::source_raster::Plane {
         width: samples.width as usize,
         height: samples.height as usize,
         channels: components,
@@ -1441,9 +1438,9 @@ fn plane_of(
 
 /// A one-bit plane unpacked to one byte per pixel through `map`.
 fn unpack_bits(
-    samples: &evb_pdf_image_combine::pdf_image_samples::DecodedSamples,
+    samples: &evb_image_codecs::pdf_image_samples::DecodedSamples,
     map: impl Fn(bool) -> u8,
-) -> evb_scan_cleanup::io::source_raster::Plane {
+) -> scan_primitives::source_raster::Plane {
     let (width, height) = (samples.width as usize, samples.height as usize);
     let stride = width.div_ceil(8);
     let mut unpacked = Vec::with_capacity(width * height);
@@ -1452,7 +1449,7 @@ fn unpack_bits(
             unpacked.push(map(row[x / 8] & (0x80 >> (x % 8)) != 0));
         }
     }
-    evb_scan_cleanup::io::source_raster::Plane {
+    scan_primitives::source_raster::Plane {
         width,
         height,
         channels: 1,

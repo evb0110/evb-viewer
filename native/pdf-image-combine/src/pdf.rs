@@ -1128,16 +1128,46 @@ impl BilevelPayload {
     }
 }
 
+/// Minimum raw bitmap size (bytes) for skipping trial Flate/CCITT G4 fallback
+/// encodes once JBIG2 already achieves strong compression. Tiny bitmaps still
+/// compare all three lossless candidates because JBIG2's segment headers can
+/// outweigh a few bytes of bitmap data.
+const JBIG2_SKIP_FALLBACK_MIN_RAW_BYTES: usize = 4096;
+
+fn should_verify_jbig2() -> bool {
+    if cfg!(any(test, debug_assertions)) {
+        return true;
+    }
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+    {
+        static VERIFY: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *VERIFY.get_or_init(|| {
+            std::env::var("EVB_JBIG2_VERIFY")
+                .ok()
+                .is_some_and(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+        })
+    }
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    {
+        false
+    }
+}
+
 fn encode_mask_payload(mask: &PbmP4Image) -> Result<BilevelPayload> {
     let width = mask.width;
     let height = mask.height;
-    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-    let jbig2_started_at = std::time::Instant::now();
-    let jbig2 = jbig2_codec::encode_pdf_generic_verified(Bilevel {
+    let bilevel = Bilevel {
         width,
         height,
         rows: &mask.bitmap,
-    });
+    };
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+    let jbig2_started_at = std::time::Instant::now();
+    let jbig2 = if should_verify_jbig2() {
+        jbig2_codec::encode_pdf_generic_verified(bilevel)
+    } else {
+        jbig2_codec::encode_pdf_generic(bilevel)
+    };
     #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     if std::env::var_os("EVB_PDF_COMBINE_TIMING").is_some() {
         eprintln!(
@@ -1146,24 +1176,36 @@ fn encode_mask_payload(mask: &PbmP4Image) -> Result<BilevelPayload> {
         );
     }
 
-    // Strict comparisons give equal-length candidates a stable priority:
-    // Flate, then Group 4, then JBIG2.
-    let fallback = encode_fallback_bilevel_payload(mask)?;
-    let mut chosen = match jbig2 {
-        Ok(data) if data.len() < fallback.data().len() => BilevelPayload::Jbig2(data),
-        Ok(_) => fallback,
-        Err(error) => {
-            // Keep the verified source stencil and select the smallest remaining
-            // lossless payload; a JBIG2 failure is not a reason to discard valid
-            // MRC layers.
-            eprintln!(
-                "warning: verified JBIG2 encoding failed for {width}x{height} bilevel image; falling back: {error}"
-            );
-            fallback
+    if let Ok(mut data) = jbig2 {
+        if mask.bitmap.len() >= JBIG2_SKIP_FALLBACK_MIN_RAW_BYTES
+            && data.len().saturating_mul(4) <= mask.bitmap.len()
+        {
+            data.shrink_to_fit();
+            return Ok(BilevelPayload::Jbig2(data));
         }
-    };
-    chosen.shrink_to_fit();
-    Ok(chosen)
+
+        // Strict comparisons give equal-length candidates a stable priority:
+        // Flate, then Group 4, then JBIG2.
+        let fallback = encode_fallback_bilevel_payload(mask)?;
+        let mut chosen = if data.len() < fallback.data().len() {
+            BilevelPayload::Jbig2(data)
+        } else {
+            fallback
+        };
+        chosen.shrink_to_fit();
+        return Ok(chosen);
+    }
+
+    let error = jbig2.unwrap_err();
+    // Keep the verified source stencil and select the smallest remaining
+    // lossless payload; a JBIG2 failure is not a reason to discard valid
+    // MRC layers.
+    eprintln!(
+        "warning: JBIG2 encoding failed for {width}x{height} bilevel image; falling back: {error}"
+    );
+    let mut fallback = encode_fallback_bilevel_payload(mask)?;
+    fallback.shrink_to_fit();
+    Ok(fallback)
 }
 
 fn encode_fallback_bilevel_payload(mask: &PbmP4Image) -> Result<BilevelPayload> {

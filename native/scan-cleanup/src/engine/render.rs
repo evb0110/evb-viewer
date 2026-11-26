@@ -1663,6 +1663,7 @@ fn classify_page_with_document_prior_impl(
             create_mixed_composite: false,
             recommend_output_mode: true,
             analyze_layout: true,
+            encode_faint_stroke_masks: false,
             cancellation: None,
         },
         document_prior,
@@ -1809,6 +1810,11 @@ struct PageRenderPolicy<'a> {
     /// binarization without paying for them. Only legal when the layout is
     /// already resolved to a single region.
     analyze_layout: bool,
+    /// Whether to PNG-encode the faint-stroke masks into output metadata.
+    /// Preview renders keep them so detail zoom tiles can replay the same
+    /// classification; final renders omit them because no downstream consumer
+    /// reads them.
+    encode_faint_stroke_masks: bool,
     cancellation: Option<&'a AtomicBool>,
 }
 
@@ -1818,6 +1824,7 @@ impl PageRenderPolicy<'static> {
         create_mixed_composite: true,
         recommend_output_mode: true,
         analyze_layout: true,
+        encode_faint_stroke_masks: true,
         cancellation: None,
     };
 
@@ -1826,6 +1833,7 @@ impl PageRenderPolicy<'static> {
         create_mixed_composite: true,
         recommend_output_mode: false,
         analyze_layout: false,
+        encode_faint_stroke_masks: false,
         cancellation: None,
     };
 }
@@ -1837,6 +1845,7 @@ impl<'a> PageRenderPolicy<'a> {
             create_mixed_composite: self.create_mixed_composite,
             recommend_output_mode: self.recommend_output_mode,
             analyze_layout: self.analyze_layout,
+            encode_faint_stroke_masks: self.encode_faint_stroke_masks,
             cancellation: Some(cancellation),
         }
     }
@@ -1991,6 +2000,7 @@ pub(crate) fn clean_page_with_color_and_document_prior_cached(
     cache: &PageCache,
     create_mixed_layers: bool,
     recommend_output_mode: bool,
+    encode_faint_stroke_masks: bool,
     timings: &mut PageStageTimings,
     is_canceled: &AtomicBool,
 ) -> Result<PageCleanupResult, AnalysisError> {
@@ -2013,6 +2023,7 @@ pub(crate) fn clean_page_with_color_and_document_prior_cached(
             create_mixed_composite: !create_mixed_layers,
             recommend_output_mode,
             analyze_layout: true,
+            encode_faint_stroke_masks,
             cancellation: Some(is_canceled),
         },
         timings,

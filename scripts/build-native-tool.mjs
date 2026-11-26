@@ -271,12 +271,86 @@ export async function runNativeToolBuilder(argv = process.argv.slice(2)) {
             targetDirectory: cargoTargetDirectory,
         });
     }
+    const packageNameByManifest = new Map(metadata.packages
+        .filter(pkg => typeof pkg?.manifest_path === 'string' && typeof pkg?.name === 'string')
+        .map(pkg => [
+            path.resolve(pkg.manifest_path),
+            pkg.name,
+        ]));
+    const buildIdEnvKey = crateName => `EVB_NATIVE_BUILD_ID_${crateName.toUpperCase().replace(/-/gu, '_')}`;
+
+    // Batch plain `cargo build` plans sharing a target into one workspace
+    // invocation so Cargo compiles shared crates and independent binaries in
+    // parallel. `cargo rustc` plans (e.g. Linux static CRT) run individually.
+    const batchedByTarget = new Map();
+    const individualPlans = [];
     for (const plan of missingPlans) {
+        const packageName = packageNameByManifest.get(path.resolve(projectRoot, plan.manifestPath));
+        if (plan.cargoArgs[0] === 'build' && packageName) {
+            const key = plan.rustTarget ?? '';
+            const existing = batchedByTarget.get(key);
+            if (existing) {
+                existing.push({
+                    packageName,
+                    plan,
+                });
+            } else {
+                batchedByTarget.set(key, [{
+                    packageName,
+                    plan,
+                }]);
+            }
+        } else {
+            individualPlans.push(plan);
+        }
+    }
+
+    for (const entries of batchedByTarget.values()) {
+        if (entries.length === 1) {
+            individualPlans.push(entries[0].plan);
+            continue;
+        }
+        const first = entries[0].plan;
+        const batchArgs = [
+            'build',
+            '--manifest-path',
+            'native/Cargo.toml',
+            '--release',
+            '--locked',
+            ...first.cargoTargetArgs,
+            ...entries.flatMap(({packageName}) => [
+                '-p',
+                packageName,
+            ]),
+        ];
+        const batchEnv = { ...cargoEnvironment.env };
+        for (const {plan} of entries) {
+            const buildId = computeNativeBuildId(projectRoot, plan.tool.crateName);
+            batchEnv[buildIdEnvKey(plan.tool.crateName)] = buildId;
+            if (plan.tool.crateName === 'pdf-search') {
+                batchEnv.EVB_NATIVE_BUILD_ID = buildId;
+            }
+        }
+        const result = spawnSync('cargo', batchArgs, {
+            cwd: projectRoot,
+            env: batchEnv,
+            stdio: 'inherit',
+        });
+        if (result.status !== 0) {
+            throw new Error(
+                `cargo ${batchArgs.join(' ')} failed with status ${result.status ?? 'unknown'}`,
+            );
+        }
+    }
+
+    for (const plan of individualPlans) {
+        const buildId = computeNativeBuildId(projectRoot, plan.tool.crateName);
         const result = spawnSync('cargo', plan.cargoArgs, {
             cwd: projectRoot,
             env: {
                 ...cargoEnvironment.env,
-                EVB_NATIVE_BUILD_ID: computeNativeBuildId(projectRoot, plan.tool.crateName),
+                EVB_NATIVE_BUILD_ID: buildId,
+                [buildIdEnvKey(plan.tool.crateName)]: buildId,
             },
             stdio: 'inherit',
         });

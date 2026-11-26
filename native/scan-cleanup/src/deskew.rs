@@ -1,4 +1,5 @@
 use crate::engine::prepare::build_analysis_level;
+use rayon::prelude::*;
 use scan_primitives::{
     morphology::{open, reconstruct_binary},
     threshold::{otsu_threshold, threshold_global},
@@ -29,6 +30,7 @@ pub fn score_skew(binary: &BinaryImage) -> DeskewResult {
         return DeskewResult::default();
     }
     let coarse: Vec<(f64, f64)> = (-7..=7)
+        .into_par_iter()
         .map(|angle| {
             (
                 f64::from(angle),
@@ -48,14 +50,24 @@ pub fn score_skew(binary: &BinaryImage) -> DeskewResult {
         .unwrap();
     let mut step = 0.5;
     for _ in 0..10 {
-        for candidate in [best_angle - step, best_angle + step] {
-            if !(-7.0..=7.0).contains(&candidate) {
-                continue;
-            }
-            let score =
-                projection_score_points(binary.width(), binary.height(), &ink_points, candidate);
+        let minus = best_angle - step;
+        let plus = best_angle + step;
+        let score_candidate = |candidate: f64| {
+            (-7.0..=7.0).contains(&candidate).then(|| {
+                projection_score_points(binary.width(), binary.height(), &ink_points, candidate)
+            })
+        };
+        let (minus_score, plus_score) =
+            rayon::join(|| score_candidate(minus), || score_candidate(plus));
+        if let Some(score) = minus_score {
             if score > best_score {
-                best_angle = candidate;
+                best_angle = minus;
+                best_score = score;
+            }
+        }
+        if let Some(score) = plus_score {
+            if score > best_score {
+                best_angle = plus;
                 best_score = score;
             }
         }

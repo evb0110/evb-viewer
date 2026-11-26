@@ -9,7 +9,7 @@ const WASM_THREADS_TARGET = 'wasm32-wasip1-threads';
  * a crate can have several artifacts, one per Rust target. `lowerBulkMemory`
  * replaces its `memory.copy` and `memory.fill` after the link (see
  * scripts/lib/lower-wasm-bulk-memory.mjs).
- * @typedef {{builtFileName: string, crateName: string, id: string, label: string, lowerBulkMemory?: boolean, manifestPath: string, publicRelativePath: string, requiredExports: string[], rustTarget: string, rustflags: string[]}} IWasmArtifact
+ * @typedef {{builtFileName: string, crateName: string, id: string, label: string, lowerBulkMemory?: boolean, manifestPath: string, packageName: string, publicRelativePath: string, requiredExports: string[], rustTarget: string, rustflags: string[]}} IWasmArtifact
  */
 /** @typedef {{bytes: number, label: string, publicRelativePath: string, sha256: string, url: string}} IPrebuiltWasmFile */
 
@@ -127,6 +127,8 @@ function getRequiredExports(relativePath) {
 const WASM_TARGET_RUSTFLAGS = [
     '--cfg',
     'getrandom_backend="custom"',
+    '-C',
+    'target-feature=+simd128',
 ];
 
 /** @type {IWasmArtifact[]} */
@@ -137,6 +139,7 @@ export const WASM_ARTIFACTS = [
         id: 'pdf-image-combine',
         label: 'PDF image combine WASM',
         manifestPath: 'native/pdf-image-combine/Cargo.toml',
+        packageName: 'evb-pdf-image-combine',
         publicRelativePath: 'public/wasm/evb-pdf-image-combine.wasm',
         requiredExports: getRequiredExports('wasm/evb-pdf-image-combine.wasm'),
         rustTarget: WASM_TARGET,
@@ -148,6 +151,7 @@ export const WASM_ARTIFACTS = [
         id: 'pdf-page-ops',
         label: 'PDF page ops WASM',
         manifestPath: 'native/pdf-page-ops/Cargo.toml',
+        packageName: 'evb-pdf-page-ops',
         publicRelativePath: 'public/wasm/evb-pdf-page-ops.wasm',
         requiredExports: getRequiredExports('wasm/evb-pdf-page-ops.wasm'),
         rustTarget: WASM_TARGET,
@@ -159,6 +163,7 @@ export const WASM_ARTIFACTS = [
         id: 'pdf-search',
         label: 'PDF search WASM',
         manifestPath: 'native/pdf-search/Cargo.toml',
+        packageName: 'evb-pdf-search',
         publicRelativePath: 'public/wasm/evb-pdf-search.wasm',
         requiredExports: getRequiredExports('wasm/evb-pdf-search.wasm'),
         rustTarget: WASM_TARGET,
@@ -170,6 +175,7 @@ export const WASM_ARTIFACTS = [
         id: 'scan-cleanup',
         label: 'Scan cleanup WASM',
         manifestPath: 'native/scan-cleanup/Cargo.toml',
+        packageName: 'evb-scan-cleanup',
         publicRelativePath: 'public/wasm/evb-scan-cleanup.wasm',
         requiredExports: getRequiredExports('wasm/evb-scan-cleanup.wasm'),
         rustTarget: WASM_TARGET,
@@ -184,6 +190,7 @@ export const WASM_ARTIFACTS = [
         // memory size, which can lag another thread's growth.
         lowerBulkMemory: true,
         manifestPath: 'native/scan-cleanup/Cargo.toml',
+        packageName: 'evb-scan-cleanup',
         publicRelativePath: 'public/wasm/evb-scan-cleanup-threads.wasm',
         requiredExports: getRequiredExports('wasm/evb-scan-cleanup-threads.wasm'),
         rustTarget: WASM_THREADS_TARGET,
@@ -193,6 +200,8 @@ export const WASM_ARTIFACTS = [
         // startup object, which rustc leaves out of a cdylib, sets up libc and
         // exports _initialize; the linker finds it by name in the toolchain.
         rustflags: [
+            '-C',
+            'target-feature=+simd128',
             '-C',
             'link-arg=--initial-memory=2097152',
             '-C',

@@ -1600,6 +1600,55 @@ mod tests {
     }
 
     #[test]
+    fn explicit_bw_crop_without_mode_recommendation_preserves_flat_shaded_plate() {
+        let source = flat_shaded_plate_fixture();
+        let options = CleanupOptions {
+            dpi: 150.0,
+            output_mode: OutputMode::Bw,
+            crop_content: true,
+            normalize_illumination: true,
+            layout: crate::LayoutMode::Single,
+            margins_mm: None,
+            margins_pixels: Some([0.0; 4]),
+            ..CleanupOptions::default()
+        };
+        let mut timings = PageStageTimings::default();
+        let metadata = clean_page_with_color_and_calibration_config(
+            &source,
+            None,
+            None,
+            None,
+            None,
+            &options,
+            0,
+            CalibrationConfig::default(),
+            None,
+            None,
+            PageRenderPolicy {
+                recommend_output_mode: false,
+                ..PageRenderPolicy::COMPLETE
+            },
+            &mut timings,
+        )
+        .expect("explicit B&W plate crop should succeed")
+        .outputs
+        .remove(0)
+        .metadata;
+        let content = metadata
+            .content_box
+            .expect("explicit B&W plate crop must produce a content box");
+        let crop = metadata.crop_rect;
+        assert!(
+            content.y <= 130.0 && content.x <= 190.0 && content.right() >= 700.0,
+            "explicit B&W trimmed the flat-shaded plate out of content_box: {content:?}"
+        );
+        assert!(
+            crop.y <= 130.0 && crop.x <= 190.0 && crop.right() >= 700.0,
+            "explicit B&W trimmed the flat-shaded plate out of crop_rect: {crop:?}"
+        );
+    }
+
+    #[test]
     fn normalized_bw_crop_keeps_faint_top_furniture_but_rejects_scanner_band() {
         let (source, trusted_foreground) = faint_top_furniture_fixture();
         let options = CleanupOptions {
@@ -5703,6 +5752,7 @@ mod tests {
                 create_mixed_composite: true,
                 recommend_output_mode: true,
                 analyze_layout: true,
+                encode_faint_stroke_masks: true,
                 cancellation: None,
             },
             &mut timings,
@@ -6913,6 +6963,7 @@ mod tests {
                 create_mixed_composite: true,
                 recommend_output_mode: false,
                 analyze_layout: true,
+                encode_faint_stroke_masks: true,
                 cancellation: None,
             },
             &mut PageStageTimings::default(),
@@ -6955,6 +7006,7 @@ mod tests {
                     create_mixed_composite: true,
                     recommend_output_mode: false,
                     analyze_layout: true,
+                    encode_faint_stroke_masks: true,
                     cancellation: None,
                 },
                 &mut PageStageTimings::default(),

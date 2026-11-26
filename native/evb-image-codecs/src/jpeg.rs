@@ -1,24 +1,25 @@
-use std::io::Cursor;
+use std::{borrow::Cow, io::Cursor};
 
+use jpeg_encoder::{ColorType, Encoder as JpegEncoder, SamplingFactor};
 use zune_jpeg::{
     zune_core::{colorspace::ColorSpace, options::DecoderOptions},
     JpegDecoder,
 };
 
-use crate::{binary::read_u16_be, Result, CM_PER_INCH};
+use crate::{assert_pixel_limit, is_rgb_data_grayscale, read_u16_be, Result, CM_PER_INCH};
 
 const JPEG_APP0_MARKER: u8 = 0xE0;
 const JPEG_APP2_MARKER: u8 = 0xE2;
 const JPEG_START_OF_SCAN_MARKER: u8 = 0xDA;
 
 #[derive(Debug)]
-pub(crate) struct JpegMetadata {
-    pub(crate) width: u32,
-    pub(crate) height: u32,
-    pub(crate) components: u8,
+pub struct JpegMetadata {
+    pub width: u32,
+    pub height: u32,
+    pub components: u8,
     /// Horizontal and vertical density, each from its own JFIF axis.
-    pub(crate) dpi: Option<(u32, u32)>,
-    pub(crate) icc_profile: Option<Vec<u8>>,
+    pub dpi: Option<(u32, u32)>,
+    pub icc_profile: Option<Vec<u8>>,
 }
 
 /// Largest ICC profile `assemble_icc_profile` keeps; larger profiles are
@@ -30,18 +31,18 @@ const MAX_JPEG_ICC_PROFILE_BYTES: usize = 16 * 1024 * 1024;
 /// the full metadata parse runs.
 #[cfg(not(target_family = "wasm"))]
 #[derive(Debug)]
-pub(crate) struct JpegPreflight {
-    pub(crate) width: u32,
-    pub(crate) height: u32,
-    pub(crate) components: u8,
-    pub(crate) icc_chunk_bytes: u64,
+pub struct JpegPreflight {
+    pub width: u32,
+    pub height: u32,
+    pub components: u8,
+    pub icc_chunk_bytes: u64,
 }
 
 #[cfg(not(target_family = "wasm"))]
 impl JpegPreflight {
     /// Heap `parse_jpeg_metadata` allocates for the ICC profile: one copy of
     /// every chunk, plus the assembled profile when it is within the limit.
-    pub(crate) fn icc_profile_working_bytes(&self) -> u64 {
+    pub fn icc_profile_working_bytes(&self) -> u64 {
         let assembled = if self.icc_chunk_bytes <= MAX_JPEG_ICC_PROFILE_BYTES as u64 {
             self.icc_chunk_bytes
         } else {
@@ -52,7 +53,7 @@ impl JpegPreflight {
 }
 
 #[cfg(not(target_family = "wasm"))]
-pub(crate) fn preflight_jpeg_metadata(bytes: &[u8]) -> Result<JpegPreflight> {
+pub fn preflight_jpeg_metadata(bytes: &[u8]) -> Result<JpegPreflight> {
     let mut icc_chunk_bytes = 0u64;
     let frame = walk_jpeg_metadata(bytes, |_, _, chunk| {
         icc_chunk_bytes = icc_chunk_bytes.saturating_add(chunk.len() as u64);
@@ -65,7 +66,7 @@ pub(crate) fn preflight_jpeg_metadata(bytes: &[u8]) -> Result<JpegPreflight> {
     })
 }
 
-pub(crate) fn parse_jpeg_metadata(bytes: &[u8]) -> Result<JpegMetadata> {
+pub fn parse_jpeg_metadata(bytes: &[u8]) -> Result<JpegMetadata> {
     let mut icc_chunks: Vec<(u8, u8, Vec<u8>)> = Vec::new();
     let frame = walk_jpeg_metadata(bytes, |sequence, total, chunk| {
         icc_chunks.push((sequence, total, chunk.to_vec()));
@@ -221,7 +222,7 @@ fn walk_jpeg_metadata(
     })
 }
 
-pub(crate) fn validate_jpeg_decodable(bytes: &[u8], width: u32, height: u32) -> Result<()> {
+pub fn validate_jpeg_decodable(bytes: &[u8], width: u32, height: u32) -> Result<()> {
     let options = DecoderOptions::default()
         .set_strict_mode(true)
         .set_max_width(width as usize)
@@ -232,6 +233,229 @@ pub(crate) fn validate_jpeg_decodable(bytes: &[u8], width: u32, height: u32) -> 
         .decode()
         .map(|_| ())
         .map_err(|error| format!("JPEG scan data is not decodable: {error}").into())
+}
+
+/// A JPEG decoded and encoded again by [`recompress_jpeg`].
+pub struct RecompressedJpeg {
+    pub data: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+    /// The encoder stored one gray channel: the source was gray, or color
+    /// with every pixel neutral.
+    pub grayscale: bool,
+}
+
+/// Encodes 8-bit gray (`channels == 1`) or RGB (`channels == 3`) pixels as a
+/// JPEG stream and returns `(bytes, pdf_color_space)`. Neutral RGB images are
+/// stored as 1-channel `DeviceGray`.
+pub fn encode_pixels_as_jpeg(
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+    channels: u8,
+    quality: u8,
+) -> Result<(Vec<u8>, &'static str)> {
+    if width == 0 || height == 0 {
+        return Err("JPEG dimensions must be non-zero".into());
+    }
+    if !matches!(channels, 1 | 3) {
+        return Err(format!("Unsupported JPEG channel count: {channels}").into());
+    }
+    let width_u16 =
+        u16::try_from(width).map_err(|_| format!("JPEG width is too large to encode: {width}"))?;
+    let height_u16 = u16::try_from(height)
+        .map_err(|_| format!("JPEG height is too large to encode: {height}"))?;
+    let total_pixels = (width as usize)
+        .checked_mul(height as usize)
+        .ok_or("JPEG pixel count overflow")?;
+    let expected_len = total_pixels
+        .checked_mul(usize::from(channels))
+        .ok_or("JPEG pixel payload size overflow")?;
+    if pixels.len() != expected_len {
+        return Err(format!(
+            "JPEG pixel payload length {} does not match {}x{}x{}",
+            pixels.len(),
+            width,
+            height,
+            channels
+        )
+        .into());
+    }
+    let (encoded_pixels, color_type, color_space): (Cow<'_, [u8]>, ColorType, &'static str) =
+        if channels == 1 {
+            (Cow::Borrowed(pixels), ColorType::Luma, "DeviceGray")
+        } else if is_rgb_data_grayscale(pixels, total_pixels) {
+            let mut grayscale = Vec::with_capacity(total_pixels);
+            for pixel in pixels.chunks_exact(3).take(total_pixels) {
+                grayscale.push(pixel[0]);
+            }
+            (Cow::Owned(grayscale), ColorType::Luma, "DeviceGray")
+        } else {
+            (Cow::Borrowed(pixels), ColorType::Rgb, "DeviceRGB")
+        };
+
+    let mut data = Vec::new();
+    let mut encoder = JpegEncoder::new(&mut data, quality);
+    if matches!(color_type, ColorType::Rgb) {
+        encoder.set_sampling_factor(SamplingFactor::R_4_2_0);
+    }
+    encoder.encode(&encoded_pixels, width_u16, height_u16, color_type)?;
+    Ok((data, color_space))
+}
+
+/// Resizes interleaved 8-bit gray or RGB pixels using area averaging when
+/// downscaling. Rejects upscaling or malformed source buffers.
+pub fn resize_pixels(
+    pixels: &[u8],
+    source_width: u32,
+    source_height: u32,
+    channels: u8,
+    next_width: u32,
+    next_height: u32,
+    max_pixels: u64,
+) -> Result<Vec<u8>> {
+    if source_width == 0 || source_height == 0 {
+        return Err("Source dimensions must be non-zero".into());
+    }
+    if !matches!(channels, 1 | 3) {
+        return Err(format!("Unsupported channel count for resize: {channels}").into());
+    }
+    let sw = source_width as usize;
+    let sh = source_height as usize;
+    let ch = usize::from(channels);
+    let expected_source_len = sw
+        .checked_mul(sh)
+        .and_then(|value| value.checked_mul(ch))
+        .ok_or("Source pixel payload size overflow")?;
+    if pixels.len() != expected_source_len {
+        return Err(format!(
+            "Source pixel payload length {} does not match {}x{}x{}",
+            pixels.len(),
+            source_width,
+            source_height,
+            channels
+        )
+        .into());
+    }
+    assert_pixel_limit(next_width, next_height, max_pixels)?;
+    if next_width > source_width || next_height > source_height {
+        return Err("Resized image dimensions cannot exceed source dimensions".into());
+    }
+    if source_width == next_width && source_height == next_height {
+        return Ok(pixels.to_vec());
+    }
+    let nw = next_width as usize;
+    let nh = next_height as usize;
+    let output_len = nw
+        .checked_mul(nh)
+        .and_then(|value| value.checked_mul(ch))
+        .ok_or("Resized pixel payload size overflow")?;
+    let mut output = vec![0u8; output_len];
+    if next_width < source_width || next_height < source_height {
+        let scale_x = sw as f64 / nw as f64;
+        let scale_y = sh as f64 / nh as f64;
+        for y in 0..nh {
+            let y0 = y as f64 * scale_y;
+            let y1 = (y + 1) as f64 * scale_y;
+            let sy_start = y0.floor() as usize;
+            let sy_end = y1.ceil().min(sh as f64) as usize;
+            for x in 0..nw {
+                let x0 = x as f64 * scale_x;
+                let x1 = (x + 1) as f64 * scale_x;
+                let sx_start = x0.floor() as usize;
+                let sx_end = x1.ceil().min(sw as f64) as usize;
+                let output_offset = (y * nw + x) * ch;
+                let area = (x1 - x0) * (y1 - y0);
+                for channel in 0..ch {
+                    let mut weighted_sum = 0.0;
+                    for sy in sy_start..sy_end {
+                        let overlap_y = ((sy + 1) as f64).min(y1) - (sy as f64).max(y0);
+                        if overlap_y <= 0.0 {
+                            continue;
+                        }
+                        for sx in sx_start..sx_end {
+                            let overlap_x = ((sx + 1) as f64).min(x1) - (sx as f64).max(x0);
+                            if overlap_x <= 0.0 {
+                                continue;
+                            }
+                            let source_offset = (sy * sw + sx) * ch;
+                            weighted_sum +=
+                                f64::from(pixels[source_offset + channel]) * overlap_x * overlap_y;
+                        }
+                    }
+                    output[output_offset + channel] =
+                        (weighted_sum / area).round().clamp(0.0, 255.0) as u8;
+                }
+            }
+        }
+    } else {
+        for y in 0..nh {
+            let sy = ((y as f64 + 0.5) * sh as f64 / nh as f64)
+                .floor()
+                .min((sh - 1) as f64) as usize;
+            for x in 0..nw {
+                let sx = ((x as f64 + 0.5) * sw as f64 / nw as f64)
+                    .floor()
+                    .min((sw - 1) as f64) as usize;
+                let source_offset = (sy * sw + sx) * ch;
+                let output_offset = (y * nw + x) * ch;
+                output[output_offset..output_offset + ch]
+                    .copy_from_slice(&pixels[source_offset..source_offset + ch]);
+            }
+        }
+    }
+    Ok(output)
+}
+
+/// Decodes an 8-bit gray or RGB JPEG, shrinks it to `width` x `height` by
+/// area averaging, and encodes it again at `quality`. The new size may not
+/// exceed the source's; the same size keeps every pixel.
+pub fn recompress_jpeg(
+    bytes: &[u8],
+    width: u32,
+    height: u32,
+    quality: u8,
+    max_pixels: u64,
+) -> Result<RecompressedJpeg> {
+    let metadata = parse_jpeg_metadata(bytes)?;
+    if width == 0 || height == 0 || width > metadata.width || height > metadata.height {
+        return Err("A recompressed JPEG cannot be larger than its source".into());
+    }
+    assert_pixel_limit(metadata.width, metadata.height, max_pixels)?;
+    let (channels, color_space) = match metadata.components {
+        1 => (1u8, ColorSpace::Luma),
+        3 => (3u8, ColorSpace::RGB),
+        components => {
+            return Err(format!("Unsupported JPEG component count: {components}").into());
+        }
+    };
+    let options = DecoderOptions::default()
+        .set_strict_mode(true)
+        .set_max_width(metadata.width as usize)
+        .set_max_height(metadata.height as usize)
+        .jpeg_set_out_colorspace(color_space);
+    let pixels = JpegDecoder::new_with_options(Cursor::new(bytes), options)
+        .decode()
+        .map_err(|error| format!("JPEG scan data is not decodable: {error}"))?;
+    if pixels.len() != metadata.width as usize * metadata.height as usize * channels as usize {
+        return Err("Decoded JPEG does not match its frame size".into());
+    }
+    let resized = resize_pixels(
+        &pixels,
+        metadata.width,
+        metadata.height,
+        channels,
+        width,
+        height,
+        max_pixels,
+    )?;
+    let (data, color_space) = encode_pixels_as_jpeg(&resized, width, height, channels, quality)?;
+    Ok(RecompressedJpeg {
+        data,
+        width,
+        height,
+        grayscale: color_space == "DeviceGray",
+    })
 }
 
 fn assemble_icc_profile(mut chunks: Vec<(u8, u8, Vec<u8>)>) -> Result<Option<Vec<u8>>> {

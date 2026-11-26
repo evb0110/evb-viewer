@@ -1,4 +1,3 @@
-use jpeg_encoder::{ColorType, Encoder as JpegEncoder, SamplingFactor};
 use std::{
     borrow::Cow,
     env,
@@ -7,11 +6,14 @@ use std::{
     path::Path,
     sync::OnceLock,
 };
-use zune_jpeg::{
-    zune_core::{colorspace::ColorSpace, options::DecoderOptions},
-    JpegDecoder,
-};
 
+#[cfg(not(target_family = "wasm"))]
+use evb_image_codecs::jpeg::preflight_jpeg_metadata;
+use evb_image_codecs::{
+    bmp, gif_codec,
+    jpeg::{encode_pixels_as_jpeg, parse_jpeg_metadata, resize_pixels, validate_jpeg_decodable},
+    webp, DecodedRaster,
+};
 use evb_native_support::bounded_io::read_open_file_bounded;
 #[cfg(test)]
 use evb_native_support::{NativeError, NativeErrorCode};
@@ -23,7 +25,6 @@ use evb_raster_io::{
 
 use crate::{
     flate::{deflate_up_filtered_rgb_grayscale, deflate_up_filtered_slices},
-    jpeg::{parse_jpeg_metadata, validate_jpeg_decodable},
     jpx::{parse_jpx_metadata, validate_jpx_codestream},
     netpbm::{is_rgb_data_grayscale, parse_netpbm, read_netpbm_file, NetpbmData, OwnedNetpbm},
     pdf::{ImagePage, ImagePayload},
@@ -35,7 +36,6 @@ use crate::{
 };
 #[cfg(not(target_family = "wasm"))]
 use crate::{
-    jpeg::preflight_jpeg_metadata,
     netpbm::probe_pbm_p4_header,
     tiff_io::{estimate_bilevel_encode_peak_bytes, estimate_up_filtered_flate_working_set_bytes},
 };
@@ -173,6 +173,24 @@ pub(crate) fn estimate_image_bytes_decode_bytes(
         }),
         // `parse_pbm_p4` copies the bitmap before `BilevelStream::encode`.
         "pbm" => estimate_pbm_bytes_encode_bytes(bytes, max_pixels),
+        "bmp" => bmp::read_bmp_dimensions(bytes)
+            .ok()
+            .filter(|&(w, h)| u64::from(w).saturating_mul(u64::from(h)) <= max_pixels)
+            .map_or(0, |(w, h)| {
+                u64::from(w).saturating_mul(u64::from(h)).saturating_mul(4)
+            }),
+        "gif" => gif_codec::read_gif_dimensions(bytes)
+            .ok()
+            .filter(|&(w, h)| u64::from(w).saturating_mul(u64::from(h)) <= max_pixels)
+            .map_or(0, |(w, h)| {
+                u64::from(w).saturating_mul(u64::from(h)).saturating_mul(4)
+            }),
+        "webp" => webp::read_webp_dimensions(bytes)
+            .ok()
+            .filter(|&(w, h)| u64::from(w).saturating_mul(u64::from(h)) <= max_pixels)
+            .map_or(0, |(w, h)| {
+                u64::from(w).saturating_mul(u64::from(h)).saturating_mul(4)
+            }),
         _ => 0,
     }
 }
@@ -238,6 +256,9 @@ pub(crate) fn visit_image_pages_from_file(
         "png" => read_png_page_from_reader(BufReader::new(file), max_pixels, default_dpi)?,
         "jpg" | "jpeg" => read_jpeg_page(read_file(file)?, max_pixels, default_dpi)?,
         "jp2" => read_jpx_page(read_file(file)?, max_pixels, default_dpi)?,
+        "bmp" | "gif" | "webp" => {
+            read_decoded_raster_page(&extension, &read_file(file)?, max_pixels, default_dpi)?
+        }
         "pgm" | "ppm" => {
             read_netpbm_page_from_file(file, max_pixels, default_dpi.unwrap_or(DEFAULT_DPI))?
         }
@@ -273,6 +294,9 @@ pub(crate) fn visit_image_pages_from_loaded_file_bytes(
         "png" => read_png_page_from_bytes(&bytes, max_pixels, default_dpi)?,
         "jpg" | "jpeg" => read_jpeg_page(bytes, max_pixels, default_dpi)?,
         "jp2" => read_jpx_page(bytes, max_pixels, default_dpi)?,
+        "bmp" | "gif" | "webp" => {
+            read_decoded_raster_page(&extension, &bytes, max_pixels, default_dpi)?
+        }
         "pgm" | "ppm" => read_netpbm_page(&bytes, max_pixels, default_dpi.unwrap_or(DEFAULT_DPI))?,
         _ => return Err(format!("Unsupported image extension: {}", path.display()).into()),
     };
@@ -332,9 +356,33 @@ pub(crate) fn read_image_page_from_loaded_file_bytes(
                 use_flate_fallback,
             )
         }
+        (
+            "bmp" | "gif" | "webp",
+            PdfImageCompression::Jpeg { quality }
+            | PdfImageCompression::JpegWithFlateFallback { quality },
+        ) => {
+            let use_flate_fallback = matches!(
+                compression,
+                PdfImageCompression::JpegWithFlateFallback { .. }
+            );
+            read_decoded_raster_jpeg_page(
+                &extension,
+                &bytes,
+                options.max_pixels,
+                options.default_dpi,
+                quality,
+                processing,
+                page_size,
+                size_guardrail,
+                use_flate_fallback,
+            )
+        }
         ("jpg" | "jpeg", _) => read_jpeg_page(bytes, options.max_pixels, options.default_dpi),
         ("jp2", PdfImageCompression::Auto) => {
             read_jpx_page(bytes, options.max_pixels, options.default_dpi)
+        }
+        ("bmp" | "gif" | "webp", PdfImageCompression::Auto) => {
+            read_decoded_raster_page(&extension, &bytes, options.max_pixels, options.default_dpi)
         }
         ("pgm" | "ppm", _) => read_netpbm_page(
             &bytes,
@@ -407,6 +455,9 @@ pub(crate) fn visit_image_pages_from_bytes(
         "png" => read_png_page_from_reader(Cursor::new(bytes), max_pixels, default_dpi)?,
         "jpg" | "jpeg" => read_jpeg_page(bytes.to_vec(), max_pixels, default_dpi)?,
         "jp2" => read_jpx_page(bytes.to_vec(), max_pixels, default_dpi)?,
+        "bmp" | "gif" | "webp" => {
+            read_decoded_raster_page(&extension, bytes, max_pixels, default_dpi)?
+        }
         "pgm" | "ppm" => read_netpbm_page(bytes, max_pixels, default_dpi.unwrap_or(DEFAULT_DPI))?,
         _ => return Err(format!("Unsupported image extension: {file_name}").into()),
     };
@@ -469,6 +520,27 @@ pub(crate) fn read_image_page_from_bytes(
                 use_flate_fallback,
             )
         }
+        (
+            "bmp" | "gif" | "webp",
+            PdfImageCompression::Jpeg { quality }
+            | PdfImageCompression::JpegWithFlateFallback { quality },
+        ) => {
+            let use_flate_fallback = matches!(
+                compression,
+                PdfImageCompression::JpegWithFlateFallback { .. }
+            );
+            read_decoded_raster_jpeg_page(
+                &extension,
+                bytes,
+                options.max_pixels,
+                options.default_dpi,
+                quality,
+                processing,
+                page_size,
+                size_guardrail,
+                use_flate_fallback,
+            )
+        }
         ("pgm" | "ppm", PdfImageCompression::Auto)
             if matches!(processing, ImageProcessing::None) =>
         {
@@ -486,6 +558,9 @@ pub(crate) fn read_image_page_from_bytes(
         }
         ("png", PdfImageCompression::Auto) => {
             read_png_page_from_reader(Cursor::new(bytes), options.max_pixels, options.default_dpi)
+        }
+        ("bmp" | "gif" | "webp", PdfImageCompression::Auto) => {
+            read_decoded_raster_page(&extension, bytes, options.max_pixels, options.default_dpi)
         }
         ("jpg" | "jpeg", _) => {
             read_jpeg_page(bytes.to_vec(), options.max_pixels, options.default_dpi)
@@ -724,6 +799,143 @@ fn read_jpx_page(bytes: Vec<u8>, max_pixels: u64, default_dpi: Option<u32>) -> R
         },
         icc_profile: None,
         payload: ImagePayload::Jpx { data: bytes },
+    })
+}
+
+fn decode_raster_by_extension(
+    extension: &str,
+    bytes: &[u8],
+    max_pixels: u64,
+) -> Result<DecodedRaster> {
+    match extension {
+        "bmp" => bmp::decode_bmp(bytes, max_pixels),
+        "gif" => gif_codec::decode_gif(bytes, max_pixels),
+        "webp" => webp::decode_webp(bytes, max_pixels),
+        _ => Err(format!("Unsupported raster extension: {extension}").into()),
+    }
+}
+
+fn icc_profile_matches_channels(profile: &[u8], channels: usize) -> bool {
+    match profile.get(16..20) {
+        Some(b"GRAY") => channels == 1,
+        Some(b"RGB ") => channels == 3,
+        _ => false,
+    }
+}
+
+fn read_decoded_raster_page(
+    extension: &str,
+    bytes: &[u8],
+    max_pixels: u64,
+    default_dpi: Option<u32>,
+) -> Result<ImagePage> {
+    let decoded = decode_raster_by_extension(extension, bytes, max_pixels)?;
+    let (dpi_x, dpi_y) = decoded
+        .dpi
+        .or_else(|| default_dpi.map(|dpi| (dpi, dpi)))
+        .unwrap_or((DEFAULT_DPI, DEFAULT_DPI));
+    let total_pixels = decoded.width as usize * decoded.height as usize;
+    let has_rgb_icc = decoded
+        .icc_profile
+        .as_deref()
+        .is_some_and(|profile| icc_profile_matches_channels(profile, 3));
+    let (colors, color_space, compressed) =
+        if !has_rgb_icc && is_rgb_data_grayscale(&decoded.rgb, total_pixels) {
+            (
+                1usize,
+                "DeviceGray",
+                deflate_up_filtered_rgb_grayscale(
+                    &decoded.rgb,
+                    decoded.width as usize,
+                    decoded.height as usize,
+                )?,
+            )
+        } else {
+            (
+                3usize,
+                "DeviceRGB",
+                deflate_up_filtered_slices(
+                    &decoded.rgb,
+                    decoded.width as usize * 3,
+                    decoded.height as usize,
+                )?,
+            )
+        };
+    let icc_profile = decoded
+        .icc_profile
+        .filter(|profile| icc_profile_matches_channels(profile, colors));
+    Ok(ImagePage {
+        width: decoded.width,
+        height: decoded.height,
+        dpi_x,
+        dpi_y,
+        color_space,
+        icc_profile,
+        payload: ImagePayload::RawFlate {
+            data: compressed,
+            decode_params: format!(
+                "<< /Predictor 12 /Colors {colors} /BitsPerComponent 8 /Columns {} >>",
+                decoded.width
+            ),
+        },
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn read_decoded_raster_jpeg_page(
+    extension: &str,
+    bytes: &[u8],
+    max_pixels: u64,
+    default_dpi: Option<u32>,
+    quality: u8,
+    processing: ImageProcessing,
+    page_size: Option<PdfPageSize>,
+    size_guardrail: Option<JpegSizeGuardrail>,
+    use_flate_fallback: bool,
+) -> Result<ImagePage> {
+    let decoded = decode_raster_by_extension(extension, bytes, max_pixels)?;
+    let (dpi_x, dpi_y) = decoded
+        .dpi
+        .or_else(|| default_dpi.map(|dpi| (dpi, dpi)))
+        .unwrap_or((DEFAULT_DPI, DEFAULT_DPI));
+    let prepared = apply_jpeg_processing(
+        PreparedNetpbmPixels {
+            width: decoded.width,
+            height: decoded.height,
+            channels: 3,
+            pixels: Cow::Owned(decoded.rgb),
+        },
+        max_pixels,
+        processing,
+        page_size,
+    )?;
+    let (prepared, _, (jpeg_data, jpeg_color_space)) =
+        encode_with_size_guardrail(prepared, max_pixels, quality, page_size, size_guardrail)?;
+    if use_flate_fallback {
+        let flate = encode_prepared_netpbm_as_flate(&prepared)?;
+        if flate.data.len() < jpeg_data.len() {
+            return Ok(ImagePage {
+                width: prepared.width,
+                height: prepared.height,
+                dpi_x,
+                dpi_y,
+                color_space: flate.color_space,
+                icc_profile: decoded.icc_profile,
+                payload: ImagePayload::RawFlate {
+                    data: flate.data,
+                    decode_params: flate.decode_params,
+                },
+            });
+        }
+    }
+    Ok(ImagePage {
+        width: prepared.width,
+        height: prepared.height,
+        dpi_x,
+        dpi_y,
+        color_space: jpeg_color_space,
+        icc_profile: decoded.icc_profile,
+        payload: ImagePayload::Jpeg { data: jpeg_data },
     })
 }
 
@@ -1034,39 +1246,13 @@ fn encode_prepared_netpbm_as_jpeg(
     prepared: &PreparedNetpbmPixels<'_>,
     quality: u8,
 ) -> Result<EncodedJpeg> {
-    let width = u16::try_from(prepared.width)
-        .map_err(|_| format!("JPEG width is too large to encode: {}", prepared.width))?;
-    let height = u16::try_from(prepared.height)
-        .map_err(|_| format!("JPEG height is too large to encode: {}", prepared.height))?;
-    let total_pixels = prepared.width as usize * prepared.height as usize;
-    let (pixels, color_type, color_space): (Cow<'_, [u8]>, ColorType, &'static str) =
-        if prepared.channels == 1 {
-            (
-                Cow::Borrowed(prepared.pixels.as_ref()),
-                ColorType::Luma,
-                "DeviceGray",
-            )
-        } else if is_rgb_data_grayscale(&prepared.pixels, total_pixels) {
-            let mut grayscale = Vec::with_capacity(total_pixels);
-            for pixel in prepared.pixels.chunks_exact(3).take(total_pixels) {
-                grayscale.push(pixel[0]);
-            }
-            (Cow::Owned(grayscale), ColorType::Luma, "DeviceGray")
-        } else {
-            (
-                Cow::Borrowed(prepared.pixels.as_ref()),
-                ColorType::Rgb,
-                "DeviceRGB",
-            )
-        };
-
-    let mut data = Vec::new();
-    let mut encoder = JpegEncoder::new(&mut data, quality);
-    if matches!(color_type, ColorType::Rgb) {
-        encoder.set_sampling_factor(SamplingFactor::R_4_2_0);
-    }
-    encoder.encode(&pixels, width, height, color_type)?;
-    Ok((data, color_space))
+    encode_pixels_as_jpeg(
+        prepared.pixels.as_ref(),
+        prepared.width,
+        prepared.height,
+        prepared.channels,
+        quality,
+    )
 }
 
 /// Encodes `prepared` as JPEG. With a guardrail, a page over its size
@@ -1136,69 +1322,6 @@ fn encode_with_size_guardrail<'a>(
     }
 
     Ok((current_prepared, current_quality, current))
-}
-
-/// A JPEG decoded and encoded again by [`recompress_jpeg`].
-pub struct RecompressedJpeg {
-    pub data: Vec<u8>,
-    pub width: u32,
-    pub height: u32,
-    /// The encoder stored one gray channel: the source was gray, or color
-    /// with every pixel neutral.
-    pub grayscale: bool,
-}
-
-/// Decodes an 8-bit gray or RGB JPEG, shrinks it to `width` x `height` by
-/// area averaging, and encodes it again at `quality`. The new size may not
-/// exceed the source's; the same size keeps every pixel.
-pub fn recompress_jpeg(
-    bytes: &[u8],
-    width: u32,
-    height: u32,
-    quality: u8,
-    max_pixels: u64,
-) -> Result<RecompressedJpeg> {
-    let metadata = parse_jpeg_metadata(bytes)?;
-    if width == 0 || height == 0 || width > metadata.width || height > metadata.height {
-        return Err("A recompressed JPEG cannot be larger than its source".into());
-    }
-    assert_pixel_limit(metadata.width, metadata.height, max_pixels)?;
-    let (channels, color_space) = match metadata.components {
-        1 => (1u8, ColorSpace::Luma),
-        3 => (3u8, ColorSpace::RGB),
-        components => {
-            return Err(format!("Unsupported JPEG component count: {components}").into());
-        }
-    };
-    let options = DecoderOptions::default()
-        .set_strict_mode(true)
-        .set_max_width(metadata.width as usize)
-        .set_max_height(metadata.height as usize)
-        .jpeg_set_out_colorspace(color_space);
-    let pixels = JpegDecoder::new_with_options(Cursor::new(bytes), options)
-        .decode()
-        .map_err(|error| format!("JPEG scan data is not decodable: {error}"))?;
-    if pixels.len() != metadata.width as usize * metadata.height as usize * channels as usize {
-        return Err("Decoded JPEG does not match its frame size".into());
-    }
-    let prepared = resize_prepared_netpbm(
-        PreparedNetpbmPixels {
-            width: metadata.width,
-            height: metadata.height,
-            channels,
-            pixels: Cow::Owned(pixels),
-        },
-        width,
-        height,
-        max_pixels,
-    )?;
-    let (data, color_space) = encode_prepared_netpbm_as_jpeg(&prepared, quality)?;
-    Ok(RecompressedJpeg {
-        data,
-        width,
-        height,
-        grayscale: color_space == "DeviceGray",
-    })
 }
 
 struct PreparedNetpbmPixels<'a> {
@@ -1282,118 +1405,21 @@ fn resize_prepared_netpbm<'a>(
     if prepared.width == next_width && prepared.height == next_height {
         return Ok(prepared);
     }
-    assert_pixel_limit(next_width, next_height, max_pixels)?;
-    let source_width = prepared.width as usize;
-    let source_height = prepared.height as usize;
-    let next_width_usize = next_width as usize;
-    let next_height_usize = next_height as usize;
-    let channels = prepared.channels as usize;
-    let output_len = next_width_usize
-        .checked_mul(next_height_usize)
-        .and_then(|value| value.checked_mul(channels))
-        .ok_or("Resized Netpbm payload size overflow")?;
-    let mut output = vec![0u8; output_len];
-    if next_width < prepared.width || next_height < prepared.height {
-        resize_prepared_netpbm_area_average(
-            &prepared,
-            &mut output,
-            source_width,
-            source_height,
-            next_width_usize,
-            next_height_usize,
-            channels,
-        );
-    } else {
-        resize_prepared_netpbm_point_sample(
-            &prepared,
-            &mut output,
-            source_width,
-            source_height,
-            next_width_usize,
-            next_height_usize,
-            channels,
-        );
-    }
+    let output = resize_pixels(
+        prepared.pixels.as_ref(),
+        prepared.width,
+        prepared.height,
+        prepared.channels,
+        next_width,
+        next_height,
+        max_pixels,
+    )?;
     Ok(PreparedNetpbmPixels {
         width: next_width,
         height: next_height,
         channels: prepared.channels,
         pixels: Cow::Owned(output),
     })
-}
-
-fn resize_prepared_netpbm_point_sample(
-    prepared: &PreparedNetpbmPixels<'_>,
-    output: &mut [u8],
-    source_width: usize,
-    source_height: usize,
-    next_width: usize,
-    next_height: usize,
-    channels: usize,
-) {
-    for y in 0..next_height {
-        let source_y = ((y as f64 + 0.5) * source_height as f64 / next_height as f64)
-            .floor()
-            .min((source_height - 1) as f64) as usize;
-        for x in 0..next_width {
-            let source_x = ((x as f64 + 0.5) * source_width as f64 / next_width as f64)
-                .floor()
-                .min((source_width - 1) as f64) as usize;
-            let source_offset = (source_y * source_width + source_x) * channels;
-            let output_offset = (y * next_width + x) * channels;
-            for channel in 0..channels {
-                output[output_offset + channel] = prepared.pixels[source_offset + channel];
-            }
-        }
-    }
-}
-
-fn resize_prepared_netpbm_area_average(
-    prepared: &PreparedNetpbmPixels<'_>,
-    output: &mut [u8],
-    source_width: usize,
-    source_height: usize,
-    next_width: usize,
-    next_height: usize,
-    channels: usize,
-) {
-    let scale_x = source_width as f64 / next_width as f64;
-    let scale_y = source_height as f64 / next_height as f64;
-    for y in 0..next_height {
-        let y0 = y as f64 * scale_y;
-        let y1 = (y + 1) as f64 * scale_y;
-        let source_y_start = y0.floor() as usize;
-        let source_y_end = y1.ceil().min(source_height as f64) as usize;
-        for x in 0..next_width {
-            let x0 = x as f64 * scale_x;
-            let x1 = (x + 1) as f64 * scale_x;
-            let source_x_start = x0.floor() as usize;
-            let source_x_end = x1.ceil().min(source_width as f64) as usize;
-            let output_offset = (y * next_width + x) * channels;
-            let area = (x1 - x0) * (y1 - y0);
-            for channel in 0..channels {
-                let mut weighted_sum = 0.0;
-                for source_y in source_y_start..source_y_end {
-                    let overlap_y = ((source_y + 1) as f64).min(y1) - (source_y as f64).max(y0);
-                    if overlap_y <= 0.0 {
-                        continue;
-                    }
-                    for source_x in source_x_start..source_x_end {
-                        let overlap_x = ((source_x + 1) as f64).min(x1) - (source_x as f64).max(x0);
-                        if overlap_x <= 0.0 {
-                            continue;
-                        }
-                        let source_offset = (source_y * source_width + source_x) * channels;
-                        weighted_sum += f64::from(prepared.pixels[source_offset + channel])
-                            * overlap_x
-                            * overlap_y;
-                    }
-                }
-                output[output_offset + channel] =
-                    (weighted_sum / area).round().clamp(0.0, 255.0) as u8;
-            }
-        }
-    }
 }
 
 fn jpeg_size_ceiling_bytes(
@@ -2007,6 +2033,127 @@ mod tests {
             height,
             channels: 1,
             pixels: std::borrow::Cow::Owned(pixels),
+        }
+    }
+
+    #[test]
+    fn combines_bmp_gif_and_webp_inputs_into_valid_pdf_auto_and_jpeg() {
+        use crate::{
+            write_pdf, FramePolicy, ImageCompression, ImageSpec, InputSource, PageSpec,
+            PdfBuildOptions, PdfPageSpec,
+        };
+        use image_webp::{ColorType as WebpColorType, WebPEncoder};
+
+        let make_24bit_bmp = |width: u32, height: i32, pixels_bgr: &[u8]| -> Vec<u8> {
+            let row_stride = (width as usize * 3).div_ceil(4) * 4;
+            let pixel_size = row_stride * height.unsigned_abs() as usize;
+            let file_size = 54 + pixel_size;
+            let mut out = Vec::with_capacity(file_size);
+            out.extend_from_slice(b"BM");
+            out.extend_from_slice(&(file_size as u32).to_le_bytes());
+            out.extend_from_slice(&0u32.to_le_bytes());
+            out.extend_from_slice(&54u32.to_le_bytes());
+            out.extend_from_slice(&40u32.to_le_bytes());
+            out.extend_from_slice(&(width as i32).to_le_bytes());
+            out.extend_from_slice(&height.to_le_bytes());
+            out.extend_from_slice(&1u16.to_le_bytes());
+            out.extend_from_slice(&24u16.to_le_bytes());
+            out.extend_from_slice(&0u32.to_le_bytes());
+            out.extend_from_slice(&(pixel_size as u32).to_le_bytes());
+            out.extend_from_slice(&11811i32.to_le_bytes());
+            out.extend_from_slice(&11811i32.to_le_bytes());
+            out.extend_from_slice(&0u32.to_le_bytes());
+            out.extend_from_slice(&0u32.to_le_bytes());
+            out.extend_from_slice(pixels_bgr);
+            out
+        };
+
+        let bmp = make_24bit_bmp(
+            2,
+            2,
+            &[
+                0, 0, 255, 0, 255, 0, 0, 0, // bottom
+                255, 0, 0, 255, 255, 255, 0, 0, // top
+            ],
+        );
+        let mut gif_bytes = Vec::new();
+        {
+            let palette = [255, 0, 0, 0, 255, 0];
+            let mut encoder = gif::Encoder::new(&mut gif_bytes, 2, 2, &palette).unwrap();
+            let mut frame = gif::Frame::from_indexed_pixels(2, 2, vec![0, 1, 1, 0], Some(1));
+            frame.palette = None;
+            encoder.write_frame(&frame).unwrap();
+        }
+        let mut webp_bytes = Vec::new();
+        let rgba = [
+            255, 0, 0, 255, 0, 255, 0, 255, // row 0
+            0, 0, 255, 128, 255, 255, 255, 0, // row 1
+        ];
+        WebPEncoder::new(&mut webp_bytes)
+            .encode(&rgba, 2, 2, WebpColorType::Rgba8)
+            .unwrap();
+
+        for compression in [
+            ImageCompression::Auto,
+            ImageCompression::Jpeg { quality: 85 },
+        ] {
+            let specs: Vec<PdfPageSpec<'_>> = vec![
+                PageSpec::Image {
+                    page_size: None,
+                    placement: None,
+                    rotation_degrees: 0,
+                    image: ImageSpec {
+                        source: InputSource::Bytes {
+                            file_name: "page1.bmp",
+                            data: &bmp,
+                        },
+                        compression,
+                        processing: ImageProcessing::None,
+                        size_guardrail: None,
+                    },
+                    frames: FramePolicy::All,
+                },
+                PageSpec::Image {
+                    page_size: None,
+                    placement: None,
+                    rotation_degrees: 0,
+                    image: ImageSpec {
+                        source: InputSource::Bytes {
+                            file_name: "page2.gif",
+                            data: &gif_bytes,
+                        },
+                        compression,
+                        processing: ImageProcessing::None,
+                        size_guardrail: None,
+                    },
+                    frames: FramePolicy::All,
+                },
+                PageSpec::Image {
+                    page_size: None,
+                    placement: None,
+                    rotation_degrees: 0,
+                    image: ImageSpec {
+                        source: InputSource::Bytes {
+                            file_name: "page3.webp",
+                            data: &webp_bytes,
+                        },
+                        compression,
+                        processing: ImageProcessing::None,
+                        size_guardrail: None,
+                    },
+                    frames: FramePolicy::All,
+                },
+            ];
+
+            let pdf = write_pdf(Vec::new(), specs, &PdfBuildOptions::default(), |_| {}).unwrap();
+            let text = String::from_utf8_lossy(&pdf);
+            assert!(pdf.starts_with(b"%PDF-"), "missing PDF header");
+            assert!(text.contains("/Count 3"), "expected 3 pages in PDF");
+            match compression {
+                ImageCompression::Auto => assert!(text.contains("/Filter /FlateDecode")),
+                ImageCompression::Jpeg { .. } => assert!(text.contains("/Filter /DCTDecode")),
+                ImageCompression::JpegWithFlateFallback { .. } => {}
+            }
         }
     }
 }

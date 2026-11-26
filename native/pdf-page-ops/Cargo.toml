@@ -29,10 +29,10 @@ unicode-normalization = "0.1.25"
 png = "0.18"
 base64 = "0.23.1"
 subsetter = { version = "0.2.6", default-features = false }
-# Optimizing images reuses the image combiner's JPEG codec. Without its
-# `wasm-exports` feature the browser module carries only the page-op ABI.
-evb-pdf-image-combine = { version = "0.1.0", path = "../pdf-image-combine", default-features = false }
-evb-scan-cleanup = { version = "0.1.0", path = "../scan-cleanup", default-features = false }
+# Optimizing images and scan-raster rendering share the leaf codec and primitive
+# crates directly without pulling in scan-cleanup or pdf-image-combine.
+evb-image-codecs = { version = "0.1.0", path = "../evb-image-codecs" }
+scan-primitives = { version = "0.1.0", path = "../scan-primitives" }
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
