@@ -545,6 +545,32 @@ describe('browser working-copy decryption', () => {
         expect((await browserDocumentStore.requireEntry(result.originalPath)).memoryOnly).toBe(true);
         expect((await browserDocumentStore.requireEntry(result.workingPath)).memoryOnly).toBe(true);
     });
+
+    it('marks a single browser output PDF as generated without adding it to Recent Files', async () => {
+        const {
+            browserDocumentStore,
+            openDocumentPaths,
+        } = await loadService();
+        const outputPath = await browserDocumentStore.createStoredDocument(
+            'scan-cleaned.pdf',
+            DECRYPTED_PDF,
+            {
+                mimeType: 'application/pdf',
+                saveKind: 'pdf',
+                kind: 'output',
+                retention: 'transient',
+            },
+        );
+
+        const result = await openDocumentPaths([outputPath]);
+
+        expect(result).toMatchObject({
+            kind: 'pdf',
+            originalPath: outputPath,
+            isGenerated: true,
+        });
+        expect(browserDocumentStore.getRecentFiles()).toEqual([]);
+    });
     it('rejects decrypted output for an input revision changed while CPU work was pending', async () => {
         const {
             browserDocumentStore, decryptBrowserWorkingCopy,

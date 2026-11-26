@@ -15,6 +15,7 @@ export type TEmitScanCleanupProgress = (
     completedUnits: number,
     totalUnits: number,
     completedPageNumbers?: Iterable<number>,
+    options?: {rasterizedUnits?: number},
 ) => void;
 
 function materializeCompletedPageNumbers(completedPageNumbers: Iterable<number>) {
@@ -251,7 +252,7 @@ export function createScanCleanupProgressReporter(
     const now = options.now ?? (() => performance.now());
     let lastPercent = 0;
     const etaEstimator = createScanCleanupProgressEtaEstimator();
-    return (stage, completedUnits, totalUnits, completedPageNumbers) => {
+    return (stage, completedUnits, totalUnits, completedPageNumbers, progressOptions) => {
         const reportedAt = now();
         const profile = isLossless()
             ? {
@@ -277,6 +278,9 @@ export function createScanCleanupProgressReporter(
         const completedPageSnapshot = completedPageNumbers === undefined
             ? undefined
             : materializeCompletedPageNumbers(completedPageNumbers);
+        const rasterizedUnits = progressOptions?.rasterizedUnits === undefined
+            ? undefined
+            : Math.min(totalUnits, Math.max(0, Math.trunc(progressOptions.rasterizedUnits)));
         callback({
             stage,
             completedUnits,
@@ -287,6 +291,7 @@ export function createScanCleanupProgressReporter(
                 stageCount: profile.weights.length,
             }),
             ...(etaSeconds === undefined ? {} : {etaSeconds}),
+            ...(rasterizedUnits === undefined ? {} : {rasterizedUnits}),
             ...(completedPageSnapshot === undefined
                 ? {}
                 : {

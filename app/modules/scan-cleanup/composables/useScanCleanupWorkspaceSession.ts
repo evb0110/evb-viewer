@@ -16,15 +16,10 @@ import {useScanCleanupPreviewSession} from '@app/modules/scan-cleanup/composable
 import {useScanCleanupRunSession} from '@app/modules/scan-cleanup/composables/useScanCleanupRunSession';
 import {useScanCleanupActivityTimeline} from '@app/modules/scan-cleanup/composables/useScanCleanupActivityTimeline';
 import {resolveScanCleanupActivity} from '@app/modules/scan-cleanup/runtime/resolveScanCleanupActivity';
-import {useTypedI18n} from '@app/composables/useTypedI18n';
-import type {TScanCleanupPreviewFrameRevealOutcome} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewImages';
 import type {IScanCleanupTabSessionState} from '@app/modules/workspace-shell/public';
-
-const SCAN_CLEANUP_PREVIEW_REVEAL_DEADLINE_MS = 10_000;
 
 interface IUseScanCleanupWorkspaceSessionOptions {
     active: () => boolean;
-    beforeRun?: (signal?: AbortSignal) => Promise<TScanCleanupPreviewFrameRevealOutcome> | undefined;
     sourcePath: () => TDocumentRef | null;
     documentKey: () => string | null;
     /** The logical document: a restore keeps it, an open of another document does not. */
@@ -42,7 +37,6 @@ interface IUseScanCleanupWorkspaceSessionOptions {
 }
 
 export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspaceSessionOptions) => {
-    const {t} = useTypedI18n();
     const initialPreviewPage = Math.max(1, Math.trunc(options.initialPreviewPage?.() ?? options.currentPage()));
     const initialPreviewViewMode = options.initialPreviewViewMode?.() ?? 'cleaned';
     const ownerId = options.ownerId?.() ?? globalThis.crypto.randomUUID();
@@ -187,38 +181,8 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
     const run = useScanCleanupRunSession({
         active: options.active,
         authoritativeLayoutByPage: detection.authoritativeLayoutByPage,
-        beforeRun: async (stopWait) => {
-            // The run's cancellation covers its whole start, including the
-            // final preview it waits for before the frame reveal.
-            const stopped = stopWait.then(() => 'stopped' as const);
-            if (await Promise.race([
-                previewResult.pauseForRun().then(() => 'paused' as const),
-                stopped,
-            ]) === 'stopped') return;
-            const revealController = new AbortController();
-            let deadline: ReturnType<typeof setTimeout> | undefined;
-            const reveal = Promise.resolve(options.beforeRun?.(revealController.signal))
-                .then(outcome => outcome ?? 'published' as const);
-            const deadlineReached = new Promise<'timed-out'>(resolve => {
-                deadline = setTimeout(() => resolve('timed-out'), SCAN_CLEANUP_PREVIEW_REVEAL_DEADLINE_MS);
-            });
-            try {
-                const outcome = await Promise.race([
-                    reveal,
-                    deadlineReached,
-                    stopped,
-                ]);
-                if (outcome === 'stopped') return;
-                if (outcome === 'timed-out') {
-                    throw new Error(t('scanCleanup.errors.previewFrameTimeout'));
-                }
-                if (outcome === 'dropped') {
-                    throw new Error(t('scanCleanup.errors.previewFrameDropped'));
-                }
-            } finally {
-                if (deadline !== undefined) clearTimeout(deadline);
-                revealController.abort();
-            }
+        beforeRun: () => {
+            previewResult.pauseForRun();
         },
         detectionError: detection.error,
         detectionErrorCode: detection.errorCode,

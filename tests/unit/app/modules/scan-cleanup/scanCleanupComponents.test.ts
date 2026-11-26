@@ -1822,6 +1822,11 @@ describe('Scan cleanup components', () => {
             await nextTick();
             await vi.advanceTimersByTimeAsync(250);
             expect(session.preview.resultCurrent.value).toBe(true);
+            running = session.run.run();
+            await vi.advanceTimersByTimeAsync(0);
+            source.value = requireDocumentRef('/docs/identity-B.pdf');
+            revision.value = 'identity-B';
+            await nextTick();
             emitDetection({
                 ...queued(requireJobId('identity-detect-1')),
                 status: 'completed',
@@ -1855,12 +1860,6 @@ describe('Scan cleanup components', () => {
                     ],
                 },
             });
-            await nextTick();
-            running = session.run.run();
-            await vi.advanceTimersByTimeAsync(0);
-            await finalRequested.promise;
-            source.value = requireDocumentRef('/docs/identity-B.pdf');
-            revision.value = 'identity-B';
             await nextTick();
             await vi.advanceTimersByTimeAsync(0);
             expect(requests).toEqual([]);
@@ -2693,7 +2692,7 @@ describe('Scan cleanup components', () => {
         expect(meter?.textContent).toContain('51 of 120 pages');
         expect(meter?.textContent).not.toContain('42%');
         const progressbar = meter?.querySelector('[role="progressbar"]');
-        expect(progressbar?.getAttribute('aria-valuenow')).toBe('42');
+        expect(progressbar?.getAttribute('aria-valuenow')).toBe('43');
         expect(progressbar?.getAttribute('aria-valuetext')).toContain('Cleaning pages');
         // Analysis is behind the run: its segment is full, cleaning fills,
         // finishing has not started.
@@ -2703,7 +2702,7 @@ describe('Scan cleanup components', () => {
             'active',
             'waiting',
         ]);
-        expect(meter?.querySelector<HTMLElement>('[data-state="active"] .scan-cleanup-activity-fill')?.style.width).toBe('42%');
+        expect(meter?.querySelector<HTMLElement>('[data-state="active"] .scan-cleanup-activity-fill')?.style.width).toBe('42.5%');
         expect(meter?.querySelector('.scan-cleanup-activity-count .scan-cleanup-stable-width-sizer')?.textContent)
             .toBe('120 of 120 pages');
         expect(harness.host.querySelector('.scan-cleanup-toolbar-status-slot')).toBeNull();
@@ -7000,7 +6999,7 @@ describe('Scan cleanup components', () => {
         expect(meter?.textContent).toContain('Building PDF');
         expect(meter?.textContent).not.toContain('316');
         expect(meter?.textContent).not.toMatch(/\b98%\b/);
-        expect(meter?.querySelector('.scan-cleanup-activity-fill.is-indeterminate')).not.toBeNull();
+        expect(meter?.querySelector<HTMLElement>('[data-state="active"] .scan-cleanup-activity-fill')?.style.width).toBe('30.2%');
     });
 
     it('keeps the thickness control mounted when output modes change', async () => {

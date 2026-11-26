@@ -3257,60 +3257,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
-    it('settles cancellation while final preview preparation remains pending', async () => {
-        vi.useFakeTimers();
-        const harness = capabilityHarness();
-        const finalPreview = Promise.withResolvers<IScanCleanupPreviewResult>();
-        const finalRequested = Promise.withResolvers<undefined>();
-        const admittedJobs: string[] = [];
-        vi.mocked(harness.value.preview).mockImplementation(async request => {
-            if (request.visible === true && request.layoutDetectionComplete) {
-                finalRequested.resolve(undefined);
-                return finalPreview.promise;
-            }
-            return previewResult(request.pageNumber, 'single-uncut-page');
-        });
-        vi.mocked(harness.value.start).mockImplementation(async request => {
-            admittedJobs.push(request.sourcePdfPath);
-            return {
-                started: false,
-                jobId: requireJobId('unexpected-canceled-run'),
-                error: 'Unexpected cleanup admission',
-                errorCode: 'internal',
-            };
-        });
-        capability.value = harness.value;
-        const mounted = mountSession('cancel-pending-final-preview');
-        let running: Promise<void> | undefined;
-        try {
-            mounted.session.settings.values.outputMode = 'grayscale';
-            await nextTick();
-            await vi.advanceTimersByTimeAsync(250);
-            expect(mounted.session.preview.resultCurrent.value).toBe(true);
-            harness.emitDetection(detectionState('detect-1', 'completed'));
-            await nextTick();
-            expect(mounted.session.preview.resultCurrent.value).toBe(false);
-            let settled = false;
-            running = mounted.session.run.run().finally(() => { settled = true; });
-            await vi.advanceTimersByTimeAsync(0);
-            await finalRequested.promise;
-            expect(mounted.session.run.starting.value).toBe(true);
-
-            await mounted.session.run.cancel();
-            await vi.advanceTimersByTimeAsync(0);
-
-            expect.soft(settled).toBe(true);
-            expect.soft(mounted.session.run.isRunning.value).toBe(false);
-            expect(admittedJobs).toEqual([]);
-        } finally {
-            finalPreview.resolve(previewResult(1, 'single-uncut-page'));
-            await running;
-            mounted.unmount();
-            vi.useRealTimers();
-        }
-    });
-
-    it('refreshes stale provisional geometry before cleanup pauses the preview', async () => {
+    it('cancels any in-flight preview and starts cleanup immediately without waiting for preview refresh', async () => {
         const harness = capabilityHarness();
         const finalPreview = Promise.withResolvers<IScanCleanupPreviewResult>();
         vi.mocked(harness.value.preview).mockImplementation(async request => {
@@ -3321,11 +3268,11 @@ describe('scan cleanup workspace session detection guidance', () => {
         });
         vi.mocked(harness.value.start).mockResolvedValue({
             started: true,
-            jobId: requireJobId('cleanup-after-final-preview'),
-            outputPdfPath: '/managed/cleanup-after-final-preview.pdf',
+            jobId: requireJobId('cleanup-immediate-start'),
+            outputPdfPath: '/managed/cleanup-immediate-start.pdf',
         });
         vi.mocked(harness.value.subscribeJob).mockResolvedValue({
-            jobId: requireJobId('cleanup-after-final-preview'),
+            jobId: requireJobId('cleanup-immediate-start'),
             status: 'canceled',
             progress: {
                 stage: 'queued',
@@ -3337,29 +3284,90 @@ describe('scan cleanup workspace session detection guidance', () => {
             updatedAtMs: requireEpochMs(Date.now() + 1),
         });
         capability.value = harness.value;
-        const mounted = mountSession(`final-preview-before-run-${Date.now()}`);
-        mounted.session.settings.values.outputMode = 'grayscale';
-        await vi.waitFor(() => expect(mounted.session.preview.resultCurrent.value).toBe(true));
-        expect(vi.mocked(harness.value.preview).mock.calls.some(
-            ([request]) => request?.visible === true && request?.layoutDetectionComplete,
-        )).toBe(false);
+        const mounted = mountSession(`immediate-run-cancels-preview-${Date.now()}`);
+        try {
+            mounted.session.settings.values.outputMode = 'grayscale';
+            await vi.waitFor(() => expect(mounted.session.preview.resultCurrent.value).toBe(true));
 
-        harness.emitDetection(detectionState('detect-1', 'completed'));
-        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
-        expect(mounted.session.preview.resultCurrent.value).toBe(false);
-        const run = mounted.session.run.run();
+            harness.emitDetection(detectionState('detect-1', 'completed'));
+            await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
+            expect(mounted.session.preview.resultCurrent.value).toBe(false);
 
-        await vi.waitFor(() => expect(vi.mocked(harness.value.preview).mock.calls.some(
-            ([request]) => request?.visible === true && request?.layoutDetectionComplete,
-        )).toBe(true));
-        expect(harness.value.start).not.toHaveBeenCalled();
-        finalPreview.resolve(previewResult(1, 'single-uncut-page'));
-        await run;
+            // Wait until the deferred final preview is in flight, then clear
+            // cancelPreview calls made while it was being scheduled.
+            await vi.waitFor(() => expect(harness.value.preview).toHaveBeenCalledWith(expect.objectContaining({
+                visible: true,
+                layoutDetectionComplete: true,
+            })));
+            vi.mocked(harness.value.cancelPreview).mockClear();
 
-        expect(mounted.session.run.error.value).toBe('');
-        expect(harness.value.start).toHaveBeenCalledOnce();
-        expect(mounted.session.preview.resultCurrent.value).toBe(true);
-        mounted.unmount();
+            // Clean up must not block behind a pending final preview render.
+            await mounted.session.run.run();
+
+            expect(mounted.session.run.error.value).toBe('');
+            expect(harness.value.cancelPreview).toHaveBeenCalledWith(expect.objectContaining({
+                invalidateRawCache: false,
+            }));
+            expect(harness.value.start).toHaveBeenCalledOnce();
+        } finally {
+            finalPreview.resolve(previewResult(1, 'single-uncut-page'));
+            mounted.unmount();
+        }
+    });
+
+    it('keeps resultCurrent true and avoids redundant double renders when preview completes after authoritative layout is known', async () => {
+        vi.useFakeTimers({toFake: [
+            'setTimeout',
+            'clearTimeout',
+        ]});
+        const harness = capabilityHarness();
+        let visiblePageTwoRequests = 0;
+        const pageTwoPreview = Promise.withResolvers<IScanCleanupPreviewResult>();
+        vi.mocked(harness.value.preview).mockImplementation(async request => {
+            if (request.visible === true && request.pageNumber === 2) {
+                visiblePageTwoRequests += 1;
+                if (visiblePageTwoRequests === 1) {
+                    return pageTwoPreview.promise;
+                }
+            }
+            return previewResult(request.pageNumber, 'two-page-spread');
+        });
+        capability.value = harness.value;
+        const mounted = mountSession(`stable-cache-key-${Date.now()}`);
+        try {
+            await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+            // Detection classifies page 2 as a spread before page 2 has any retained preview metadata.
+            const spreadDetection = detectionState('detect-1', 'completed');
+            spreadDetection.results[1] = {
+                ...spreadDetection.results[1]!,
+                classification: 'two-page-spread',
+                cutterXPx: 500,
+                tier1Verdict: 'two-page-spread',
+            };
+            harness.emitDetection(spreadDetection);
+            await vi.waitFor(() => expect(mounted.session.detection.authoritativeLayoutByPage.value.get(2)).toBe('two-page-spread'));
+            expect(visiblePageTwoRequests).toBe(0);
+
+            mounted.session.selection.selectPage(2, 'single', [
+                1,
+                2,
+                3,
+            ]);
+            await nextTick();
+            await vi.waitFor(() => expect(visiblePageTwoRequests).toBe(1));
+
+            pageTwoPreview.resolve(previewResult(2, 'two-page-spread'));
+            await vi.waitFor(() => expect(mounted.session.preview.result.value?.pageNumber).toBe(2));
+            await nextTick();
+            await vi.advanceTimersByTimeAsync(300);
+
+            expect(mounted.session.preview.resultCurrent.value).toBe(true);
+            expect(visiblePageTwoRequests).toBe(1);
+        } finally {
+            pageTwoPreview.resolve(previewResult(2, 'two-page-spread'));
+            mounted.unmount();
+            vi.useRealTimers();
+        }
     });
 
     it('keeps run-owned detection alive when its cleanup tab becomes inactive', async () => {

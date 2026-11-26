@@ -80,10 +80,43 @@ function discardUnclaimedGeneratedOpen(result: TOpenFileResult | null) {
     void getDocumentWorkingCopyCapability().cleanupFile(result.workingPath).catch(() => undefined);
 }
 
+export function isWorkingCopyOwnedByAnyTab(
+    workingPath: string,
+    documentSessionsByTabId: Readonly<Record<string, IWorkspaceDocumentController>>,
+) {
+    return Object.values(documentSessionsByTabId).some((session) => {
+        const identity = session.snapshot.value.identity;
+        return session.file?.value.workingCopyPath === workingPath
+            || identity.workingCopyPath === workingPath
+            || identity.documentRef === workingPath;
+    });
+}
+
+function isGeneratedDocumentOpenInTab(
+    documentRef: string,
+    documentSessionsByTabId: Readonly<Record<string, IWorkspaceDocumentController>>,
+) {
+    const tabId = findDocumentTabId(documentRef, documentSessionsByTabId);
+    if (!tabId) {
+        return false;
+    }
+    const snapshot = documentSessionsByTabId[tabId]?.snapshot.value;
+    return snapshot !== undefined && snapshot.phase === 'presented' && snapshot.failure === null;
+}
+
 export async function openScanCleanupGeneratedPdf(
     documentRef: TDocumentRef,
     signal: AbortSignal,
-    handleOpenInNewTab: (result: TOpenFileResult) => Promise<boolean>,
+    handleOpenInNewTab: (
+        result: TOpenFileResult,
+        paneId?: string,
+        placement?: {
+            activate: boolean;
+            signal?: AbortSignal;
+        },
+    ) => Promise<boolean>,
+    isDocumentOpen?: (documentRef: TDocumentRef) => boolean,
+    isWorkingCopyOwned?: (workingPath: TDocumentRef) => boolean,
 ) {
     const documentOpen = getDocumentOpenCapability();
     const requestId = createRequestId('scan-cleanup-open');
@@ -124,9 +157,35 @@ export async function openScanCleanupGeneratedPdf(
             discardUnclaimedGeneratedOpen(settled.result);
             return false;
         }
-        return settled.result?.kind === 'pdf'
-            ? await handleOpenInNewTab(settled.result)
-            : false;
+        if (settled.result?.kind !== 'pdf') {
+            return false;
+        }
+        // Scan cleanup outputs are always generated documents: marking the open
+        // result keeps visual-settle handoff and Save As semantics consistent
+        // across desktop and browser even when the open layer omitted the flag.
+        const generatedResult: TOpenFileResult = settled.result.isGenerated === true
+            ? settled.result
+            : {
+                ...settled.result,
+                isGenerated: true,
+            };
+        const opened = await handleOpenInNewTab(generatedResult, undefined, {
+            activate: true,
+            signal,
+        });
+        if (opened) {
+            return true;
+        }
+        if (isDocumentOpen?.(documentRef) === true) {
+            return true;
+        }
+        const workingCopyOwned = isWorkingCopyOwned !== undefined
+            && generatedResult.workingPath !== undefined
+            && isWorkingCopyOwned(generatedResult.workingPath);
+        if (!workingCopyOwned && (isWorkingCopyOwned !== undefined || signal.aborted)) {
+            discardUnclaimedGeneratedOpen(generatedResult);
+        }
+        return false;
     } finally {
         signal.removeEventListener('abort', cancelOpen);
         if (abandonOpenHandler) {
@@ -140,7 +199,10 @@ export const useScanCleanupRunCoordinator = (
     handleOpenInNewTab: (
         target: TDocumentRef | TOpenFileResult,
         paneId?: string,
-        placement?: {activate: boolean},
+        placement?: {
+            activate: boolean;
+            signal?: AbortSignal;
+        },
     ) => Promise<boolean>,
     isStartupOpenClaimPending: Ref<boolean>,
     t: TTranslateFn,
@@ -167,8 +229,17 @@ export const useScanCleanupRunCoordinator = (
                 return true;
             }
             return foreground
-                ? openScanCleanupGeneratedPdf(documentRef, signal, handleOpenInNewTab)
-                : (tabId !== null || await handleOpenInNewTab(documentRef, undefined, {activate: false})) && persistCheckpointNow().then(() => true, () => false);
+                ? openScanCleanupGeneratedPdf(
+                    documentRef,
+                    signal,
+                    handleOpenInNewTab,
+                    ref => isGeneratedDocumentOpenInTab(ref, documentSessionsByTabId.value),
+                    workingPath => isWorkingCopyOwnedByAnyTab(workingPath, documentSessionsByTabId.value),
+                )
+                : (tabId !== null || await handleOpenInNewTab(documentRef, undefined, {
+                    activate: false,
+                    signal,
+                })) && persistCheckpointNow().then(() => true, () => false);
         },
         createCompletedOutputSaveAs: outputPath => createScanCleanupOutputSaveAs(outputPath, documentSessionsByTabId, activateTab, toast, t),
         openScanCleanupForDocument: documentRef => recoverScanCleanupWorkspaceForDocument(documentRef, documentSessionsByTabId.value, activateTab),

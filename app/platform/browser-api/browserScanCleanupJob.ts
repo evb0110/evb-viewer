@@ -380,17 +380,22 @@ export async function renderBrowserScanCleanupWorkspacePreview(
         return renderDetail(input, pageSize, documentCanvas, sourceDpiCandidate, facts.facingPair);
     }
     const baseRaw = await renderPageRaster(source, pageSize, basePreviewDpi, SCAN_CLEANUP_RASTER_MAX_PIXELS, signal);
-    const {png} = await runBrowserScanCleanupWorkerRequest('encode-png', {ppm: copy(baseRaw.ppm)}, signal);
-    signal.throwIfAborted();
-    input.emitRaw({
-        ownerId: request.ownerId,
-        documentRevision: request.documentRevision,
-        requestId: request.requestId,
-        pageNumber: request.pageNumber,
-        totalPages,
-        rawImageData: png,
-        rawWidthPx: baseRaw.width,
-        rawHeightPx: baseRaw.height,
+    const lossless = request.options.preserveOriginalQuality && !rasterizedByMatching;
+    // Start encoding the original PNG immediately so it streams as soon as ready
+    // while raster preview rendering runs in parallel on another worker lane.
+    const rawPngPromise = runBrowserScanCleanupWorkerRequest('encode-png', {ppm: copy(baseRaw.ppm)}, signal).then(({png}) => {
+        signal.throwIfAborted();
+        input.emitRaw({
+            ownerId: request.ownerId,
+            documentRevision: request.documentRevision,
+            requestId: request.requestId,
+            pageNumber: request.pageNumber,
+            totalPages,
+            rawImageData: png,
+            rawWidthPx: baseRaw.width,
+            rawHeightPx: baseRaw.height,
+        });
+        return png;
     });
     const sourceDpi = pageRaster?.dpi ?? pageSourceDpi ?? previewDpi;
     const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, request.pageNumber);
@@ -415,23 +420,33 @@ export async function renderBrowserScanCleanupWorkspacePreview(
     const renderDpi = processingCanvas === null
         ? requestedProcessingDpi
         : Math.max(1, Math.floor(resolveScanCleanupDocumentCanvasDpi(processingCanvas)));
-    return renderBase(input, pageSize, {
+    const basePlan: Omit<IBaseRenderPlan, 'rawPng'> = {
         raw: {
             width: baseRaw.width,
             height: baseRaw.height,
             dpi: baseRaw.dpi,
         },
-        rawPng: png,
         rendered: [baseRaw],
         renderDpi,
         sourceDpi,
         sourceDpiCandidate,
         documentCanvas,
-        lossless: request.options.preserveOriginalQuality && !rasterizedByMatching,
+        lossless,
         facingPair: facts.facingPair,
         resolvedOutputMode: request.outputModeRecommendation,
         retainBase: true,
-    });
+    };
+    if (lossless) {
+        return renderBase(input, pageSize, {
+            ...basePlan,
+            rawPng: await rawPngPromise,
+        });
+    }
+    const [rendering] = await Promise.all([
+        renderBase(input, pageSize, basePlan),
+        rawPngPromise,
+    ]);
+    return rendering;
 }
 
 interface IBaseRenderPlan {
@@ -801,6 +816,18 @@ export async function runBrowserScanCleanupAnalysis({
             analyses,
         }, signal, onEngineIdentity, concurrency));
         if (plan.kind === 'finished') return plan.pages;
+        let onAnalyzedChain = Promise.resolve();
+        const notifyAnalyzed = onAnalyzed === undefined
+            ? null
+            : (job: AnalysisJob, result: IScanCleanupWasmAnalyzeResult, jobSignal: AbortSignal) => {
+                const next = onAnalyzedChain.then(async () => {
+                    if (!jobSignal.aborted) {
+                        await onAnalyzed(job, result);
+                    }
+                });
+                onAnalyzedChain = next.catch(() => undefined);
+                return next;
+            };
         await runBoundedRasterProducerConsumer<AnalysisJob, {
             job: AnalysisJob;
             result: IScanCleanupWasmAnalyzeResult | null;
@@ -831,6 +858,9 @@ export async function runBrowserScanCleanupAnalysis({
                         ...(job.documentPrior == null ? {} : {documentPrior: job.documentPrior}),
                     },
                 }, jobSignal, onEngineIdentity, concurrency));
+                if (notifyAnalyzed !== null && !jobSignal.aborted) {
+                    await notifyAnalyzed(job, result, jobSignal);
+                }
                 return {
                     staged: {
                         job,
@@ -847,7 +877,6 @@ export async function runBrowserScanCleanupAnalysis({
                         analyses.push({job});
                         continue;
                     }
-                    await onAnalyzed?.(job, result);
                     analyses.push({
                         job,
                         pageMetadataJson: result.pageMetadataJson,
