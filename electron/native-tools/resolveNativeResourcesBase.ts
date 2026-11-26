@@ -7,7 +7,6 @@ const DEFAULT_NATIVE_RESOURCE_ROOTS = [
     'qpdf',
     'pdf-image-combine',
     'pdf-page-ops',
-    'pdf-search',
     'scan-cleanup',
 ] as const;
 

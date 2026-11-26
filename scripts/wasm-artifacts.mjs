@@ -45,6 +45,20 @@ export const REQUIRED_WEB_WASM_ASSETS = [
         ],
     },
     {
+        relativePath: 'wasm/evb-pdf-search.wasm',
+        requiredExports: [
+            'memory',
+            'evb_wasm_request_allocation_abi_version',
+            'evb_pdf_search_alloc',
+            'evb_pdf_search_free',
+            'evb_pdf_search_run',
+            'evb_pdf_search_output_ptr',
+            'evb_pdf_search_output_len',
+            'evb_pdf_search_error_ptr',
+            'evb_pdf_search_error_len',
+        ],
+    },
+    {
         relativePath: 'wasm/evb-scan-cleanup.wasm',
         requiredExports: [
             'memory',
@@ -140,6 +154,17 @@ export const WASM_ARTIFACTS = [
         manifestPath: 'native/pdf-page-ops/Cargo.toml',
         publicRelativePath: 'public/wasm/evb-pdf-page-ops.wasm',
         requiredExports: getRequiredExports('wasm/evb-pdf-page-ops.wasm'),
+        rustTarget: WASM_TARGET,
+        rustflags: WASM_TARGET_RUSTFLAGS,
+    },
+    {
+        builtFileName: 'evb_pdf_search.wasm',
+        crateName: 'pdf-search',
+        id: 'pdf-search',
+        label: 'PDF search WASM',
+        manifestPath: 'native/pdf-search/Cargo.toml',
+        publicRelativePath: 'public/wasm/evb-pdf-search.wasm',
+        requiredExports: getRequiredExports('wasm/evb-pdf-search.wasm'),
         rustTarget: WASM_TARGET,
         rustflags: WASM_TARGET_RUSTFLAGS,
     },

@@ -25,10 +25,6 @@ const PACKAGED_TOOL_SMOKE_POLICY = {
         allowedExitCodes: new Set([0]),
         expectedOutputTokens: ['evb-pdf-page-ops'],
     },
-    'evb-pdf-search': {
-        allowedExitCodes: new Set([0]),
-        expectedOutputTokens: ['evb-pdf-search'],
-    },
     'evb-scan-cleanup': {
         allowedExitCodes: new Set([0]),
         expectedOutputTokens: ['evb-scan-cleanup'],

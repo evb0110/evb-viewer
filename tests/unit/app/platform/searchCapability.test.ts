@@ -9,10 +9,153 @@ import {
     it,
     vi,
 } from 'vitest';
-import { readFileSync } from 'fs';
-import { buildPdfSearchExcerpt } from '@pdf-core';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import {
+    buildPdfSearchExcerpt,
+    validateSearchQuery,
+} from '@pdf-core';
+import {
+    decodePdfSearchIndexWasmOutput,
+    decodePdfSearchJsonOutput,
+    encodePdfSearchWasmRequest,
+    isStaleSearchIndexAnswer,
+    SEARCH_INDEX_TEXT_BUDGET,
+} from '@contracts/searchIndexWire';
 import {FakeIndexedDbFactory} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import {requireRequestId} from '@contracts/shared';
+
+const pdfSearchWasmModule = new WebAssembly.Module(
+    readFileSync(resolve(process.cwd(), 'public/wasm/evb-pdf-search.wasm')),
+);
+const testTextEncoder = new TextEncoder();
+const testTextDecoder = new TextDecoder();
+
+function createTestPdfSearchWasmExecutor() {
+    const instance = new WebAssembly.Instance(pdfSearchWasmModule, {});
+    const exports = instance.exports as {
+        memory: WebAssembly.Memory;
+        evb_pdf_search_alloc: (len: number) => number;
+        evb_pdf_search_free: (ptr: number, len: number) => void;
+        evb_pdf_search_run: (ptr: number, len: number) => number;
+        evb_pdf_search_output_ptr: () => number;
+        evb_pdf_search_output_len: () => number;
+        evb_pdf_search_error_ptr: () => number;
+        evb_pdf_search_error_len: () => number;
+    };
+    const runRaw = (request: Uint8Array): Uint8Array => {
+        const ptr = exports.evb_pdf_search_alloc(request.byteLength);
+        try {
+            new Uint8Array(exports.memory.buffer, ptr, request.byteLength).set(request);
+            const status = exports.evb_pdf_search_run(ptr, request.byteLength);
+            if (status !== 0) {
+                const errPtr = exports.evb_pdf_search_error_ptr();
+                const errLen = exports.evb_pdf_search_error_len();
+                const msg = testTextDecoder.decode(new Uint8Array(exports.memory.buffer, errPtr, errLen));
+                throw new Error(msg);
+            }
+            const outPtr = exports.evb_pdf_search_output_ptr();
+            const outLen = exports.evb_pdf_search_output_len();
+            return new Uint8Array(exports.memory.buffer, outPtr, outLen).slice();
+        } finally {
+            exports.evb_pdf_search_free(ptr, request.byteLength);
+        }
+    };
+    let nextRequestId = 1;
+    return (type: unknown, payload: unknown) => {
+        const requestId = nextRequestId++;
+        const promise = Promise.resolve().then(() => {
+            if (type === 'index') {
+                const p = payload as {
+                    documentRevision: string;
+                    pageCount: number;
+                    pagesBuffer: Uint8Array;
+                    maxPageTextBytes?: number;
+                    maxTotalTextBytes?: number;
+                };
+                const output = runRaw(encodePdfSearchWasmRequest({
+                    op: 'index',
+                    documentRevision: p.documentRevision,
+                    pageCount: p.pageCount,
+                    maxPageTextBytes: p.maxPageTextBytes ?? SEARCH_INDEX_TEXT_BUDGET.maxPageTextBytes,
+                    maxTotalTextBytes: p.maxTotalTextBytes ?? SEARCH_INDEX_TEXT_BUDGET.maxTotalTextBytes,
+                }, p.pagesBuffer));
+                return decodePdfSearchIndexWasmOutput(output);
+            }
+            if (type === 'search') {
+                const p = payload as {
+                    indexBytes: Uint8Array;
+                    documentRevision: string;
+                    query: string;
+                    options: {
+                        matchCase: boolean;
+                        wholeWord: boolean;
+                        useRegex: boolean;
+                    };
+                    limit: number;
+                    contextChars: number;
+                    resultOffset?: number | 'last';
+                };
+                validateSearchQuery(p.query, p.options);
+                const output = runRaw(encodePdfSearchWasmRequest({
+                    op: 'search',
+                    documentRevision: p.documentRevision,
+                    query: p.query,
+                    limit: p.limit,
+                    contextChars: p.contextChars,
+                    ...(p.resultOffset === undefined ? {} : {resultOffset: p.resultOffset}),
+                    matchCase: p.options.matchCase,
+                    wholeWord: p.options.wholeWord,
+                    useRegex: p.options.useRegex,
+                }, p.indexBytes));
+                const decoded = decodePdfSearchJsonOutput(output);
+                return isStaleSearchIndexAnswer(decoded) ? {stale: true} : decoded;
+            }
+            if (type === 'matchPageText') {
+                const p = payload as {
+                    text: string;
+                    query: string;
+                    options: {
+                        matchCase: boolean;
+                        wholeWord: boolean;
+                        useRegex: boolean;
+                    };
+                    maxMatches: number;
+                    resultOffset?: number | 'last';
+                };
+                validateSearchQuery(p.query, p.options);
+                if (p.text.length === 0) {
+                    return {
+                        matches: [],
+                        truncated: false,
+                        matchCount: 0,
+                        matchingMs: 0,
+                    };
+                }
+                const output = runRaw(encodePdfSearchWasmRequest({
+                    op: 'matchPage',
+                    query: p.query,
+                    matchCase: p.options.matchCase,
+                    wholeWord: p.options.wholeWord,
+                    useRegex: p.options.useRegex,
+                    maxMatches: p.maxMatches,
+                    ...(p.resultOffset === undefined ? {} : {resultOffset: p.resultOffset}),
+                }, testTextEncoder.encode(p.text)));
+                return {
+                    ...(decodePdfSearchJsonOutput(output) as Record<string, unknown>),
+                    matchingMs: 0,
+                };
+            }
+            throw new Error(`Unexpected search worker request type: ${String(type)}`);
+        });
+        return {
+            requestId,
+            promise,
+        };
+    };
+}
+
+const defaultTestWasmWorkerRequest = createTestPdfSearchWasmExecutor();
 
 interface ISearchConformanceCase {
     id: string;
@@ -178,8 +321,11 @@ describe('createBrowserSearchCapability', () => {
         browserDocumentStoreMock.read.mockReset();
         browserDocumentStoreMock.readRange.mockReset();
         browserSearchWorkerClientMock.canUseBrowserSearchWorker.mockReset();
-        browserSearchWorkerClientMock.canUseBrowserSearchWorker.mockReturnValue(false);
+        browserSearchWorkerClientMock.canUseBrowserSearchWorker.mockReturnValue(true);
         browserSearchWorkerClientMock.createBrowserSearchWorkerRequest.mockReset();
+        browserSearchWorkerClientMock.createBrowserSearchWorkerRequest.mockImplementation(
+            (type: unknown, payload: unknown) => defaultTestWasmWorkerRequest(type, payload),
+        );
         browserSearchWorkerClientMock.cancelBrowserSearchWorkerRequest.mockReset();
         browserSearchWorkerClientMock.cancelBrowserSearchWorkerRequest.mockResolvedValue(undefined);
         pdfjsModule.getDocument.mockReset();
@@ -332,19 +478,23 @@ describe('createBrowserSearchCapability', () => {
             3,
         ]));
         browserSearchWorkerClientMock.canUseBrowserSearchWorker.mockReturnValue(true);
-        browserSearchWorkerClientMock.createBrowserSearchWorkerRequest.mockReturnValue({
-            requestId: 41,
-            promise: Promise.resolve({
-                matches: [{
-                    pageMatchIndex: 0,
-                    startOffset: 3,
-                    endOffset: 9,
-                }],
-                truncated: false,
-                matchCount: 1,
-                matchingMs: 1,
-            }),
-        });
+        browserSearchWorkerClientMock.createBrowserSearchWorkerRequest.mockImplementation((type, payload) => (
+            type === 'matchPageText'
+                ? {
+                    requestId: 41,
+                    promise: Promise.resolve({
+                        matches: [{
+                            pageMatchIndex: 0,
+                            startOffset: 3,
+                            endOffset: 9,
+                        }],
+                        truncated: false,
+                        matchCount: 1,
+                        matchingMs: 1,
+                    }),
+                }
+                : defaultTestWasmWorkerRequest(type, payload)
+        ));
 
         const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
         const { capability } = createBrowserSearchCapability();
@@ -401,15 +551,19 @@ describe('createBrowserSearchCapability', () => {
             200,
             200,
         ];
-        browserSearchWorkerClientMock.createBrowserSearchWorkerRequest.mockImplementation(() => ({
-            requestId: 41,
-            promise: Promise.resolve({
-                matches: [],
-                truncated: false,
-                matchCount: 0,
-                matchingMs: reportedMatchingMs.shift() ?? 0,
-            }),
-        }));
+        browserSearchWorkerClientMock.createBrowserSearchWorkerRequest.mockImplementation((type, payload) => (
+            type === 'matchPageText'
+                ? {
+                    requestId: 41,
+                    promise: Promise.resolve({
+                        matches: [],
+                        truncated: false,
+                        matchCount: 0,
+                        matchingMs: reportedMatchingMs.shift() ?? 0,
+                    }),
+                }
+                : defaultTestWasmWorkerRequest(type, payload)
+        ));
 
         const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
         const { capability } = createBrowserSearchCapability();
@@ -419,9 +573,10 @@ describe('createBrowserSearchCapability', () => {
             useRegex: true,
             requestId: requireRequestId('regex-budget'),
         })).resolves.toMatchObject({results: []});
-        expect(browserSearchWorkerClientMock.createBrowserSearchWorkerRequest.mock.calls.map(
-            call => (call[1] as {budgetMs: number}).budgetMs,
-        )).toEqual([
+        expect(browserSearchWorkerClientMock.createBrowserSearchWorkerRequest.mock.calls
+            .filter(call => call[0] === 'matchPageText')
+            .map(call => (call[1] as {budgetMs: number}).budgetMs),
+        ).toEqual([
             250,
             250,
             250,
@@ -558,10 +713,9 @@ describe('createBrowserSearchCapability', () => {
         expect(browserSearchWorkerClientMock.cancelBrowserSearchWorkerRequest).toHaveBeenCalledWith(41);
     });
 
-    // Regex queries run in the search worker, which this harness has not; the
-    // worker matches with iteratePdfSearchMatches, which the contracts corpus
-    // test runs over every case.
-    it.each(searchConformanceCorpus.cases.filter(fixture => fixture.options?.useRegex !== true))('matches the shared conformance corpus case $id in the browser capability', async (fixture) => {
+    // Every literal and regex conformance corpus case runs through evb-pdf-search.wasm
+    // across cold streaming, in-memory cached EVBSIDX4 search, and IndexedDB-hydrated search.
+    it.each(searchConformanceCorpus.cases)('matches the shared conformance corpus case $id in the browser capability', async (fixture) => {
         const pdfPath = `browser://documents/test/${fixture.id}.pdf`;
         const getPage = vi.fn(async () => ({
             view: searchPageView,
@@ -1050,13 +1204,14 @@ describe('createBrowserSearchCapability', () => {
         const record = requirePersistedRecord(
             database?.getStoreRecords('document-text').get('/tmp/sparse.pdf'),
         );
-        expect(record.version).toBe(11);
+        expect(record.version).toBe(12);
         expect(record.pageCount).toBe(3);
-        expect(record.pages).toEqual([{
-            pageNumber: 2,
-            text: 'needle',
-        }]);
+        expect(record.indexBytes).toBeInstanceOf(Uint8Array);
+        const indexBytes = record.indexBytes as Uint8Array;
+        expect(testTextDecoder.decode(indexBytes.subarray(0, 8))).toBe('EVBSIDX4');
+        expect(record.textBytes).toBe(indexBytes.byteLength);
         expect('pageTexts' in record).toBe(false);
+        expect('pages' in record).toBe(false);
     });
 
     it('discards cache records an older extractor wrote and reads the page again', async () => {
@@ -1210,7 +1365,11 @@ describe('createBrowserSearchCapability', () => {
             resultCount: 1,
             resultsStartIndex: 1,
         });
-        expect(browserSearchWorkerClientMock.createBrowserSearchWorkerRequest).not.toHaveBeenCalled();
+        expect(browserSearchWorkerClientMock.createBrowserSearchWorkerRequest).toHaveBeenCalledWith(
+            'matchPageText',
+            expect.objectContaining({query: 'sign'}),
+            expect.any(Object),
+        );
         expect(pdfjsModule.getDocument).toHaveBeenCalledOnce();
         expect(getPage).toHaveBeenCalledTimes(2);
     });
@@ -1291,16 +1450,6 @@ describe('createBrowserSearchCapability', () => {
             }),
             loadingTask: {destroy: async () => {}},
         })});
-        const {matchPdfSearchPageWindow} = await import('@pdf-core/pdfSearchCore');
-        browserSearchWorkerClientMock.canUseBrowserSearchWorker.mockReturnValue(true);
-        browserSearchWorkerClientMock.createBrowserSearchWorkerRequest.mockImplementation((_type, payload) => ({
-            requestId: 41,
-            promise: Promise.resolve({
-                ...matchPdfSearchPageWindow(payload.text, payload.query,
-                    payload.options, payload.maxMatches, payload.resultOffset),
-                matchingMs: 0,
-            }),
-        }));
         const {createBrowserSearchCapability} = await import('@app/platform/browser-api/createBrowserSearchCapability');
         const {capability} = createBrowserSearchCapability();
         for (const [
@@ -1519,11 +1668,10 @@ describe('createBrowserSearchCapability', () => {
         const record = requirePersistedRecord(
             database?.getStoreRecords('document-text').get('/tmp/warm.pdf'),
         );
+        expect(record.version).toBe(12);
         expect(record.pageCount).toBe(2);
-        expect(record.pages).toEqual([{
-            pageNumber: 1,
-            text: 'alpha',
-        }]);
+        expect(record.indexBytes).toBeInstanceOf(Uint8Array);
+        expect(testTextDecoder.decode((record.indexBytes as Uint8Array).subarray(0, 8))).toBe('EVBSIDX4');
         // The loader prepared the PDF.js runtime before opening the document.
         expect(pdfjsModule.GlobalWorkerOptions.workerSrc).toBeTruthy();
     });

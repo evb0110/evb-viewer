@@ -1,4 +1,7 @@
+import {readFileSync} from 'node:fs';
+import {resolve} from 'node:path';
 import searchConformanceCorpus from '@contracts/searchConformanceCorpus.json';
+import {encodePdfSearchPagesPayload} from '@contracts/searchIndexWire';
 import {
     afterEach,
     describe,
@@ -7,11 +10,35 @@ import {
     vi,
 } from 'vitest';
 
+const wasmBytes = new Uint8Array(readFileSync(resolve(process.cwd(), 'public/wasm/evb-pdf-search.wasm')));
+
 async function loadWorker() {
-    const messageHandlers: Array<(event: MessageEvent<unknown>) => void> = [];
+    const messageHandlers: Array<(event: MessageEvent<unknown>) => Promise<void> | void> = [];
     const postMessage = vi.fn();
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+        const url = typeof input === 'string'
+            ? input
+            : input instanceof URL
+                ? input.href
+                : input.url;
+        if (!url.includes('/wasm/evb-pdf-search.wasm')) {
+            return new Response('Not found', {status: 404});
+        }
+        return new Response(wasmBytes.slice(), {
+            status: 200,
+            headers: {'Content-Type': 'application/wasm'},
+        });
+    }));
+    vi.stubGlobal('location', {
+        origin: 'http://localhost',
+        href: 'http://localhost/',
+    });
     vi.stubGlobal('self', {
-        addEventListener: vi.fn((type: string, handler: (event: MessageEvent<unknown>) => void) => {
+        location: {
+            origin: 'http://localhost',
+            href: 'http://localhost/',
+        },
+        addEventListener: vi.fn((type: string, handler: (event: MessageEvent<unknown>) => Promise<void> | void) => {
             if (type === 'message') {
                 messageHandlers.push(handler);
             }
@@ -23,13 +50,18 @@ async function loadWorker() {
     if (!handler) {
         throw new Error('Expected a browser search worker message handler');
     }
+    const dispatch = async (data: unknown) => {
+        await handler({data} as MessageEvent<unknown>);
+        return postMessage.mock.lastCall?.[0];
+    };
     return {
+        dispatch,
         handler,
         postMessage,
     };
 }
 
-describe('browserSearch worker', () => {
+describe('browserSearch worker (evb-pdf-search.wasm)', () => {
     afterEach(() => {
         vi.restoreAllMocks();
         vi.resetModules();
@@ -40,15 +72,15 @@ describe('browserSearch worker', () => {
     // opens one, so a document request is not part of its protocol.
     it('refuses a document text request instead of opening a PDF', async () => {
         const {
-            handler,
+            dispatch,
             postMessage,
         } = await loadWorker();
 
-        handler({data: {
+        await dispatch({
             id: 3,
             type: 'streamDocumentText',
             payload: {pdfPath: 'browser://documents/a/search.pdf'},
-        }} as MessageEvent<unknown>);
+        });
 
         expect(postMessage).toHaveBeenCalledExactlyOnceWith({
             id: 3,
@@ -57,13 +89,10 @@ describe('browserSearch worker', () => {
         });
     });
 
-    it('matches page text in the worker with bounded range output', async () => {
-        const {
-            handler,
-            postMessage,
-        } = await loadWorker();
+    it('matches page text in the WASM worker with bounded range output', async () => {
+        const {dispatch} = await loadWorker();
 
-        handler({data: {
+        const response = await dispatch({
             id: 7,
             type: 'matchPageText',
             payload: {
@@ -76,9 +105,9 @@ describe('browserSearch worker', () => {
                 },
                 maxMatches: 2,
             },
-        }} as MessageEvent<unknown>);
+        });
 
-        expect(postMessage).toHaveBeenLastCalledWith({
+        expect(response).toEqual({
             id: 7,
             type: 'matchPageText',
             ok: true,
@@ -102,11 +131,9 @@ describe('browserSearch worker', () => {
         });
     });
 
-    it.each(searchConformanceCorpus.cases)('keeps corpus case $id and UTF-16 offsets inside the worker', async (fixture) => {
-        const {
-            handler, postMessage,
-        } = await loadWorker();
-        handler({data: {
+    it.each(searchConformanceCorpus.cases)('keeps corpus case $id and UTF-16 offsets inside the WASM worker', async (fixture) => {
+        const {dispatch} = await loadWorker();
+        const response = await dispatch({
             id: 8,
             type: 'matchPageText',
             payload: {
@@ -119,8 +146,8 @@ describe('browserSearch worker', () => {
                 },
                 maxMatches: 500,
             },
-        }} as MessageEvent<unknown>);
-        expect(postMessage).toHaveBeenLastCalledWith({
+        });
+        expect(response).toEqual({
             id: 8,
             type: 'matchPageText',
             ok: true,
@@ -143,9 +170,7 @@ describe('browserSearch worker', () => {
         false,
         true,
     ])('returns bounded continuation and tail ordinals for regex=%s', async (useRegex) => {
-        const {
-            handler, postMessage,
-        } = await loadWorker();
+        const {dispatch} = await loadWorker();
         for (const [
             resultOffset,
             first,
@@ -165,7 +190,7 @@ describe('browserSearch worker', () => {
                     false,
                 ],
             ] as const) {
-            handler({data: {
+            const response = await dispatch({
                 id: 10,
                 type: 'matchPageText',
                 payload: {
@@ -179,8 +204,7 @@ describe('browserSearch worker', () => {
                     maxMatches: 500,
                     resultOffset,
                 },
-            }} as MessageEvent<unknown>);
-            const response = postMessage.mock.lastCall?.[0];
+            });
             expect(response.ok).toBe(true);
             expect(response.data.matches).toHaveLength(count);
             expect(response.data.matches[0]).toEqual({
@@ -194,62 +218,90 @@ describe('browserSearch worker', () => {
         }
     });
 
-    it('preserves the next-page matching budget after slow normalization', async () => {
-        const {
-            handler, postMessage,
-        } = await loadWorker();
-        let clockMs = 0;
-        const normalize = String.prototype.normalize;
-        vi.spyOn(Date, 'now').mockImplementation(() => clockMs);
-        vi.spyOn(String.prototype, 'normalize').mockImplementation(function (this: string, form) {
-            clockMs += 300;
-            return normalize.call(this, form);
-        });
-        const payload = {
-            text: 'a',
-            query: '^Z',
-            options: {
-                matchCase: true,
-                wholeWord: false,
-                useRegex: true,
+    it('builds and searches an EVBSIDX4 index inside the WASM worker and rejects stale revisions', async () => {
+        const {dispatch} = await loadWorker();
+        const pagesBuffer = encodePdfSearchPagesPayload([
+            {
+                pageNumber: 1,
+                text: 'Café résumé naïve',
             },
-            maxMatches: 2,
-            budgetMs: 250,
-        };
-        handler({data: {
-            id: 11,
-            type: 'matchPageText',
-            payload,
-        }} as MessageEvent<unknown>);
-        const first = postMessage.mock.lastCall?.[0];
-        expect(first.ok).toBe(true);
-        expect(first.data.matchingMs).toBe(0);
-        handler({data: {
-            id: 12,
-            type: 'matchPageText',
+            {
+                pageNumber: 2,
+                text: 'Second page with needle and NEEDLE',
+            },
+        ]);
+        const indexed = await dispatch({
+            id: 20,
+            type: 'index',
             payload: {
-                ...payload,
-                text: 'Z',
-                budgetMs: payload.budgetMs - first.data.matchingMs,
+                documentRevision: 'rev-1',
+                pageCount: 2,
+                pagesBuffer,
             },
-        }} as MessageEvent<unknown>);
-        expect(postMessage.mock.lastCall?.[0]).toMatchObject({
+        });
+        expect(indexed.ok).toBe(true);
+        expect(indexed.data.coverage).toEqual({
+            pageCount: 2,
+            pagesScanned: 2,
+            pagesWritten: 2,
+            truncated: false,
+            missingTextPageSample: [],
+        });
+        expect(new TextDecoder().decode(indexed.data.indexBytes.subarray(0, 8))).toBe('EVBSIDX4');
+
+        // NFD decomposed query matches NFC precomposed page text via unified Unicode normalization.
+        const unicodeNormalizedHit = await dispatch({
+            id: 21,
+            type: 'search',
+            payload: {
+                indexBytes: indexed.data.indexBytes,
+                documentRevision: 'rev-1',
+                query: 'cafe\u0301 re\u0301sume\u0301',
+                options: {
+                    matchCase: false,
+                    wholeWord: true,
+                    useRegex: false,
+                },
+                limit: 50,
+                contextChars: 12,
+                resultOffset: 0,
+            },
+        });
+        expect(unicodeNormalizedHit.ok).toBe(true);
+        expect(unicodeNormalizedHit.data.results).toEqual([expect.objectContaining({
+            pageNumber: 1,
+            startOffset: 0,
+            endOffset: 11,
+            excerpt: expect.objectContaining({match: 'Café résumé'}),
+        })]);
+
+        const stale = await dispatch({
+            id: 22,
+            type: 'search',
+            payload: {
+                indexBytes: indexed.data.indexBytes,
+                documentRevision: 'rev-2',
+                query: 'needle',
+                options: {
+                    matchCase: false,
+                    wholeWord: false,
+                    useRegex: false,
+                },
+                limit: 50,
+                contextChars: 12,
+                resultOffset: 0,
+            },
+        });
+        expect(stale).toEqual({
+            id: 22,
+            type: 'search',
             ok: true,
-            data: {
-                matchingMs: 0,
-                matches: [{
-                    pageMatchIndex: 0,
-                    startOffset: 0,
-                    endOffset: 1,
-                }],
-            },
+            data: {stale: true},
         });
     });
 
     it('keeps the regex budget through empty pages before searchable PDF text', async () => {
-        const {
-            handler, postMessage,
-        } = await loadWorker();
+        const {dispatch} = await loadWorker();
         vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000);
         let remainingMs = 250;
         for (const [
@@ -260,7 +312,7 @@ describe('browserSearch worker', () => {
                 '',
                 'Z',
             ].entries()) {
-            handler({data: {
+            const response = await dispatch({
                 id,
                 type: 'matchPageText',
                 payload: {
@@ -274,8 +326,7 @@ describe('browserSearch worker', () => {
                     maxMatches: 2,
                     budgetMs: remainingMs,
                 },
-            }} as MessageEvent<unknown>);
-            const response = postMessage.mock.lastCall?.[0];
+            });
             expect(response.ok).toBe(true);
             expect(response.data.matchingMs).toBe(0);
             remainingMs -= response.data.matchingMs;
@@ -285,12 +336,9 @@ describe('browserSearch worker', () => {
     });
 
     it('returns a typed protocol code for an unsafe regex before matching', async () => {
-        const {
-            handler,
-            postMessage,
-        } = await loadWorker();
+        const {dispatch} = await loadWorker();
 
-        handler({data: {
+        const response = await dispatch({
             id: 9,
             type: 'matchPageText',
             payload: {
@@ -303,9 +351,9 @@ describe('browserSearch worker', () => {
                 },
                 maxMatches: 2,
             },
-        }} as MessageEvent<unknown>);
+        });
 
-        expect(postMessage).toHaveBeenLastCalledWith({
+        expect(response).toEqual({
             id: 9,
             ok: false,
             error: 'Invalid search regex: pattern is too complex for document search',

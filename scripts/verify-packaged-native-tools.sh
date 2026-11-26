@@ -578,7 +578,6 @@ if [ "$platform" = "mac" ]; then
   run_macos_packaged_tool_smoke "evb-pdf-image-combine" "$(packaged_entry_path evb-pdf-image-combine)" --version
   run_macos_packaged_tool_smoke "evb-pdf-image-combine-compact-manifest" "$(packaged_entry_path evb-pdf-image-combine)" --compact-manifest
   run_macos_packaged_tool_smoke "evb-pdf-page-ops" "$(packaged_entry_path evb-pdf-page-ops)" --version
-  run_macos_packaged_tool_smoke "evb-pdf-search" "$(packaged_entry_path evb-pdf-search)" --version
   run_macos_packaged_tool_smoke "evb-scan-cleanup" "$(packaged_entry_path evb-scan-cleanup)" --version
   if is_macos_app_adhoc_signed "$mac_app_path"; then
     echo "Named gap: skipping the packaged sidecar fold-clip smoke for $platform_arch; an ad-hoc signed app is killed by provenance policy when run in place, and this smoke needs the packaged binary to write its own outputs."

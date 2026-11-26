@@ -1,4 +1,4 @@
-import { getErrorMessage } from '@app/utils/error';
+import {getErrorMessage} from '@app/utils/error';
 import type {
     IPdfSearchProgress,
     IPdfSearchResponse,
@@ -10,111 +10,44 @@ import {
     SEARCH_REGEX_MAX_EXECUTION_MS,
     SEARCH_RESULT_LIMIT,
 } from '@contracts/search';
-import {validateSearchQuery} from '@pdf-core';
-import {buildPdfSearchExcerpt} from '@pdf-core/pdfSearchCore';
-import { collectSearchMatchWords } from '@pdf-core/collectSearchMatchWords';
-import { requirePageNumber } from '@contracts/pageNumbers';
+import {
+    concatUint8Arrays,
+    encodePdfSearchPageRecord,
+    isStaleSearchIndexAnswer,
+    SEARCH_INDEX_TEXT_BUDGET,
+} from '@contracts/searchIndexWire';
+import {isRecord} from '@contracts/runtimeGuards';
+import {
+    buildPdfSearchExcerpt,
+    validateSearchQuery,
+} from '@pdf-core/pdfSearchCore';
+import {collectSearchMatchWords} from '@pdf-core/collectSearchMatchWords';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import type {
     SEARCH_PLATFORM_FEATURE,
     ISearchCapability,
 } from '@contracts/searchPlatformFeature';
-import type { TFeatureBrowserBindings } from '@contracts/platformFeature';
+import type {TFeatureBrowserBindings} from '@contracts/platformFeature';
 import {
+    BROWSER_SEARCH_REGEX_WORKER_TIMEOUT_MS,
+    BrowserSearchWorkerTimeoutError,
     BrowserSearchWorkerUnavailableError,
     canUseBrowserSearchWorker,
+    cancelBrowserSearchWorkerRequest,
+    createBrowserSearchWorkerRequest,
 } from '@app/platform/browser-api/browserSearchWorkerClient';
-import {matchBrowserSearchPageWindow} from '@app/platform/browser-api/matchBrowserSearchPageWindow';
-import type {loadBrowserSearchDocument} from '@app/platform/browser-api/browserSearchCore';
-import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
-import { browserDocumentStore } from '@app/platform/browserDocumentStore';
+import {matchBrowserSearchPageWindowInWorker} from '@app/platform/browser-api/matchBrowserSearchPageWindow';
+import type {IExtractedBrowserSearchPage} from '@app/platform/browser-api/browserSearchCore';
+import {yieldToBrowser} from '@app/platform/browser-api/browserYield';
+import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 import {
     createRequestId,
     type IOcrWord,
     type TRequestId,
 } from '@contracts/shared';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { resolveBrowserCapabilityTier } from '@app/platform/browser/browserCapabilityTier';
-import {
-    createPersistedSearchCacheRecord,
-    estimatePageTextBytes,
-    getPersistedRecordBytes,
-    parsePersistedSearchCacheRecord,
-    type IPersistedSearchDocumentCacheRecord,
-    type ISearchDocumentTextSource,
-} from '@app/platform/browser-api/browserSearchCache';
-
-function idbRequestToPromise<T>(
-    request: IDBRequest<T>,
-    errorMessage: string,
-): Promise<T> {
-    return new Promise((resolve, reject) => {
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error ?? new Error(errorMessage));
-    });
-}
-
-function readStoreValue<T>(
-    store: IDBObjectStore,
-    key: IDBValidKey,
-    errorMessage: string,
-    decode: (value: unknown) => T | null,
-): Promise<T | null> {
-    return idbRequestToPromise<unknown>(store.get(key), errorMessage)
-        .then((value) => value === undefined ? null : decode(value));
-}
-
-function writeStoreValue(
-    store: IDBObjectStore,
-    value: unknown,
-    errorMessage: string,
-    key?: IDBValidKey,
-) {
-    const request = typeof key === 'undefined'
-        ? store.put(value)
-        : store.put(value, key);
-
-    return idbRequestToPromise(request, errorMessage)
-        .then(() => undefined);
-}
-
-function deleteStoreValue(
-    store: IDBObjectStore,
-    key: IDBValidKey,
-    errorMessage: string,
-) {
-    return idbRequestToPromise(store.delete(key), errorMessage)
-        .then(() => undefined);
-}
-
-function clearStore(
-    store: IDBObjectStore,
-    errorMessage: string,
-) {
-    return idbRequestToPromise(store.clear(), errorMessage)
-        .then(() => undefined);
-}
-
-interface IPreparedSearchDocumentCache {
-    pageCount: number | null;
-    pageTexts: Map<number, string>;
-    pageGeometries: Map<number, ISearchPageGeometry>;
-    pageTextBytes: number;
-    canCacheWholeDocumentText: boolean;
-    isComplete: boolean;
-}
-
-interface ICreateBrowserSearchCapabilityResult {
-    capability: ISearchCapability;
-    clearSearchCaches: (pdfPath?: string) => Promise<void>;
-}
-
-interface IIterateSearchPagesOptions {
-    onPage: (page: ISearchPageData, pageCount: number, loadGeometry?: () => Promise<ISearchPageData>) => Promise<unknown> | unknown;
-    requestId?: TRequestId;
-    requestGeneration?: number | undefined;
-    expectedPageCount?: number;
-    continueExtractionAfterStop?: boolean;
-}
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {resolveBrowserCapabilityTier} from '@app/platform/browser/browserCapabilityTier';
+import {SearchRegexLimitError} from '@pdf-core';
 
 interface ISearchPageGeometry {
     words: readonly IOcrWord[];
@@ -122,72 +55,70 @@ interface ISearchPageGeometry {
     pageHeight: number;
 }
 
-interface ISearchPageData {
-    pageNumber: number;
-    text: string;
-    words?: readonly IOcrWord[];
-    pageWidth?: number;
-    pageHeight?: number;
+interface ICachedWasmSearchIndex {
+    pageCount: number;
+    indexBytes: Uint8Array;
+    pageGeometries: Map<number, ISearchPageGeometry>;
+}
+
+interface IPersistedWasmSearchIndexRecord {
+    version: number;
+    pdfPath: string;
+    fileSize: number;
+    contentSignature: string;
+    documentRevision: string;
+    pageCount: number;
+    indexBytes: Uint8Array;
+    textBytes: number;
+    lastAccessedAt: number;
+}
+
+interface ICreateBrowserSearchCapabilityResult {
+    capability: ISearchCapability;
+    clearSearchCaches: (pdfPath?: string) => Promise<void>;
 }
 
 type TSearchListener = (progress: IPdfSearchProgress) => void;
-type TPageOutcome = 'continue' | 'stop' | 'cancel';
 
-const SEARCH_PAGE_CACHE_LIMIT = 24;
-const SEARCH_DOCUMENT_TEXT_CACHE_MAX_RECORDS = 8_192;
-const SEARCH_GEOMETRY_CACHE_LIMIT = SEARCH_PAGE_CACHE_LIMIT;
+const SEARCH_GEOMETRY_CACHE_LIMIT = 24;
 const SEARCH_DOCUMENT_CACHE_LIMIT = 4;
-const SEARCH_YIELD_INTERVAL = 1;
-const SEARCH_DOCUMENT_TEXT_CACHE_MAX_BYTES = 32 * 1024 * 1024;
+const SEARCH_INDEX_CACHE_MAX_BYTES = 32 * 1024 * 1024;
 const SEARCH_PERSISTED_CACHE_MAX_RECORDS = 16;
 const SEARCH_PERSISTED_CACHE_MAX_BYTES = 128 * 1024 * 1024;
 const SEARCH_CACHE_DB_NAME = 'evb-browser-search-cache';
 const SEARCH_CACHE_DB_VERSION = 2;
-// Moves on when extraction changes; records an earlier extraction wrote are discarded.
-const SEARCH_CACHE_RECORD_VERSION = 11;
+// Version 12 stores unified EVBSIDX4 binary indexes built by evb-pdf-search.wasm.
+const SEARCH_CACHE_RECORD_VERSION = 12;
 const SEARCH_CACHE_STORE = 'document-text';
 const SEARCH_CACHE_LAST_ACCESSED_INDEX = 'last-accessed-at';
-const PDFJS_TEXT_SOURCE: ISearchDocumentTextSource = {
-    kind: 'pdfjs-text-content',
-    version: 1,
-};
 let searchCacheAccessSequence = 0;
 
 function isBrowserSearchCanceledError(error: unknown) {
     return error instanceof Error && getErrorMessage(error) === 'ERR_BROWSER_SEARCH_CANCELED';
 }
 
-function isRecordCacheReady(cache: IPreparedSearchDocumentCache) {
-    return typeof cache.pageCount === 'number'
-        && cache.pageCount > 0
-        && cache.canCacheWholeDocumentText
-        && cache.isComplete;
+function createSearchCacheAccessTimestamp() {
+    searchCacheAccessSequence += 1;
+    return (Date.now() * 1000) + searchCacheAccessSequence;
 }
 
-function createDocumentCache(): IPreparedSearchDocumentCache {
-    return {
-        pageCount: null,
-        pageTexts: new Map<number, string>(),
-        pageGeometries: new Map<number, ISearchPageGeometry>(),
-        pageTextBytes: 0,
-        canCacheWholeDocumentText: true,
-        isComplete: false,
-    };
+function idbRequest<T>(request: IDBRequest<T>, errorMessage: string): Promise<T> {
+    return new Promise((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error ?? new Error(errorMessage));
+    });
 }
 
 function openSearchCacheDb(): Promise<IDBDatabase | null> {
-    const { indexedDbFactory } = resolveBrowserCapabilityTier();
-    if (!indexedDbFactory) {
-        return Promise.resolve(null);
-    }
-
+    const {indexedDbFactory} = resolveBrowserCapabilityTier();
+    if (!indexedDbFactory) return Promise.resolve(null);
     return new Promise((resolve, reject) => {
         const request = indexedDbFactory.open(SEARCH_CACHE_DB_NAME, SEARCH_CACHE_DB_VERSION);
         request.onupgradeneeded = () => {
             const db = request.result;
             const store = db.objectStoreNames.contains(SEARCH_CACHE_STORE)
                 ? request.transaction?.objectStore(SEARCH_CACHE_STORE)
-                : db.createObjectStore(SEARCH_CACHE_STORE, { keyPath: 'pdfPath' });
+                : db.createObjectStore(SEARCH_CACHE_STORE, {keyPath: 'pdfPath'});
             if (store && !store.indexNames.contains(SEARCH_CACHE_LAST_ACCESSED_INDEX)) {
                 store.createIndex(SEARCH_CACHE_LAST_ACCESSED_INDEX, 'lastAccessedAt');
             }
@@ -197,126 +128,74 @@ function openSearchCacheDb(): Promise<IDBDatabase | null> {
     });
 }
 
-function createSearchCacheAccessTimestamp() {
-    searchCacheAccessSequence += 1;
-    return (Date.now() * 1000) + searchCacheAccessSequence;
-}
-
-function canPersistPageTexts(pageTexts: ReadonlyMap<number, string>) {
-    return estimatePageTextBytes(pageTexts) <= SEARCH_DOCUMENT_TEXT_CACHE_MAX_BYTES;
-}
-
-function waitForTransaction(transaction: IDBTransaction, errorMessage: string) {
-    return new Promise<void>((resolve, reject) => {
-        transaction.oncomplete = () => resolve();
-        transaction.onabort = () => reject(transaction.error ?? new Error(errorMessage));
-        transaction.onerror = () => reject(transaction.error ?? new Error(errorMessage));
-    });
-}
-
 async function runSearchCacheTransaction<T>(
     mode: IDBTransactionMode,
     run: (store: IDBObjectStore) => Promise<T>,
 ) {
     const db = await openSearchCacheDb();
-    if (!db) {
-        return null;
-    }
-
+    if (!db) return null;
     try {
         const tx = db.transaction(SEARCH_CACHE_STORE, mode);
-        let transactionError: unknown = null;
-        const done = waitForTransaction(tx, 'Search cache transaction failed')
-            .catch((error: unknown) => {
-                transactionError = error;
-            });
+        let txError: unknown = null;
+        const done = new Promise<void>((resolve, reject) => {
+            tx.oncomplete = () => resolve();
+            tx.onabort = () => reject(tx.error ?? new Error('Search cache transaction failed'));
+            tx.onerror = () => reject(tx.error ?? new Error('Search cache transaction failed'));
+        }).catch((error: unknown) => {
+            txError = error;
+        });
         try {
             const result = await run(tx.objectStore(SEARCH_CACHE_STORE));
             await done;
-            if (transactionError) {
-                throw transactionError instanceof Error
-                    ? transactionError
-                    : new Error(getErrorMessage(transactionError));
-            }
+            if (txError) throw txError instanceof Error ? txError : new Error(getErrorMessage(txError));
             return result;
         } catch (error) {
             await done;
-            throw error instanceof Error
-                ? error
-                : new Error(getErrorMessage(error));
+            throw error instanceof Error ? error : new Error(getErrorMessage(error));
         }
     } finally {
         db.close();
     }
 }
 
-async function loadPersistedSearchCacheRecord(cacheKey: string) {
-    return runSearchCacheTransaction(
-        'readonly',
-        (store) => readStoreValue(
-            store,
-            cacheKey,
-            'Failed to read search cache record',
-            parsePersistedSearchCacheRecord,
-        ),
-    );
+function parsePersistedIndexRecord(value: unknown): IPersistedWasmSearchIndexRecord | null {
+    if (!isRecord(value)) return null;
+    if (
+        value.version !== SEARCH_CACHE_RECORD_VERSION
+        || typeof value.pdfPath !== 'string'
+        || typeof value.fileSize !== 'number'
+        || !Number.isFinite(value.fileSize)
+        || value.fileSize < 0
+        || typeof value.contentSignature !== 'string'
+        || typeof value.documentRevision !== 'string'
+        || typeof value.pageCount !== 'number'
+        || !Number.isInteger(value.pageCount)
+        || value.pageCount < 1
+        || !(value.indexBytes instanceof Uint8Array)
+        || value.indexBytes.byteLength === 0
+        || value.indexBytes.byteLength > SEARCH_INDEX_CACHE_MAX_BYTES
+        || value.textBytes !== value.indexBytes.byteLength
+    ) {
+        return null;
+    }
+    return {
+        version: value.version,
+        pdfPath: value.pdfPath,
+        fileSize: value.fileSize,
+        contentSignature: value.contentSignature,
+        documentRevision: value.documentRevision,
+        pageCount: value.pageCount,
+        indexBytes: value.indexBytes,
+        textBytes: value.textBytes,
+        lastAccessedAt: typeof value.lastAccessedAt === 'number' ? value.lastAccessedAt : 0,
+    };
 }
 
-async function deletePersistedSearchCacheRecord(cacheKey: string) {
-    await runSearchCacheTransaction(
-        'readwrite',
-        (store) => deleteStoreValue(store, cacheKey, 'Failed to delete search cache record'),
-    );
-}
-
-async function touchPersistedSearchCacheRecord(record: IPersistedSearchDocumentCacheRecord) {
-    await runSearchCacheTransaction(
-        'readwrite',
-        (store) => writeStoreValue(
-            store,
-            {
-                ...record,
-                textBytes: getPersistedRecordBytes(record),
-                lastAccessedAt: createSearchCacheAccessTimestamp(),
-            },
-            'Failed to touch search cache record',
-        ),
-    );
-}
-
-async function persistSearchCacheRecord(
-    record: IPersistedSearchDocumentCacheRecord,
-) {
-    await runSearchCacheTransaction(
-        'readwrite',
-        (store) => writeStoreValue(
-            store,
-            {
-                ...record,
-                textBytes: estimatePageTextBytes(record.pages),
-                lastAccessedAt: createSearchCacheAccessTimestamp(),
-            },
-            'Failed to write search cache record',
-        ),
-    );
-    await prunePersistedSearchCaches();
-}
-
-// The cache only speeds up searches of identical bytes. A storage failure
-// on a search path is logged and read as a miss, so the search still reads
-// the PDF's own text. Explicit cache clears keep surfacing their errors.
-function bestEffortSearchCache<T>(operation: Promise<T>) {
+function bestEffortCache<T>(operation: Promise<T>) {
     return operation.catch((error: unknown) => {
-        BrowserLogger.warn('search', 'Search cache is unavailable; searching without it', { error });
+        BrowserLogger.warn('search', 'Search cache is unavailable; searching without it', {error});
         return null;
     });
-}
-
-async function clearPersistedSearchCaches() {
-    await runSearchCacheTransaction(
-        'readwrite',
-        (store) => clearStore(store, 'Failed to clear search cache records'),
-    );
 }
 
 async function prunePersistedSearchCaches() {
@@ -331,12 +210,13 @@ async function prunePersistedSearchCaches() {
                 resolve();
                 return;
             }
-            const record = parsePersistedSearchCacheRecord(cursor.value);
-            const recordBytes = record === null ? 0 : getPersistedRecordBytes(record);
-            const shouldDelete = record === null
+            const record = parsePersistedIndexRecord(cursor.value);
+            const recordBytes = record?.textBytes ?? 0;
+            if (
+                record === null
                 || keptRecords >= SEARCH_PERSISTED_CACHE_MAX_RECORDS
-                || keptBytes + recordBytes > SEARCH_PERSISTED_CACHE_MAX_BYTES;
-            if (shouldDelete) {
+                || keptBytes + recordBytes > SEARCH_PERSISTED_CACHE_MAX_BYTES
+            ) {
                 cursor.delete();
             } else {
                 keptRecords += 1;
@@ -347,78 +227,11 @@ async function prunePersistedSearchCaches() {
     }));
 }
 
-async function clearPersistedSearchCacheForDocument(pdfPath: string) {
-    await deletePersistedSearchCacheRecord(pdfPath);
-}
-
-function hydrateCacheFromPersistedRecord(
-    cache: IPreparedSearchDocumentCache,
-    record: IPersistedSearchDocumentCacheRecord | null,
-) {
-    if (!record) {
-        return;
-    }
-
-    cache.pageCount = record.pageCount;
-    cache.pageTexts = new Map();
-    cache.pageGeometries = new Map();
-    cache.pageTextBytes = 0;
-    cache.canCacheWholeDocumentText = true;
-    cache.isComplete = true;
-
-    for (const page of record.pages) {
-        rememberPageText(cache, page.pageNumber, page.text);
-    }
-}
-
-function yieldAfterSearchPage(pageNumber: number) {
-    return pageNumber % SEARCH_YIELD_INTERVAL === 0 ? yieldToBrowser() : Promise.resolve();
-}
-
-function rememberPageText(
-    cache: IPreparedSearchDocumentCache,
-    pageNumber: number,
-    text: string,
-) {
-    const existing = cache.pageTexts.get(pageNumber);
-    if (typeof existing === 'string') {
-        cache.pageTextBytes -= existing.length * 2;
-        cache.pageTexts.delete(pageNumber);
-    }
-    if (text.length === 0) {
-        return;
-    }
-    cache.pageTexts.set(pageNumber, text);
-    cache.pageTextBytes += text.length * 2;
-
-    if (
-        cache.canCacheWholeDocumentText
-        && cache.pageTextBytes <= SEARCH_DOCUMENT_TEXT_CACHE_MAX_BYTES
-        && cache.pageTexts.size <= SEARCH_DOCUMENT_TEXT_CACHE_MAX_RECORDS
-    ) {
-        return;
-    }
-
-    cache.canCacheWholeDocumentText = false;
-    cache.isComplete = false;
-    while (
-        cache.pageTexts.size > SEARCH_PAGE_CACHE_LIMIT
-        || cache.pageTextBytes > SEARCH_DOCUMENT_TEXT_CACHE_MAX_BYTES
-    ) {
-        const oldestPage = cache.pageTexts.keys().next().value;
-        if (typeof oldestPage !== 'number') {
-            break;
-        }
-        const oldestText = cache.pageTexts.get(oldestPage);
-        if (typeof oldestText === 'string') {
-            cache.pageTextBytes -= oldestText.length * 2;
-        }
-        cache.pageTexts.delete(oldestPage);
-        cache.pageGeometries.delete(oldestPage);
-    }
-}
-
-function hasSearchPageGeometry(page: ISearchPageData): page is ISearchPageData & ISearchPageGeometry {
+function hasPageGeometry(page: Pick<IExtractedBrowserSearchPage, 'words' | 'pageWidth' | 'pageHeight'>): page is {
+    words: IOcrWord[];
+    pageWidth: number;
+    pageHeight: number;
+} {
     return Array.isArray(page.words)
         && page.words.length > 0
         && typeof page.pageWidth === 'number'
@@ -429,140 +242,75 @@ function hasSearchPageGeometry(page: ISearchPageData): page is ISearchPageData &
         && page.pageHeight > 0;
 }
 
-function rememberPageData(
-    cache: IPreparedSearchDocumentCache,
-    page: ISearchPageData,
+function rememberPageGeometry(
+    geometries: Map<number, ISearchPageGeometry>,
+    page: IExtractedBrowserSearchPage,
 ) {
-    rememberPageText(cache, page.pageNumber, page.text);
-    if (hasSearchPageGeometry(page)) {
-        cache.pageGeometries.set(page.pageNumber, {
-            words: page.words,
-            pageWidth: page.pageWidth,
-            pageHeight: page.pageHeight,
-        });
-        while (cache.pageGeometries.size > SEARCH_GEOMETRY_CACHE_LIMIT) {
-            const oldestPage = cache.pageGeometries.keys().next().value;
-            if (typeof oldestPage !== 'number') {
-                break;
-            }
-            cache.pageGeometries.delete(oldestPage);
-        }
-    } else {
-        cache.pageGeometries.delete(page.pageNumber);
+    if (!hasPageGeometry(page)) {
+        geometries.delete(page.pageNumber);
+        return;
     }
-}
-
-function getCachedPageText(
-    cache: IPreparedSearchDocumentCache,
-    pageNumber: number,
-) {
-    const cached = cache.pageTexts.get(pageNumber);
-    if (typeof cached !== 'string') {
-        return null;
+    geometries.delete(page.pageNumber);
+    geometries.set(page.pageNumber, {
+        words: page.words,
+        pageWidth: page.pageWidth,
+        pageHeight: page.pageHeight,
+    });
+    while (geometries.size > SEARCH_GEOMETRY_CACHE_LIMIT) {
+        const oldest = geometries.keys().next().value;
+        if (typeof oldest !== 'number') break;
+        geometries.delete(oldest);
     }
-
-    cache.pageTexts.delete(pageNumber);
-    cache.pageTexts.set(pageNumber, cached);
-    return cached;
-}
-
-function getCachedPageData(
-    cache: IPreparedSearchDocumentCache,
-    pageNumber: number,
-): ISearchPageData | null {
-    const text = getCachedPageText(cache, pageNumber);
-    if (typeof text !== 'string') {
-        return null;
-    }
-    const geometry = cache.pageGeometries.get(pageNumber);
-    if (geometry) {
-        cache.pageGeometries.delete(pageNumber);
-        cache.pageGeometries.set(pageNumber, geometry);
-    }
-    return {
-        pageNumber,
-        text,
-        ...(geometry ? {
-            words: geometry.words,
-            pageWidth: geometry.pageWidth,
-            pageHeight: geometry.pageHeight,
-        } : {}),
-    };
-}
-
-function resetExtractedPageCache(cache: IPreparedSearchDocumentCache) {
-    cache.pageTexts.clear();
-    cache.pageGeometries.clear();
-    cache.pageTextBytes = 0;
-    cache.canCacheWholeDocumentText = true;
-    cache.isComplete = false;
 }
 
 export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityResult {
     const searchProgressListeners = new Set<TSearchListener>();
-    const searchDocumentCache = new Map<string, IPreparedSearchDocumentCache>();
+    const memoryIndexCache = new Map<string, ICachedWasmSearchIndex>();
     const activeSearchRequests = new Map<TRequestId, {
         generation: number;
         canceled: boolean;
-        // Ends work a search started outside its own loop, such as reading EVB OCR lines.
-        abort: AbortController;
-    }>();
-    const activeMatchWorkerSearchRequests = new Map<TRequestId, {
-        generation: number;
         abort: AbortController;
     }>();
     let nextSearchGeneration = 0;
 
-    function getMemoryCacheKey(pdfPath: string, documentRevision: string) {
+    function getCacheKey(pdfPath: string, documentRevision: string) {
         return `${pdfPath}\0${documentRevision}`;
     }
 
     function deleteDocumentMemoryCaches(pdfPath: string) {
-        searchDocumentCache.delete(pdfPath);
         const prefix = `${pdfPath}\0`;
-        for (const key of searchDocumentCache.keys()) {
-            if (key.startsWith(prefix)) {
-                searchDocumentCache.delete(key);
+        for (const key of memoryIndexCache.keys()) {
+            if (key === pdfPath || key.startsWith(prefix)) {
+                memoryIndexCache.delete(key);
             }
         }
     }
 
-    function getDocumentCache(cacheKey: string) {
-        let cache = searchDocumentCache.get(cacheKey);
-        if (!cache) {
-            while (searchDocumentCache.size >= SEARCH_DOCUMENT_CACHE_LIMIT) {
-                const oldestKey = searchDocumentCache.keys().next().value;
-                if (typeof oldestKey !== 'string') {
-                    break;
-                }
-                searchDocumentCache.delete(oldestKey);
-            }
-            cache = createDocumentCache();
-            searchDocumentCache.set(cacheKey, cache);
+    function storeMemoryIndex(key: string, entry: ICachedWasmSearchIndex) {
+        memoryIndexCache.delete(key);
+        while (memoryIndexCache.size >= SEARCH_DOCUMENT_CACHE_LIMIT) {
+            const oldestKey = memoryIndexCache.keys().next().value;
+            if (typeof oldestKey !== 'string') break;
+            memoryIndexCache.delete(oldestKey);
         }
-        return cache;
+        memoryIndexCache.set(key, entry);
     }
 
-    async function clearSearchCachesAsync(pdfPath?: string) {
+    async function clearSearchCaches(pdfPath?: string) {
         if (pdfPath) {
             deleteDocumentMemoryCaches(pdfPath);
-            await clearPersistedSearchCacheForDocument(pdfPath);
+            await runSearchCacheTransaction('readwrite', store =>
+                idbRequest(store.delete(pdfPath), 'Failed to delete search cache record').then(() => undefined));
             return;
         }
-
-        searchDocumentCache.clear();
-        await clearPersistedSearchCaches();
+        memoryIndexCache.clear();
+        await runSearchCacheTransaction('readwrite', store =>
+            idbRequest(store.clear(), 'Failed to clear search cache records').then(() => undefined));
     }
 
-    const clearSearchCaches = clearSearchCachesAsync;
-
     function startSearchRequest(requestId: TRequestId | undefined) {
-        if (!requestId) {
-            return undefined;
-        }
-        cancelMatchWorkerRequest(requestId);
-        const generation = nextSearchGeneration + 1;
-        nextSearchGeneration = generation;
+        if (!requestId) return undefined;
+        const generation = ++nextSearchGeneration;
         activeSearchRequests.get(requestId)?.abort.abort();
         activeSearchRequests.set(requestId, {
             generation,
@@ -572,312 +320,27 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         return generation;
     }
 
-    function consumeCancellation(requestId: TRequestId | undefined, generation: number | undefined) {
-        if (!requestId) {
-            return false;
-        }
+    function isCanceled(requestId: TRequestId | undefined, generation: number | undefined) {
+        if (!requestId) return false;
         const active = activeSearchRequests.get(requestId);
         return !active || active.generation !== generation || active.canceled;
     }
 
-    function finishSearchRequest(requestId: TRequestId | undefined, generation: number | undefined) {
-        if (!requestId) {
-            return;
-        }
-        const active = activeSearchRequests.get(requestId);
-        if (active?.generation === generation) {
-            activeSearchRequests.delete(requestId);
-        }
-        if (activeMatchWorkerSearchRequests.get(requestId)?.generation === generation) {
-            activeMatchWorkerSearchRequests.delete(requestId);
-        }
-    }
-
-    // A regular expression can run long inside the worker; aborting its page
-    // match terminates the worker.
-    function cancelMatchWorkerRequest(requestId: TRequestId) {
-        const workerRequest = activeMatchWorkerSearchRequests.get(requestId);
-        if (!workerRequest) {
-            return;
-        }
-        workerRequest.abort.abort();
-        activeMatchWorkerSearchRequests.delete(requestId);
-    }
-
-    function isExtractionCanceled(requestId: TRequestId | undefined, generation: number | undefined) {
-        return consumeCancellation(requestId, generation);
-    }
-
-    function extractionSignal(requestId: TRequestId | undefined, generation: number | undefined) {
+    function getRequestSignal(requestId: TRequestId | undefined, generation: number | undefined) {
         const active = requestId === undefined ? undefined : activeSearchRequests.get(requestId);
         return active?.generation === generation ? active?.abort.signal : undefined;
     }
 
-    function isSearchCanceled(requestId: TRequestId | undefined, generation: number | undefined) {
-        return consumeCancellation(requestId, generation);
-    }
-
-    function emitPageProgress(requestId: TRequestId | undefined, processed: number, total: number) {
-        if (!requestId) {
-            return;
+    function finishSearchRequest(requestId: TRequestId | undefined, generation: number | undefined) {
+        if (!requestId) return;
+        const active = activeSearchRequests.get(requestId);
+        if (active?.generation === generation) {
+            activeSearchRequests.delete(requestId);
         }
-        const progress: IPdfSearchProgress = {
-            requestId,
-            processed,
-            total,
-        };
-        searchProgressListeners.forEach((listener) => listener(progress));
     }
 
     function emitSearchProgress(progress: IPdfSearchProgress) {
-        searchProgressListeners.forEach((listener) => listener(progress));
-    }
-
-    function pickValidPersistedRecord(
-        record: IPersistedSearchDocumentCacheRecord | null,
-        fileSize: number,
-        contentSignature: string,
-        documentRevision: string,
-        expectedPageCount?: number,
-    ) {
-        if (!record) {
-            return null;
-        }
-        if (record.version !== SEARCH_CACHE_RECORD_VERSION) {
-            return null;
-        }
-        if (record.fileSize !== fileSize) {
-            return null;
-        }
-        if (record.contentSignature !== contentSignature) {
-            return null;
-        }
-        if (record.documentRevision !== documentRevision) {
-            return null;
-        }
-        if (
-            typeof expectedPageCount === 'number'
-            && expectedPageCount > 0
-            && record.pageCount !== expectedPageCount
-        ) {
-            return null;
-        }
-        const textBytes = estimatePageTextBytes(record.pages);
-        if (record.textBytes !== textBytes) {
-            return null;
-        }
-        if (record.pages.length > SEARCH_DOCUMENT_TEXT_CACHE_MAX_RECORDS
-            || getPersistedRecordBytes(record) > SEARCH_DOCUMENT_TEXT_CACHE_MAX_BYTES) {
-            return null;
-        }
-        return record;
-    }
-
-    async function matchSearchPage(
-        pageText: string,
-        query: string,
-        matchOptions: {
-            matchCase: boolean;
-            wholeWord: boolean;
-            useRegex: boolean
-        },
-        requestId: TRequestId,
-        requestGeneration: number,
-        maxMatches: number,
-        regexBudget: {remainingMs: number},
-        resultOffset: TSearchResultOffset,
-    ) {
-        const pageAbort = new AbortController();
-        activeMatchWorkerSearchRequests.set(requestId, {
-            generation: requestGeneration,
-            abort: pageAbort,
-        });
-        try {
-            const matchResult = await matchBrowserSearchPageWindow(
-                pageText,
-                query,
-                matchOptions,
-                maxMatches,
-                resultOffset,
-                regexBudget,
-                pageAbort.signal,
-            );
-            return isSearchCanceled(requestId, requestGeneration)
-                ? {
-                    matches: [],
-                    truncated: false,
-                    matchCount: 0,
-                }
-                : matchResult;
-        } finally {
-            const activeWorkerRequest = activeMatchWorkerSearchRequests.get(requestId);
-            if (activeWorkerRequest?.generation === requestGeneration) {
-                activeMatchWorkerSearchRequests.delete(requestId);
-            }
-        }
-    }
-
-    async function deliverPage(
-        page: ISearchPageData,
-        pageCount: number,
-        options: IIterateSearchPagesOptions,
-        loadGeometry?: () => Promise<ISearchPageData>,
-    ): Promise<TPageOutcome> {
-        if (isSearchCanceled(options.requestId, options.requestGeneration)) {
-            return 'cancel';
-        }
-        const result = await options.onPage(page, pageCount, loadGeometry);
-        if (result === false) {
-            return 'stop';
-        }
-        emitPageProgress(options.requestId, page.pageNumber, pageCount);
-        await yieldAfterSearchPage(page.pageNumber);
-        return 'continue';
-    }
-
-    async function iterateCachedDocumentPages(
-        pdfPath: string,
-        cache: IPreparedSearchDocumentCache,
-        pageCount: number,
-        options: IIterateSearchPagesOptions,
-    ) {
-        let document: Awaited<ReturnType<typeof loadBrowserSearchDocument>> | undefined;
-        try {
-            for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
-                const cachedPage = getCachedPageData(cache, pageNumber) ?? {
-                    pageNumber,
-                    text: '',
-                };
-                const outcome = await deliverPage(cachedPage, pageCount, options, hasSearchPageGeometry(cachedPage)
-                    ? undefined
-                    : async () => {
-                        document ??= await (await import('@app/platform/browser-api/browserSearchCore')).loadBrowserSearchDocument(pdfPath);
-                        const signal = extractionSignal(options.requestId, options.requestGeneration);
-                        const page = await document.extractPage(pageNumber, {
-                            shouldContinue: () => !isExtractionCanceled(options.requestId, options.requestGeneration),
-                            ...(signal === undefined ? {} : {signal}),
-                        });
-                        rememberPageData(cache, page);
-                        return page;
-                    });
-                if (outcome === 'cancel' || outcome === 'stop') {
-                    return false;
-                }
-            }
-            return true;
-        } catch (error) {
-            if (isBrowserSearchCanceledError(error)) {
-                return false;
-            }
-            throw error;
-        } finally {
-            await document?.destroy();
-        }
-    }
-
-    async function iterateSearchPages(
-        pdfPath: string,
-        fileSize: number,
-        contentSignature: string,
-        documentRevision: string,
-        options: IIterateSearchPagesOptions,
-    ) {
-        const memoryCacheKey = getMemoryCacheKey(pdfPath, documentRevision);
-        let cache = getDocumentCache(memoryCacheKey);
-        const cachedPageCount = cache.pageCount;
-
-        if (isRecordCacheReady(cache) && cachedPageCount) {
-            if (
-                typeof options.expectedPageCount !== 'number'
-                || options.expectedPageCount === cachedPageCount
-            ) {
-                return iterateCachedDocumentPages(pdfPath, cache, cachedPageCount, options);
-            }
-            searchDocumentCache.delete(memoryCacheKey);
-            cache = getDocumentCache(memoryCacheKey);
-        }
-
-        const persistedRecord = await bestEffortSearchCache(loadPersistedSearchCacheRecord(pdfPath));
-        const validPersistedRecord = pickValidPersistedRecord(
-            persistedRecord,
-            fileSize,
-            contentSignature,
-            documentRevision,
-            options.expectedPageCount,
-        );
-        if (validPersistedRecord) {
-            void bestEffortSearchCache(touchPersistedSearchCacheRecord(validPersistedRecord));
-            hydrateCacheFromPersistedRecord(cache, validPersistedRecord);
-            return iterateCachedDocumentPages(pdfPath, cache, validPersistedRecord.pageCount, options);
-        }
-        if (persistedRecord) {
-            await bestEffortSearchCache(clearPersistedSearchCacheForDocument(pdfPath));
-        }
-
-        let canceled = false as boolean;
-        let stopped = false as boolean;
-        let pageCount = 0;
-        try {
-            const {iterateBrowserSearchDocumentPages} = await import('@app/platform/browser-api/browserSearchCore');
-            const signal = extractionSignal(options.requestId, options.requestGeneration);
-            pageCount = await iterateBrowserSearchDocumentPages(
-                pdfPath,
-                async (page, totalPages) => {
-                    if (isSearchCanceled(options.requestId, options.requestGeneration)) {
-                        canceled = true;
-                        return;
-                    }
-                    pageCount = totalPages;
-                    rememberPageData(cache, page);
-                    if (stopped) {
-                        emitPageProgress(options.requestId, page.pageNumber, totalPages);
-                        await yieldAfterSearchPage(page.pageNumber);
-                    } else {
-                        const outcome = await deliverPage(page, totalPages, options);
-                        if (outcome === 'cancel') {
-                            canceled = true;
-                        } else if (outcome === 'stop') {
-                            stopped = true;
-                        }
-                    }
-                },
-                {
-                    shouldContinue: () => (
-                        !isExtractionCanceled(options.requestId, options.requestGeneration)
-                            && !canceled
-                            && (options.continueExtractionAfterStop === true || !stopped)
-                    ),
-                    ...(signal === undefined ? {} : {signal}),
-                },
-            );
-        } catch (error) {
-            if (isBrowserSearchCanceledError(error)) {
-                resetExtractedPageCache(cache);
-                if (stopped && !canceled && !isExtractionCanceled(options.requestId, options.requestGeneration)) {
-                    cache.pageCount = pageCount > 0 ? pageCount : cache.pageCount;
-                    return true;
-                }
-                return !canceled && stopped;
-            }
-            throw error;
-        }
-
-        cache.pageCount = pageCount;
-        cache.isComplete = !canceled && cache.canCacheWholeDocumentText;
-        if (cache.isComplete && canPersistPageTexts(cache.pageTexts)) {
-            await bestEffortSearchCache(persistSearchCacheRecord(createPersistedSearchCacheRecord(
-                pdfPath,
-                fileSize,
-                contentSignature,
-                documentRevision,
-                pageCount,
-                cache.pageTexts,
-                createSearchCacheAccessTimestamp(),
-                SEARCH_CACHE_RECORD_VERSION,
-                PDFJS_TEXT_SOURCE,
-            )));
-        }
-        return !canceled;
+        searchProgressListeners.forEach(listener => listener(progress));
     }
 
     async function resolveSearchDocumentRevision(pdfPath: string, requestedRevision: string | undefined) {
@@ -885,6 +348,265 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         return requestedRevision === currentRevision.token
             ? requestedRevision
             : currentRevision.token;
+    }
+
+    async function loadCachedIndex(
+        pdfPath: string,
+        fileSize: number,
+        contentSignature: string,
+        documentRevision: string,
+        expectedPageCount: number | undefined,
+    ): Promise<ICachedWasmSearchIndex | null> {
+        const cacheKey = getCacheKey(pdfPath, documentRevision);
+        const cached = memoryIndexCache.get(cacheKey);
+        if (cached) {
+            if (typeof expectedPageCount !== 'number' || expectedPageCount === cached.pageCount) {
+                memoryIndexCache.delete(cacheKey);
+                memoryIndexCache.set(cacheKey, cached);
+                return cached;
+            }
+            memoryIndexCache.delete(cacheKey);
+        }
+        const rawPersisted = await bestEffortCache(runSearchCacheTransaction('readonly', store =>
+            idbRequest<unknown>(store.get(pdfPath), 'Failed to read search cache record')));
+        if (rawPersisted === null || rawPersisted === undefined) return null;
+        const persisted = parsePersistedIndexRecord(rawPersisted);
+        if (
+            persisted
+            && persisted.fileSize === fileSize
+            && persisted.contentSignature === contentSignature
+            && persisted.documentRevision === documentRevision
+            && (typeof expectedPageCount !== 'number' || expectedPageCount <= 0 || persisted.pageCount === expectedPageCount)
+        ) {
+            void bestEffortCache(runSearchCacheTransaction('readwrite', store =>
+                idbRequest(store.put({
+                    ...persisted,
+                    lastAccessedAt: createSearchCacheAccessTimestamp(),
+                }), 'Failed to touch search cache record')));
+            const hydrated: ICachedWasmSearchIndex = {
+                pageCount: persisted.pageCount,
+                indexBytes: persisted.indexBytes,
+                pageGeometries: new Map(),
+            };
+            storeMemoryIndex(cacheKey, hydrated);
+            return hydrated;
+        }
+        await bestEffortCache(runSearchCacheTransaction('readwrite', store =>
+            idbRequest(store.delete(pdfPath), 'Failed to delete stale search cache record')));
+        return null;
+    }
+
+    async function buildAndPersistIndex(
+        pdfPath: string,
+        fileSize: number,
+        contentSignature: string,
+        documentRevision: string,
+        pageCount: number,
+        pagesBuffer: Uint8Array,
+        pageGeometries: Map<number, ISearchPageGeometry>,
+        signal: AbortSignal | undefined,
+    ) {
+        if (!canUseBrowserSearchWorker()) return null;
+        const workerReq = createBrowserSearchWorkerRequest('index', {
+            documentRevision,
+            pageCount,
+            pagesBuffer,
+            maxPageTextBytes: SEARCH_INDEX_TEXT_BUDGET.maxPageTextBytes,
+            maxTotalTextBytes: SEARCH_INDEX_CACHE_MAX_BYTES,
+        });
+        const cancel = () => cancelBrowserSearchWorkerRequest(workerReq.requestId);
+        signal?.addEventListener('abort', cancel, {once: true});
+        let built;
+        try {
+            built = await workerReq.promise;
+        } finally {
+            signal?.removeEventListener('abort', cancel);
+        }
+        if (built.coverage.truncated || built.indexBytes.byteLength > SEARCH_INDEX_CACHE_MAX_BYTES) {
+            return null;
+        }
+        const entry: ICachedWasmSearchIndex = {
+            pageCount,
+            indexBytes: built.indexBytes,
+            pageGeometries,
+        };
+        storeMemoryIndex(getCacheKey(pdfPath, documentRevision), entry);
+        await bestEffortCache((async () => {
+            await runSearchCacheTransaction('readwrite', store =>
+                idbRequest(store.put({
+                    version: SEARCH_CACHE_RECORD_VERSION,
+                    pdfPath,
+                    fileSize,
+                    contentSignature,
+                    documentRevision,
+                    pageCount,
+                    indexBytes: built.indexBytes,
+                    textBytes: built.indexBytes.byteLength,
+                    lastAccessedAt: createSearchCacheAccessTimestamp(),
+                } satisfies IPersistedWasmSearchIndexRecord), 'Failed to write search cache record'));
+            await prunePersistedSearchCaches();
+        })());
+        return entry;
+    }
+
+    async function attachGeometryToIndexedResults(
+        pdfPath: string,
+        cached: ICachedWasmSearchIndex,
+        results: IPdfSearchResult[],
+        requestId: TRequestId | undefined,
+        requestGeneration: number | undefined,
+        signal: AbortSignal | undefined,
+    ) {
+        if (results.length === 0) return results;
+        const missingPages = new Set<number>();
+        for (const result of results) {
+            if (!cached.pageGeometries.has(result.pageNumber)) {
+                missingPages.add(result.pageNumber);
+            }
+        }
+        const resolvedGeometries = new Map<number, ISearchPageGeometry>();
+        for (const result of results) {
+            const cachedGeometry = cached.pageGeometries.get(result.pageNumber);
+            if (cachedGeometry) {
+                resolvedGeometries.set(result.pageNumber, cachedGeometry);
+            }
+        }
+        if (missingPages.size > 0) {
+            const {loadBrowserSearchDocument} = await import('@app/platform/browser-api/browserSearchCore');
+            const doc = await loadBrowserSearchDocument(pdfPath);
+            try {
+                for (const pageNumber of missingPages) {
+                    if (isCanceled(requestId, requestGeneration)) return [];
+                    const page = await doc.extractPage(pageNumber, {
+                        shouldContinue: () => !isCanceled(requestId, requestGeneration),
+                        ...(signal === undefined ? {} : {signal}),
+                    });
+                    rememberPageGeometry(cached.pageGeometries, page);
+                    if (hasPageGeometry(page)) {
+                        resolvedGeometries.set(pageNumber, {
+                            words: page.words,
+                            pageWidth: page.pageWidth,
+                            pageHeight: page.pageHeight,
+                        });
+                    }
+                }
+            } finally {
+                await doc.destroy();
+            }
+        }
+        return results.map(result => {
+            const geometry = resolvedGeometries.get(result.pageNumber) ?? cached.pageGeometries.get(result.pageNumber);
+            if (!geometry) return result;
+            const words = collectSearchMatchWords(geometry, result.startOffset, result.endOffset);
+            return words === undefined
+                ? result
+                : {
+                    ...result,
+                    words,
+                    pageWidth: geometry.pageWidth,
+                    pageHeight: geometry.pageHeight,
+                };
+        });
+    }
+
+    async function searchCachedIndex(
+        pdfPath: string,
+        documentRevision: string,
+        cached: ICachedWasmSearchIndex,
+        query: string,
+        matchOptions: {
+            matchCase: boolean;
+            wholeWord: boolean;
+            useRegex: boolean;
+        },
+        resultOffset: TSearchResultOffset,
+        requestId: TRequestId,
+        requestGeneration: number | undefined,
+        signal: AbortSignal | undefined,
+    ): Promise<IPdfSearchResponse | null> {
+        const workerReq = createBrowserSearchWorkerRequest(
+            'search',
+            {
+                indexBytes: cached.indexBytes,
+                documentRevision,
+                query,
+                options: matchOptions,
+                limit: SEARCH_RESULT_LIMIT,
+                contextChars: SEARCH_EXCERPT_CONTEXT_CHARS,
+                resultOffset,
+            },
+            matchOptions.useRegex ? {matchTimeoutMs: BROWSER_SEARCH_REGEX_WORKER_TIMEOUT_MS} : {},
+        );
+        const cancel = () => cancelBrowserSearchWorkerRequest(workerReq.requestId);
+        signal?.addEventListener('abort', cancel, {once: true});
+        let rawResponse;
+        try {
+            rawResponse = await workerReq.promise;
+        } catch (error) {
+            if (error instanceof BrowserSearchWorkerTimeoutError) {
+                throw new SearchRegexLimitError(
+                    `Search regex exceeded the ${SEARCH_REGEX_MAX_EXECUTION_MS}ms matching budget`,
+                );
+            }
+            if (isBrowserSearchCanceledError(error) || isCanceled(requestId, requestGeneration)) {
+                return {
+                    results: [],
+                    truncated: false,
+                };
+            }
+            throw error;
+        } finally {
+            signal?.removeEventListener('abort', cancel);
+        }
+        if (isCanceled(requestId, requestGeneration)) {
+            return {
+                results: [],
+                truncated: false,
+            };
+        }
+        if (isStaleSearchIndexAnswer(rawResponse)) {
+            memoryIndexCache.delete(getCacheKey(pdfPath, documentRevision));
+            return null;
+        }
+        let results: IPdfSearchResult[];
+        try {
+            results = await attachGeometryToIndexedResults(
+                pdfPath,
+                cached,
+                rawResponse.results,
+                requestId,
+                requestGeneration,
+                signal,
+            );
+        } catch (error) {
+            if (isBrowserSearchCanceledError(error) || isCanceled(requestId, requestGeneration)) {
+                return {
+                    results: [],
+                    truncated: false,
+                };
+            }
+            throw error;
+        }
+        if (isCanceled(requestId, requestGeneration)) {
+            return {
+                results: [],
+                truncated: false,
+            };
+        }
+        emitSearchProgress({
+            requestId,
+            processed: cached.pageCount,
+            total: cached.pageCount,
+            ...(matchOptions.useRegex || resultOffset === 'last' ? {} : {
+                results,
+                resultsStartIndex: 0,
+                truncated: rawResponse.truncated,
+            }),
+        });
+        return {
+            results,
+            truncated: rawResponse.truncated,
+        };
     }
 
     const capability = {
@@ -895,104 +617,147 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                     truncated: false,
                 };
             }
-
             const matchOptions = {
                 matchCase: Boolean(options.matchCase),
                 wholeWord: Boolean(options.wholeWord),
                 useRegex: Boolean(options.useRegex),
             };
             validateSearchQuery(query, matchOptions);
-            if (matchOptions.useRegex && !canUseBrowserSearchWorker()) {
+            if (!canUseBrowserSearchWorker()) {
                 throw new BrowserSearchWorkerUnavailableError(
-                    'Browser search worker is required for regular expression search',
+                    matchOptions.useRegex
+                        ? 'Browser search worker is required for regular expression search'
+                        : 'Browser search worker is required for document search',
                 );
             }
 
             const requestId = options.requestId ?? createRequestId('browser-search');
-            const results: IPdfSearchResult[] = [];
-            let emittedResultCount = 0;
-            let truncated = false;
-            let matchedCount = 0;
             const resultOffset = options.resultOffset ?? 0;
             const requestGeneration = startSearchRequest(requestId);
+            const signal = getRequestSignal(requestId, requestGeneration);
             try {
-                const {size, contentSignature} = await browserDocumentStore.getContentSnapshot(pdfPath);
+                const {
+                    size, contentSignature,
+                } = await browserDocumentStore.getContentSnapshot(pdfPath);
                 const documentRevision = await resolveSearchDocumentRevision(pdfPath, options.documentRevision);
-                await iterateSearchPages(pdfPath, size, contentSignature, documentRevision, {
-                    requestId,
-                    ...(requestGeneration === undefined ? {} : {requestGeneration}),
-                    ...(options.pageCount !== undefined ? {expectedPageCount: options.pageCount} : {}),
-                    onPage: async (page, pageCount, loadGeometry) => {
-                        if (isSearchCanceled(requestId, requestGeneration)) {
-                            return false;
+                const cached = await loadCachedIndex(
+                    pdfPath,
+                    size,
+                    contentSignature,
+                    documentRevision,
+                    options.pageCount,
+                );
+                if (cached) {
+                    const indexedResponse = await searchCachedIndex(
+                        pdfPath,
+                        documentRevision,
+                        cached,
+                        query,
+                        matchOptions,
+                        resultOffset,
+                        requestId,
+                        requestGeneration,
+                        signal,
+                    );
+                    if (indexedResponse !== null) return indexedResponse;
+                }
+
+                // Cold search: stream pages through evb-pdf-search.wasm page-by-page for
+                // live progress and early truncation, then build the EVBSIDX4 index if complete.
+                const {streamBrowserSearchDocumentPages} = await import('@app/platform/browser-api/browserSearchCore');
+                const results: IPdfSearchResult[] = [];
+                const pageChunks: Uint8Array[] = [];
+                const pageGeometries = new Map<number, ISearchPageGeometry>();
+                let bufferedBytes = 0;
+                let canCacheIndex = true;
+                let emittedResultCount = 0;
+                let truncated = false;
+                let matchedCount = 0;
+                let totalPages = 0;
+                let completedAllPages = true;
+
+                try {
+                    for await (const page of streamBrowserSearchDocumentPages(pdfPath, {
+                        shouldContinue: () => !isCanceled(requestId, requestGeneration),
+                        ...(signal === undefined ? {} : {signal}),
+                    })) {
+                        if (isCanceled(requestId, requestGeneration)) {
+                            completedAllPages = false;
+                            break;
+                        }
+                        totalPages = page.pageCount;
+                        rememberPageGeometry(pageGeometries, page);
+                        if (canCacheIndex) {
+                            const encoded = encodePdfSearchPageRecord({
+                                pageNumber: page.pageNumber,
+                                text: page.text,
+                            });
+                            if (bufferedBytes + encoded.byteLength > SEARCH_INDEX_CACHE_MAX_BYTES) {
+                                canCacheIndex = false;
+                                pageChunks.length = 0;
+                            } else {
+                                pageChunks.push(encoded);
+                                bufferedBytes += encoded.byteLength;
+                            }
                         }
 
-                        const matchResult = await matchSearchPage(
+                        const matchResult = await matchBrowserSearchPageWindowInWorker(
                             page.text,
                             query,
                             matchOptions,
-                            requestId,
-                            requestGeneration ?? 0,
                             resultOffset === 'last' ? SEARCH_RESULT_LIMIT : (SEARCH_RESULT_LIMIT - results.length) + 1,
-                            // Each page has its own regex budget, as in the shared search
-                            // core, DjVu search and highlighting; only matching time spends it.
+                            resultOffset === 'last' ? 'last' : Math.max(0, resultOffset - matchedCount),
                             {remainingMs: SEARCH_REGEX_MAX_EXECUTION_MS},
-                            resultOffset === 'last' ? resultOffset : Math.max(0, resultOffset - matchedCount),
+                            signal ?? new AbortController().signal,
                         );
-                        // Cached text proves whether geometry is needed. Read only hit
-                        // pages, using the same PDF.js representation as the text index.
-                        const matchPage = matchResult.matches.length > 0 && loadGeometry
-                            ? await loadGeometry()
-                            : page;
+                        if (isCanceled(requestId, requestGeneration)) {
+                            completedAllPages = false;
+                            break;
+                        }
                         for (const match of matchResult.matches) {
-                            if (isSearchCanceled(requestId, requestGeneration)) {
-                                return false;
-                            }
                             if (resultOffset !== 'last' && results.length >= SEARCH_RESULT_LIMIT) {
-                                // Only a match we refuse to report proves the set was cut, so the
-                                // limit-th match alone must never raise the truncated flag.
                                 truncated = true;
+                                completedAllPages = false;
                                 emitSearchProgress({
                                     requestId,
                                     processed: page.pageNumber,
-                                    total: pageCount,
+                                    total: page.pageCount,
                                     results: results.slice(emittedResultCount),
                                     resultsStartIndex: emittedResultCount,
                                     truncated: true,
                                 });
                                 emittedResultCount = results.length;
-                                return false;
+                                break;
                             }
-
-                            const pageMatchIndex = match.pageMatchIndex;
-                            const matchIndex = matchedCount + pageMatchIndex;
-                            const words = collectSearchMatchWords(matchPage, match.startOffset, match.endOffset);
-                            const result = {
+                            const matchIndex = matchedCount + match.pageMatchIndex;
+                            const words = collectSearchMatchWords(page, match.startOffset, match.endOffset);
+                            const hit: IPdfSearchResult = {
                                 pageNumber: requirePageNumber(page.pageNumber),
-                                pageMatchIndex,
+                                pageMatchIndex: match.pageMatchIndex,
                                 matchIndex,
                                 startOffset: match.startOffset,
                                 endOffset: match.endOffset,
                                 excerpt: buildPdfSearchExcerpt(
-                                    matchPage.text,
+                                    page.text,
                                     match.startOffset,
                                     match.endOffset,
                                     SEARCH_EXCERPT_CONTEXT_CHARS,
                                 ),
                                 ...(words !== undefined ? {words} : {}),
-                                ...(words !== undefined && matchPage.pageWidth !== undefined ? {pageWidth: matchPage.pageWidth} : {}),
-                                ...(words !== undefined && matchPage.pageHeight !== undefined ? {pageHeight: matchPage.pageHeight} : {}),
+                                ...(words !== undefined && page.pageWidth !== undefined ? {pageWidth: page.pageWidth} : {}),
+                                ...(words !== undefined && page.pageHeight !== undefined ? {pageHeight: page.pageHeight} : {}),
                             };
-                            if (resultOffset === 'last') results[matchIndex % SEARCH_RESULT_LIMIT] = result;
-                            else results.push(result);
+                            if (resultOffset === 'last') results[matchIndex % SEARCH_RESULT_LIMIT] = hit;
+                            else results.push(hit);
                         }
                         matchedCount += matchResult.matchCount;
+                        if (truncated) break;
 
                         const delta = results.slice(emittedResultCount);
                         emitSearchProgress({
                             requestId,
                             processed: page.pageNumber,
-                            total: pageCount,
+                            total: page.pageCount,
                             ...(matchOptions.useRegex || resultOffset === 'last' ? {} : {
                                 results: delta,
                                 resultsStartIndex: emittedResultCount,
@@ -1001,17 +766,37 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                         });
                         emittedResultCount = results.length;
                         await yieldToBrowser();
-                        return true;
-                    },
-                });
+                    }
+                } catch (error) {
+                    if (isBrowserSearchCanceledError(error) || isCanceled(requestId, requestGeneration)) {
+                        return {
+                            results: [],
+                            truncated: false,
+                        };
+                    }
+                    throw error;
+                }
 
-                if (consumeCancellation(requestId, requestGeneration)) {
+                if (isCanceled(requestId, requestGeneration)) {
                     return {
                         results: [],
                         truncated: false,
                     };
                 }
-
+                if (completedAllPages && canCacheIndex && totalPages > 0) {
+                    const pagesBuffer = concatUint8Arrays(pageChunks, bufferedBytes);
+                    pageChunks.length = 0;
+                    await bestEffortCache(buildAndPersistIndex(
+                        pdfPath,
+                        size,
+                        contentSignature,
+                        documentRevision,
+                        totalPages,
+                        pagesBuffer,
+                        pageGeometries,
+                        signal,
+                    ));
+                }
                 results.sort((first, second) => first.matchIndex - second.matchIndex);
                 return {
                     results,
@@ -1021,25 +806,99 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                 finishSearchRequest(requestId, requestGeneration);
             }
         },
+
         async warmIndex(pdfPath, options = {}) {
             const requestId = options.requestId;
             const requestGeneration = startSearchRequest(requestId);
+            const signal = getRequestSignal(requestId, requestGeneration);
             try {
-                const {size, contentSignature} = await browserDocumentStore.getContentSnapshot(pdfPath);
+                const {
+                    size, contentSignature,
+                } = await browserDocumentStore.getContentSnapshot(pdfPath);
                 const documentRevision = await resolveSearchDocumentRevision(pdfPath, options.documentRevision);
-                const completed = await iterateSearchPages(pdfPath, size, contentSignature, documentRevision, {
-                    ...(requestId !== undefined ? {requestId} : {}),
-                    ...(requestGeneration !== undefined ? {requestGeneration} : {}),
-                    ...(options.pageCount !== undefined ? {expectedPageCount: options.pageCount} : {}),
-                    onPage: async () => {
+                const existing = await loadCachedIndex(
+                    pdfPath,
+                    size,
+                    contentSignature,
+                    documentRevision,
+                    options.pageCount,
+                );
+                if (existing) {
+                    if (requestId) {
+                        emitSearchProgress({
+                            requestId,
+                            processed: existing.pageCount,
+                            total: existing.pageCount,
+                        });
+                    }
+                    return !isCanceled(requestId, requestGeneration);
+                }
+
+                const {streamBrowserSearchDocumentPages} = await import('@app/platform/browser-api/browserSearchCore');
+                const pageChunks: Uint8Array[] = [];
+                const pageGeometries = new Map<number, ISearchPageGeometry>();
+                let bufferedBytes = 0;
+                let canCacheIndex = true;
+                let totalPages = 0;
+
+                try {
+                    for await (const page of streamBrowserSearchDocumentPages(pdfPath, {
+                        shouldContinue: () => !isCanceled(requestId, requestGeneration),
+                        ...(signal === undefined ? {} : {signal}),
+                    })) {
+                        if (isCanceled(requestId, requestGeneration)) return false;
+                        totalPages = page.pageCount;
+                        rememberPageGeometry(pageGeometries, page);
+                        if (canCacheIndex) {
+                            const encoded = encodePdfSearchPageRecord({
+                                pageNumber: page.pageNumber,
+                                text: page.text,
+                            });
+                            if (bufferedBytes + encoded.byteLength > SEARCH_INDEX_CACHE_MAX_BYTES) {
+                                canCacheIndex = false;
+                                pageChunks.length = 0;
+                            } else {
+                                pageChunks.push(encoded);
+                                bufferedBytes += encoded.byteLength;
+                            }
+                        }
+                        if (requestId) {
+                            emitSearchProgress({
+                                requestId,
+                                processed: page.pageNumber,
+                                total: page.pageCount,
+                            });
+                        }
                         await yieldToBrowser();
-                    },
-                });
-                return completed && !consumeCancellation(requestId, requestGeneration);
+                    }
+                } catch (error) {
+                    if (isBrowserSearchCanceledError(error) || isCanceled(requestId, requestGeneration)) {
+                        return false;
+                    }
+                    throw error;
+                }
+
+                if (isCanceled(requestId, requestGeneration)) return false;
+                if (canCacheIndex && totalPages > 0) {
+                    const pagesBuffer = concatUint8Arrays(pageChunks, bufferedBytes);
+                    pageChunks.length = 0;
+                    await bestEffortCache(buildAndPersistIndex(
+                        pdfPath,
+                        size,
+                        contentSignature,
+                        documentRevision,
+                        totalPages,
+                        pagesBuffer,
+                        pageGeometries,
+                        signal,
+                    ));
+                }
+                return true;
             } finally {
                 finishSearchRequest(requestId, requestGeneration);
             }
         },
+
         cancel(requestId) {
             if (requestId) {
                 const active = activeSearchRequests.get(requestId);
@@ -1047,18 +906,19 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                     active.canceled = true;
                     active.abort.abort();
                 }
-                cancelMatchWorkerRequest(requestId);
             }
-            return Promise.resolve({ canceled: true });
+            return Promise.resolve({canceled: true});
         },
+
         onProgress(callback) {
             searchProgressListeners.add(callback);
             return () => {
                 searchProgressListeners.delete(callback);
             };
         },
+
         async resetCache() {
-            await clearSearchCachesAsync();
+            await clearSearchCaches();
             return true;
         },
     } satisfies TFeatureBrowserBindings<typeof SEARCH_PLATFORM_FEATURE>;

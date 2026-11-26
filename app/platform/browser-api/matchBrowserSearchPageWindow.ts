@@ -1,5 +1,4 @@
 import {
-    matchPdfSearchPageWindow,
     SearchRegexLimitError,
     type IResolvedSearchMatchOptions,
 } from '@pdf-core/pdfSearchCore';
@@ -7,6 +6,7 @@ import {
     SEARCH_REGEX_MAX_EXECUTION_MS,
     type TSearchResultOffset,
 } from '@contracts/search';
+import type {IPdfSearchMatchPageResponse} from '@contracts/searchIndexWire';
 import {
     BROWSER_SEARCH_REGEX_WORKER_TIMEOUT_MS,
     BrowserSearchWorkerTimeoutError,
@@ -22,28 +22,33 @@ function createRegexBudgetError() {
     );
 }
 
+/**
+ * Matches one page's text in the browser search WASM worker (`evb-pdf-search.wasm`).
+ * Both literal and regular expression queries run through the same Rust engine.
+ */
 export async function matchBrowserSearchPageWindow(
-    ...args: Parameters<typeof matchBrowserSearchPageWindowInWorker>
-): Promise<ReturnType<typeof matchPdfSearchPageWindow>> {
-    const [
+    text: string,
+    query: string,
+    options: IResolvedSearchMatchOptions,
+    maxMatches: number,
+    resultOffset: TSearchResultOffset,
+    regexBudget: {remainingMs: number},
+    signal: AbortSignal,
+): Promise<IPdfSearchMatchPageResponse> {
+    return matchBrowserSearchPageWindowInWorker(
         text,
         query,
         options,
         maxMatches,
         resultOffset,
-    ] = args;
-    return options.useRegex
-        ? matchBrowserSearchPageWindowInWorker(...args)
-        : matchPdfSearchPageWindow(text, query, options, maxMatches, resultOffset);
+        regexBudget,
+        signal,
+    );
 }
 
 /**
- * One page's match window for a browser search. A regular expression runs in
- * the search worker, so a catastrophic one cannot hold the renderer: a worker
- * still matching at its bound is terminated and reported as the budget error,
- * and aborting `signal` terminates a running match. Highlight reconciliation
- * also uses this boundary for literal queries. `regexBudget` is the matching time left in the caller's
- * budget; the time the worker reports is taken from it.
+ * One page's match window executed via `evb-pdf-search.wasm` in the browser
+ * search worker. Aborting `signal` terminates only the busy worker.
  */
 export async function matchBrowserSearchPageWindowInWorker(
     text: string,
@@ -53,7 +58,7 @@ export async function matchBrowserSearchPageWindowInWorker(
     resultOffset: TSearchResultOffset,
     regexBudget: {remainingMs: number},
     signal: AbortSignal,
-): Promise<ReturnType<typeof matchPdfSearchPageWindow>> {
+): Promise<IPdfSearchMatchPageResponse> {
     if (options.useRegex && regexBudget.remainingMs <= 0) {
         throw createRegexBudgetError();
     }
@@ -64,8 +69,6 @@ export async function matchBrowserSearchPageWindowInWorker(
     }
 
     signal.throwIfAborted();
-    // Reading the page and starting the worker do not spend the budget; the
-    // worker's own time on the match does.
     const workerRequest = createBrowserSearchWorkerRequest(
         'matchPageText',
         {
@@ -76,7 +79,7 @@ export async function matchBrowserSearchPageWindowInWorker(
             resultOffset,
             ...(options.useRegex ? {budgetMs: regexBudget.remainingMs} : {}),
         },
-        {matchTimeoutMs: BROWSER_SEARCH_REGEX_WORKER_TIMEOUT_MS},
+        options.useRegex ? {matchTimeoutMs: BROWSER_SEARCH_REGEX_WORKER_TIMEOUT_MS} : {},
     );
     const cancelWorkerRequest = () => cancelBrowserSearchWorkerRequest(workerRequest.requestId);
     signal.addEventListener('abort', cancelWorkerRequest, {once: true});

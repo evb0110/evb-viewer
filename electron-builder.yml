@@ -16,6 +16,7 @@ asarUnpack:
   - dist-electron/djvu-engine-worker.js
   - dist-electron/image-export-tiff-worker.js
   - dist-electron/runtime/@napi-rs/canvas/*.node
+  - dist-electron/pdf-search-worker.js
   - dist-electron/pdf-text-worker.js
   - dist-electron/ocr-engine-host.js
   - dist-electron/ocr-engine-worker.js

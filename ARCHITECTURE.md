@@ -124,10 +124,9 @@ process groups with parent-death watching (`kqueue` on macOS,
 `PR_SET_PDEATHSIG` / subreaper on Linux)—so native sidecars cannot outlive the
 app or bypass memory caps. The binaries ship with the app they were built with, so there is no version negotiation: every binary carries a build ID
 (a hash of the sources it links, from `scripts/native-build-id.mjs`), and a
-development build refuses a binary whose ID differs from its own. The
-scan-cleanup, pdf-page-ops and pdf-image-combine crates also build to
-WebAssembly so the browser workspace can do the same work without a desktop
-install.
+development build refuses a binary whose ID differs from its own. The scan-cleanup, pdf-page-ops, pdf-image-combine and pdf-search crates build to
+WebAssembly; pdf-search runs as `evb-pdf-search.wasm` in both desktop worker
+threads and browser Web Workers.
 
 | Crate | Owns |
 | --- | --- |
@@ -136,7 +135,7 @@ install.
 | `pdf-image-combine` | Image pages to PDF, across bilevel, JBIG2, JPEG, JPEG 2000, and TIFF paths |
 | `jbig2-codec` | Lossless JBIG2 generic-region encode and decode, in the layout PDF readers expect |
 | `scan-primitives` | Deterministic image and geometry types shared by the imaging crates |
-| `pdf-search` | The desktop search engine: builds each document's text index and matches literal, whole-word and regex queries against it |
+| `pdf-search` | The unified WASM search engine (`evb-pdf-search.wasm`): builds each document's text index and matches literal, whole-word and regex queries against it on both desktop and browser |
 | `evb-raster-io` | PNG encode and decode with explicit decode limits and DPI metadata |
 | `evb-native-support` | Shared CLI entry, error envelopes, and bounded readers |
 | `protocol-fixtures` | Golden JSON fixtures both the Rust and TS decoders read |
