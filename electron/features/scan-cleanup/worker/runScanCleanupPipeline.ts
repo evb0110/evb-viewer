@@ -25,6 +25,7 @@ import {
     chainTerminationProofSink,
     type TTerminationProofSink,
 } from '@electron/resources/jobBroker';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import {
     requirePublishedRaster,
     runScanCleanupSidecar,
@@ -75,7 +76,12 @@ function scopeDependenciesToLease(
         onTerminationProof: mergeProofSink(commandOptions?.onTerminationProof),
     });
     const scopedRenderers = dependencies.renderPage === renderPdfPageToPng || dependencies.renderPagePpm === renderPdfPageToPpm
-        ? createScanCleanupRenderers(runCommand)
+        ? createScanCleanupRenderers(
+            runCommand,
+            undefined,
+            error => getUnprovenNativeTerminationDetail(error) !== undefined,
+            chainTerminationProofSink,
+        )
         : null;
     return {
         ...dependencies,

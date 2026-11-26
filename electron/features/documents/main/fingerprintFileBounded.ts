@@ -1,4 +1,8 @@
 import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
+import {
+    abortErrorFromSignal,
+    raceWithAbortSignal,
+} from '@electron/utils/abort';
 import {createHash} from 'node:crypto';
 import {createReadStream} from 'node:fs';
 import {stat} from 'node:fs/promises';
@@ -8,8 +12,13 @@ import {Writable} from 'node:stream';
 const FINGERPRINT_CHUNK_BYTES = 1024 * 1024;
 
 export async function fingerprintFileBounded(path: string, expectedBytes: number, signal?: AbortSignal) {
-    signal?.throwIfAborted();
-    const before = await stat(path);
+    if (signal?.aborted) {
+        throw abortErrorFromSignal(signal);
+    }
+    const before = await raceWithAbortSignal(stat(path), signal);
+    if (signal?.aborted) {
+        throw abortErrorFromSignal(signal);
+    }
     if (!before.isFile() || before.size !== expectedBytes) {
         throw new Error('Document file size changed during inspection');
     }
@@ -24,8 +33,13 @@ export async function fingerprintFileBounded(path: string, expectedBytes: number
         }}),
         ...(signal ? [{signal}] : []),
     );
-    signal?.throwIfAborted();
-    const after = await stat(path);
+    if (signal?.aborted) {
+        throw abortErrorFromSignal(signal);
+    }
+    const after = await raceWithAbortSignal(stat(path), signal);
+    if (signal?.aborted) {
+        throw abortErrorFromSignal(signal);
+    }
     if (!after.isFile()
         || after.size !== before.size
         || after.mtimeMs !== before.mtimeMs

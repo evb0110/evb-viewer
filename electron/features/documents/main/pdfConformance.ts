@@ -63,11 +63,22 @@ export async function analyzePdfConformanceFile(
                 ioWeight: 1,
             },
             ...(options.signal === undefined ? {} : {signal: options.signal}),
-        }, ({onTerminationProof}) => analyzePdfConformancePath(filePath, {
-            ...options,
-            timeoutMs: options.timeoutMs ?? QPDF_VALIDATE_MAX_TIMEOUT_MS,
-            onTerminationProof,
-        }));
+        }, ({onTerminationProof}) => {
+            const timeoutMs = options.timeoutMs ?? QPDF_VALIDATE_MAX_TIMEOUT_MS;
+            const timeoutSignal = AbortSignal.timeout(timeoutMs);
+            const operationSignal = options.signal
+                ? AbortSignal.any([
+                    options.signal,
+                    timeoutSignal,
+                ])
+                : timeoutSignal;
+            return analyzePdfConformancePath(filePath, {
+                ...options,
+                timeoutMs,
+                signal: operationSignal,
+                onTerminationProof,
+            });
+        });
         logger.debug('PDF conformance analysis completed', {filePath});
         return result;
     } catch (error) {

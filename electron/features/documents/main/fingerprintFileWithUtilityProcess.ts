@@ -17,7 +17,10 @@ import {
     runNativeToolCommand,
     type IRunNativeToolCommandOptions,
 } from '@electron/native-tools/runNativeToolCommand';
-import {abortErrorFromSignal} from '@electron/utils/abort';
+import {
+    abortErrorFromSignal,
+    raceWithAbortSignal,
+} from '@electron/utils/abort';
 import {getErrorMessage} from '@electron/utils/error';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 
@@ -39,31 +42,46 @@ async function inspectPdf(
         signal?: AbortSignal;
     } = {},
 ): Promise<IDocumentSaveUtilityResult> {
-    options.signal?.throwIfAborted();
+    if (options.signal?.aborted) {
+        throw abortErrorFromSignal(options.signal);
+    }
     const fingerprint = options.sha256 === undefined
         ? await fingerprintFileBounded(path, expectedBytes, options.signal)
         : {
             bytes: expectedBytes,
             sha256: options.sha256,
         };
-    options.signal?.throwIfAborted();
-    const fileStat = await stat(path);
+    if (options.signal?.aborted) {
+        throw abortErrorFromSignal(options.signal);
+    }
+    const fileStat = await raceWithAbortSignal(stat(path), options.signal);
     if (!fileStat.isFile() || fileStat.size !== expectedBytes) {
         throw new Error('PDF save staging file size changed after receipt validation');
     }
-    const handle = await open(path, 'r');
+    const openPromise = open(path, 'r');
+    let handle;
+    try {
+        handle = await raceWithAbortSignal(openPromise, options.signal);
+    } catch (error) {
+        void openPromise.then(opened => opened.close().catch(() => undefined), () => undefined);
+        throw error;
+    }
     try {
         const header = Buffer.alloc(5);
-        await handle.read(header, 0, header.length, 0);
+        await raceWithAbortSignal(handle.read(header, 0, header.length, 0), options.signal);
         if (header.toString('ascii') !== '%PDF-') throw new Error('PDF save staging file has an invalid header');
         if (options.tailCheck !== true) {
             const tailBytes = Math.min(fingerprint.bytes, 64 * 1024);
             const tail = Buffer.alloc(tailBytes);
-            await handle.read(tail, 0, tailBytes, fingerprint.bytes - tailBytes);
+            await raceWithAbortSignal(handle.read(tail, 0, tailBytes, fingerprint.bytes - tailBytes), options.signal);
             if (!tail.includes(Buffer.from('%%EOF'))) throw new Error('PDF save staging file has no end-of-file marker');
         }
     } finally {
-        await handle.close();
+        if (options.signal?.aborted) {
+            void handle.close().catch(() => undefined);
+        } else {
+            await handle.close();
+        }
     }
     return fingerprint;
 }
@@ -174,9 +192,8 @@ export async function fingerprintFileWithUtilityProcess(path: string, signal?: A
     if (signal?.aborted) {
         throw abortErrorFromSignal(signal);
     }
-    const {size} = await stat(path);
     const admissionSignal = createOperationSignal(signal, ADMISSION_TIMEOUT_MS);
-    const operationSignal = createOperationSignal(signal, FINGERPRINT_TIMEOUT_MS);
+    const {size} = await raceWithAbortSignal(stat(path), admissionSignal);
     return mainJobBroker.run({
         ownerId: `document-fingerprint:${path}`,
         kind: 'document-save-utility',
@@ -189,5 +206,8 @@ export async function fingerprintFileWithUtilityProcess(path: string, signal?: A
             ioWeight: 1,
         },
         signal: admissionSignal,
-    }, () => fingerprintFileBounded(path, size, operationSignal));
+    }, () => {
+        const operationSignal = createOperationSignal(signal, FINGERPRINT_TIMEOUT_MS);
+        return fingerprintFileBounded(path, size, operationSignal);
+    });
 }
