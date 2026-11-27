@@ -487,7 +487,6 @@ describe('WorkspaceDocumentDriver', () => {
                 conversionDialog: true,
                 saveAs: true,
             },
-            createLifecycleHooks: expect.any(Function),
         });
     });
     it('routes annotation creation failures to the workspace for the PDF.js driver only', () => {

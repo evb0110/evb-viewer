@@ -9,28 +9,28 @@ export interface IDocumentSourceActivation {
     documentRef: TDocumentRef;
 }
 
-const DJVU_SOURCE_CAPABILITIES: IDocumentSourceCapabilities = {
+const DJVU_SOURCE_CAPABILITIES = {
     annotations: false,
     directImageExport: true,
     outline: false,
     pageEdits: false,
     search: false,
     text: false,
-};
+} as const satisfies IDocumentSourceCapabilities;
 
-export const EMPTY_SOURCE_CAPABILITIES: IDocumentSourceCapabilities = {
+export const EMPTY_SOURCE_CAPABILITIES = {
     annotations: false,
     directImageExport: false,
     outline: false,
     pageEdits: false,
     search: false,
     text: false,
-};
+} as const satisfies IDocumentSourceCapabilities;
 
-const SOURCE_CAPABILITIES_BY_KIND: Record<Exclude<TDocumentSessionSourceKind, null>, IDocumentSourceCapabilities> = {
+const SOURCE_CAPABILITIES_BY_KIND = {
     pdf: EMPTY_SOURCE_CAPABILITIES,
     djvu: DJVU_SOURCE_CAPABILITIES,
-};
+} as const satisfies Record<Exclude<TDocumentSessionSourceKind, null>, IDocumentSourceCapabilities>;
 
 /** Source identity owned by the document session rather than a format mode flag. */
 export const useDocumentSourceSession = () => {

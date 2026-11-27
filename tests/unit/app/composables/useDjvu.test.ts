@@ -231,8 +231,12 @@ describe('useDjvu', () => {
             });
 
             const djvu = useDjvu();
-            await djvu.openDjvuFile('/path/to/doc.djvu');
-            expect(djvu.isLoadingPages.value).toBe(false);
+            await expect(djvu.openDjvuFile('/path/to/doc.djvu')).resolves.toBe(true);
+            expect(djvu.source.value).toMatchObject({
+                isDjvuMode: true,
+                sourcePath: '/path/to/doc.djvu',
+                openingPath: null,
+            });
         });
 
         it('retains trusted source size for the active DjVu until that activation exits', async () => {
@@ -256,11 +260,10 @@ describe('useDjvu', () => {
             const djvu = useDjvu();
             await djvu.openDjvuFile('/path/to/sized.djvu');
 
-            expect(djvu.sourceSizeBytes.value).toBe(14_712_313);
-            const activation = djvu.captureDjvuActivation();
-            expect(activation).not.toBeNull();
-            expect(djvu.exitDjvuMode(activation!)).toBe(true);
-            expect(djvu.sourceSizeBytes.value).toBeNull();
+            expect(djvu.source.value.sourceSizeBytes).toBe(14_712_313);
+            expect(djvu.releaseActiveSource()).toBe(true);
+            expect(djvu.source.value.sourceSizeBytes).toBeNull();
+            expect(djvu.source.value.isDjvuMode).toBe(false);
         });
 
         it('leaves window title sync to the workspace shell', async () => {
@@ -318,7 +321,7 @@ describe('useDjvu', () => {
                 errorEnvelope: {code: 'invalid-djvu'},
                 failure: mainReceipt,
             });
-            expect(djvu.isLoadingPages.value).toBe(false);
+            expect(djvu.source.value.openingPath).toBeNull();
         });
 
         it('keeps an open canceled in main quiet', async () => {
@@ -336,15 +339,10 @@ describe('useDjvu', () => {
             await expect(djvu.openDjvuFile('/canceled.djvu')).resolves.toBe(false);
             expect(browserLoggerMock.error).not.toHaveBeenCalled();
             expect(toastAddMock).not.toHaveBeenCalled();
-            // The cancelled open no longer shows as loading.
-            expect(djvu.isLoadingPages.value).toBe(false);
-            expect(djvu.loadingProgress.value).toEqual({
-                current: 0,
-                total: 0,
-            });
+            expect(djvu.source.value.openingPath).toBeNull();
         });
 
-        it('sets loading state for multi-page files', async () => {
+        it('opens multi-page files cleanly', async () => {
             mockOpenJobResult.mockResolvedValue({
                 success: true,
                 pageCount: 10,
@@ -352,9 +350,9 @@ describe('useDjvu', () => {
             });
 
             const djvu = useDjvu();
-            await djvu.openDjvuFile('/multi.djvu');
-            expect(djvu.isLoadingPages.value).toBe(false);
-            expect(djvu.loadingProgress.value.total).toBe(0);
+            await expect(djvu.openDjvuFile('/multi.djvu')).resolves.toBe(true);
+            expect(djvu.source.value.sourcePath).toBe('/multi.djvu');
+            expect(djvu.source.value.openingPath).toBeNull();
         });
 
         it('tracks the opening path until DjVu mode is fully entered', async () => {
@@ -370,7 +368,7 @@ describe('useDjvu', () => {
             const djvu = useDjvu();
             const openPromise = djvu.openDjvuFile('/pending.djvu');
 
-            expect(djvu.openingPath.value).toBe('/pending.djvu');
+            expect(djvu.source.value.openingPath).toBe('/pending.djvu');
 
             expect(resolveOpen).not.toBeNull();
             resolveOpen!({
@@ -380,7 +378,7 @@ describe('useDjvu', () => {
             });
             await openPromise;
 
-            expect(djvu.openingPath.value).toBeNull();
+            expect(djvu.source.value.openingPath).toBeNull();
         });
 
         it('accepts the DjVu candidate before closing the active document', async () => {
@@ -396,7 +394,7 @@ describe('useDjvu', () => {
 
             expect(mockElectronAPI.djvu.startOpenForViewing).toHaveBeenCalledTimes(1);
             expect(closeActiveDocument).not.toHaveBeenCalled();
-            expect(djvu.isDjvuMode.value).toBe(false);
+            expect(djvu.source.value.isDjvuMode).toBe(false);
 
             accepted.resolve({
                 success: true,
@@ -406,7 +404,7 @@ describe('useDjvu', () => {
             await opening;
 
             expect(closeActiveDocument).toHaveBeenCalledTimes(1);
-            expect(djvu.djvuSourcePath.value).toBe('/handoff.djvu');
+            expect(djvu.source.value.sourcePath).toBe('/handoff.djvu');
         });
 
         it('does not close the active PDF when the DjVu candidate is rejected', async () => {
@@ -424,8 +422,8 @@ describe('useDjvu', () => {
             )).rejects.toThrow('DjVu directory is corrupt');
 
             expect(closeActiveDocument).not.toHaveBeenCalled();
-            expect(djvu.isDjvuMode.value).toBe(false);
-            expect(djvu.djvuSourcePath.value).toBeNull();
+            expect(djvu.source.value.isDjvuMode).toBe(false);
+            expect(djvu.source.value.sourcePath).toBeNull();
         });
 
         it('releases the previous DjVu viewing path when switching files', async () => {
@@ -442,6 +440,79 @@ describe('useDjvu', () => {
             await djvu.openDjvuFile('/next.djvu');
 
             expect(mockElectronAPI.djvu.releaseViewingPath).toHaveBeenCalledWith('/existing.djvu');
+        });
+
+        it('releases the older ref-counted grant when reopening the same DjVu path', async () => {
+            mockOpenJobResult.mockResolvedValue({
+                success: true,
+                pageCount: 2,
+                jobId: requireJobId('job-reopen'),
+            });
+            mockDjvuModeState.isDjvuMode.value = true;
+            mockDjvuModeState.djvuSourcePath.value = '/same.djvu';
+
+            const djvu = useDjvu();
+
+            await expect(djvu.openDjvuFile('/same.djvu')).resolves.toBe(true);
+
+            expect(mockElectronAPI.djvu.releaseViewingPath).toHaveBeenCalledExactlyOnceWith('/same.djvu');
+        });
+
+        it('does not double-release a same-path viewing grant when the previous source exits mid-reopen', async () => {
+            const reopen = createDeferred<IDjvuOpenResult>();
+            const djvu = useDjvu();
+            mockOpenJobResult
+                .mockResolvedValueOnce({
+                    success: true,
+                    pageCount: 2,
+                    jobId: requireJobId('job-initial'),
+                })
+                .mockReturnValueOnce(reopen.promise);
+
+            await expect(djvu.openDjvuFile('/same.djvu')).resolves.toBe(true);
+            mockElectronAPI.djvu.releaseViewingPath.mockClear();
+
+            const reopening = djvu.openDjvuFile('/same.djvu');
+            expect(djvu.releaseActiveSource()).toBe(true);
+            expect(mockElectronAPI.djvu.releaseViewingPath).toHaveBeenCalledTimes(1);
+            mockElectronAPI.djvu.releaseViewingPath.mockClear();
+
+            reopen.resolve({
+                success: true,
+                pageCount: 2,
+                jobId: requireJobId('job-reopen-after-release'),
+            });
+            await expect(reopening).resolves.toBe(true);
+
+            expect(mockElectronAPI.djvu.releaseViewingPath).not.toHaveBeenCalled();
+            expect(djvu.source.value.sourcePath).toBe('/same.djvu');
+        });
+
+        it('releases its own viewing grant when a superseded same-path open succeeds late', async () => {
+            const first = createDeferred<IDjvuOpenResult>();
+            mockOpenJobResult
+                .mockImplementationOnce(() => first.promise)
+                .mockResolvedValueOnce({
+                    success: true,
+                    pageCount: 2,
+                    jobId: requireJobId('newer-same'),
+                });
+
+            const djvu = useDjvu();
+            const staleOpen = djvu.openDjvuFile('/same.djvu');
+            await expect(djvu.openDjvuFile('/same.djvu')).resolves.toBe(true);
+            mockElectronAPI.djvu.releaseViewingPath.mockClear();
+
+            first.resolve({
+                success: true,
+                pageCount: 2,
+                jobId: requireJobId('older-same'),
+            });
+            await expect(staleOpen).resolves.toBe(false);
+            await Promise.resolve();
+
+            expect(mockElectronAPI.djvu.releaseViewingPath).toHaveBeenCalledExactlyOnceWith('/same.djvu');
+            expect(djvu.source.value.sourcePath).toBe('/same.djvu');
         });
 
         it('does not let a stale open overwrite or clear a newer open state', async () => {
@@ -470,9 +541,8 @@ describe('useDjvu', () => {
             });
             await expect(staleOpen).resolves.toBe(false);
 
-            expect(djvu.djvuSourcePath.value).toBe('/new.djvu');
-            expect(djvu.openingPath.value).toBeNull();
-            expect(djvu.isLoadingPages.value).toBe(false);
+            expect(djvu.source.value.sourcePath).toBe('/new.djvu');
+            expect(djvu.source.value.openingPath).toBeNull();
         });
     });
 
@@ -486,12 +556,6 @@ describe('useDjvu', () => {
 
             const djvu = useDjvu();
             await djvu.openDjvuFile('/a.djvu');
-
-            djvu.conversionState.value = {
-                isConverting: true,
-                phase: 'converting',
-                percent: 50,
-            };
 
             const result = await djvu.cancelActiveJobs();
 
@@ -524,7 +588,7 @@ describe('useDjvu', () => {
             } else {
                 expect(toastAddMock).not.toHaveBeenCalled();
             }
-            expect(djvu.sourceError.value).toBeNull();
+            expect(djvu.source.value.sourceError).toBeNull();
             expect(browserLoggerMock.error).not.toHaveBeenCalled();
         });
 
@@ -575,7 +639,7 @@ describe('useDjvu', () => {
             await djvu.openDjvuFile('/tmp/input.djvu');
             await djvu.convertToPdf(1, true, 'direct', createUnusedConvertedPdfOpen());
 
-            expect(djvu.sourceError.value).toBeNull();
+            expect(djvu.source.value.sourceError).toBeNull();
             expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
                 color: 'error',
                 description: toastDescription('Windows converter failed\nerrors.runtime.errorId: 01234567'),
@@ -802,6 +866,26 @@ describe('useDjvu', () => {
             expect(djvu.conversionState.value.isConverting).toBe(false);
         });
 
+        it('cleans up browser conversion output refs abandoned when the source changes during save picker', async () => {
+            mockOpenJobResult.mockResolvedValue({
+                success: true,
+                pageCount: 1,
+                jobId: requireJobId('view-1'),
+            });
+            const picker = createDeferred<string | null>();
+            mockDocumentFilesCapability.savePdfDialog.mockReturnValueOnce(picker.promise);
+
+            const djvu = useDjvu();
+            await djvu.openDjvuFile('/tmp/input.djvu');
+            const converting = djvu.convertToPdf(1, true, 'direct', createUnusedConvertedPdfOpen());
+            djvu.releaseActiveSource();
+            picker.resolve('browser://documents/output/abandoned-picker.pdf');
+
+            await expect(converting).resolves.toBeNull();
+            expect(mockDocumentWorkingCopyCapability.cleanupFile)
+                .toHaveBeenCalledWith('browser://documents/output/abandoned-picker.pdf');
+        });
+
         it('cleans up browser conversion output refs after conversion errors', async () => {
             vi.spyOn(console, 'error').mockImplementation(() => undefined);
             mockOpenJobResult.mockResolvedValue({
@@ -819,7 +903,7 @@ describe('useDjvu', () => {
             await djvu.openDjvuFile('/tmp/input.djvu');
             await djvu.convertToPdf(1, true, 'direct', createUnusedConvertedPdfOpen());
 
-            expect(djvu.sourceError.value).toBeNull();
+            expect(djvu.source.value.sourceError).toBeNull();
             expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
                 color: 'error',
                 description: toastDescription('Browser converter failed\nerrors.runtime.errorId: 01234567'),
@@ -856,6 +940,41 @@ describe('useDjvu', () => {
 
             expect(openConvertedPdf).toHaveBeenCalledWith('/tmp/out.pdf');
             expect(djvu.conversionState.value.isConverting).toBe(false);
+        });
+
+        it('keeps projection handoff successful when opening the converted PDF releases the DjVu source', async () => {
+            mockOpenJobResult.mockResolvedValue({
+                success: true,
+                pageCount: 1,
+                jobId: requireJobId('view-1'),
+            });
+            mockDocumentFilesCapability.savePdfDialog.mockResolvedValue('/tmp/out.pdf');
+            mockConvertJobResult.mockResolvedValue({
+                success: true,
+                pdfPath: requireDocumentRef('/tmp/out.pdf'),
+                jobId: requireJobId('convert-1'),
+            });
+            const djvu = useDjvu();
+            await djvu.openDjvuFile('/tmp/input.djvu');
+            const openConvertedPdf = vi.fn(async () => {
+                djvu.releaseActiveSource();
+                return {
+                    status: 'opened' as const,
+                    result: {
+                        kind: 'pdf' as const,
+                        originalPath: requireDocumentRef('/tmp/out.pdf'),
+                        workingPath: requireDocumentRef('/tmp/out-working.pdf'),
+                    },
+                    presentation: null,
+                };
+            });
+
+            await expect(djvu.ensurePdfProjectionForAction(
+                'edit',
+                openConvertedPdf,
+                new AbortController().signal,
+            )).resolves.toBe(true);
+            expect(djvu.source.value.isDjvuMode).toBe(false);
         });
 
         it('opens trusted raster DjVu PDFs with source page pixel caps', async () => {
@@ -1074,28 +1193,7 @@ describe('useDjvu', () => {
             await djvu.convertToPdf(1, true, 'direct', openConvertedPdf);
 
             expect(openConvertedPdf).toHaveBeenCalledWith('/tmp/out.pdf');
-            expect(djvu.sourceError.value).toBe('Converted PDF could not be opened');
-        });
-    });
-
-    describe('openConvertDialog', () => {
-        it('does not open the convert dialog outside DjVu mode', () => {
-            const djvu = useDjvu();
-
-            expect(mockDjvuModeState.isDjvuMode.value).toBe(false);
-
-            djvu.openConvertDialog();
-
-            expect(djvu.showConvertDialog.value).toBe(false);
-        });
-
-        it('opens the convert dialog while in DjVu mode', () => {
-            mockDjvuModeState.isDjvuMode.value = true;
-            const djvu = useDjvu();
-
-            djvu.openConvertDialog();
-
-            expect(djvu.showConvertDialog.value).toBe(true);
+            expect(djvu.source.value.sourceError).toBe('Converted PDF could not be opened');
         });
     });
 });

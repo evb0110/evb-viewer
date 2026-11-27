@@ -75,13 +75,22 @@ export interface IDocumentPageSource {
 }
 
 export interface IDocumentSourceCapabilities {
-    annotations: boolean;
-    directImageExport: boolean;
-    outline: boolean;
-    pageEdits: boolean;
-    search: boolean;
-    text: boolean;
+    readonly annotations: boolean;
+    readonly directImageExport: boolean;
+    readonly outline: boolean;
+    readonly pageEdits: boolean;
+    readonly search: boolean;
+    readonly text: boolean;
 }
+
+export const PDF_SOURCE_CAPABILITIES = {
+    annotations: true,
+    directImageExport: true,
+    outline: true,
+    pageEdits: true,
+    search: true,
+    text: true,
+} as const satisfies IDocumentSourceCapabilities;
 
 export function assertDocumentPageNumber(pageNumber: number, pageCount: number) {
     if (!Number.isInteger(pageNumber) || pageNumber < 1 || pageNumber > pageCount) {

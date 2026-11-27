@@ -70,7 +70,7 @@ export {
     type IClientPoint, type IClientRect, type ILocalRect, type IOverlayRect,
 } from '@app/modules/document-viewer/region-geometry/regionGeometryTypes';
 export {
-    type IDocumentPageMetrics, type IDocumentPageRenderRequest, type IDocumentPageSource, type IDocumentSourceCapabilities, type IDocumentRenderLease, type TDocumentPageSourceKind,
+    PDF_SOURCE_CAPABILITIES, type IDocumentPageMetrics, type IDocumentPageRenderRequest, type IDocumentPageSource, type IDocumentSourceCapabilities, type IDocumentRenderLease, type TDocumentPageSourceKind,
 } from '@app/modules/document-viewer/source/documentPageSource';
 export {
     resolveDocumentRasterResidencyPlan, type IDocumentRasterResidencyPlan,

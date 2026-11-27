@@ -84,7 +84,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
     const file = useWorkspaceFileLifecycleController({
         documentAnnotations: () => pdfDocumentAnnotations,
         prepareHistoryRevisionSwap: (revision, delta) => prepareDocumentViewsForHistorySwap(views, totalPages.value, revision, delta),
-        createViewerLifecycleHooks: context => [createReadingViewLifecycleHooks(controller)].concat(driver.createLifecycleHooks(context)),
+        createViewerLifecycleHooks: () => [createReadingViewLifecycleHooks(controller)],
         // The opens the document starts itself (a converted DjVu, a moved
         // tab's restore) are of documents with one view at most.
         getOpenSurface: () => views.soleView.value?.openSurface ?? null,

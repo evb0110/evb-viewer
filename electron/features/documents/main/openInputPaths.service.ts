@@ -113,6 +113,22 @@ function createOpenInputPathsAbortLifecycle(
     };
 }
 
+function probeInputFileSize(filePath: string) {
+    return stat(filePath).then(fileStat => fileStat.size, () => 0);
+}
+
+function createPdfNativeWriteResources(inputBytes: number): IJobResourceVector {
+    return {
+        cpuTokens: 1,
+        estimatedResidentBytes: Math.min(
+            256 * 1024 * 1024,
+            Math.max(32 * 1024 * 1024, Math.ceil(inputBytes / 2)),
+        ),
+        nativeProcesses: 1,
+        ioWeight: 4,
+    };
+}
+
 export async function openInputPaths(
     paths: string[],
     options: IOpenInputPathsOptions = {},
@@ -142,7 +158,7 @@ export async function openInputPaths(
     allowOpenPaths(normalizedPaths, owner);
 
     const djvuPaths = normalizedPaths.filter(path => isDjvuPath(path));
-    if (!options.forceCombine && djvuPaths.length > 0 && normalizedPaths.length === 1 && djvuPaths.length === 1) {
+    if (!options.forceCombine && normalizedPaths.length === 1 && djvuPaths.length === 1) {
         const djvuPath = djvuPaths[0]!;
         const trustedDjvuPath = requireOpenPath(djvuPath, owner);
         if (options.recordRecent !== false) {
@@ -156,156 +172,164 @@ export async function openInputPaths(
     }
 
     if (!options.forceCombine && normalizedPaths.length === 1 && isPdfPath(normalizedPaths[0]!)) {
-        const startedAt = performance.now();
-        const originalPath = normalizedPaths[0]!;
-        const isGenerated = isScanCleanupGeneratedOutputPath(originalPath);
-        const ownerWebContentsId = getOwnerWebContentsId(owner);
-        const lifecycle = createOpenInputPathsAbortLifecycle(owner, originalPath, options.signal);
-        const { signal } = lifecycle;
-        let openLease: Awaited<ReturnType<typeof mainJobBroker.acquire>> | null = null;
-        const admitNative = async (kind: string, resources: IJobResourceVector) => {
-            openLease?.release();
-            openLease = null;
-            openLease = await mainJobBroker.acquire({
-                ownerId: `pdf-open:${ownerWebContentsId ?? 'main'}`,
-                kind,
-                priority: 'foreground',
-                perOwnerLimit: 1,
-                signal,
-                resources,
-            });
-        };
-        // A canceled copy must finish before this owner disposes of it.
-        let unclaimedPath: string | null = null;
-        const geometry: {read?: Promise<Awaited<ReturnType<typeof readExactPageGeometry>> | null>} = {};
-        const geometryGroup = `pdf-open-geometry:${randomUUID()}`;
-        const settleOpeningGeometry = async () => {
-            cancelNativeCommandGroup(geometryGroup);
-            await geometry.read?.catch(error => {
-                if (getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
-            });
-        };
-        try {
-            throwIfAborted(signal);
-            const inputBytes = await stat(originalPath).then(fileStat => fileStat.size, () => 0);
-            const admissionTimeoutSignal = AbortSignal.timeout(PDF_OPEN_ADMISSION_TIMEOUT_MS);
-            openLease = await mainJobBroker.acquire({
-                ownerId: `pdf-open:${ownerWebContentsId ?? 'main'}`,
-                kind: 'pdf-working-copy',
-                priority: 'foreground',
-                admissionClass: 'interactive',
-                perOwnerLimit: 1,
-                signal: AbortSignal.any([
-                    signal,
-                    admissionTimeoutSignal,
-                ]),
-                resources: {
-                    cpuTokens: 0,
-                    estimatedResidentBytes: Math.min(64 * 1024 * 1024, Math.max(4 * 1024 * 1024, inputBytes / 64)),
-                    nativeProcesses: 0,
-                    ioWeight: 1,
-                },
-            });
-            throwIfAborted(signal);
-            try {
-                const trustedOriginalPath = requireOpenPath(originalPath, owner);
-                const opened = await openFileAsDocument(trustedOriginalPath, ownerWebContentsId, {
-                    password: options.password,
-                    signal,
-                    admitRewrite: () => admitNative('pdf-open-rewrite', {
-                        cpuTokens: 1,
-                        estimatedResidentBytes: Math.min(
-                            256 * 1024 * 1024,
-                            Math.max(32 * 1024 * 1024, Math.ceil(inputBytes / 2)),
-                        ),
-                        nativeProcesses: 1,
-                        ioWeight: 4,
-                    }),
-                });
-                const {entry} = opened;
-                unclaimedPath = entry.ref;
-                throwIfAborted(signal);
-                if (inputBytes > MAX_DOCUMENT_ALLOCATION_BYTES) {
-                    await admitNative('pdf-opening-geometry', {
-                        cpuTokens: 2,
-                        estimatedResidentBytes: 256 * 1024 * 1024,
-                        nativeProcesses: 1,
-                        ioWeight: 2,
-                    });
-                    geometry.read = runWithWorkingCopyReadBacking(entry.ref, path => readExactPageGeometry(path, signal, geometryGroup))
-                        .catch(error => {
-                            if (signal.aborted || error instanceof NativeToolBuildMismatchError || getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
-                            logger.warn('Opening geometry unavailable', {error: getErrorMessage(error)});
-                            return null;
-                        });
-                }
-                const revisionToken = documentRevisionToken(entry);
-                const pages = await geometry.read;
-                throwIfAborted(signal);
-                if (pages && getWorkingCopyBackingEntry(entry.ref, ownerWebContentsId) === entry && documentRevisionToken(entry) === revisionToken) {
-                    entry.openingPageGeometry = {
-                        kind: 'exact',
-                        documentRef: requireDocumentRef(entry.ref),
-                        documentRevisionToken: revisionToken,
-                        pageCount: pages.length,
-                        pages,
-                    };
-                }
-                if (isGenerated) {
-                    // Opening a generated output renews its retention window.
-                    await touchScanCleanupGeneratedOutput(originalPath);
-                } else if (options.recordRecent !== false) {
-                    persistRecentInputsAfterOpen([originalPath], owner);
-                }
-                throwIfAborted(signal);
-                logger.debug('PDF input source-critical timings', {
-                    recentPersistence: 'background',
-                    totalMs: Math.round((performance.now() - startedAt) * 10) / 10,
-                });
-                const keptOriginalPath = isGenerated ? undefined : await findKeptOriginal(originalPath);
-                const result: TOpenFileResult = {
-                    kind: 'pdf',
-                    workingPath: requireDocumentRef(entry.ref),
-                    originalPath: requireDocumentRef(originalPath),
-                    ...(isGenerated ? {isGenerated: true} : {}),
-                    ...(opened.wasEncrypted ? {wasEncrypted: true as const} : {}),
-                    ...(keptOriginalPath ? {keptOriginalPath: requireDocumentRef(keptOriginalPath)} : {}),
-                };
-                unclaimedPath = null;
-                return result;
-            } catch (error) {
-                if (error instanceof PdfDecryptAttemptError) {
-                    return {
-                        kind: error.outcome === 'needs-password'
-                            ? 'pdf-needs-password'
-                            : 'pdf-unsupported-encryption',
-                        originalPath: requireDocumentRef(originalPath),
-                    };
-                }
-                // Refusals name the selected source.
-                throw error instanceof DocumentOpenRefusalError
-                    ? new DocumentOpenRefusalError(error.code, error.message, {
-                        cause: error.cause,
-                        fileName: basename(originalPath),
-                    })
-                    : error;
-            }
-        } finally {
-            try {
-                await settleOpeningGeometry();
-            } finally {
-                openLease?.release();
-                lifecycle.cleanup();
-            }
-            if (unclaimedPath) {
-                await cleanupWorkingCopy(unclaimedPath, ownerWebContentsId)
-                    .catch(error => {
-                        logger.warn('Failed to clean unclaimed PDF copy', {error: getErrorMessage(error)});
-                    });
-            }
-        }
+        return openSinglePdfInputPath(normalizedPaths[0]!, options, owner);
     }
 
+    return openCombinedInputPaths(normalizedPaths, options, owner);
+}
+
+async function openSinglePdfInputPath(
+    originalPath: string,
+    options: IOpenInputPathsOptions,
+    owner?: TOpenPathOwner,
+): Promise<TOpenFileResult> {
+    const startedAt = performance.now();
+    const isGenerated = isScanCleanupGeneratedOutputPath(originalPath);
+    const ownerWebContentsId = getOwnerWebContentsId(owner);
+    const lifecycle = createOpenInputPathsAbortLifecycle(owner, originalPath, options.signal);
+    const { signal } = lifecycle;
+    let openLease: Awaited<ReturnType<typeof mainJobBroker.acquire>> | null = null;
+    const admitNative = async (kind: string, resources: IJobResourceVector) => {
+        openLease?.release();
+        openLease = null;
+        openLease = await mainJobBroker.acquire({
+            ownerId: `pdf-open:${ownerWebContentsId ?? 'main'}`,
+            kind,
+            priority: 'foreground',
+            perOwnerLimit: 1,
+            signal,
+            resources,
+        });
+    };
+    // A canceled copy must finish before this owner disposes of it.
+    let unclaimedPath: string | null = null;
+    const geometry: {read?: Promise<Awaited<ReturnType<typeof readExactPageGeometry>> | null>} = {};
+    const geometryGroup = `pdf-open-geometry:${randomUUID()}`;
+    const settleOpeningGeometry = async () => {
+        cancelNativeCommandGroup(geometryGroup);
+        await geometry.read?.catch(error => {
+            if (getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
+        });
+    };
+    try {
+        throwIfAborted(signal);
+        const inputBytes = await probeInputFileSize(originalPath);
+        const admissionTimeoutSignal = AbortSignal.timeout(PDF_OPEN_ADMISSION_TIMEOUT_MS);
+        openLease = await mainJobBroker.acquire({
+            ownerId: `pdf-open:${ownerWebContentsId ?? 'main'}`,
+            kind: 'pdf-working-copy',
+            priority: 'foreground',
+            admissionClass: 'interactive',
+            perOwnerLimit: 1,
+            signal: AbortSignal.any([
+                signal,
+                admissionTimeoutSignal,
+            ]),
+            resources: {
+                cpuTokens: 0,
+                estimatedResidentBytes: Math.min(64 * 1024 * 1024, Math.max(4 * 1024 * 1024, inputBytes / 64)),
+                nativeProcesses: 0,
+                ioWeight: 1,
+            },
+        });
+        throwIfAborted(signal);
+        try {
+            const trustedOriginalPath = requireOpenPath(originalPath, owner);
+            const opened = await openFileAsDocument(trustedOriginalPath, ownerWebContentsId, {
+                password: options.password,
+                signal,
+                admitRewrite: () => admitNative('pdf-open-rewrite', createPdfNativeWriteResources(inputBytes)),
+            });
+            const {entry} = opened;
+            unclaimedPath = entry.ref;
+            throwIfAborted(signal);
+            if (inputBytes > MAX_DOCUMENT_ALLOCATION_BYTES) {
+                await admitNative('pdf-opening-geometry', {
+                    cpuTokens: 2,
+                    estimatedResidentBytes: 256 * 1024 * 1024,
+                    nativeProcesses: 1,
+                    ioWeight: 2,
+                });
+                geometry.read = runWithWorkingCopyReadBacking(entry.ref, path => readExactPageGeometry(path, signal, geometryGroup))
+                    .catch(error => {
+                        if (signal.aborted || error instanceof NativeToolBuildMismatchError || getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
+                        logger.warn('Opening geometry unavailable', {error: getErrorMessage(error)});
+                        return null;
+                    });
+            }
+            const revisionToken = documentRevisionToken(entry);
+            const pages = await geometry.read;
+            throwIfAborted(signal);
+            if (pages && getWorkingCopyBackingEntry(entry.ref, ownerWebContentsId) === entry && documentRevisionToken(entry) === revisionToken) {
+                entry.openingPageGeometry = {
+                    kind: 'exact',
+                    documentRef: requireDocumentRef(entry.ref),
+                    documentRevisionToken: revisionToken,
+                    pageCount: pages.length,
+                    pages,
+                };
+            }
+            if (isGenerated) {
+                // Opening a generated output renews its retention window.
+                await touchScanCleanupGeneratedOutput(originalPath);
+            } else if (options.recordRecent !== false) {
+                persistRecentInputsAfterOpen([originalPath], owner);
+            }
+            throwIfAborted(signal);
+            logger.debug('PDF input source-critical timings', {
+                recentPersistence: 'background',
+                totalMs: Math.round((performance.now() - startedAt) * 10) / 10,
+            });
+            const keptOriginalPath = isGenerated ? undefined : await findKeptOriginal(originalPath);
+            throwIfAborted(signal);
+            const result: TOpenFileResult = {
+                kind: 'pdf',
+                workingPath: requireDocumentRef(entry.ref),
+                originalPath: requireDocumentRef(originalPath),
+                ...(isGenerated ? {isGenerated: true} : {}),
+                ...(opened.wasEncrypted ? {wasEncrypted: true as const} : {}),
+                ...(keptOriginalPath ? {keptOriginalPath: requireDocumentRef(keptOriginalPath)} : {}),
+            };
+            unclaimedPath = null;
+            return result;
+        } catch (error) {
+            if (error instanceof PdfDecryptAttemptError) {
+                return {
+                    kind: error.outcome === 'needs-password'
+                        ? 'pdf-needs-password'
+                        : 'pdf-unsupported-encryption',
+                    originalPath: requireDocumentRef(originalPath),
+                };
+            }
+            // Refusals name the selected source.
+            throw error instanceof DocumentOpenRefusalError
+                ? new DocumentOpenRefusalError(error.code, error.message, {
+                    cause: error.cause,
+                    fileName: basename(originalPath),
+                })
+                : error;
+        }
+    } finally {
+        try {
+            await settleOpeningGeometry();
+        } finally {
+            openLease?.release();
+            lifecycle.cleanup();
+        }
+        if (unclaimedPath) {
+            await cleanupWorkingCopy(unclaimedPath, ownerWebContentsId)
+                .catch(error => {
+                    logger.warn('Failed to clean unclaimed PDF copy', {error: getErrorMessage(error)});
+                });
+        }
+    }
+}
+
+async function openCombinedInputPaths(
+    normalizedPaths: string[],
+    options: IOpenInputPathsOptions,
+    owner?: TOpenPathOwner,
+): Promise<TOpenFileResult> {
     const outputPath = buildCombinedPdfOutputPath(normalizedPaths);
     const workingPath = await usingManagedScratchScope('pdfExport-scope-', getAppTempDir(), async tempDir => {
         let lifecycle: ReturnType<typeof createOpenInputPathsAbortLifecycle> | null = null;
@@ -316,24 +340,15 @@ export async function openInputPaths(
                 options.signal,
             );
             const { signal } = lifecycle;
-            const combinedInputBytes = await Promise.all(normalizedPaths.map(path => stat(path)
-                .then(fileStat => fileStat.size, () => 0)))
-                .then(sizes => sizes.reduce((total, size) => total + size, 0));
+            const combinedInputBytes = (await Promise.all(normalizedPaths.map(probeInputFileSize)))
+                .reduce((total, size) => total + size, 0);
             return await mainJobBroker.run({
                 ownerId: `pdf-combine:${getOwnerWebContentsId(owner) ?? 'main'}`,
                 kind: 'pdf-combine',
                 priority: 'user',
                 perOwnerLimit: 1,
                 signal,
-                resources: {
-                    cpuTokens: 1,
-                    estimatedResidentBytes: Math.min(
-                        256 * 1024 * 1024,
-                        Math.max(32 * 1024 * 1024, Math.ceil(combinedInputBytes / 2)),
-                    ),
-                    nativeProcesses: 1,
-                    ioWeight: 4,
-                },
+                resources: createPdfNativeWriteResources(combinedInputBytes),
             }, async brokerRun => {
                 const tempOutputPath = join(tempDir, basename(outputPath));
                 throwIfAborted(signal);

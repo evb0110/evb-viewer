@@ -10,15 +10,14 @@ import {
 import { useDjvu } from '@app/composables/useDjvu';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import type { IWorkspaceViewerLifecycleHooks } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
 import type {
-    IWorkspaceViewerLifecycleContext,
-    IWorkspaceViewerLifecycleHooks,
-} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
-import type {
-    TPdfProjectionReason, IDocumentOpenSurfaceSession,
+    TPdfProjectionReason,
+    IDocumentOpenSurfaceSession,
 } from '@app/modules/document-viewer/public';
 import {
     didOpenDocument,
+    isOpenFileResultOfKind,
     type TDocumentOpenOutcome,
 } from '@app/types/documentOpenOutcome';
 import type { IPdfRasterDisplayProfileOpenOptions } from '@app/types/pdfRasterDisplayProfile';
@@ -35,9 +34,7 @@ import {isDjvuOpenResult} from '@app/modules/workspace-shell/composables/documen
 import { describeDocumentOpenFailure } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 
 interface IUseWorkspaceFileLifecycleControllerOptions extends IPdfFileOptions {
-    createViewerLifecycleHooks?: (
-        context: IWorkspaceViewerLifecycleContext,
-    ) => IWorkspaceViewerLifecycleHooks[];
+    createViewerLifecycleHooks?: () => IWorkspaceViewerLifecycleHooks[];
     /** The surface of the view that runs an open; read when the open runs. */
     getOpenSurface?: (() => IDocumentOpenSurfaceSession | null) | undefined;
     /** Runs an open as the document's open transaction, which ends when the viewer presents it. */
@@ -50,6 +47,10 @@ function createWorkspaceFileSwitch(deps: {
     readDocument: () => IWorkspaceDocumentController['snapshot']['value'];
     workingCopyPath: Ref<TDocumentRef | null>;
     getViewerLifecycleHooks: () => IWorkspaceViewerLifecycleHooks[];
+    onPendingOpenSuperseded: () => void;
+    cancelActiveDjvuWork: () => Promise<void>;
+    shouldReleaseActiveDjvu: (previousWorkingCopyPath: TDocumentRef | null) => boolean;
+    onActiveDjvuSourceReleased: () => void;
     openFile: (preSelected?: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
     openFileDirect: (path: TDocumentRef, options?: IDocumentDirectOpenOptions) => Promise<TDocumentOpenOutcome>;
     openFileDirectBatch: (paths: TDocumentRef[]) => Promise<TDocumentOpenOutcome>;
@@ -71,6 +72,7 @@ function createWorkspaceFileSwitch(deps: {
         const claim = deps.readDocument().activeTransaction?.id;
         const isCurrent = () => deps.readDocument().activeTransaction?.id === claim;
         const previousWorkingCopyPath = deps.workingCopyPath.value;
+        deps.onPendingOpenSuperseded();
         for (const hooks of deps.getViewerLifecycleHooks()) {
             await hooks.beforeOpen?.();
         }
@@ -85,6 +87,13 @@ function createWorkspaceFileSwitch(deps: {
         if (!isCurrent()) {
             return markOutcomeStale(outcome);
         }
+        if (
+            didOpenDocument(outcome)
+            && isOpenFileResultOfKind(outcome.result, 'pdf')
+            && deps.shouldReleaseActiveDjvu(previousWorkingCopyPath)
+        ) {
+            deps.onActiveDjvuSourceReleased();
+        }
         for (const hooks of deps.getViewerLifecycleHooks()) {
             await hooks.afterOpen?.(outcome, { previousWorkingCopyPath });
             if (!isCurrent()) {
@@ -95,14 +104,34 @@ function createWorkspaceFileSwitch(deps: {
     }
 
     async function closeFileWithViewerLifecycle() {
-        const {identity} = deps.readDocument();
+        const {
+            identity,
+            activeTransaction: initialTransaction,
+        } = deps.readDocument();
+        // Only another document's commit replaces the instance; a claim alone does not.
+        const isSameDocument = () => deps.readDocument().identity.documentInstanceId === identity.documentInstanceId;
+        const hasNewerOpenClaim = () => {
+            const currentTransaction = deps.readDocument().activeTransaction;
+            return currentTransaction !== null
+                && currentTransaction.kind !== 'close'
+                && currentTransaction.id !== initialTransaction?.id;
+        };
+        deps.onPendingOpenSuperseded();
+        await deps.cancelActiveDjvuWork();
+        if (!isSameDocument()) {
+            return;
+        }
         for (const hooks of deps.getViewerLifecycleHooks()) {
             await hooks.beforeClose?.();
+            if (!isSameDocument()) {
+                return;
+            }
         }
-        // Only another document's commit replaces the instance; a claim alone does not.
-        if (deps.readDocument().identity.documentInstanceId === identity.documentInstanceId) {
-            await deps.closeFile();
+        if (!hasNewerOpenClaim()) {
+            deps.onPendingOpenSuperseded();
         }
+        deps.onActiveDjvuSourceReleased();
+        await deps.closeFile();
     }
 
     return {
@@ -123,6 +152,7 @@ export const useWorkspaceFileLifecycleController = (
     options: IUseWorkspaceFileLifecycleControllerOptions,
 ) => {
     const { t } = useTypedI18n();
+    const getViewerLifecycleHooks = () => options.createViewerLifecycleHooks?.() ?? [];
     // An open's admitted source, before any page of it is drawn.
     async function admitOpeningSource(source: TDocumentRef, pageCount: () => Promise<number | null>) {
         for (const hooks of getViewerLifecycleHooks()) {
@@ -146,30 +176,40 @@ export const useWorkspaceFileLifecycleController = (
         closeFile,
     } = pdfFile;
 
-    const {
-        isDjvuMode,
-        djvuSourcePath,
-        conversionState,
-        showBanner: djvuShowBanner,
-        showConvertDialog,
-        sourceError: djvuError,
-        openingPath: djvuOpeningPath,
-        sourceSizeBytes: djvuSourceSizeBytes,
-        openDjvuFile,
-        invalidatePendingDjvuOpen,
-        convertToPdf: djvuConvertToPdf,
-        ensurePdfProjectionForAction: ensureDjvuPdfProjectionForAction,
-        cancelActiveJobs: cancelDjvuJobs,
-        cleanupDjvuTemp,
-        captureDjvuActivation,
-        exitDjvuMode,
-        openConvertDialog,
-        dismissBanner: djvuDismissBanner,
-    } = useDjvu({
+    const djvu = useDjvu({
         getOpenSurface: options.getOpenSurface,
         // Names the document's file for its tabs, which open it when shown.
         assignDocument: options.document.assign,
     });
+    const isDjvuMode = computed(() => djvu.source.value.isDjvuMode);
+    const djvuSourcePath = computed(() => djvu.source.value.sourcePath);
+    const djvuError = computed(() => djvu.source.value.sourceError);
+    const djvuOpeningPath = computed(() => djvu.source.value.openingPath);
+    const djvuSourceSizeBytes = computed(() => djvu.source.value.sourceSizeBytes);
+    const conversionState = djvu.conversionState;
+
+    const djvuShowBanner = ref(true);
+    const showConvertDialog = ref(false);
+
+    function openConvertDialog() {
+        if (!isDjvuMode.value) {
+            return;
+        }
+        showConvertDialog.value = true;
+    }
+
+    function setConvertDialogOpen(open: boolean) {
+        showConvertDialog.value = open && isDjvuMode.value;
+    }
+
+    function djvuDismissBanner() {
+        djvuShowBanner.value = false;
+    }
+
+    function releaseActiveDjvuSource() {
+        showConvertDialog.value = false;
+        djvu.releaseActiveSource();
+    }
 
     let djvuProjectionAbortController = new AbortController();
 
@@ -186,22 +226,7 @@ export const useWorkspaceFileLifecycleController = (
 
     tryOnScopeDispose(cancelDjvuProjection);
 
-    const {
-        recentFiles,
-        loadRecentFiles,
-        removeRecentFile,
-        clearRecentFiles,
-    } = useRecentFiles();
-
-    const getViewerLifecycleHooks = () => options.createViewerLifecycleHooks?.(lifecycleContext) ?? [];
-    const lifecycleContext: IWorkspaceViewerLifecycleContext = {
-        cleanupDjvuTemp,
-        captureDjvuActivation,
-        exitDjvuMode,
-        invalidatePendingDjvuOpen,
-        isDjvuMode,
-        workingCopyPath,
-    };
+    const { loadRecentFiles } = useRecentFiles();
 
     async function commitPendingDjvuOpen(outcome: TDocumentOpenOutcome, openTransactionId: string | undefined) {
         BrowserLogger.info('djvu-open-transaction', 'Finalize requested', {
@@ -232,12 +257,13 @@ export const useWorkspaceFileLifecycleController = (
             } satisfies TDocumentOpenOutcome;
         }
         pendingDjvu.value = null;
+        djvuShowBanner.value = true;
         BrowserLogger.info('djvu-open-transaction', 'Pending command consumed', {
             reason: 'activation-owner-acquired',
             djvuPath,
         });
         try {
-            const activated = await openDjvuFile(djvuPath, {
+            const activated = await djvu.openDjvuFile(djvuPath, {
                 // After main accepts the DjVu and before its pages are shown.
                 closeActiveDocument: async (pageCount) => {
                     await closeFile();
@@ -296,15 +322,30 @@ export const useWorkspaceFileLifecycleController = (
         } satisfies TDocumentOpenOutcome;
     }
 
+    // Cancel and Close stop the document's conversion the same way, and a
+    // close waits until it has stopped before releasing the source.
+    async function handleDjvuCancel() {
+        cancelDjvuProjection();
+        if (djvuSourcePath.value) {
+            await djvu.cancelActiveJobs();
+        }
+    }
+
     const {
         openFileWithViewerLifecycle,
         openFileDirectWithViewerLifecycle,
         openFileDirectBatchWithViewerLifecycle,
-        closeFileWithViewerLifecycle: closeFileWithViewerLifecycleBase,
+        closeFileWithViewerLifecycle,
     } = createWorkspaceFileSwitch({
         readDocument: () => options.document.snapshot.value,
         workingCopyPath,
         getViewerLifecycleHooks,
+        onPendingOpenSuperseded: djvu.supersedePendingOpen,
+        cancelActiveDjvuWork: handleDjvuCancel,
+        shouldReleaseActiveDjvu: previousWorkingCopyPath => (
+            isDjvuMode.value && workingCopyPath.value !== previousWorkingCopyPath
+        ),
+        onActiveDjvuSourceReleased: releaseActiveDjvuSource,
         openFile,
         openFileDirect,
         openFileDirectBatch,
@@ -346,29 +387,15 @@ export const useWorkspaceFileLifecycleController = (
         preserveBookmarks: boolean,
         pdfStrategy: TDjvuPdfExportStrategy,
     ) {
-        return djvuConvertToPdf(subsample, preserveBookmarks, pdfStrategy, openConvertedDjvuPdf);
+        return djvu.convertToPdf(subsample, preserveBookmarks, pdfStrategy, openConvertedDjvuPdf);
     }
 
     function ensureDjvuPdfProjection(reason: TPdfProjectionReason) {
-        return ensureDjvuPdfProjectionForAction(
+        return djvu.ensurePdfProjectionForAction(
             reason,
             openConvertedDjvuPdf,
             getDjvuProjectionSignal(),
         );
-    }
-
-    // Cancel and Close stop the document's conversion the same way, and a
-    // close waits until it has stopped before releasing the source.
-    async function handleDjvuCancel() {
-        cancelDjvuProjection();
-        if (djvuSourcePath.value) {
-            await cancelDjvuJobs();
-        }
-    }
-
-    async function closeFileWithViewerLifecycle() {
-        await handleDjvuCancel();
-        await closeFileWithViewerLifecycleBase();
     }
 
     function initFromStorage() {
@@ -387,7 +414,37 @@ export const useWorkspaceFileLifecycleController = (
     ));
 
     return {
-        ...pdfFile,
+        fileName: pdfFile.fileName,
+        isDirty: pdfFile.isDirty,
+        originalPath,
+        pdfData: pdfFile.pdfData,
+        pdfRasterDisplayProfile: pdfFile.pdfRasterDisplayProfile,
+        pdfReloadSrc: pdfFile.pdfReloadSrc,
+        pdfSrc,
+        publishPdfSource: pdfFile.publishPdfSource,
+        requiresSaveAsOnFirstSave: pdfFile.requiresSaveAsOnFirstSave,
+        recoveryDirtyBaseline,
+        wasEncrypted: pdfFile.wasEncrypted,
+        workingCopyPath,
+        openedWorkingCopyPath: pdfFile.openedWorkingCopyPath,
+        documentRevisionInfo,
+        documentRevisionToken: pdfFile.documentRevisionToken,
+        notifyPdfInitialVisualReady: pdfFile.notifyPdfInitialVisualReady,
+        pickFileToOpen: pdfFile.pickFileToOpen,
+        ensureHistoryBaselineForMutation: pdfFile.ensureHistoryBaselineForMutation,
+        reloadWorkingCopyRevision: pdfFile.reloadWorkingCopyRevision,
+        reloadWorkingCopyIntoHistory: pdfFile.reloadWorkingCopyIntoHistory,
+        mapHistoryPage: pdfFile.mapHistoryPage,
+        setWorkspaceCommandSink: pdfFile.setWorkspaceCommandSink,
+        ...(pdfFile.repairWorkingCopy ? {repairWorkingCopy: pdfFile.repairWorkingCopy} : {}),
+        ...(pdfFile.optimizeWorkingCopy ? {optimizeWorkingCopy: pdfFile.optimizeWorkingCopy} : {}),
+        ...(pdfFile.optimizeWorkingCopyAsCopy ? {optimizeWorkingCopyAsCopy: pdfFile.optimizeWorkingCopyAsCopy} : {}),
+        saveWorkingCopy: pdfFile.saveWorkingCopy,
+        trySavePdfNativeMutations: pdfFile.trySavePdfNativeMutations,
+        saveWorkingCopyAs: pdfFile.saveWorkingCopyAs,
+        closeFile,
+        markDirty: pdfFile.markDirty,
+
         admitOpeningSource: (source: TDocumentRef, pageCount: () => Promise<number | null>) => recoveryDirtyBaseline.value
             ? Promise.resolve()
             : admitOpeningSource(source, pageCount),
@@ -402,17 +459,14 @@ export const useWorkspaceFileLifecycleController = (
         djvuError,
         djvuOpeningPath,
         djvuSourceSizeBytes,
-        openDjvuFile,
         openConvertDialog,
+        setConvertDialogOpen,
         djvuDismissBanner,
         handleDjvuConvert,
         ensureDjvuPdfProjection,
         handleDjvuCancel,
 
-        recentFiles,
         loadRecentFiles,
-        removeRecentFile,
-        clearRecentFiles,
 
         openFileWithViewerLifecycle,
         openFileInDocumentTransaction,

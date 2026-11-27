@@ -262,6 +262,33 @@ export function createDocumentOpenFlow(
         }
     }
 
+    async function settleStaleOpenResult(
+        result: TOpenFileResult,
+        reason: string,
+    ): Promise<TDocumentOpenOutcome> {
+        await cleanupAbandonedPdfWorkingCopy(result, reason);
+        return {
+            status: 'stale',
+            result,
+        };
+    }
+
+    function handleCaughtOpenError(
+        openRequestId: string | null,
+        error: unknown,
+        path: TDocumentRef | null,
+        onCurrentFailure?: (message: string) => void,
+    ): TDocumentOpenOutcome {
+        const message = classifyDocumentOpenError(error, path, deps.t);
+        if (isCurrentOpenRequest(openRequestId)) {
+            onCurrentFailure?.(message);
+        }
+        return {
+            status: 'failed',
+            error: message,
+        };
+    }
+
     function reportUnsupportedEncryption() {
         const message = deps.t('errors.file.unsupportedEncryption');
         state.error.value = message;
@@ -277,14 +304,9 @@ export function createDocumentOpenFlow(
         try {
             const result = preSelected ?? (await pickFileToOpen());
             if (!isCurrentOpenRequest(openRequestId)) {
-                if (result) {
-                    await cleanupAbandonedPdfWorkingCopy(result, 'stale-picker-result');
-                    return {
-                        status: 'stale',
-                        result,
-                    } satisfies TDocumentOpenOutcome;
-                }
-                return { status: 'cancelled' } satisfies TDocumentOpenOutcome;
+                return result
+                    ? settleStaleOpenResult(result, 'stale-picker-result')
+                    : { status: 'cancelled' } satisfies TDocumentOpenOutcome;
             }
             if (!result) {
                 return { status: 'cancelled' } satisfies TDocumentOpenOutcome;
@@ -305,21 +327,12 @@ export function createDocumentOpenFlow(
                 preSelected ? 'preselected' : 'picker',
             );
         } catch (e) {
-            if (!isCurrentOpenRequest(openRequestId)) {
-                return {
-                    status: 'failed',
-                    error: classifyDocumentOpenError(e, preSelected?.originalPath ?? null, deps.t),
-                } satisfies TDocumentOpenOutcome;
-            }
-            const message = classifyDocumentOpenError(e, preSelected?.originalPath ?? null, deps.t);
-            recordOpenFailure(message, e, {
-                path: preSelected?.originalPath ?? null,
-                error: e,
+            return handleCaughtOpenError(openRequestId, e, preSelected?.originalPath ?? null, (message) => {
+                recordOpenFailure(message, e, {
+                    path: preSelected?.originalPath ?? null,
+                    error: e,
+                });
             });
-            return {
-                status: 'failed',
-                error: message,
-            } satisfies TDocumentOpenOutcome;
         }
     }
 
@@ -386,20 +399,12 @@ export function createDocumentOpenFlow(
             throw error;
         });
         if (!job || !isCurrentOpenRequest(openRequestId) || state.workingCopyPath.value !== result.workingPath) {
-            await cleanupAbandonedPdfWorkingCopy(result, 'stale-pdf-load');
-            return {
-                status: 'stale',
-                result,
-            } satisfies TDocumentOpenOutcome;
+            return settleStaleOpenResult(result, 'stale-pdf-load');
         }
         state.wasEncrypted.value = result.wasEncrypted === true;
         trackOpenedDocument(result, openMethod);
         if (!isCurrentOpenRequest(openRequestId) || state.workingCopyPath.value !== result.workingPath) {
-            await cleanupAbandonedPdfWorkingCopy(result, 'stale-pdf-track');
-            return {
-                status: 'stale',
-                result,
-            } satisfies TDocumentOpenOutcome;
+            return settleStaleOpenResult(result, 'stale-pdf-track');
         }
         if (result.recoveryDirtyBaseline === true) {
             // Opening a retained working copy must finish dirty even if a
@@ -471,17 +476,12 @@ export function createDocumentOpenFlow(
                 workingPath: result && isPdfOpenResult(result) ? result.workingPath : null,
             });
             if (!isCurrentOpenRequest(openRequestId)) {
-                if (result) {
-                    await cleanupAbandonedPdfWorkingCopy(result, 'stale-direct-result');
-                    return {
-                        status: 'stale',
-                        result,
+                return result
+                    ? settleStaleOpenResult(result, 'stale-direct-result')
+                    : {
+                        status: 'failed',
+                        error: deps.t('errors.file.invalid'),
                     } satisfies TDocumentOpenOutcome;
-                }
-                return {
-                    status: 'failed',
-                    error: deps.t('errors.file.invalid'),
-                } satisfies TDocumentOpenOutcome;
             }
             if (!result) {
                 const message = deps.t('errors.file.invalid');
@@ -547,27 +547,18 @@ export function createDocumentOpenFlow(
             });
             return outcome;
         } catch (e) {
-            if (!isCurrentOpenRequest(openRequestId)) {
-                return {
+            return handleCaughtOpenError(openRequestId, e, path, (message) => {
+                recordOpenFailure(message, e, {
+                    path,
+                    error: e,
+                });
+                logPdfRenderTrace('pdf-open-direct-end', {
+                    openRequestId,
+                    path,
                     status: 'failed',
-                    error: classifyDocumentOpenError(e, path, deps.t),
-                } satisfies TDocumentOpenOutcome;
-            }
-            const message = classifyDocumentOpenError(e, path, deps.t);
-            recordOpenFailure(message, e, {
-                path,
-                error: e,
+                    error: getErrorMessage(e),
+                });
             });
-            logPdfRenderTrace('pdf-open-direct-end', {
-                openRequestId,
-                path,
-                status: 'failed',
-                error: getErrorMessage(e),
-            });
-            return {
-                status: 'failed',
-                error: message,
-            } satisfies TDocumentOpenOutcome;
         }
     }
 
@@ -620,17 +611,12 @@ export function createDocumentOpenFlow(
             }
 
             if (!isCurrentOpenRequest(openRequestId)) {
-                if (result) {
-                    await cleanupAbandonedPdfWorkingCopy(result, 'stale-batch-result');
-                    return {
-                        status: 'stale',
-                        result,
+                return result
+                    ? settleStaleOpenResult(result, 'stale-batch-result')
+                    : {
+                        status: 'failed',
+                        error: deps.t('errors.file.invalid'),
                     } satisfies TDocumentOpenOutcome;
-                }
-                return {
-                    status: 'failed',
-                    error: deps.t('errors.file.invalid'),
-                } satisfies TDocumentOpenOutcome;
             }
             deps.setOpeningLabel(null);
             if (!result) {
@@ -649,15 +635,10 @@ export function createDocumentOpenFlow(
             }
             return await finishPdfOpenResult(openRequestId, result, 'batch');
         } catch (e) {
-            const message = classifyDocumentOpenError(e, paths.length === 1 ? paths[0] ?? null : null, deps.t);
-            if (isCurrentOpenRequest(openRequestId)) {
+            return handleCaughtOpenError(openRequestId, e, paths.length === 1 ? paths[0] ?? null : null, (message) => {
                 deps.setOpeningLabel(null);
                 recordOpenFailure(message, e);
-            }
-            return {
-                status: 'failed',
-                error: message,
-            } satisfies TDocumentOpenOutcome;
+            });
         }
     }
 
