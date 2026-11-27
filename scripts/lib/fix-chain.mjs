@@ -10,6 +10,7 @@
 // job run this through `check-publication-policy.mjs`.
 
 import {spawnSync} from 'node:child_process';
+import {readCommitMetadata} from './added-checks.mjs';
 
 const FIX_CHAIN_OVERRIDE_TRAILER = 'Fix-Chain-Override';
 const FIX_CHAIN_WINDOW_DAYS = 7;
@@ -146,28 +147,16 @@ function priorFixCommits(commit, path, commitTime, cwd) {
         .map(([oid]) => oid ?? '');
 }
 
-/** @param {string} commit @param {string} cwd @returns {IViolation[]} */
-function findCommitFixChainViolations(commit, cwd) {
-    const [
-        header,
-        ...messageLines
-    ] = git([
-        'log',
-        '-1',
-        '--format=%P%x09%ct%x09%s%n%B',
-        commit,
-    ], cwd).split('\n');
-    const [
-        parents = '',
-        committedAt = '0',
-        subject = '',
-    ] = (header ?? '').split('\t');
-    const parentList = parents.trim().split(' ').filter(Boolean);
+/** @param {string} commit @param {import('./added-checks.mjs').ICommitMetadata | undefined} metadata @param {string} cwd @returns {IViolation[]} */
+function findCommitFixChainViolations(commit, metadata, cwd) {
+    if (!metadata) {
+        throw new Error(`Missing commit metadata for ${commit}`);
+    }
     // Root commits have no history to chain from; merges introduce nothing.
-    if (parentList.length !== 1 || !isFixSubject(subject)) {
+    if (metadata.parents.length !== 1 || !isFixSubject(metadata.subject)) {
         return [];
     }
-    if (readFixChainOverride(messageLines.join('\n')) !== null) {
+    if (readFixChainOverride(metadata.body) !== null) {
         return [];
     }
     const blobs = readChangedBlobs(commit, cwd);
@@ -196,7 +185,7 @@ function findCommitFixChainViolations(commit, cwd) {
     /** @type {string[]} */
     const matches = [];
     for (const entry of grown) {
-        const prior = priorFixCommits(commit, entry.path, Number(committedAt), cwd);
+        const prior = priorFixCommits(commit, entry.path, metadata.committedAt, cwd);
         if (prior.length >= FIX_CHAIN_LIMIT) {
             matches.push(
                 `${entry.path} grows (${SIGNED.format(entry.lines)} lines, ${SIGNED.format(entry.characters)} `
@@ -211,9 +200,9 @@ function findCommitFixChainViolations(commit, cwd) {
     }] : [];
 }
 
-/** @param {string[]} commits @param {string} cwd @returns {IViolation[]} */
-export function findFixChainViolations(commits, cwd) {
-    return commits.flatMap(commit => findCommitFixChainViolations(commit, cwd));
+/** @param {string[]} commits @param {string} cwd @param {Map<string, import('./added-checks.mjs').ICommitMetadata>} [commitMetadata] @returns {IViolation[]} */
+export function findFixChainViolations(commits, cwd, commitMetadata = readCommitMetadata(commits, cwd)) {
+    return commits.flatMap(commit => findCommitFixChainViolations(commit, commitMetadata.get(commit), cwd));
 }
 
 /** @returns {string} */

@@ -19,23 +19,26 @@ parallel and the verdict lands in about fifteen minutes; see
 
 | Job | What it checks | Runs when |
 | --- | --- | --- |
-| `publication_policy`, Publication Policy | Local-only artifacts and unexplained checks in the pushed range | Every PR and push |
-| `changed_areas`, Changed Area Detection | Selects the area-scoped jobs from `scripts/release/policy.mjs` | Always |
-| `lint`, Lint | Generated-artifact drift, whole-tree lint, Drizzle schema, ASAR unpack list, web deploy sources | Unless the merged tree is already proven |
-| `unit`, Typecheck And Unit Tests | `pnpm run typecheck`, `pnpm run test:unit` | Unless the merged tree is already proven |
-| `rust`, Rust | `rustfmt`, clippy, `cargo-deny`, Rust tests, scan-cleanup catastrophe baseline | `rust` |
-| `strict_build`, Strict Build | Source-verified WASM, `build:strict`, Electron bundle static integrity; one renderer, Electron and native-tool build shared with the lanes | `desktop_build`, `electron_smoke`, or an already proven tree |
-| `native_pdf_integration`, Native PDF Save Integration | `native-integration` Vitest project against the built page-ops tool | `desktop_build` |
-| `windows_atomic_pdf_replacement`, Windows Atomic PDF Replacement | Real Windows filesystem replacement | `electron_save_reopen` |
-| `browser_integration`, Browser Integration | Browser integration suite in Chromium | `browser_integration` |
-| `scan_cleanup_oracles`, Scan Cleanup Export Oracles | Preview, export and word-loss oracles | `scan_cleanup_export` |
-| `landing`, Landing | Landing typecheck and build (root lint already lints it) | `landing` |
-| `electron_e2e`, Electron E2E (lane) | One Electron E2E lane per matrix job on Linux; only smoke for an already proven tree | `electron_smoke` or an already proven tree |
-| `gates_ok` | Every job succeeded, or was skipped because its area did not change or its tree was already proven | Always |
+| `publication_policy`, Publication Policy | Local-only artifacts, unexplained check infrastructure, flake tolerance and fix chains in the pushed range | Every PR and push |
+| `changed_areas`, Changed Area Detection | Emits `selected` job IDs and Electron `lanes` from `scripts/ci/classify-changed-areas.mjs` | Always |
+| `build_wasm`, Build Browser WASM | Restores or builds source-verified browser WASM and uploads `browser-wasm` | When `build_wasm` is in `selected` (any consumer selected) |
+| `lint`, Lint | Generated-artifact drift, whole-tree lint, ASAR unpack list, web deploy sources, locale parity | When `lint` is in `selected` |
+| `unit`, Typecheck And Unit Tests | `pnpm run typecheck`, `pnpm run test:unit` (downloads `browser-wasm`) | When `unit` is in `selected` |
+| `rust`, Rust | `rustfmt`, clippy, `cargo-deny check bans licenses sources`, Rust tests, scan-cleanup catastrophe baseline | When `rust` is in `selected` |
+| `strict_build`, Strict Build | `build:strict` and Electron bundle static integrity (downloads `browser-wasm`); sole Linux native builder, uploads `electron-e2e-build` | When `strict_build` is in `selected` |
+| `native_pdf_integration`, Native PDF Save Integration | `native-integration` Vitest project against `strict_build`'s bundle | When `native_pdf_integration` is in `selected` |
+| `windows_atomic_pdf_replacement`, Windows Atomic PDF Replacement | Real Windows filesystem replacement | When `windows_atomic_pdf_replacement` is in `selected` |
+| `browser_integration`, Browser Integration | Browser integration suite in Chromium (depends on `build_wasm`, not `unit`) | When `browser_integration` is in `selected` |
+| `scan_cleanup_oracles`, Scan Cleanup Export Oracles | Preview, export and word-loss oracles against `strict_build`'s bundle | When `scan_cleanup_oracles` is in `selected` |
+| `landing`, Landing | Landing typecheck and build (root lint already lints it) | When `landing` is in `selected` |
+| `electron_e2e`, Electron E2E (lane) | One Electron E2E lane per selected matrix entry on Linux; only smoke for an already proven tree | When `electron_e2e` is in `selected` |
+| `gates_ok` | Every job succeeded, or was skipped because its ID is absent from `selected` | Always |
 
-A dispatched run has no pushed range, so it skips the publication policy and
-the classifier selects every job. Strict Build, native PDF integration and the
-scan-cleanup oracles share one staged native-tool cache.
+A dispatched run has no pushed range, so `publication_policy` is omitted from
+`selected` and every gated job runs. `build_wasm` produces `browser-wasm` once
+upstream for `unit`, `strict_build`, and `browser_integration`. `strict_build`
+is the sole Linux native builder; `electron_e2e`, `native_pdf_integration`, and
+`scan_cleanup_oracles` unpack its `electron-e2e-build` artifact.
 
 Browser integration uses eight shards with one worker each. Vitest 5.0.5 assigns
 equal file counts after sorting the SHA-1 hashes of root-relative file paths;
@@ -100,8 +103,10 @@ streak.
 
 A check belongs in `ci.yml` when its failure means the commit is wrong and it
 fits the time budget. A check that is slow, needs a large fixture or another
-platform, or measures wall-clock time belongs in `ci-nightly.yml`. New checks
-need the owner's words in an `Adds-Checks:` trailer; see
+platform, or measures wall-clock time belongs in `ci-nightly.yml`. New check
+infrastructure (a workflow, job, lane, hook, CI script, lint rule, vitest
+project or check script) or flake tolerance needs the owner's words in an
+`Adds-Checks:` trailer; a test file in an existing lane needs no trailer. See
 [local gates](./local-gates.md).
 
 ## Release evidence
@@ -119,31 +124,40 @@ SHA.
 
 ## Changed areas
 
-The classifier's path policy lives in
-[`scripts/release/policy.mjs`](../../scripts/release/policy.mjs). A push diffs
-from the last push whose `ci.yml` run succeeded, so a lane that an unfinished
-or failed run did not prove is selected again.
+The classifier and its path rules live in
+[`scripts/ci/classify-changed-areas.mjs`](../../scripts/ci/classify-changed-areas.mjs).
+It emits `selected` (JSON array of job IDs) and `lanes` (JSON array of Electron
+E2E lane names). Every gated job checks whether its ID is in `selected`, and
+`gates_ok` accepts `skipped` only for job IDs absent from `selected`. A push
+diffs from the last push whose `ci.yml` run succeeded (resolved in one workflow
+runs query by `scripts/ci/push-diff-base.sh`), so a lane that an unfinished or
+failed run did not prove is selected again. A new ref with an empty or all-zero
+`before` SHA fails open (`unavailable-push-base`).
 
-A merge to `main` runs only the Electron smoke lane, with Strict Build and the
-policy and classification jobs, when four conditions hold:
+A merge to `main` runs only the Electron smoke lane, with Build Browser WASM,
+Strict Build, policy and classification, when four conditions hold:
 
 - Its first parent is the pre-push commit, whose CI push run succeeded.
 - The pull request head contains that pre-push commit.
 - The merge tree equals the pull request head's tree.
 - CI succeeded on that pull request head.
 
-`scripts/ci/push-diff-base.sh` then uses the merged head as the diff base,
-skipping lint, unit tests and the area-scoped jobs already proven.
+`scripts/ci/push-diff-base.sh` then prints the merged head as the diff base,
+and the classifier selects only `publication_policy`, `build_wasm`,
+`strict_build`, and `electron_e2e` (`["e2e-smoke"]`).
 
-| Output | Path groups that select it |
-| --- | --- |
-| `browser_integration` | App, packages, public, vendor, server, browser tests, shared test and config files, CI setup/workflow, package metadata |
-| `electron_smoke` | App and Electron sources, Electron tests/fixtures/harness, CI setup/workflow, packaging config, resources, PDF and vendor inputs, shared config, package metadata, native save paths |
-| `electron_save_reopen` | `NATIVE_PDF_SAVE_DEPENDENCY_PATHS` |
-| `rust` | Native workspace and toolchains, Rust test inputs (including contracts, fixtures, embedded font and resources), Rust gate scripts, CI setup/workflows, package metadata |
-| `desktop_build` | Actions and workflows, build, native, resources and server sources, native and release scripts, WASM scripts, native integration tests, packaging config, package metadata |
-| `scan_cleanup_export` | CI setup and workflows, scan-cleanup and native sources, scan-cleanup scripts, Rust metadata, package metadata |
-| `landing` | `landing/**`, shared contracts and i18n packages, `setup-ci-env`, workspace metadata, workflows |
+| Area or test scope | Paths | Extra jobs selected (beyond `lint`, `unit`, and `build_wasm` for consumers) |
+| --- | --- | --- |
+| `docs` | `docs/**`, `**/*.md`, `.husky/**`, workflows other than `ci.yml` | None |
+| `landing` | `landing/**` | `landing`, `browser_integration` |
+| `product` | `app/**`, `electron/**`, `packages/**`, `server/**`, `public/**`, `vendor/**`, `resources/**`, `build/**`, `types/**`, `nuxt.config.ts`, `electron-builder.yml`, `tests/fixtures/**`, `tests/helpers/**`, `tests/setup*.ts` | `build_wasm`, `strict_build`, all `electron_e2e` lanes, `native_pdf_integration`, `windows_atomic_pdf_replacement`, `browser_integration` |
+| `native` | `native/**`, `.cargo/**`, `rust-toolchain.toml`, `packages/contracts/**` | `rust`, all `product` jobs, `scan_cleanup_oracles` |
+| `scan_cleanup` (additive) | `app/modules/scan-cleanup/**`, `packages/scan-cleanup/**`, `electron/features/scan-cleanup/**`, `scripts/scan-cleanup-*`, `scripts/scanCleanup*.ts`, `scripts/diagnostics/**` | `scan_cleanup_oracles` (plus `strict_build` and `build_wasm`) |
+| Electron lane tests | `tests/e2e/electron/<lane>/**` | `strict_build`, `electron_e2e` for `<lane>` only |
+| Unit / nightly tests | `tests/unit/**`, `tests/e2e/electron/nightly/**` | None |
+| Browser integration tests | `tests/integration/browser/**` | `build_wasm`, `browser_integration` |
+| Native integration tests | `tests/integration/native/**` | `build_wasm`, `strict_build`, `native_pdf_integration`, `windows_atomic_pdf_replacement` |
+| Unmatched (fail-open) | Anything else (`ci.yml`, `.github/actions/**`, `scripts/**`, `package.json`, `pnpm-lock.yaml`, root configs) | Every gated job and all Electron lanes |
 
 ## Nightly
 
@@ -176,7 +190,7 @@ the private fixture and runs only on a machine where that fixture is staged.
 | --- | --- | --- |
 | `release.yml` | `v*` tags and dispatch | Five-target package matrix, draft validation, checksums, provenance, mirror transaction, final promotion |
 | `store-appx.yml` | Dispatch only | Microsoft Store AppX packages for a release tag, uploaded by hand |
-| `dependency-audit.yml` | Daily and dispatch | Advisory and license audit, reported as an issue |
+| `dependency-audit.yml` | Daily and dispatch | Full-graph JS and Rust (`cargo-deny check advisories`) advisory audits, reported as an issue |
 | `process-safety-platform.yml` | Dispatch | Focused process-safety acceptance on Linux, macOS and Windows |
 
 ## Runtime

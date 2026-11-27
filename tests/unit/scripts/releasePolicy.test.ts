@@ -59,11 +59,6 @@ interface IReleaseCommand {
 }
 
 interface IReleaseGatePolicyManifest {
-    ci: {changedAreas: {
-        desktopBuild: IChangedAreaPolicy;
-        landing: IChangedAreaPolicy;
-        rust: IChangedAreaPolicy;
-    };};
     release: {
         localChecks: {
             gateGroups: Array<{
@@ -82,12 +77,6 @@ interface IReleaseGatePolicyManifest {
         };
     };
     schemaVersion: number;
-}
-
-interface IChangedAreaPolicy {
-    output: string;
-    owner: string;
-    paths: string[];
 }
 
 interface IRunCommandOptions {
@@ -760,63 +749,6 @@ describe('release policy', () => {
         expect(scriptNames).not.toContain('test:release');
         expect(scriptNames).not.toContain('check:architecture:all');
         expect(commandArgs.flat()).not.toContain('landing');
-    });
-
-    it('keeps Rust, desktop/build, and landing changed-area policy in one release manifest', () => {
-        const changedAreas = getGatePolicyManifest().ci.changedAreas;
-
-        expect(changedAreas.rust).toMatchObject({
-            output: 'rust',
-            owner: 'rust',
-        });
-        expect(changedAreas.rust.paths).toEqual(expect.arrayContaining([
-            '.cargo/**',
-            '.github/workflows/ci.yml',
-            'native/**',
-            'packages/contracts/**',
-            'public/fonts/annotation/DejaVuSans.ttf',
-            'resources/**',
-            'scripts/ci/scan-cleanup-oracles.sh',
-            'package.json',
-            'rust-toolchain.toml',
-            'tests/fixtures/electron/interop/**',
-        ]));
-        expect(changedAreas.desktopBuild).toMatchObject({
-            output: 'desktop_build',
-            owner: 'strict_build',
-        });
-        expect(changedAreas.desktopBuild.paths).toEqual(expect.arrayContaining([
-            '.github/workflows/**',
-            'native/**',
-            'public/fonts/annotation/DejaVuSans.ttf',
-            'resources/**',
-            'scripts/afterPack.cjs',
-            'scripts/afterSign.cjs',
-            'scripts/ci/classify-changed-areas.mjs',
-            'scripts/generateBuildArtifacts.ts',
-            'scripts/generateElectronBuilderResources.ts',
-            'scripts/nativeResourceManifest.ts',
-            'scripts/runNativeResourceManifestCli.ts',
-            'scripts/release/**',
-            'scripts/verify-packaged-native-tools.sh',
-            'scripts/verify-packaged-startup.sh',
-            'electron-builder.yml',
-            'rust-toolchain.toml',
-        ]));
-        expect(changedAreas.landing).toMatchObject({
-            output: 'landing',
-            owner: 'landing',
-        });
-        expect(changedAreas.landing.paths).toEqual(expect.arrayContaining([
-            '.github/actions/setup-ci-env/**',
-            '.github/workflows/**',
-            'landing/**',
-            'pnpm-lock.yaml',
-            'pnpm-workspace.yaml',
-            'packages/release-selection/**',
-            'scripts/ci/classify-changed-areas.mjs',
-            'scripts/release/policy.mjs',
-        ]));
     });
 
     it('uses the unified tag-triggered five-target release workflow', () => {

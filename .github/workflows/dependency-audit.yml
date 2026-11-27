@@ -1,8 +1,9 @@
 name: Dependency Audit
 
-# Advisory publication time is not a property of any commit, so the audit
-# does not sit on the merge-blocking or release path. It runs daily and on
-# demand, and reports through one open issue labelled dependency-audit.
+# Advisory publication time is not a property of any commit, so neither the
+# JavaScript nor the Rust advisory audit sits on the merge-blocking or release
+# path. Both run daily and on demand, and report through one open issue
+# labelled dependency-audit.
 
 concurrency:
   group: dependency-audit-${{ github.workflow }}
@@ -42,22 +43,47 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Production dependency audit
-        id: production_audit
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run check:production-dependency-audit:production-only
-
       - name: Full-graph dependency audit
         id: full_audit
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run check:production-dependency-audit
 
+      # Pinned release binary, matching ci.yml's Rust dependency policy step.
+      - name: Restore cargo-deny archive
+        if: ${{ always() && !cancelled() && steps.setup.outcome == 'success' }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz
+          key: cargo-deny-0.20.2-x86_64-unknown-linux-musl
+
+      - name: Install cargo-deny
+        id: cargo_deny_setup
+        if: ${{ always() && !cancelled() && steps.setup.outcome == 'success' }}
+        env:
+          CARGO_DENY_ARCHIVE: ${{ runner.temp }}/cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz
+        run: |
+          set -euo pipefail
+          if [ ! -f "$CARGO_DENY_ARCHIVE" ]; then
+            curl --fail --silent --show-error --location --output "$CARGO_DENY_ARCHIVE" \
+              https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz
+          fi
+          echo "9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f  $CARGO_DENY_ARCHIVE" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/cargo-deny-bin"
+          tar -xzf "$CARGO_DENY_ARCHIVE" -C "$RUNNER_TEMP/cargo-deny-bin" --strip-components=1 --wildcards '*/cargo-deny'
+
+      - name: Rust advisory audit
+        id: rust_audit
+        if: ${{ always() && !cancelled() && steps.cargo_deny_setup.outcome == 'success' }}
+        env:
+          CARGO_TERM_COLOR: always
+        run: '"$RUNNER_TEMP/cargo-deny-bin/cargo-deny" --log-level warn --manifest-path native/Cargo.toml --all-features check advisories'
+
       - name: Report through the dependency-audit issue
-        if: ${{ always() && steps.setup.outcome == 'success' }}
+        if: ${{ always() && !cancelled() && steps.setup.outcome == 'success' }}
         env:
           GH_TOKEN: ${{ github.token }}
-          PRODUCTION_OUTCOME: ${{ steps.production_audit.outcome }}
           FULL_OUTCOME: ${{ steps.full_audit.outcome }}
+          RUST_OUTCOME: ${{ steps.rust_audit.outcome }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -68,7 +94,7 @@ jobs:
           label='dependency-audit'
           issue_number="$(gh issue list --label "$label" --state open --limit 1 --json number --jq '.[0].number // empty')"
 
-          if [ "$PRODUCTION_OUTCOME" = 'success' ] && [ "$FULL_OUTCOME" = 'success' ]; then
+          if [ "$FULL_OUTCOME" = 'success' ] && [ "$RUST_OUTCOME" = 'success' ]; then
             echo "Both audits are clean for $AUDITED_SHA."
             if [ -n "$issue_number" ]; then
               # Every comment is mailed under the issue title, which says
@@ -91,13 +117,13 @@ jobs:
           body="$(printf '%s\n' \
             "The scheduled dependency audit found advisories that need dependency work." \
             "" \
-            "- Production-only audit: $PRODUCTION_OUTCOME" \
-            "- Full-graph audit: $FULL_OUTCOME" \
+            "- Full-graph JS dependency audit: $FULL_OUTCOME" \
+            "- Rust advisory audit (cargo-deny advisories): $RUST_OUTCOME" \
             "- Audited commit: $AUDITED_SHA" \
             "- Run with the advisory list: $RUN_URL" \
             "" \
             "Advisories never block push CI or a release cut. Fix them as ordinary dependency work:" \
-            "update or override the affected package, keep \`pnpm run check:production-dependency-audit:production-only\` green locally," \
+            "update or override the affected package, keep \`pnpm run check:production-dependency-audit\` and \`cargo-deny check advisories\` green locally," \
             "and note in the commit when a fix version is younger than the seven-day \`minimumReleaseAge\` hold in \`pnpm-workspace.yaml\`." \
             "Advisories without a patched release are listed in the run log and do not fail the audit until a patched release appears." \
             "" \

@@ -55,14 +55,22 @@ const checker = await import(
     pathToFileURL(path.resolve(process.cwd(), 'scripts/check-publication-policy.mjs')).href
 ) as IPublicationPolicyModule;
 
-interface IAddedChecksModule {findAddedChecks: (
-    entries: Array<{
-        path: string,
-        status: string
-    }>,
-    readAddedLines: (path: string) => string[],
-    readRemovedLines?: (path: string) => string[],
-) => string[];}
+interface IAddedChecksModule {
+    findAddedChecks: (
+        entries: Array<{
+            path: string,
+            status: string
+        }>,
+        readAddedLines: (path: string) => string[],
+    ) => string[];
+    readCommitMetadata: (commits: string[], cwd: string) => Map<string, {
+        body: string;
+        committedAt: number;
+        oid: string;
+        parents: string[];
+        subject: string;
+    }>;
+}
 
 const addedChecks = await import(
     pathToFileURL(path.resolve(process.cwd(), 'scripts/lib/added-checks.mjs')).href
@@ -408,101 +416,145 @@ describe('added check and flake tolerance detection', () => {
             () => ['await new Promise(resolve => setTimeout(resolve, 500));'],
         )).toEqual([]);
     });
-    describe('tests moved between files', () => {
-        const keepsNotes = [
-            'it(\'keeps notes\', async () => {',
-            '    expect(await readNotes()).toHaveLength(1);',
-            '}, 120_000);',
-        ];
-        function findInChange(statuses: Record<string, string>, added: Record<string, string[]>, removed: Record<string, string[]>) {
-            return addedChecks.findAddedChecks(
-                Object.entries(statuses).map(([
-                    filePath,
-                    status,
-                ]) => ({
-                    path: filePath,
-                    status,
-                })),
-                filePath => added[filePath] ?? [],
-                filePath => removed[filePath] ?? [],
-            );
-        }
-
-        it('needs the trailer for a test moved out of a file that stays', () => {
-            const statuses = {
-                'tests/a.test.ts': 'M',
-                'tests/b.test.ts': 'A',
-            };
-
-            expect(findInChange(statuses, {'tests/b.test.ts': keepsNotes}, {'tests/a.test.ts': keepsNotes}))
-                .toEqual(['new test file: tests/b.test.ts']);
-            expect(findInChange({
-                'tests/a.test.ts': 'M',
-                'tests/b.test.ts': 'M',
-            }, {'tests/b.test.ts': keepsNotes}, {'tests/a.test.ts': keepsNotes}))
-                .toEqual(['test timeout override: tests/b.test.ts (}, 120_000);)']);
-        });
-
-        it('counts a moved test whose body changed as a new check', () => {
-            const moved = (expected: string) => [
-                'it(\'keeps notes\', () => {',
-                '    expect(\')\').toBe(\')\');',
-                `    expect(read()).toEqual(${expected});`,
+    describe('infrastructure vs test files', () => {
+        it('allows new test files and native tests without a trailer when they add no flake tolerance', () => {
+            expect(addedChecks.findAddedChecks([
+                {
+                    path: 'tests/unit/newBehavior.test.ts',
+                    status: 'A',
+                },
+                {
+                    path: 'tests/e2e/electron/smoke/regression.e2e.test.ts',
+                    status: 'A',
+                },
+                {
+                    path: 'native/pdf-page-ops/tests/regression.rs',
+                    status: 'A',
+                },
+            ], () => [
+                'it(\'keeps notes\', async () => {',
+                '    expect(await readNotes()).toHaveLength(1);',
                 '});',
-            ];
-
-            expect(findInChange({
-                'tests/old.test.ts': 'M',
-                'tests/new.test.ts': 'A',
-            }, {'tests/new.test.ts': moved('999')}, {'tests/old.test.ts': moved('1')}))
-                .toEqual(['new test file: tests/new.test.ts']);
+            ])).toEqual([]);
         });
 
-        it('counts every copy when one removed test reappears in several files', () => {
-            expect(findInChange({
-                'tests/a.test.ts': 'M',
-                'tests/b.test.ts': 'A',
-                'tests/c.test.ts': 'A',
-            }, {
-                'tests/b.test.ts': keepsNotes,
-                'tests/c.test.ts': keepsNotes,
-            }, {'tests/a.test.ts': keepsNotes})).toEqual([
-                'new test file: tests/b.test.ts',
-                'new test file: tests/c.test.ts',
+        it('still flags flake tolerance inside newly added test files', () => {
+            expect(addedChecks.findAddedChecks([{
+                path: 'tests/unit/flaky.test.ts',
+                status: 'A',
+            }], () => [
+                'it(\'keeps notes\', async () => {',
+                '    await sleep(250);',
+                '}, 120_000);',
+            ])).toEqual([
+                'wall-clock sleep in a test: tests/unit/flaky.test.ts (await sleep(250);)',
+                'test timeout override: tests/unit/flaky.test.ts (}, 120_000);)',
             ]);
         });
 
-        it('keeps a raised timeout visible beside an unrelated deleted test', () => {
-            expect(findInChange({'tests/a.test.ts': 'M'}, {'tests/a.test.ts': ['}, 120_000);']}, {'tests/a.test.ts': [
-                ...keepsNotes,
-                '}, 30_000);',
-            ]})).toEqual(['test timeout override: tests/a.test.ts (}, 120_000);)']);
+        it.each([
+            [
+                '.github/workflows/extra.yml',
+                'A',
+                [],
+                'new workflow or action: .github/workflows/extra.yml',
+            ],
+            [
+                '.github/actions/extra/action.yml',
+                'A',
+                [],
+                'new workflow or action: .github/actions/extra/action.yml',
+            ],
+            [
+                '.husky/post-commit',
+                'A',
+                [],
+                'new git hook: .husky/post-commit',
+            ],
+            [
+                'scripts/ci/extra.sh',
+                'A',
+                [],
+                'new CI script: scripts/ci/extra.sh',
+            ],
+            [
+                '.github/workflows/ci.yml',
+                'M',
+                ['  extra_job:'],
+                'new workflow job or trigger: .github/workflows/ci.yml (extra_job:)',
+            ],
+            [
+                'package.json',
+                'M',
+                ['    "check:extra": "node scripts/extra.mjs",'],
+                'new check script: package.json ("check:extra": "node scripts/extra.mjs",)',
+            ],
+            [
+                'vitest.config.ts',
+                'M',
+                ['createExtraTestProject({name: \'extra\'})'],
+                'new vitest project: vitest.config.ts (createExtraTestProject({name: \'extra\'}))',
+            ],
+            [
+                'oxlint-plugin-invariants.mjs',
+                'M',
+                ['    \'no-extra\': noExtraRule,'],
+                'new custom lint rule: oxlint-plugin-invariants.mjs (\'no-extra\': noExtraRule,)',
+            ],
+            [
+                '.oxlintrc.json',
+                'M',
+                ['    "no-console": "error",'],
+                'newly enabled lint rule: .oxlintrc.json ("no-console": "error",)',
+            ],
+            [
+                'scripts/release/policy.mjs',
+                'M',
+                ['            id: \'extra\','],
+                'new gate policy entry: scripts/release/policy.mjs (id: \'extra\',)',
+            ],
+        ])('flags check infrastructure addition %s (%s)', (filePath, status, lines, expected) => {
+            expect(addedChecks.findAddedChecks([{
+                path: filePath,
+                status,
+            }], () => lines)).toEqual([expected]);
         });
 
-        it('treats only an exact copy of a deleted test file as a move, once', () => {
-            const renamed = [
-                'beforeAll(async () => {',
-                '    await startNotes();',
-                '}, 60_000);',
-                ...keepsNotes,
-            ];
-            const statuses = {
-                'tests/a.test.ts': 'D',
-                'tests/b.test.ts': 'A',
-            };
+        it('enforces infrastructure and flake-tolerance rules through committed history and batched metadata', async () => {
+            const repository = createRepository('evb-added-checks-history-');
+            try {
+                const base = await commit(repository, 'Clean base', {'app/index.ts': 'export const app = true;\n'});
+                const cleanTest = await commit(repository, 'Add regression test', {
+                    'tests/unit/regression.test.ts': 'export const ok = true;\n',
+                });
+                const flakyTest = await commit(repository, 'Add flaky test', {
+                    'tests/unit/flaky.test.ts': 'await new Promise(resolve => setTimeout(resolve, 500));\n',
+                });
+                const newCiScript = await commit(repository, 'Add CI script', {
+                    'scripts/ci/helper.sh': '#!/usr/bin/env bash\n',
+                });
+                const authorizedCiScript = await commit(
+                    repository,
+                    'Add authorized CI script\n\nAdds-Checks: owner asked for this helper',
+                    {'scripts/ci/authorized.sh': '#!/usr/bin/env bash\n'},
+                );
 
-            expect(findInChange(statuses, {'tests/b.test.ts': renamed}, {'tests/a.test.ts': renamed})).toEqual([]);
-            expect(findInChange(statuses, {'tests/b.test.ts': [
-                'import {startNotes} from \'./notes\';',
-                ...renamed,
-            ]}, {'tests/a.test.ts': renamed})).toEqual(['new test file: tests/b.test.ts']);
-            expect(findInChange({
-                ...statuses,
-                'tests/c.test.ts': 'A',
-            }, {
-                'tests/b.test.ts': renamed,
-                'tests/c.test.ts': renamed,
-            }, {'tests/a.test.ts': renamed})).toEqual(['new test file: tests/c.test.ts']);
+                const commits = checker.collectPushedRangeCommits(base, authorizedCiScript, repository);
+                const metadata = addedChecks.readCommitMetadata(commits, repository);
+                expect(metadata.size).toBe(4);
+                expect(metadata.get(cleanTest)?.parents).toEqual([base]);
+                expect(metadata.get(authorizedCiScript)?.body).toContain('Adds-Checks: owner asked for this helper');
+
+                const violations = checker.findPushPolicyViolations(commits, repository);
+                expect(violationSubjects(violations)).toEqual([
+                    flakyTest,
+                    newCiScript,
+                ]);
+                expect(violations[0]?.matches.join('\n')).toContain('wall-clock sleep in a test: tests/unit/flaky.test.ts');
+                expect(violations[1]?.matches.join('\n')).toContain('new CI script: scripts/ci/helper.sh');
+            } finally {
+                await removeRepository(repository);
+            }
         });
     });
 });
