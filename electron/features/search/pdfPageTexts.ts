@@ -526,7 +526,7 @@ async function* streamPdfPageTextRanges(
                     // again.
                     if (inspection.reason !== 'native-tool-failed') {
                         inspectedWindows = windows.length;
-                        await visibilitySession.close();
+                        void visibilitySession.close().catch(() => undefined);
                     }
                 }
             }

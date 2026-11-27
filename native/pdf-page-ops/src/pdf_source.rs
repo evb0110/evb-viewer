@@ -15,7 +15,7 @@ const MAX_OBJECT_BYTES: usize = MAX_DECOMPRESSED_PDF_STREAM_BYTES;
 /// the memory it parses into as its byte ceiling alone does not. A reader
 /// that selected the keys it uses allowed a million values; this one parses
 /// the keys it leaves unused too.
-const MAX_OBJECT_ELEMENTS: usize = 2_000_000;
+pub(crate) const MAX_OBJECT_ELEMENTS: usize = 2_000_000;
 /// The most values all the objects one read parses hold together: room for
 /// a document at the object and page ceilings, well below what wasm32 memory
 /// holds once parsed.

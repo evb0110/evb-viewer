@@ -80,7 +80,7 @@ impl<'a> OverlayDestinations<'a> {
                 for destination in
                     annotation_action_destinations(self.probe, annotation, &mut visited_action_ids)
                 {
-                    let Some(array) = self.names.resolve(&destination)? else {
+                    let Some(array) = self.names.resolve(destination)? else {
                         continue;
                     };
                     let target = array.first().and_then(|object| object.as_reference().ok());
@@ -94,7 +94,7 @@ impl<'a> OverlayDestinations<'a> {
                             }
                             extra.insert(index);
                         }
-                        if let Object::Name(name) | Object::String(name, _) = &destination {
+                        if let Object::Name(name) | Object::String(name, _) = destination {
                             if !seen_named.insert(name.clone()) {
                                 continue;
                             }
@@ -133,30 +133,30 @@ impl<'a> OverlayDestinations<'a> {
 /// including `/Dest`, `/A`, `/AA`, and chained `/Next` actions (dictionaries or arrays).
 /// `visited_ids` is shared across the batch so shared indirect action graphs are
 /// walked once rather than once per annotation.
-fn annotation_action_destinations(
-    document: &Document,
-    annotation: &Dictionary,
+fn annotation_action_destinations<'a>(
+    document: &'a Document,
+    annotation: &'a Dictionary,
     visited_ids: &mut HashSet<ObjectId>,
-) -> Vec<Object> {
+) -> Vec<&'a Object> {
     let mut destinations = Vec::new();
     if let Ok(dest) = annotation.get(b"Dest") {
         if let Ok((_, resolved)) = document.dereference(dest) {
-            destinations.push(resolved.clone());
+            destinations.push(resolved);
         }
     }
     let mut pending = Vec::new();
     if let Ok(root_action) = annotation.get(b"A") {
-        pending.push(root_action.clone());
+        pending.push(root_action);
     }
     if let Ok(additional_actions) = annotation.get(b"AA") {
         if let Ok((_, Object::Dictionary(aa_dict))) = document.dereference(additional_actions) {
             for (_, action) in aa_dict.iter() {
-                pending.push(action.clone());
+                pending.push(action);
             }
         }
     }
     while let Some(item) = pending.pop() {
-        let Ok((id, resolved)) = document.dereference(&item) else {
+        let Ok((id, resolved)) = document.dereference(item) else {
             continue;
         };
         if let Some(id) = id {
@@ -167,17 +167,17 @@ fn annotation_action_destinations(
         match resolved {
             Object::Array(items) => {
                 for next_item in items {
-                    pending.push(next_item.clone());
+                    pending.push(next_item);
                 }
             }
             Object::Dictionary(action) => {
                 if let Some(dest) = goto_destination(document, action) {
                     if let Ok((_, resolved_dest)) = document.dereference(dest) {
-                        destinations.push(resolved_dest.clone());
+                        destinations.push(resolved_dest);
                     }
                 }
                 if let Ok(next) = action.get(b"Next") {
-                    pending.push(next.clone());
+                    pending.push(next);
                 }
             }
             _ => {}

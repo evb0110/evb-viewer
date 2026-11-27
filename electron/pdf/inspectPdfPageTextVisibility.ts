@@ -100,21 +100,30 @@ export function openPdfPageTextVisibilitySession(input: {
     const sessionId = canReuseSession ? allocateVisibilitySessionId() : undefined;
     let opened = false;
     let closed = false;
+    const inFlightSessionInspections = new Set<Promise<unknown>>();
 
     return {
         async inspectPages(pageNumbers, signal) {
-            if (sessionId !== undefined && !closed) {
+            const activeSessionId = sessionId !== undefined && !closed ? sessionId : undefined;
+            if (activeSessionId !== undefined) {
                 opened = true;
             }
-            return inspectPdfPageTextVisibilityWithSession({
+            const request = inspectPdfPageTextVisibilityWithSession({
                 pdfPath: input.pdfPath,
                 pageNumbers,
                 pdfPageOpsBinary: input.pdfPageOpsBinary,
                 tempDir: input.tempDir,
                 ...(signal === undefined ? {} : {signal}),
                 ...(input.withEvbOcrText === undefined ? {} : {withEvbOcrText: input.withEvbOcrText}),
-                ...(sessionId === undefined || closed ? {} : {sessionId}),
+                ...(activeSessionId === undefined ? {} : {sessionId: activeSessionId}),
             });
+            if (activeSessionId !== undefined) {
+                inFlightSessionInspections.add(request);
+                void request.finally(() => {
+                    inFlightSessionInspections.delete(request);
+                });
+            }
+            return request;
         },
         async close() {
             if (closed || !opened || sessionId === undefined || input.pdfPageOpsBinary === undefined) {
@@ -122,6 +131,9 @@ export function openPdfPageTextVisibilitySession(input: {
                 return;
             }
             closed = true;
+            if (inFlightSessionInspections.size > 0) {
+                await Promise.allSettled([...inFlightSessionInspections]);
+            }
             await runNativeToolCommand(input.pdfPageOpsBinary, [
                 'ocr-text-visibility',
                 '--input',

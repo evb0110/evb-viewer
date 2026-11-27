@@ -470,6 +470,17 @@ fn check_overlay_xref_budget(
             continue;
         };
         let new_values = reopened_value_count(new_obj);
+        if (new_values as usize).saturating_sub(1) > crate::pdf_source::MAX_OBJECT_ELEMENTS {
+            return Err(domain_error(
+                NativeErrorCode::TooLarge,
+                format!(
+                    "PDF object {} {} exceeds the {}-element ceiling",
+                    id.0,
+                    id.1,
+                    crate::pdf_source::MAX_OBJECT_ELEMENTS
+                ),
+            ));
+        }
         let old_values = match previous_objects.get(id) {
             Some(old_obj) => reopened_value_count(old_obj),
             None => {
@@ -1125,6 +1136,7 @@ fn overlay_text_to_sink_with_limit<S: ByteSource, K: ByteSource, W: Write>(
         let source = load_pdf_bytes(&source_data).map_err(|error| {
             classify_pdf_load_error(error, "Failed to parse source PDF structure")
         })?;
+        drop(source_data);
         assert_plaintext_base(
             &source,
             "Encrypted source PDFs are not supported by native page ops",
@@ -1135,6 +1147,7 @@ fn overlay_text_to_sink_with_limit<S: ByteSource, K: ByteSource, W: Write>(
             &parsed,
             Some(&target_resolver),
         )?;
+        drop(source);
         incremental.new_document.version = incremental.get_prev_documents().version.clone();
         let revision = appended_revision_bytes(&mut incremental)?;
         let expected_object_ids = collect_incremental_append_object_ids(&incremental);

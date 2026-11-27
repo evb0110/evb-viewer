@@ -2018,23 +2018,33 @@ function dispatchDesktopPageOpsCommand(
             const pages = readPagesFile(requireFlag(parsed.pagesFile, '--pages-file'), MAX_COLLECTION_ITEMS);
             return withHostFiles({sourcePaths: [parsed.inputPath]}, io => {
                 const fdIdentity = io.sources[0]?.fdIdentity ?? null;
+                const evictVisibilitySession = (id: number) => {
+                    const evictRequest = encodeFileRequest({
+                        operation: OPERATION_CODES.ocrTextVisibility,
+                        sourceCount: 0,
+                        afterPage: id,
+                        tail: textEncoder.encode('close'),
+                    });
+                    const emptyIo: IHostIoContext = {
+                        sources: [],
+                        extraOpenOrder: [],
+                        sink: null,
+                        memory: null,
+                    };
+                    try {
+                        runner.runFileRequest(evictRequest, emptyIo);
+                    } catch {
+                        // If the WASM instance cannot clean up the session cleanly,
+                        // discard the instance so stale cached indices cannot survive.
+                        runner.dispose();
+                    } finally {
+                        runner.setVisibilitySessionIdentity?.(id, null);
+                    }
+                };
                 if (parsed.sessionId !== undefined) {
                     const cachedIdentity = runner.getVisibilitySessionIdentity?.(parsed.sessionId);
                     if (cachedIdentity !== undefined && cachedIdentity !== fdIdentity) {
-                        const evictRequest = encodeFileRequest({
-                            operation: OPERATION_CODES.ocrTextVisibility,
-                            sourceCount: 0,
-                            afterPage: parsed.sessionId,
-                            tail: textEncoder.encode('close'),
-                        });
-                        const emptyIo: IHostIoContext = {
-                            sources: [],
-                            extraOpenOrder: [],
-                            sink: null,
-                            memory: null,
-                        };
-                        runner.runFileRequest(evictRequest, emptyIo);
-                        runner.setVisibilitySessionIdentity?.(parsed.sessionId, null);
+                        evictVisibilitySession(parsed.sessionId);
                     }
                 }
                 const request = encodeFileRequest({
@@ -2055,7 +2065,7 @@ function dispatchDesktopPageOpsCommand(
                     };
                 } catch (error) {
                     if (parsed.sessionId !== undefined) {
-                        runner.setVisibilitySessionIdentity?.(parsed.sessionId, null);
+                        evictVisibilitySession(parsed.sessionId);
                     }
                     throw error;
                 }
