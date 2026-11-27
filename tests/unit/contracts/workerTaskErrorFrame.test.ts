@@ -60,8 +60,12 @@ describe('worker task error frame contract', () => {
         });
     });
 
-    it('rejects malformed frames and strips unknown properties', () => {
+    it('rejects malformed frames, array frames, and strips unknown properties', () => {
         expect(parseWorkerTaskErrorFrame({message: 123})).toBeNull();
+        expect(parseWorkerTaskErrorFrame(Object.assign([], {
+            message: 'failed',
+            canceled: true,
+        }))).toBeNull();
         expect(parseWorkerTaskErrorFrame({
             message: 'failed',
             code: '',

@@ -1,7 +1,8 @@
+import {isRecord} from '@contracts/runtimeGuards';
 import {SERIALIZABLE_ERROR_ENVELOPE_SCHEMA} from '@contracts/serializableError';
 import * as v from 'valibot';
 
-export const WORKER_TASK_ERROR_FRAME_SCHEMA = v.object({
+const WORKER_TASK_ERROR_FRAME_OBJECT_SCHEMA = v.object({
     ...SERIALIZABLE_ERROR_ENVELOPE_SCHEMA.entries,
     code: v.optional(SERIALIZABLE_ERROR_ENVELOPE_SCHEMA.entries.code),
     name: v.optional(v.string()),
@@ -15,6 +16,25 @@ export const WORKER_TASK_ERROR_FRAME_SCHEMA = v.object({
      */
     terminationUnproven: v.optional(v.string()),
 });
+
+export const WORKER_TASK_ERROR_FRAME_SCHEMA = v.pipe(
+    v.unknown(),
+    v.check(isRecord, 'Expected worker task error frame object'),
+    v.rawTransform(({
+        dataset,
+        addIssue,
+        NEVER,
+    }) => {
+        const result = v.safeParse(WORKER_TASK_ERROR_FRAME_OBJECT_SCHEMA, dataset.value, {abortEarly: true});
+        if (!result.success) {
+            for (const issue of result.issues) {
+                addIssue({message: issue.message});
+            }
+            return NEVER;
+        }
+        return result.output;
+    }),
+);
 
 export type IWorkerTaskErrorFrame = v.InferOutput<typeof WORKER_TASK_ERROR_FRAME_SCHEMA>;
 

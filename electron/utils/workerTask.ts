@@ -112,6 +112,22 @@ function getErrorStringProperty(error: unknown, key: 'name' | 'code') {
         : undefined;
 }
 
+function readCloneableErrorDetails(error: unknown, explicitDetails: unknown): unknown {
+    try {
+        const candidate = explicitDetails !== undefined
+            ? explicitDetails
+            : isRecord(error) && 'details' in error
+                ? error.details
+                : undefined;
+        if (candidate === undefined) {
+            return undefined;
+        }
+        return structuredClone(candidate);
+    } catch {
+        return undefined;
+    }
+}
+
 export function createWorkerTaskErrorFrame(
     error: unknown,
     options: {
@@ -142,11 +158,7 @@ export function createWorkerTaskErrorFrame(
     if (terminationUnproven !== undefined) {
         frame.terminationUnproven = terminationUnproven;
     }
-    const details = options.details !== undefined
-        ? options.details
-        : isRecord(error) && 'details' in error
-            ? error.details
-            : undefined;
+    const details = readCloneableErrorDetails(error, options.details);
     if (details !== undefined) {
         frame.details = details;
     }
