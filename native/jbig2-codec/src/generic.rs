@@ -180,6 +180,7 @@ pub(crate) fn decode(
         let (mut c1, mut c2, mut c3) = initial_contexts_slices(above0, above1);
 
         let mut byte_idx = 0;
+        let mut zero_above_end = 0usize;
         while byte_idx < full_bytes {
             let next_a0 = if byte_idx + 1 < stride {
                 above0[byte_idx + 1]
@@ -196,26 +197,24 @@ pub(crate) fn decode(
 
             if c1 == 0 && c2 == 0 && c3 == 0 && next_c1 == 0 && next_c2 == 0 {
                 let run_start = byte_idx;
-                let mut run_end = byte_idx + 1;
-                while run_end < full_bytes {
-                    let n_a0 = if run_end + 1 < stride {
-                        above0[run_end + 1]
-                    } else {
-                        0
-                    };
-                    if above0[run_end] != 0 || (n_a0 & 0xe0) != 0 {
-                        break;
+                let run_end = if zero_above_end > byte_idx {
+                    zero_above_end
+                } else {
+                    let mut end = byte_idx + 1;
+                    while end < full_bytes {
+                        let n_a0 = if end + 1 < stride { above0[end + 1] } else { 0 };
+                        if above0[end] != 0 || (n_a0 & 0xe0) != 0 {
+                            break;
+                        }
+                        let n_a1 = if end + 1 < stride { above1[end + 1] } else { 0 };
+                        if above1[end] != 0 || (n_a1 & 0xf0) != 0 {
+                            break;
+                        }
+                        end += 1;
                     }
-                    let n_a1 = if run_end + 1 < stride {
-                        above1[run_end + 1]
-                    } else {
-                        0
-                    };
-                    if above1[run_end] != 0 || (n_a1 & 0xf0) != 0 {
-                        break;
-                    }
-                    run_end += 1;
-                }
+                    zero_above_end = end;
+                    end
+                };
                 let run_bytes = run_end - run_start;
                 let (zero_bits, hit_one) = coder.decode_zero_run_ctx0(&mut contexts, run_bytes * 8);
                 if !hit_one {

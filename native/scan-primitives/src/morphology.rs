@@ -265,19 +265,16 @@ fn rectangular_binary_words(
         return source.clone();
     }
 
-    let horizontal_owned;
-    let horizontal = if radius_x == 0 {
-        source
-    } else {
-        horizontal_owned = horizontal_binary_words(source, radius_x, any);
-        &horizontal_owned
-    };
-
-    if radius_y == 0 {
-        return horizontal.clone();
+    if radius_x == 0 {
+        return vertical_binary_words(source, radius_y, any);
     }
 
-    vertical_binary_words(horizontal, radius_y, any)
+    let horizontal = horizontal_binary_words(source, radius_x, any);
+    if radius_y == 0 {
+        return horizontal;
+    }
+
+    vertical_binary_words(&horizontal, radius_y, any)
 }
 
 fn horizontal_binary_words(source: &BinaryImage, radius_x: usize, any: bool) -> BinaryImage {

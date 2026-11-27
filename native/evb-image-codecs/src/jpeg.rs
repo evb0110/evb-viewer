@@ -351,77 +351,89 @@ pub fn resize_pixels(
         .and_then(|value| value.checked_mul(ch))
         .ok_or("Resized pixel payload size overflow")?;
     let mut output = vec![0u8; output_len];
-    let x_taps = AreaTaps::new(sw, nw);
-    let y_taps = AreaTaps::new(sh, nh);
-    let area = (sw as f64) * (sh as f64);
+    let x_taps = AxisTaps::new(sw, nw);
+    let y_taps = AxisTaps::new(sh, nh);
     let source_row_len = sw * ch;
-    let mut row_accum = vec![0u64; source_row_len];
+    let mut row_accum = vec![0.0f64; source_row_len];
 
     for y in 0..nh {
-        row_accum.fill(0);
-        let (sy_first, y_weights) = y_taps.get(y);
+        row_accum.fill(0.0);
+        let (sy_first, y_weights, span_y) = y_taps.get(y);
         for (offset, &wy) in y_weights.iter().enumerate() {
             let row_start = (sy_first + offset) * source_row_len;
             let src_row = &pixels[row_start..row_start + source_row_len];
             for (acc, &px) in row_accum.iter_mut().zip(src_row) {
-                *acc += wy * u64::from(px);
+                *acc += f64::from(px) * wy;
             }
         }
         let out_row = &mut output[y * nw * ch..(y + 1) * nw * ch];
         if ch == 1 {
             for (x, target) in out_row.iter_mut().enumerate() {
-                let (sx_first, x_weights) = x_taps.get(x);
-                let mut sum = 0u64;
+                let (sx_first, x_weights, span_x) = x_taps.get(x);
+                let mut sum = 0.0f64;
                 for (offset, &wx) in x_weights.iter().enumerate() {
-                    sum += wx * row_accum[sx_first + offset];
+                    sum += row_accum[sx_first + offset] * wx;
                 }
-                *target = (sum as f64 / area).round().clamp(0.0, 255.0) as u8;
+                *target = (sum / (span_x * span_y)).round().clamp(0.0, 255.0) as u8;
             }
         } else {
             for (x, target) in out_row.chunks_exact_mut(3).enumerate() {
-                let (sx_first, x_weights) = x_taps.get(x);
-                let mut sums = [0u64; 3];
+                let (sx_first, x_weights, span_x) = x_taps.get(x);
+                let mut sums = [0.0f64; 3];
                 for (offset, &wx) in x_weights.iter().enumerate() {
                     let base = (sx_first + offset) * 3;
-                    sums[0] += wx * row_accum[base];
-                    sums[1] += wx * row_accum[base + 1];
-                    sums[2] += wx * row_accum[base + 2];
+                    sums[0] += row_accum[base] * wx;
+                    sums[1] += row_accum[base + 1] * wx;
+                    sums[2] += row_accum[base + 2] * wx;
                 }
-                target[0] = (sums[0] as f64 / area).round().clamp(0.0, 255.0) as u8;
-                target[1] = (sums[1] as f64 / area).round().clamp(0.0, 255.0) as u8;
-                target[2] = (sums[2] as f64 / area).round().clamp(0.0, 255.0) as u8;
+                let area = span_x * span_y;
+                target[0] = (sums[0] / area).round().clamp(0.0, 255.0) as u8;
+                target[1] = (sums[1] / area).round().clamp(0.0, 255.0) as u8;
+                target[2] = (sums[2] / area).round().clamp(0.0, 255.0) as u8;
             }
         }
     }
     Ok(output)
 }
 
-struct AreaTaps {
-    spans: Vec<(usize, usize, usize)>,
-    weights: Vec<u64>,
+struct AxisTaps {
+    entries: Vec<(usize, usize, usize, f64)>,
+    weights: Vec<f64>,
 }
 
-impl AreaTaps {
+impl AxisTaps {
     fn new(source_len: usize, out_len: usize) -> Self {
-        let (source, out) = (source_len as u64, out_len as u64);
-        let mut spans = Vec::with_capacity(out_len);
+        let scale = source_len as f64 / out_len as f64;
+        let mut entries = Vec::with_capacity(out_len);
         let mut weights = Vec::with_capacity(source_len.saturating_add(out_len));
-        for index in 0..out {
-            let (low, high) = (index * source, (index + 1) * source);
-            let (first, last) = (low / out, (high - 1) / out);
-            let start = weights.len();
-            for cell in first..=last {
-                weights.push(((cell + 1) * out).min(high) - (cell * out).max(low));
+        for index in 0..out_len {
+            let p0 = index as f64 * scale;
+            let p1 = (index + 1) as f64 * scale;
+            let start_idx = p0.floor() as usize;
+            let end_idx = p1.ceil().min(source_len as f64) as usize;
+            let weight_start = weights.len();
+            let mut first_src = start_idx;
+            let mut started = false;
+            for src in start_idx..end_idx {
+                let overlap = ((src + 1) as f64).min(p1) - (src as f64).max(p0);
+                if overlap <= 0.0 {
+                    continue;
+                }
+                if !started {
+                    first_src = src;
+                    started = true;
+                }
+                weights.push(overlap);
             }
-            spans.push((first as usize, start, weights.len()));
+            entries.push((first_src, weight_start, weights.len(), p1 - p0));
         }
-        Self { spans, weights }
+        Self { entries, weights }
     }
 
     #[inline]
-    fn get(&self, index: usize) -> (usize, &[u64]) {
-        let (first, start, end) = self.spans[index];
-        (first, &self.weights[start..end])
+    fn get(&self, index: usize) -> (usize, &[f64], f64) {
+        let (first, start, end, span) = self.entries[index];
+        (first, &self.weights[start..end], span)
     }
 }
 
@@ -759,6 +771,18 @@ mod tests {
             out
         }
 
+        // Exact legacy f64 boundary case: 4x1 -> 3x1 with [0, 2, 0, 0] produces
+        // 0.4999999999999999 for the first pixel, which rounds to 0.
+        let boundary = [0u8, 2, 0, 0];
+        assert_eq!(
+            resize_pixels(&boundary, 4, 1, 1, 3, 1, 1_000_000).unwrap(),
+            ref_2d(&boundary, 4, 1, 1, 3, 1)
+        );
+        assert_eq!(
+            resize_pixels(&boundary, 4, 1, 1, 3, 1, 1_000_000).unwrap(),
+            vec![0, 1, 0]
+        );
+
         let mut state = 0x4a50_4547_5253_5a31_u64;
         for (sw, sh, nw, nh, ch) in [
             (17, 13, 7, 5, 1),
@@ -780,13 +804,10 @@ mod tests {
             )
             .unwrap();
             let expected = ref_2d(&pixels, sw, sh, ch, nw, nh);
-            assert_eq!(actual.len(), expected.len());
-            for (idx, (&a, &e)) in actual.iter().zip(&expected).enumerate() {
-                assert!(
-                    a.abs_diff(e) <= 1,
-                    "pixel diff > 1 at {idx} for {sw}x{sh}->{nw}x{nh} ch={ch}: {a} vs {e}"
-                );
-            }
+            assert_eq!(
+                actual, expected,
+                "mismatch for {sw}x{sh}->{nw}x{nh} ch={ch}"
+            );
         }
     }
 }
