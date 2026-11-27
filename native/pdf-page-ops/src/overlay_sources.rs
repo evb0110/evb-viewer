@@ -115,9 +115,17 @@ fn append_overlay_pages(
     source: &Document,
     instructions: &TextLayerFile,
     base: Option<&Document>,
+    cached_target_resolver: Option<&PageTreeResolver>,
 ) -> Result<Vec<usize>> {
     let source_resolver = PageTreeResolver::new(source)?;
-    let target_resolver = PageTreeResolver::new(base.unwrap_or(target))?;
+    let owned_target_resolver;
+    let target_resolver = match cached_target_resolver {
+        Some(resolver) => resolver,
+        None => {
+            owned_target_resolver = PageTreeResolver::new(base.unwrap_or(target))?;
+            &owned_target_resolver
+        }
+    };
     let pages: Vec<OverlayPage<'_>> = instructions
         .pages
         .iter()
@@ -185,7 +193,7 @@ pub(crate) fn overlay_text_layers(
     source: &Document,
     instructions: &TextLayerFile,
 ) -> Result<Vec<usize>> {
-    let omitted = append_overlay_pages(target, source, instructions, None)?;
+    let omitted = append_overlay_pages(target, source, instructions, None, None)?;
     target.prune_objects();
     // Compress new OCR streams without changing already-compressed images.
     target.compress();
@@ -247,16 +255,27 @@ fn prepare_overlay_page(base: &Document, target: &mut Document, page_id: ObjectI
     Ok(())
 }
 
+#[cfg(test)]
 pub(crate) fn overlay_text_layers_incremental(
     incremental: &mut IncrementalDocument,
     source: &Document,
     instructions: &TextLayerFile,
+) -> Result<Vec<usize>> {
+    overlay_text_layers_incremental_with_resolver(incremental, source, instructions, None)
+}
+
+fn overlay_text_layers_incremental_with_resolver(
+    incremental: &mut IncrementalDocument,
+    source: &Document,
+    instructions: &TextLayerFile,
+    target_resolver: Option<&PageTreeResolver>,
 ) -> Result<Vec<usize>> {
     append_overlay_pages(
         &mut incremental.new_document,
         source,
         instructions,
         Some(&incremental.previous_document),
+        target_resolver,
     )
 }
 
@@ -419,9 +438,38 @@ fn reset_pending_overlay_revision(incremental: &mut IncrementalDocument) -> Resu
     Ok(())
 }
 
+fn check_overlay_xref_budget(
+    budget: &mut crate::pdf_source::IndexedXrefBudget,
+    incremental: &IncrementalDocument,
+    revision_bytes: &[u8],
+    expected_object_ids: &[ObjectId],
+) -> Result<()> {
+    if revision_bytes.is_empty() {
+        return Ok(());
+    }
+    let new_xref_start = parse_revision_startxref(revision_bytes)?;
+    let was_xref_stream = matches!(
+        incremental
+            .get_prev_documents()
+            .reference_table
+            .cross_reference_type,
+        lopdf::xref::XrefType::CrossReferenceStream
+    );
+    let wrote_xref_stream = was_xref_stream || new_xref_start > MAX_CLASSIC_XREF_OFFSET;
+    let previous_objects = &incremental.get_prev_documents().objects;
+    let new_object_numbers = expected_object_ids
+        .iter()
+        .filter(|id| !previous_objects.contains_key(id))
+        .count();
+    budget.check_and_record_revision(
+        expected_object_ids.len(),
+        new_object_numbers,
+        wrote_xref_stream,
+    )
+}
+
 /// Advances the indexed append base in place after a revision has been written
-/// and verified, avoiding reopening and re-parsing the entire growing output on
-/// every 64-page batch.
+/// and verified, updating only objects touched by this revision (O(batch)).
 fn advance_verified_overlay_append_base(
     incremental: &mut IncrementalDocument,
     revision_bytes: &[u8],
@@ -435,71 +483,15 @@ fn advance_verified_overlay_append_base(
         .ok_or("overlay-text output size overflow")?;
     let new_last_byte = revision_bytes.last().copied();
     let new_xref_start = parse_revision_startxref(revision_bytes)?;
-
-    let mut previous = std::mem::take(&mut incremental.previous_document);
-    let pending = std::mem::take(&mut incremental.new_document);
-    let mut unread = std::mem::take(&mut incremental.unavailable_base_streams);
-
     let was_xref_stream = matches!(
-        previous.reference_table.cross_reference_type,
+        incremental
+            .get_prev_documents()
+            .reference_table
+            .cross_reference_type,
         lopdf::xref::XrefType::CrossReferenceStream
     );
     let wrote_xref_stream = was_xref_stream || new_xref_start > MAX_CLASSIC_XREF_OFFSET;
-    let combined_max_id = pending.max_id.max(previous.max_id);
-    let next_max_id = if wrote_xref_stream {
-        combined_max_id
-            .checked_add(1)
-            .ok_or("PDF object number overflow")?
-    } else {
-        combined_max_id
-    };
-    previous.max_id = next_max_id;
-    previous.reference_table = lopdf::xref::Xref::new(
-        next_max_id.saturating_add(1),
-        if wrote_xref_stream {
-            lopdf::xref::XrefType::CrossReferenceStream
-        } else {
-            lopdf::xref::XrefType::CrossReferenceTable
-        },
-    );
-
-    for (object_id, mut object) in pending.objects {
-        if !should_write_incremental_object(&object) {
-            continue;
-        }
-        if let Object::Stream(ref mut stream) = object {
-            stream.content.clear();
-            stream.content.shrink_to_fit();
-            unread.insert(object_id);
-        } else {
-            unread.remove(&object_id);
-        }
-        previous.objects.insert(object_id, object);
-    }
-
-    let mut next_trailer = pending.trailer;
-    for key in [
-        b"Prev".as_slice(),
-        b"Size",
-        b"Type",
-        b"W",
-        b"Index",
-        b"Length",
-        b"Filter",
-        b"DecodeParms",
-    ] {
-        next_trailer.remove(key);
-    }
-    previous.trailer = next_trailer;
-
-    *incremental = IncrementalDocument::from_indexed_document(
-        previous,
-        new_len,
-        new_last_byte,
-        new_xref_start,
-        unread,
-    )?;
-    Ok(())
+    incremental.advance_verified_revision(new_len, new_last_byte, new_xref_start, wrote_xref_stream)
 }
 
 struct PathBoundedVecWriter {
@@ -528,6 +520,8 @@ impl Write for PathBoundedVecWriter {
 fn try_write_overlay_source_batch(
     output_path: &Path,
     incremental: &mut IncrementalDocument,
+    target_resolver: &PageTreeResolver,
+    xref_budget: &mut crate::pdf_source::IndexedXrefBudget,
     source_pdf: &SourcePdf<File>,
     source_page_ids: &[ObjectId],
     pages: &[usize],
@@ -551,6 +545,7 @@ fn try_write_overlay_source_batch(
         &source_pdf.document,
         source_page_ids,
         &subset_pages_u32,
+        destinations.named_destinations(),
     )
     .map_err(OverlaySourceBatchFailure::Failed)?;
     let subset_writer = extracted
@@ -594,18 +589,22 @@ fn try_write_overlay_source_batch(
         .rebase_subset(&subset.pages, pages)
         .map_err(OverlaySourceBatchFailure::Failed)?;
     reset_pending_overlay_revision(incremental).map_err(OverlaySourceBatchFailure::Failed)?;
-    let batch_omitted =
-        match overlay_text_layers_incremental(incremental, &source, &batch_instructions) {
-            Ok(batch_omitted) => batch_omitted,
-            Err(error) => {
-                let _ = reset_pending_overlay_revision(incremental);
-                return Err(if is_too_large_error(error.as_ref()) {
-                    OverlaySourceBatchFailure::TooLarge
-                } else {
-                    OverlaySourceBatchFailure::Failed(error)
-                });
-            }
-        };
+    let batch_omitted = match overlay_text_layers_incremental_with_resolver(
+        incremental,
+        &source,
+        &batch_instructions,
+        Some(target_resolver),
+    ) {
+        Ok(batch_omitted) => batch_omitted,
+        Err(error) => {
+            let _ = reset_pending_overlay_revision(incremental);
+            return Err(if is_too_large_error(error.as_ref()) {
+                OverlaySourceBatchFailure::TooLarge
+            } else {
+                OverlaySourceBatchFailure::Failed(error)
+            });
+        }
+    };
     incremental.new_document.version = incremental.get_prev_documents().version.clone();
     let revision_bytes = match build_incremental_revision(incremental) {
         Ok(bytes) => bytes,
@@ -615,6 +614,16 @@ fn try_write_overlay_source_batch(
         }
     };
     let expected_object_ids = collect_incremental_append_object_ids(incremental);
+    let mut next_budget = *xref_budget;
+    if let Err(error) = check_overlay_xref_budget(
+        &mut next_budget,
+        incremental,
+        &revision_bytes,
+        &expected_object_ids,
+    ) {
+        let _ = reset_pending_overlay_revision(incremental);
+        return Err(OverlaySourceBatchFailure::Failed(error));
+    }
     if let Err(error) = write_incremental_revision(
         output_path,
         incremental,
@@ -626,6 +635,7 @@ fn try_write_overlay_source_batch(
     }
     advance_verified_overlay_append_base(incremental, &revision_bytes)
         .map_err(OverlaySourceBatchFailure::Failed)?;
+    *xref_budget = next_budget;
     omitted.extend(batch_omitted);
     Ok(())
 }
@@ -634,6 +644,8 @@ fn try_write_overlay_source_batch(
 fn write_overlay_source_batch_with_split(
     output_path: &Path,
     incremental: &mut IncrementalDocument,
+    target_resolver: &PageTreeResolver,
+    xref_budget: &mut crate::pdf_source::IndexedXrefBudget,
     source_pdf: &SourcePdf<File>,
     source_page_ids: &[ObjectId],
     pages: &[usize],
@@ -644,6 +656,8 @@ fn write_overlay_source_batch_with_split(
     match try_write_overlay_source_batch(
         output_path,
         incremental,
+        target_resolver,
+        xref_budget,
         source_pdf,
         source_page_ids,
         pages,
@@ -658,6 +672,8 @@ fn write_overlay_source_batch_with_split(
             write_overlay_source_batch_with_split(
                 output_path,
                 incremental,
+                target_resolver,
+                xref_budget,
                 source_pdf,
                 source_page_ids,
                 &pages[..midpoint],
@@ -668,6 +684,8 @@ fn write_overlay_source_batch_with_split(
             write_overlay_source_batch_with_split(
                 output_path,
                 incremental,
+                target_resolver,
+                xref_budget,
                 source_pdf,
                 source_page_ids,
                 &pages[midpoint..],
@@ -824,6 +842,8 @@ fn write_overlay_source_batch_to_sink_with_split<S: ByteSource>(
     source_pdf: &SourcePdf<BufferedByteSource<S>>,
     source_page_ids: &[ObjectId],
     incremental: &mut IncrementalDocument,
+    target_resolver: &PageTreeResolver,
+    xref_budget: &mut crate::pdf_source::IndexedXrefBudget,
     current_len: &mut u64,
     pages: &[usize],
     indexed_instructions: &IndexedTextLayerInstructions<'_>,
@@ -848,6 +868,7 @@ fn write_overlay_source_batch_to_sink_with_split<S: ByteSource>(
             &source_pdf.document,
             source_page_ids,
             &subset_pages_u32,
+            destinations.named_destinations(),
         )
         .map_err(OverlaySourceBatchFailure::Failed)?;
         let subset_writer = extracted
@@ -893,18 +914,22 @@ fn write_overlay_source_batch_to_sink_with_split<S: ByteSource>(
             .rebase_subset(&subset.pages, pages)
             .map_err(OverlaySourceBatchFailure::Failed)?;
         reset_pending_overlay_revision(incremental).map_err(OverlaySourceBatchFailure::Failed)?;
-        let batch_omitted =
-            match overlay_text_layers_incremental(incremental, &source, &batch_instructions) {
-                Ok(batch_omitted) => batch_omitted,
-                Err(error) => {
-                    let _ = reset_pending_overlay_revision(incremental);
-                    return Err(if is_too_large_error(error.as_ref()) {
-                        OverlaySourceBatchFailure::TooLarge
-                    } else {
-                        OverlaySourceBatchFailure::Failed(error)
-                    });
-                }
-            };
+        let batch_omitted = match overlay_text_layers_incremental_with_resolver(
+            incremental,
+            &source,
+            &batch_instructions,
+            Some(target_resolver),
+        ) {
+            Ok(batch_omitted) => batch_omitted,
+            Err(error) => {
+                let _ = reset_pending_overlay_revision(incremental);
+                return Err(if is_too_large_error(error.as_ref()) {
+                    OverlaySourceBatchFailure::TooLarge
+                } else {
+                    OverlaySourceBatchFailure::Failed(error)
+                });
+            }
+        };
         incremental.new_document.version = incremental.get_prev_documents().version.clone();
         let revision = match appended_revision_bytes(incremental) {
             Ok(bytes) => bytes,
@@ -914,6 +939,16 @@ fn write_overlay_source_batch_to_sink_with_split<S: ByteSource>(
             }
         };
         let expected_object_ids = collect_incremental_append_object_ids(incremental);
+        let mut next_budget = *xref_budget;
+        if let Err(error) = check_overlay_xref_budget(
+            &mut next_budget,
+            incremental,
+            &revision,
+            &expected_object_ids,
+        ) {
+            let _ = reset_pending_overlay_revision(incremental);
+            return Err(OverlaySourceBatchFailure::Failed(error));
+        }
         let written = match append_at(*current_len, &revision) {
             Ok(written) => written,
             Err(error) => {
@@ -932,6 +967,7 @@ fn write_overlay_source_batch_to_sink_with_split<S: ByteSource>(
         }
         advance_verified_overlay_append_base(incremental, &revision)
             .map_err(OverlaySourceBatchFailure::Failed)?;
+        *xref_budget = next_budget;
         *current_len = current_len
             .checked_add(revision.len() as u64)
             .ok_or_else(|| {
@@ -949,6 +985,8 @@ fn write_overlay_source_batch_to_sink_with_split<S: ByteSource>(
                 source_pdf,
                 source_page_ids,
                 incremental,
+                target_resolver,
+                xref_budget,
                 current_len,
                 &pages[..midpoint],
                 indexed_instructions,
@@ -960,6 +998,8 @@ fn write_overlay_source_batch_to_sink_with_split<S: ByteSource>(
                 source_pdf,
                 source_page_ids,
                 incremental,
+                target_resolver,
+                xref_budget,
                 current_len,
                 &pages[midpoint..],
                 indexed_instructions,
@@ -1055,7 +1095,9 @@ fn overlay_text_to_sink_with_limit<S: ByteSource, K: ByteSource, W: Write>(
     let mut current_len = target_len;
     let mut omitted = Vec::new();
     let mut target_pdf = SourcePdf::open_append_base(target_source(), target_len)?;
+    let mut xref_budget = target_pdf.xref_budget();
     let mut incremental = target_pdf.take_append_base()?;
+    let target_resolver = PageTreeResolver::new(incremental.get_prev_documents())?;
     let pages_out = page_count(incremental.get_prev_documents());
     let _ = sink_source;
 
@@ -1068,10 +1110,22 @@ fn overlay_text_to_sink_with_limit<S: ByteSource, K: ByteSource, W: Write>(
             &source,
             "Encrypted source PDFs are not supported by native page ops",
         )?;
-        omitted = overlay_text_layers_incremental(&mut incremental, &source, &parsed)?;
+        omitted = overlay_text_layers_incremental_with_resolver(
+            &mut incremental,
+            &source,
+            &parsed,
+            Some(&target_resolver),
+        )?;
         incremental.new_document.version = incremental.get_prev_documents().version.clone();
         let revision = appended_revision_bytes(&mut incremental)?;
         let expected_object_ids = collect_incremental_append_object_ids(&incremental);
+        let mut next_budget = xref_budget;
+        check_overlay_xref_budget(
+            &mut next_budget,
+            &incremental,
+            &revision,
+            &expected_object_ids,
+        )?;
         let written = append_at(current_len, &revision)?;
         validate_incremental_append_bytes(
             &written,
@@ -1080,6 +1134,7 @@ fn overlay_text_to_sink_with_limit<S: ByteSource, K: ByteSource, W: Write>(
             &expected_object_ids,
         )?;
         advance_verified_overlay_append_base(&mut incremental, &revision)?;
+        xref_budget = next_budget;
         current_len = current_len
             .checked_add(revision.len() as u64)
             .ok_or("overlay-text output size overflow")?;
@@ -1096,7 +1151,8 @@ fn overlay_text_to_sink_with_limit<S: ByteSource, K: ByteSource, W: Write>(
             .expect("validated page tree holds its leaf page list");
         let indexed_instructions = IndexedTextLayerInstructions::new(&parsed);
         let source_pages = referenced_source_pages(&parsed)?;
-        let destinations = OverlayDestinations::new(&source_pdf.document, &parsed)?;
+        let destinations =
+            OverlayDestinations::new(&source_pdf.document, source_page_ids, &parsed)?;
         // First write ensures the sink starts with target_len bytes before any
         // incremental revision is appended (and materializes a lazy host sink
         // even when all instructions are link-only).
@@ -1106,6 +1162,8 @@ fn overlay_text_to_sink_with_limit<S: ByteSource, K: ByteSource, W: Write>(
                 &source_pdf,
                 source_page_ids,
                 &mut incremental,
+                &target_resolver,
+                &mut xref_budget,
                 &mut current_len,
                 batch,
                 &indexed_instructions,
@@ -1123,6 +1181,12 @@ fn overlay_text_to_sink_with_limit<S: ByteSource, K: ByteSource, W: Write>(
     if rebind.appends_revision {
         let revision = appended_revision_bytes(&mut incremental)?;
         let expected_object_ids = collect_incremental_append_object_ids(&incremental);
+        check_overlay_xref_budget(
+            &mut xref_budget,
+            &incremental,
+            &revision,
+            &expected_object_ids,
+        )?;
         let written = append_at(current_len, &revision)?;
         validate_incremental_append_bytes(
             &written,
@@ -1153,7 +1217,7 @@ pub(crate) fn write_overlay_text_layers_path(
         let (omitted, incremental, source_pdf) =
             write_overlay_text_layer_copies(input_path, source_path, staged, instructions)?;
         let tags_removed = match incremental {
-            Some(mut incremental) => {
+            Some((mut incremental, mut xref_budget)) => {
                 let source = match source_pdf {
                     Some(source_pdf) => source_pdf,
                     None => {
@@ -1169,6 +1233,12 @@ pub(crate) fn write_overlay_text_layers_path(
                 if rebind.appends_revision {
                     let revision_bytes = build_incremental_revision(&mut incremental)?;
                     let expected_object_ids = collect_incremental_append_object_ids(&incremental);
+                    check_overlay_xref_budget(
+                        &mut xref_budget,
+                        &incremental,
+                        &revision_bytes,
+                        &expected_object_ids,
+                    )?;
                     write_incremental_revision(
                         staged,
                         &incremental,
@@ -1205,6 +1275,7 @@ fn omitted_source_pages(instructions: &TextLayerFile, omitted_outputs: &[usize])
     pages
 }
 
+#[allow(clippy::type_complexity)]
 fn write_overlay_text_layer_copies(
     input_path: &Path,
     source_path: &Path,
@@ -1212,7 +1283,7 @@ fn write_overlay_text_layer_copies(
     instructions: &TextLayerFile,
 ) -> Result<(
     Vec<usize>,
-    Option<IncrementalDocument>,
+    Option<(IncrementalDocument, crate::pdf_source::IndexedXrefBudget)>,
     Option<SourcePdf<File>>,
 )> {
     // Preserve the established rewrite semantics only when both documents fit
@@ -1251,7 +1322,9 @@ fn write_overlay_text_layer_copies(
     // target uses the indexed incremental writer. This keeps the ordinary
     // source semantics, while avoiding a target-wide rewrite.
     if source_encoded_len <= MAX_ENCODED_PDF_BYTES as u64 {
-        let (_, mut incremental) = SourcePdf::open_append_base_path(output_path)?;
+        let (target_source, mut incremental) = SourcePdf::open_append_base_path(output_path)?;
+        let mut xref_budget = target_source.xref_budget();
+        let target_resolver = PageTreeResolver::new(incremental.get_prev_documents())?;
         let source = load_pdf_path(source_path).map_err(|error| {
             classify_pdf_load_error(error, "Failed to parse source PDF structure")
         })?;
@@ -1259,10 +1332,22 @@ fn write_overlay_text_layer_copies(
             &source,
             "Encrypted source PDFs are not supported by native page ops",
         )?;
-        let omitted = overlay_text_layers_incremental(&mut incremental, &source, instructions)?;
+        let omitted = overlay_text_layers_incremental_with_resolver(
+            &mut incremental,
+            &source,
+            instructions,
+            Some(&target_resolver),
+        )?;
         incremental.new_document.version = incremental.get_prev_documents().version.clone();
         let revision_bytes = build_incremental_revision(&mut incremental)?;
         let expected_object_ids = collect_incremental_append_object_ids(&incremental);
+        let mut next_budget = xref_budget;
+        check_overlay_xref_budget(
+            &mut next_budget,
+            &incremental,
+            &revision_bytes,
+            &expected_object_ids,
+        )?;
         write_incremental_revision(
             output_path,
             &incremental,
@@ -1270,10 +1355,13 @@ fn write_overlay_text_layer_copies(
             &expected_object_ids,
         )?;
         advance_verified_overlay_append_base(&mut incremental, &revision_bytes)?;
-        return Ok((omitted, Some(incremental), None));
+        xref_budget = next_budget;
+        return Ok((omitted, Some((incremental, xref_budget)), None));
     }
 
-    let (_, mut incremental) = SourcePdf::open_append_base_path(output_path)?;
+    let (target_source, mut incremental) = SourcePdf::open_append_base_path(output_path)?;
+    let mut xref_budget = target_source.xref_budget();
+    let target_resolver = PageTreeResolver::new(incremental.get_prev_documents())?;
     let source_pdf = SourcePdf::open_path(source_path)?;
     assert_plaintext_base(
         &source_pdf.document,
@@ -1285,12 +1373,15 @@ fn write_overlay_text_layer_copies(
         .expect("validated page tree holds its leaf page list");
     let indexed_instructions = IndexedTextLayerInstructions::new(instructions);
     let source_pages = referenced_source_pages(instructions)?;
-    let destinations = OverlayDestinations::new(&source_pdf.document, instructions)?;
+    let destinations =
+        OverlayDestinations::new(&source_pdf.document, source_page_ids, instructions)?;
     let mut omitted = Vec::new();
     for pages in source_pages.chunks(MAX_SOURCE_PAGE_BATCH_PAGES) {
         write_overlay_source_batch_with_split(
             output_path,
             &mut incremental,
+            &target_resolver,
+            &mut xref_budget,
             &source_pdf,
             source_page_ids,
             pages,
@@ -1299,7 +1390,7 @@ fn write_overlay_text_layer_copies(
             &mut omitted,
         )?;
     }
-    Ok((omitted, Some(incremental), Some(source_pdf)))
+    Ok((omitted, Some((incremental, xref_budget)), Some(source_pdf)))
 }
 
 #[cfg(test)]
@@ -1754,5 +1845,131 @@ mod tests {
         assert!(saw_link_to_page_130, "cross-batch link destination lost");
         assert!(saw_reply_with_irt, "annotation reply /IRT ownership lost");
         assert!(batched_doc.catalog().unwrap().has(b"PageLabels"));
+    }
+
+    #[test]
+    fn batched_overlay_preserves_nested_next_action_named_destinations_and_enforces_xref_budget() {
+        // 1. Nested /Next GoTo action with a named destination targeting a same-batch page.
+        let mut src = Document::with_version("1.5");
+        let pages_id = src.new_object_id();
+        let page0 = src.new_object_id();
+        let page1 = src.new_object_id();
+        let link_id = src.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Link",
+            "Rect" => vec![10.into(), 10.into(), 50.into(), 30.into()],
+            "A" => dictionary! {
+                "S" => "URI",
+                "URI" => Object::string_literal("https://example.test"),
+                "Next" => dictionary! {
+                    "S" => "GoTo",
+                    "D" => Object::Name(b"ChapterTwo".to_vec()),
+                },
+            },
+        });
+        src.objects.insert(
+            page0,
+            Object::Dictionary(dictionary! {
+                "Type" => "Page",
+                "Parent" => pages_id,
+                "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+                "Resources" => dictionary! {},
+                "Annots" => vec![Object::Reference(link_id)],
+            }),
+        );
+        src.objects.insert(
+            page1,
+            Object::Dictionary(dictionary! {
+                "Type" => "Page",
+                "Parent" => pages_id,
+                "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+                "Resources" => dictionary! {},
+            }),
+        );
+        src.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![Object::Reference(page0), Object::Reference(page1)],
+                "Count" => 2,
+            }),
+        );
+        let catalog_id = src.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+            "Dests" => dictionary! {
+                "ChapterTwo" => vec![Object::Reference(page1), Object::Name(b"Fit".to_vec())],
+            },
+        });
+        src.trailer.set("Root", catalog_id);
+        let mut source_bytes = Vec::new();
+        src.save_to(&mut source_bytes).unwrap();
+
+        let target_bytes = build_multi_page_pdf(2, false);
+        let instructions = serde_json::json!({
+            "pages": [
+                { "sourcePageIndex": 0, "outputPageIndex": 0, "matrix": [1.0, 0.0, 0.0, 1.0, 0.0, 0.0] },
+                { "sourcePageIndex": 1, "outputPageIndex": 1, "matrix": [1.0, 0.0, 0.0, 1.0, 0.0, 0.0] },
+            ]
+        })
+        .to_string();
+
+        let sink = LazyHostSink::new(target_bytes.clone());
+        let mut direct_sink = sink.clone();
+        let append_sink = sink.clone();
+        overlay_text_to_sink_with_limit(
+            || target_bytes.as_slice(),
+            target_bytes.len() as u64,
+            || source_bytes.as_slice(),
+            source_bytes.len() as u64,
+            || sink.clone(),
+            instructions.as_bytes(),
+            &mut direct_sink,
+            |offset, revision| {
+                let mut writer = append_sink.clone();
+                writer.set_cursor(offset);
+                write_overlay_append_revision_to_sink(&mut writer, offset, revision)
+            },
+            1,
+        )
+        .unwrap();
+
+        let loaded = Document::load_mem(&sink.staged_bytes().unwrap()).unwrap();
+        let out_pages = loaded.get_pages();
+        let annots =
+            page_annotation_array(&loaded, loaded.get_dictionary(out_pages[&1]).unwrap()).unwrap();
+        let annot = loaded
+            .get_dictionary(annots[0].as_reference().unwrap())
+            .unwrap();
+        let action = loaded
+            .resolved(annot.get(b"A").unwrap())
+            .unwrap()
+            .as_dict()
+            .unwrap();
+        let next = loaded
+            .resolved(action.get(b"Next").unwrap())
+            .unwrap()
+            .as_dict()
+            .unwrap();
+        let dest = loaded
+            .resolved(next.get(b"D").unwrap())
+            .unwrap()
+            .as_array()
+            .unwrap();
+        assert_eq!(dest[0].as_reference().unwrap(), out_pages[&2]);
+
+        // 2. Cumulative xref section budget refuses exceeding 4,096 sections before writing.
+        let mut budget = crate::pdf_source::IndexedXrefBudget {
+            sections: 4_095,
+            offsets: 4_095,
+            entries: 10,
+        };
+        budget.check_and_record_revision(3, 2, false).unwrap();
+        assert_eq!(budget.sections, 4_096);
+        let err = budget
+            .check_and_record_revision(3, 2, false)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("cross-reference chain"));
     }
 }

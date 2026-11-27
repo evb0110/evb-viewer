@@ -107,6 +107,7 @@ interface IPdfPageOpsWasmExports {
 interface IHostSourceEntry {
     fd: number | null;
     len: number | null;
+    fdIdentity?: string;
     path: string;
 }
 
@@ -555,7 +556,8 @@ function renameWithRetrySync(sourcePath: string, targetPath: string) {
 export interface IPdfPageOpsWasmRunner {
     runFileRequest(request: Uint8Array, io: IHostIoContext): Uint8Array<ArrayBuffer>;
     runRawRequest(request: Uint8Array): Uint8Array<ArrayBuffer>;
-    setVisibilitySessionActive?(sessionId: number, active: boolean): void;
+    getVisibilitySessionIdentity?(sessionId: number): string | undefined;
+    setVisibilitySessionIdentity?(sessionId: number, identity: string | null): void;
     maybeRecycle(): void;
     dispose(): void;
     memoryBytes(): number;
@@ -692,7 +694,7 @@ export function createPdfPageOpsWasmRunner(
         },
     };
 
-    const activeVisibilitySessions = new Set<number>();
+    const visibilitySessionIdentities = new Map<number, string>();
 
     function getTool() {
         tool ??= readExports(new WebAssembly.Instance(wasmModule, hostImports).exports);
@@ -701,19 +703,23 @@ export function createPdfPageOpsWasmRunner(
 
     function dispose() {
         tool = null;
-        activeVisibilitySessions.clear();
+        visibilitySessionIdentities.clear();
     }
 
-    function setVisibilitySessionActive(sessionId: number, active: boolean) {
-        if (active) {
-            activeVisibilitySessions.add(sessionId);
+    function getVisibilitySessionIdentity(sessionId: number) {
+        return visibilitySessionIdentities.get(sessionId);
+    }
+
+    function setVisibilitySessionIdentity(sessionId: number, identity: string | null) {
+        if (identity !== null) {
+            visibilitySessionIdentities.set(sessionId, identity);
         } else {
-            activeVisibilitySessions.delete(sessionId);
+            visibilitySessionIdentities.delete(sessionId);
         }
     }
 
     function maybeRecycle() {
-        const limit = activeVisibilitySessions.size > 0 ? highWaterBytes * 2 : highWaterBytes;
+        const limit = visibilitySessionIdentities.size > 0 ? highWaterBytes * 2 : highWaterBytes;
         if (tool && tool.memory.buffer.byteLength > limit) {
             dispose();
         }
@@ -793,7 +799,8 @@ export function createPdfPageOpsWasmRunner(
     return {
         runFileRequest: (request, io) => runInternal(request, io),
         runRawRequest: request => runInternal(request, null),
-        setVisibilitySessionActive,
+        getVisibilitySessionIdentity,
+        setVisibilitySessionIdentity,
         maybeRecycle,
         dispose,
         memoryBytes: () => tool?.memory.buffer.byteLength ?? 0,
@@ -1364,13 +1371,14 @@ function withHostFiles<T>(options: {
                     );
                 }
                 try {
-                    const st = fstatSync(fd);
+                    const st = fstatSync(fd, {bigint: true});
                     if (!st.isFile()) {
                         throw new PdfPageOpsNativeError('invalid-request', `PDF source is not a regular file: ${sourcePath}`);
                     }
                     sources.push({
                         fd,
-                        len: st.size,
+                        len: Number(st.size),
+                        fdIdentity: `${st.dev}:${st.ino}:${st.size}:${st.mtimeNs}:${st.ctimeNs}`,
                         path: sourcePath,
                     });
                 } catch (error) {
@@ -2004,11 +2012,31 @@ function dispatchDesktopPageOpsCommand(
                 try {
                     return okResult(decodeJsonResponse(runner.runFileRequest(request, emptyIo)));
                 } finally {
-                    runner.setVisibilitySessionActive?.(parsed.closeSession, false);
+                    runner.setVisibilitySessionIdentity?.(parsed.closeSession, null);
                 }
             }
             const pages = readPagesFile(requireFlag(parsed.pagesFile, '--pages-file'), MAX_COLLECTION_ITEMS);
             return withHostFiles({sourcePaths: [parsed.inputPath]}, io => {
+                const fdIdentity = io.sources[0]?.fdIdentity ?? null;
+                if (parsed.sessionId !== undefined) {
+                    const cachedIdentity = runner.getVisibilitySessionIdentity?.(parsed.sessionId);
+                    if (cachedIdentity !== undefined && cachedIdentity !== fdIdentity) {
+                        const evictRequest = encodeFileRequest({
+                            operation: OPERATION_CODES.ocrTextVisibility,
+                            sourceCount: 0,
+                            afterPage: parsed.sessionId,
+                            tail: textEncoder.encode('close'),
+                        });
+                        const emptyIo: IHostIoContext = {
+                            sources: [],
+                            extraOpenOrder: [],
+                            sink: null,
+                            memory: null,
+                        };
+                        runner.runFileRequest(evictRequest, emptyIo);
+                        runner.setVisibilitySessionIdentity?.(parsed.sessionId, null);
+                    }
+                }
                 const request = encodeFileRequest({
                     operation: OPERATION_CODES.ocrTextVisibility,
                     sourceCount: 1,
@@ -2019,7 +2047,7 @@ function dispatchDesktopPageOpsCommand(
                 try {
                     const result = okResult(decodeJsonResponse(runner.runFileRequest(request, io)));
                     if (parsed.sessionId !== undefined) {
-                        runner.setVisibilitySessionActive?.(parsed.sessionId, true);
+                        runner.setVisibilitySessionIdentity?.(parsed.sessionId, fdIdentity);
                     }
                     return {
                         result,
@@ -2027,7 +2055,7 @@ function dispatchDesktopPageOpsCommand(
                     };
                 } catch (error) {
                     if (parsed.sessionId !== undefined) {
-                        runner.setVisibilitySessionActive?.(parsed.sessionId, false);
+                        runner.setVisibilitySessionIdentity?.(parsed.sessionId, null);
                     }
                     throw error;
                 }

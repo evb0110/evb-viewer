@@ -66,6 +66,7 @@ interface IQueuedTask {
     args: string[];
     visibilitySessionId: number | undefined;
     closeVisibilitySessionId: number | undefined;
+    targetWorker?: IWarmPageOpsWorker;
     signal: AbortSignal | undefined;
     timeoutMs: number | undefined;
     cancelGroup: string | undefined;
@@ -270,6 +271,7 @@ function createPageOpsWorkerPool() {
             return Promise.resolve(true);
         }
         entry.closed = true;
+        entry.visibilitySessions.clear();
         clearIdleTimer(entry);
         workers.delete(entry);
         return entry.worker.terminate().then(() => true, () => false);
@@ -289,8 +291,44 @@ function createPageOpsWorkerPool() {
     }
 
     function pumpQueue() {
-        while (queue.length > 0) {
-            const next = queue[0]!;
+        let index = 0;
+        while (index < queue.length) {
+            const next = queue[index]!;
+            if (next.targetWorker !== undefined) {
+                const target = next.targetWorker;
+                if (target.closed || !workers.has(target)) {
+                    queue.splice(index, 1);
+                    if (next.onAbort) {
+                        next.signal?.removeEventListener('abort', next.onAbort);
+                    }
+                    if (next.onCancelGroup) {
+                        unregisterCancel(next.cancelGroup, next.onCancelGroup);
+                    }
+                    next.resolve({
+                        stdout: '{}',
+                        stderr: '',
+                        exitCode: 0,
+                    });
+                    continue;
+                }
+                if (target.busy) {
+                    index += 1;
+                    continue;
+                }
+                queue.splice(index, 1);
+                if (next.onAbort) {
+                    next.signal?.removeEventListener('abort', next.onAbort);
+                }
+                if (next.onCancelGroup) {
+                    unregisterCancel(next.cancelGroup, next.onCancelGroup);
+                }
+                if (next.signal?.aborted) {
+                    next.reject(getAbortReason(next.signal));
+                    continue;
+                }
+                dispatchToWorker(target, next);
+                continue;
+            }
             const targetSessionId = next.visibilitySessionId ?? next.closeVisibilitySessionId;
             const idleSameSession = targetSessionId === undefined
                 ? undefined
@@ -307,10 +345,11 @@ function createPageOpsWorkerPool() {
                 if (idleAny) {
                     void destroyWorker(idleAny);
                 } else {
-                    return;
+                    index += 1;
+                    continue;
                 }
             }
-            queue.shift();
+            queue.splice(index, 1);
             if (next.onAbort) {
                 next.signal?.removeEventListener('abort', next.onAbort);
             }
@@ -428,9 +467,6 @@ function createPageOpsWorkerPool() {
         if (task.visibilitySessionId !== undefined) {
             entry.visibilitySessions.add(task.visibilitySessionId);
         }
-        if (task.closeVisibilitySessionId !== undefined) {
-            entry.visibilitySessions.delete(task.closeVisibilitySessionId);
-        }
         const requestId = ++nextRequestId;
         const rollback = prepareAbortedWriteRollback(task.args);
         let settled = false;
@@ -453,6 +489,9 @@ function createPageOpsWorkerPool() {
             if (settled) return;
             settled = true;
             cleanup();
+            if (task.closeVisibilitySessionId !== undefined) {
+                entry.visibilitySessions.delete(task.closeVisibilitySessionId);
+            }
             entry.busy = false;
             try {
                 const checked = applyStdoutLimit(
@@ -615,24 +654,13 @@ function createPageOpsWorkerPool() {
             visibilitySessionId,
             closeVisibilitySessionId,
         } = parseVisibilitySessionArgs(args);
-        if (closeVisibilitySessionId !== undefined) {
-            const hasHoldingWorker = [...workers].some(
-                entry => !entry.closed && entry.wasmPath === wasmPath && entry.visibilitySessions.has(closeVisibilitySessionId),
-            );
-            if (!hasHoldingWorker) {
-                return Promise.resolve({
-                    stdout: '{}',
-                    stderr: '',
-                    exitCode: 0,
-                });
-            }
-        }
-        return new Promise((resolve, reject) => {
+        const enqueueTask = (targetWorker?: IWarmPageOpsWorker) => new Promise<IProcessResult>((resolve, reject) => {
             const task: IQueuedTask = {
                 wasmPath,
                 args: [...args],
                 visibilitySessionId,
                 closeVisibilitySessionId,
+                ...(targetWorker === undefined ? {} : {targetWorker}),
                 signal: options.signal,
                 timeoutMs: options.timeoutMs,
                 cancelGroup: options.cancelGroup,
@@ -673,6 +701,25 @@ function createPageOpsWorkerPool() {
             queue.push(task);
             pumpQueue();
         });
+
+        if (closeVisibilitySessionId !== undefined) {
+            const holders = [...workers].filter(
+                entry => !entry.closed && entry.wasmPath === wasmPath && entry.visibilitySessions.has(closeVisibilitySessionId),
+            );
+            if (holders.length === 0) {
+                return Promise.resolve({
+                    stdout: '{}',
+                    stderr: '',
+                    exitCode: 0,
+                });
+            }
+            return Promise.all(holders.map(holder => enqueueTask(holder))).then(() => ({
+                stdout: '{}',
+                stderr: '',
+                exitCode: 0,
+            }));
+        }
+        return enqueueTask();
     }
 
     function cancelGroup(cancelGroup: string) {

@@ -771,18 +771,21 @@ fn validate_page_tree_node(
         }
         PageTreeNodeKind::Pages => {
             let declared_count = page_tree_count(document, dictionary)?;
+            let kids = page_tree_kids(document, dictionary)?;
+            let flat_candidate = declared_count == u64::try_from(kids.len()).unwrap_or(u64::MAX);
             let mut actual_count = 0_u64;
-            for kid in page_tree_kids(document, dictionary)? {
+            for (kid_index, kid) in kids.iter().enumerate() {
                 let kid_id = page_tree_child_id(kid)?;
+                let running_before = actual_count;
+                let kid_count =
+                    validate_page_tree_node(document, kid_id, in_path, visited, depth + 1, pages)?;
+                if flat_candidate && kid_count == 1 && running_before != kid_index as u64 {
+                    return Err(
+                        format!("its counts place another page at {}", running_before + 1).into(),
+                    );
+                }
                 actual_count = actual_count
-                    .checked_add(validate_page_tree_node(
-                        document,
-                        kid_id,
-                        in_path,
-                        visited,
-                        depth + 1,
-                        pages,
-                    )?)
+                    .checked_add(kid_count)
                     .ok_or("PDF page tree page count overflow")?;
             }
             if actual_count != declared_count {
@@ -1638,6 +1641,75 @@ mod protocol_schema_tests {
         assert!(
             err.contains("shares a node"),
             "expected duplicate leaf rejection, got: {err}"
+        );
+
+        // 4. Flat-count ambiguity: /Kids [A, empty /Pages, B, /Pages(C,D)] has kids.len() == Count == 4,
+        // where direct indexing at ordinal 3 would return B instead of C.
+        let mut ambiguous = Document::with_version("1.5");
+        let root_id = ambiguous.new_object_id();
+        let page_a = ambiguous.new_object_id();
+        let empty_branch = ambiguous.new_object_id();
+        let page_b = ambiguous.new_object_id();
+        let pair_branch = ambiguous.new_object_id();
+        let page_c = ambiguous.new_object_id();
+        let page_d = ambiguous.new_object_id();
+        for (pid, parent) in [
+            (page_a, root_id),
+            (page_b, root_id),
+            (page_c, pair_branch),
+            (page_d, pair_branch),
+        ] {
+            ambiguous.objects.insert(
+                pid,
+                Object::Dictionary(dictionary! {
+                    "Type" => "Page",
+                    "Parent" => parent,
+                    "MediaBox" => vec![0.into(), 0.into(), 200.into(), 200.into()],
+                }),
+            );
+        }
+        ambiguous.objects.insert(
+            empty_branch,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Parent" => root_id,
+                "Kids" => Vec::<Object>::new(),
+                "Count" => 0,
+            }),
+        );
+        ambiguous.objects.insert(
+            pair_branch,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Parent" => root_id,
+                "Kids" => vec![Object::Reference(page_c), Object::Reference(page_d)],
+                "Count" => 2,
+            }),
+        );
+        ambiguous.objects.insert(
+            root_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![
+                    Object::Reference(page_a),
+                    Object::Reference(empty_branch),
+                    Object::Reference(page_b),
+                    Object::Reference(pair_branch),
+                ],
+                "Count" => 4,
+            }),
+        );
+        let catalog_id = ambiguous.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => root_id,
+        });
+        ambiguous.trailer.set("Root", catalog_id);
+        let err = PageTreeResolver::validated(&ambiguous)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("its counts place another page"),
+            "expected flat-count ambiguity rejection, got: {err}"
         );
     }
 }

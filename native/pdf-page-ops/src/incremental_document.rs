@@ -84,6 +84,72 @@ impl IncrementalDocument {
         Ok(incremental)
     }
 
+    /// Advances this append base in place after `revision_bytes` has been
+    /// written and verified, updating only the objects written in the revision
+    /// (O(batch) instead of rescanning every untouched base stream).
+    pub(crate) fn advance_verified_revision(
+        &mut self,
+        new_len: u64,
+        new_last_byte: Option<u8>,
+        new_xref_start: u64,
+        wrote_xref_stream: bool,
+    ) -> Result<()> {
+        let pending = std::mem::take(&mut self.new_document);
+        let combined_max_id = pending.max_id.max(self.previous_document.max_id);
+        let next_max_id = if wrote_xref_stream {
+            combined_max_id
+                .checked_add(1)
+                .ok_or("PDF object number overflow")?
+        } else {
+            combined_max_id
+        };
+        self.previous_document.max_id = next_max_id;
+        self.previous_document.reference_table = lopdf::xref::Xref::new(
+            next_max_id.saturating_add(1),
+            if wrote_xref_stream {
+                lopdf::xref::XrefType::CrossReferenceStream
+            } else {
+                lopdf::xref::XrefType::CrossReferenceTable
+            },
+        );
+        for (object_id, mut object) in pending.objects {
+            if !should_write_incremental_object(&object) {
+                continue;
+            }
+            if let Object::Stream(ref mut stream) = object {
+                stream.content.clear();
+                stream.content.shrink_to_fit();
+                stream.start_position = Some(0);
+                self.unavailable_base_streams.insert(object_id);
+            } else {
+                self.unavailable_base_streams.remove(&object_id);
+            }
+            self.previous_document.objects.insert(object_id, object);
+        }
+        let mut next_trailer = pending.trailer;
+        for key in [
+            b"Prev".as_slice(),
+            b"Size",
+            b"Type",
+            b"W",
+            b"Index",
+            b"Length",
+            b"Filter",
+            b"DecodeParms",
+        ] {
+            next_trailer.remove(key);
+        }
+        self.previous_document.trailer = next_trailer;
+        self.previous_len = new_len;
+        self.previous_last_byte = new_last_byte;
+        self.previous_xref_start = new_xref_start;
+        self.new_document = Document::new_from_prev(&self.previous_document);
+        self.new_document
+            .trailer
+            .set("Prev", i64::try_from(new_xref_start)?);
+        Ok(())
+    }
+
     pub(crate) fn get_prev_documents(&self) -> &Document {
         &self.previous_document
     }

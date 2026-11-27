@@ -2,7 +2,12 @@ import {
     mkdtemp,
     readdir,
     rm,
+    writeFile,
 } from 'node:fs/promises';
+import {
+    PDFDocument,
+    StandardFonts,
+} from 'pdf-lib';
 import {tmpdir} from 'node:os';
 import {
     join,
@@ -415,6 +420,70 @@ describe('native PDF search integration', () => {
                 expect(win2.visibility.get(2)).toEqual(oneShot.visibility.get(2));
             } finally {
                 await session.close();
+            }
+
+            // Replacing the file at the same path with a DIFFERENT PDF of the exact same
+            // byte length must evict the cached descriptor-bound index instead of reusing it.
+            const makeTwoPagePdf = async (drawTextOnPage2: boolean, titlePadding: number) => {
+                const doc = await PDFDocument.create();
+                doc.setTitle('p'.repeat(titlePadding));
+                doc.addPage([
+                    200,
+                    200,
+                ]);
+                const page2 = doc.addPage([
+                    200,
+                    200,
+                ]);
+                if (drawTextOnPage2) {
+                    const font = await doc.embedFont(StandardFonts.Helvetica);
+                    page2.drawText('Visible text on page two', {
+                        x: 20,
+                        y: 100,
+                        size: 12,
+                        font,
+                    });
+                }
+                return Buffer.from(await doc.save({useObjectStreams: false}));
+            };
+            const rawWithText = await makeTwoPagePdf(true, 10);
+            const rawBlank = await makeTwoPagePdf(false, 10);
+            const padToLength = (buf: Uint8Array, targetLen: number): Uint8Array => {
+                const diff = targetLen - buf.byteLength;
+                if (diff <= 0) return buf;
+                return Buffer.concat([
+                    buf,
+                    Buffer.from(diff === 1 ? '\n' : `\n%${' '.repeat(diff - 2)}`),
+                ]);
+            };
+            const maxLen = Math.max(rawWithText.byteLength, rawBlank.byteLength);
+            const pdfWithText = padToLength(rawWithText, maxLen);
+            const pdfBlank = padToLength(rawBlank, maxLen);
+            expect(pdfBlank.byteLength).toBe(pdfWithText.byteLength);
+
+            const targetPath = join(tempDir, 'swapped.pdf');
+            await writeFile(targetPath, pdfWithText);
+            const swapSession = openPdfPageTextVisibilitySession({
+                pdfPath: targetPath,
+                pdfPageOpsBinary,
+                tempDir,
+                withEvbOcrText: true,
+                reuseSession: true,
+            });
+            try {
+                const beforeSwap = await swapSession.inspectPages([2]);
+                expect(beforeSwap.status).toBe('available');
+                expect(beforeSwap.visibility.get(2)?.paintedText).toBe(true);
+
+                // Replace the file at the same path with a different PDF of identical length.
+                await rm(targetPath);
+                await writeFile(targetPath, pdfBlank);
+
+                const afterSwap = await swapSession.inspectPages([2]);
+                expect(afterSwap.status).toBe('available');
+                expect(afterSwap.visibility.get(2)?.paintedText).toBe(false);
+            } finally {
+                await swapSession.close();
             }
             expectNativeCommandSlotsFree();
         } finally {

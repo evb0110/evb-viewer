@@ -1,20 +1,27 @@
 use super::*;
 use crate::internal_destinations::NamedDestinations;
-use crate::split_navigation::page_index_by_id;
 
 /// The source document's destinations as source page indices. Built from the
 /// structural probe, which reads dictionaries and no stream bodies.
 pub(crate) struct OverlayDestinations<'a> {
     probe: &'a Document,
     names: NamedDestinations<'a>,
+    page_id_by_index: Vec<ObjectId>,
     page_index_by_id: HashMap<ObjectId, usize>,
     /// The source pages an instruction maps. A link to any other page resolves nowhere.
     mapped: HashSet<usize>,
 }
 
 impl<'a> OverlayDestinations<'a> {
-    pub(crate) fn new(probe: &'a Document, instructions: &TextLayerFile) -> Result<Self> {
-        let page_index_by_id = page_index_by_id(&probe.get_pages());
+    pub(crate) fn new(
+        probe: &'a Document,
+        source_page_ids: &[ObjectId],
+        instructions: &TextLayerFile,
+    ) -> Result<Self> {
+        let mut page_index_by_id = HashMap::with_capacity(source_page_ids.len());
+        for (index, &id) in source_page_ids.iter().enumerate() {
+            page_index_by_id.entry(id).or_insert(index);
+        }
         let mapped = instructions
             .pages
             .iter()
@@ -23,9 +30,14 @@ impl<'a> OverlayDestinations<'a> {
         Ok(Self {
             probe,
             names: NamedDestinations::new(probe),
+            page_id_by_index: source_page_ids.to_vec(),
             page_index_by_id,
             mapped,
         })
+    }
+
+    pub(crate) fn named_destinations(&self) -> &NamedDestinations<'a> {
+        &self.names
     }
 
     /// The pages a subset extracts for its copied pages: those pages plus every
@@ -36,12 +48,17 @@ impl<'a> OverlayDestinations<'a> {
     /// that names its target also carries the name, since `--empty` drops the
     /// catalog that defines it.
     pub(crate) fn subset_pages(&self, pages: &[usize]) -> Result<OverlaySubset> {
-        let resolver = PageTreeResolver::new(self.probe)?;
+        let batch_pages = pages.iter().copied().collect::<HashSet<_>>();
         let mut extra = HashSet::new();
         let mut named = Vec::new();
         for &page in pages {
-            let page_id =
-                resolver.page_id(self.probe, overlay_page_number(page, "sourcePageIndex")?)?;
+            let page_number = overlay_page_number(page, "sourcePageIndex")?;
+            let page_id = *self.page_id_by_index.get(page).ok_or_else(|| {
+                format!(
+                    "Page {page_number} is outside the document page range 1-{}",
+                    self.page_id_by_index.len()
+                )
+            })?;
             let Ok(annotations) = self.probe.get_dictionary(page_id)?.get(b"Annots") else {
                 continue;
             };
@@ -63,7 +80,7 @@ impl<'a> OverlayDestinations<'a> {
                     if !self.mapped.contains(&index) {
                         continue;
                     }
-                    if !pages.contains(&index) && !extra.contains(&index) {
+                    if !batch_pages.contains(&index) && !extra.contains(&index) {
                         if extra.len() >= MAX_SOURCE_PAGE_BATCH_PAGES {
                             continue;
                         }

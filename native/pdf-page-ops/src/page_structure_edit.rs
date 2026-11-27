@@ -239,12 +239,15 @@ pub(crate) fn edit_page_structure<S>(
 
 /// Extracts a subset of pages from a source whose page tree was already
 /// validated, copying only the selected pages and the indirect objects they
-/// reach (no catalog metadata, outlines, page labels, or forms). Used by
-/// batched overlay extraction so each 64-page batch stays O(batch_pages).
+/// reach (no catalog metadata, outlines, page labels, or forms). Named
+/// destinations anywhere in the copied page/annotation/action graph (including
+/// nested `/Next` actions) are resolved through `named_destinations` before
+/// discarding the catalog so every in-subset target survives identically.
 pub(crate) fn extract_validated_pages_for_overlay(
     source: &Document,
     source_pages: &[ObjectId],
     pages: &[u32],
+    named_destinations: &crate::internal_destinations::NamedDestinations<'_>,
 ) -> Result<PageSubset> {
     let page_count = source_pages.len() as u32;
     validate_browser_page_numbers(pages, "extractPages", page_count, true, false)?;
@@ -282,7 +285,7 @@ pub(crate) fn extract_validated_pages_for_overlay(
     }
     let page_ids = page_sequence
         .iter()
-        .map(|page| clone_context.clone_page(*page))
+        .map(|page| clone_context.clone_overlay_page(*page, named_destinations))
         .collect::<Result<Vec<_>>>()?;
     let kids = page_ids
         .iter()
@@ -798,6 +801,97 @@ fn set_subset_page_labels(
 }
 
 impl PageCloneContext<'_> {
+    fn clone_overlay_page(
+        &mut self,
+        source: PageCloneSource,
+        named_destinations: &crate::internal_destinations::NamedDestinations<'_>,
+    ) -> Result<ObjectId> {
+        if self
+            .completed_pages
+            .contains(&(source.document_index, source.page_id))
+        {
+            return self
+                .object_map
+                .get(&(source.document_index, source.page_id))
+                .copied()
+                .ok_or_else(|| "Completed browser page has no object ID".into());
+        }
+
+        let new_page_id = *self
+            .object_map
+            .entry((source.document_index, source.page_id))
+            .or_insert_with(|| self.target.new_object_id());
+
+        let source_document = self.source(source.document_index)?;
+        let mut page = source_document.get_dictionary(source.page_id)?.clone();
+        for key in INHERITABLE_PAGE_KEYS {
+            materialize_page_inherited_object(
+                source_document,
+                source.page_id,
+                &mut page,
+                key,
+                key == b"MediaBox",
+            )?;
+        }
+        if !page.has(b"Resources") {
+            page.set("Resources", Dictionary::new());
+        }
+        page.remove(b"Parent");
+        page.set("Type", "Page");
+
+        let cloned_page = self.clone_direct_references_resolving_names(
+            source.document_index,
+            Object::Dictionary(page),
+            named_destinations,
+        )?;
+        self.drain_pending_objects_resolving_names(named_destinations)?;
+        let mut cloned_page = cloned_page
+            .as_dict()
+            .cloned()
+            .map_err(|_| "Cloned page object was not a dictionary")?;
+        cloned_page.set("Parent", self.pages_id);
+        self.target
+            .objects
+            .insert(new_page_id, Object::Dictionary(cloned_page));
+        self.completed_pages
+            .insert((source.document_index, source.page_id));
+        Ok(new_page_id)
+    }
+
+    fn drain_pending_objects_resolving_names(
+        &mut self,
+        named_destinations: &crate::internal_destinations::NamedDestinations<'_>,
+    ) -> Result<()> {
+        while let Some((source_index, object_id, new_id)) = self.pending_objects.pop() {
+            let object = self.source(source_index)?.get_object(object_id)?.clone();
+            let cloned_object = self.clone_direct_references_resolving_names(
+                source_index,
+                object,
+                named_destinations,
+            )?;
+            self.target.objects.insert(new_id, cloned_object);
+        }
+        Ok(())
+    }
+
+    fn clone_direct_references_resolving_names(
+        &mut self,
+        source_index: usize,
+        object: Object,
+        named_destinations: &crate::internal_destinations::NamedDestinations<'_>,
+    ) -> Result<Object> {
+        let source = self.sources[source_index];
+        map_overlay_object_references(object, source, named_destinations, &mut |object_id| {
+            if self.is_unretained_page_tree_object(source_index, object_id)? {
+                Ok(Object::Null)
+            } else {
+                Ok(Object::Reference(
+                    self.map_indirect_object(source_index, object_id),
+                ))
+            }
+        })
+    }
+
     pub(crate) fn clone_page(&mut self, source: PageCloneSource) -> Result<ObjectId> {
         if self
             .completed_pages
@@ -957,6 +1051,70 @@ pub(crate) fn materialize_page_inherited_object(
     }
 
     Ok(())
+}
+
+/// Walk direct containers for overlay extraction, resolving named destinations
+/// anywhere in the annotation/action graph (including nested `/Next` GoTo actions)
+/// before mapping page references.
+fn map_overlay_object_references(
+    object: Object,
+    source: &Document,
+    named_destinations: &crate::internal_destinations::NamedDestinations<'_>,
+    reference: &mut impl FnMut(ObjectId) -> Result<Object>,
+) -> Result<Object> {
+    match object {
+        Object::Reference(id) => reference(id),
+        Object::Array(items) => Ok(Object::Array(
+            items
+                .into_iter()
+                .map(|item| {
+                    map_overlay_object_references(item, source, named_destinations, reference)
+                })
+                .collect::<Result<_>>()?,
+        )),
+        Object::Dictionary(_) | Object::Stream(_) => {
+            let mut object = object;
+            let dictionary = match &mut object {
+                Object::Dictionary(dictionary) => dictionary,
+                Object::Stream(stream) => &mut stream.dict,
+                _ => unreachable!(),
+            };
+            let is_goto = dictionary
+                .get(b"S")
+                .ok()
+                .and_then(|value| source.dereference(value).ok())
+                .and_then(|(_, value)| value.as_name().ok())
+                == Some(b"GoTo");
+            let dest_key = if is_goto {
+                b"D".as_slice()
+            } else {
+                b"Dest".as_slice()
+            };
+            if let Ok(destination) = dictionary.get(dest_key) {
+                let is_named = source
+                    .dereference(destination)
+                    .ok()
+                    .is_some_and(|(_, value)| {
+                        matches!(value, Object::Name(_) | Object::String(_, _))
+                    });
+                if is_named {
+                    if let Ok(Some(explicit)) = named_destinations.resolve(destination) {
+                        dictionary.set(dest_key, Object::Array(explicit));
+                    }
+                }
+            }
+            for (_, value) in dictionary.iter_mut() {
+                *value = map_overlay_object_references(
+                    value.clone(),
+                    source,
+                    named_destinations,
+                    reference,
+                )?;
+            }
+            Ok(object)
+        }
+        object => Ok(object),
+    }
 }
 
 /// Walk direct containers only; each caller owns indirect-object identity.
