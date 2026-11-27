@@ -1,5 +1,6 @@
 import type {IScanCleanupPreviewResult} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {Ref} from 'vue';
+import {whenever} from '@vueuse/core';
 import {clamp} from 'es-toolkit/math';
 import {ZOOM} from '@app/constants/pdfLayout';
 import {
@@ -268,10 +269,7 @@ export const useScanCleanupPreviewZoom = (options: IUseScanCleanupPreviewZoomOpt
         toggleFitAndActualSize(event);
     }
 
-    watch(options.disabled, disabled => {
-        if (!disabled) {
-            return;
-        }
+    whenever(options.disabled, () => {
         wheelZoomSession = null;
         const gesture = panGesture.value;
         if (!gesture) {

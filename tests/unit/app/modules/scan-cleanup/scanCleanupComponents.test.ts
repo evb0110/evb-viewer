@@ -44,7 +44,6 @@ import type {
     IScanCleanupPreviewPageMetadata,
     TScanCleanupOutputHalf,
     TScanCleanupPageAlignment,
-    TScanCleanupPageLayoutOverride,
     TScanCleanupProgress,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requireDocumentRef} from '@contracts/documentRef';
@@ -58,7 +57,7 @@ import {
 } from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {useWorkspaceCommandLedger} from '@app/modules/workspace-shell/composables/useWorkspaceCommandLedger';
 import {workspaceCommandSinkKey} from '@app/types/workspaceCommand';
-import {updateScanCleanupPageOverrides} from '@app/modules/scan-cleanup/runtime/scanCleanupSelectionOverrides';
+import {useScanCleanupSelection} from '@app/modules/scan-cleanup/composables/useScanCleanupSelection';
 import ScanCleanupPreviewPane from '@app/modules/scan-cleanup/components/preview/PreviewShell.vue';
 import CleanedCanvas from '@app/modules/scan-cleanup/components/preview/CleanedCanvas.vue';
 import ZoneEditorOverlay from '@app/modules/scan-cleanup/components/preview/ZoneEditorOverlay.vue';
@@ -129,54 +128,25 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
         },
         selection: {
             applyLeaderOverrides: session.applyLeaderOverrides,
-            contentBoxes: session.selectionContentBoxes,
             currentPageOverride: session.currentPageOverride,
-            excluded: session.selectionExcluded,
             highlightedScope: session.highlightedScope ?? ref(null),
-            layoutOverride: session.selectionLayoutOverride,
             leader: session.selectionLeader,
-            margins: session.selectionMargins ?? ref({
-                empty: false,
-                mixed: false,
-                value: {
-                    leftMm: 5,
-                    topMm: 5,
-                    rightMm: 5,
-                    bottomMm: 5,
-                },
-            }),
-            marginsLinked: session.selectionMarginsLinked ?? ref(true),
-            setMarginsLinked: session.setSelectionMarginsLinked ?? vi.fn(),
-            manualSplit: session.selectionManualSplit,
-            outputModeOverride: session.selectionOutputModeOverride ?? ref({
-                empty: false,
-                mixed: false,
-                value: undefined,
-            }),
-            hasMarginOverrides: session.hasSelectionMarginOverrides ?? ref(false),
-            placementAlignment: session.selectionPlacementAlignment,
-            resetContentBoxes: session.resetSelectionContentBoxes,
             resetControlOverride: session.resetControlOverride ?? vi.fn(),
-            resetManualSplit: session.resetSelectionManualSplit,
-            resetMargins: session.resetSelectionMargins ?? vi.fn(),
-            resetOverrides: session.resetScopeOverrides ?? vi.fn(),
-            rotation: session.selectionRotation,
+            resetScopeOverrides: session.resetScopeOverrides ?? vi.fn(),
             selectedPages: session.selectedPages,
             selectPage: session.selectPage,
+            setMarginsLinked: session.setSelectionMarginsLinked ?? vi.fn(),
             setSettingsScope: session.setSettingsScope ?? vi.fn(),
             settingsScope: session.settingsScope ?? ref('all'),
             updateCurrentManualContentBox: session.updateCurrentManualContentBox,
             updateCurrentManualSplit: session.updateCurrentManualSplit,
+            updateCurrentManualZones: session.updateCurrentManualZones ?? vi.fn(),
             updateCurrentPlacement: session.updateCurrentPlacement,
-            updateCurrentPlacementAll: session.updateCurrentPlacementAll,
-            updateExcluded: session.updateSelectionExcluded,
-            updateLayoutOverride: session.updateSelectionLayoutOverride,
-            updateMargins: session.updateSelectionMargins ?? vi.fn(),
-            updateOutputModeOverride: session.updateSelectionOutputModeOverride ?? vi.fn(),
             updatePageOverride: session.updatePageOverride,
-            updatePlacement: session.updateSelectionPlacement,
-            updateRotation: session.updateSelectionRotation,
-            updateOverrides: session.updateSelectionOverrides ?? vi.fn(),
+            updateScopeLayout: session.updateScopeLayout ?? vi.fn(),
+            updateScopeMargins: session.updateScopeMargins ?? vi.fn(),
+            updateScopeOverrides: session.updateScopeOverrides ?? vi.fn(),
+            updateScopePlacement: session.updateScopePlacement ?? vi.fn(),
         },
         detection: {
             activePages: computed(() => unref(session.detectionActivePages) ?? new Set()),
@@ -190,7 +160,6 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
             error: session.detectionError,
             outputEstimate: session.outputEstimate,
             pending: session.detectionPending,
-            progress: session.detectionProgress,
             settledPages: computed(() => unref(session.detectionSettledPages) ?? new Set()),
             recommendedOutputModeByPage: computed(() => unref(session.recommendedOutputModeByPage) ?? new Map()),
             recommendedOutputModeConfidenceByPage: computed(
@@ -1652,7 +1621,9 @@ describe('Scan cleanup components', () => {
             rightMm: 13,
             bottomMm: 13,
         };
-        selection.setPageOverrideDefaults(createScanCleanupPageOverride({marginsMm: inherited}));
+        settings.editDocumentSettings([], () => {
+            settings.values.pageOverrideDefaults = createScanCleanupPageOverride({marginsMm: inherited});
+        });
         settings.values.pageOverrides['2'] = createScanCleanupPageOverride({rotationDegrees: 90});
         selection.setSettingsScope('all');
         settings.setMarginsLinked(true);
@@ -2097,7 +2068,7 @@ describe('Scan cleanup components', () => {
     });
 
     it('applies mixed output only to the current page from the zone editor', async () => {
-        const updateSelectionOutputModeOverride = vi.fn();
+        const updatePageOverride = vi.fn();
         const settings = reactive({
             preserveOriginalQuality: true,
             layoutMode: 'auto' as const,
@@ -2126,7 +2097,7 @@ describe('Scan cleanup components', () => {
             selectionLeader: ref(2),
             selectedPages: ref(new Set([2])),
             settings,
-            updateSelectionOutputModeOverride,
+            updatePageOverride,
         });
         const harness = mount(defineComponent(() => () => h(ScanCleanupWorkspace, {
             sourcePath: null,
@@ -2142,7 +2113,7 @@ describe('Scan cleanup components', () => {
 
         expect(settings.preserveOriginalQuality).toBe(false);
         expect(settings.outputMode).toBe('color');
-        expect(updateSelectionOutputModeOverride).toHaveBeenCalledWith('mixed', [2]);
+        expect(updatePageOverride).toHaveBeenCalledWith(2, expect.objectContaining({outputModeOverride: 'mixed'}));
     });
 
     it('reserves only the counter width in the run meter while a run waits for detection', () => {
@@ -2355,7 +2326,7 @@ describe('Scan cleanup components', () => {
     });
 
     it('round-trips the toolbar surface command through Done while Escape keeps the workspace open', async () => {
-        const updateCurrentPlacementAll = vi.fn();
+        const updateScopePlacement = vi.fn();
         const detectAllPages = vi.fn();
         const cancelDetection = vi.fn();
         const isDetecting = ref(false);
@@ -2496,7 +2467,7 @@ describe('Scan cleanup components', () => {
             updateCurrentManualSplit: vi.fn(),
             updateCurrentManualContentBox: vi.fn(),
             updateCurrentPlacement: vi.fn(),
-            updateCurrentPlacementAll,
+            updateScopePlacement,
             updatePageOverride: vi.fn(),
         };
         const readerState = {
@@ -2599,7 +2570,7 @@ describe('Scan cleanup components', () => {
         await nextTick();
 
         harness.host.querySelector<HTMLButtonElement>('[aria-label="Place at bottom right"]')?.click();
-        expect(updateCurrentPlacementAll).toHaveBeenCalledWith('bottom-right');
+        expect(updateScopePlacement).toHaveBeenCalledWith('bottom-right');
 
         isRunning.value = true;
         jobProgress.value = {
@@ -2778,7 +2749,7 @@ describe('Scan cleanup components', () => {
     });
 
     it('renders one scope-aware panel and routes all, page, and selected writes to their visible targets', async () => {
-        const pageOverrides = reactive({
+        const pageOverrides = reactive<TScanCleanupPageOverrides>({
             '1': createScanCleanupPageOverride({
                 layoutOverride: 'single',
                 outputModeOverride: 'bw',
@@ -2796,7 +2767,7 @@ describe('Scan cleanup components', () => {
         });
         const settings = reactive({
             preserveOriginalQuality: false,
-            layoutMode: 'force-single' as const,
+            layoutMode: 'force-single' as 'auto' | 'force-single' | 'force-two-page',
             outputMode: 'color' as const,
             readingOrder: 'ltr' as const,
             thickness: 0,
@@ -2813,42 +2784,29 @@ describe('Scan cleanup components', () => {
             skipBlankPages: false,
             pageOverrides,
         });
-        const selectionLayoutOverride = ref<{
-            empty: boolean;
-            mixed: boolean;
-            value: TScanCleanupPageLayoutOverride;
-        }>({
-            empty: false,
-            mixed: true,
-            value: 'single' as const,
-        });
-        const applyLeaderOverrides = vi.fn();
         const resetPageOverrides = vi.fn();
-        const resetScopeOverrides = vi.fn((pages: Iterable<number>) => {
-            updateScanCleanupPageOverrides(pageOverrides, pages, () => createScanCleanupPageOverride(), undefined);
-        });
-        const updateSelectionMargins = vi.fn((
-            _target: string,
-            value: number,
-            pages: Iterable<number>,
-        ) => {
-            updateScanCleanupPageOverrides(pageOverrides, pages, current => ({
-                ...current,
-                marginsMm: {
-                    leftMm: value,
-                    topMm: value,
-                    rightMm: value,
-                    bottomMm: value,
-                },
-            }), undefined, settings.marginsMm);
-        });
         const documentMarginsLinked = ref(true);
-        const settingsScope = ref<'all' | 'page' | 'selected'>('all');
+        const selection = useScanCleanupSelection({
+            initialPage: 1,
+            previewTotalPages: () => 3,
+            marginsLinked: documentMarginsLinked,
+            settings,
+            editDocumentSettings: (_pages, change) => change(),
+            resetPageOverrides,
+        });
+        selection.selectPage(2, 'toggle', [
+            1,
+            2,
+            3,
+        ]);
+        selection.setSettingsScope('all');
+        const applyLeaderOverrides = vi.fn(selection.applyLeaderOverrides);
+        const updateScopeMargins = vi.fn(selection.updateScopeMargins);
+        const resetScopeOverrides = vi.fn(selection.resetScopeOverrides);
         workspaceSession.value = {
             ownerId: 'component-test-owner',
             documentMarginsLinked,
-            setSelectionMarginsLinked: (value: boolean) => { documentMarginsLinked.value = value; },
-            setDocumentMarginsLinked: (value: boolean) => { documentMarginsLinked.value = value; },
+            setSelectionMarginsLinked: selection.setMarginsLinked,
             alignmentItems: ref([]),
             applyLeaderOverrides,
             cancel: vi.fn(),
@@ -2856,7 +2814,7 @@ describe('Scan cleanup components', () => {
             cancelRequested: ref(false),
             canDetectAll: ref(false),
             canRun: ref(false),
-            currentPageOverride: ref(getScanCleanupPageOverride(pageOverrides, requirePageNumber(2), undefined)),
+            currentPageOverride: selection.currentPageOverride,
             detectionCancelRequested: ref(false),
             detectionError: ref(''),
             detectionPending: ref(false),
@@ -2894,83 +2852,34 @@ describe('Scan cleanup components', () => {
             detectedLayoutConfidenceByPage: reactive(new Map()),
             previewError: ref(''),
             previewLoading: ref(false),
-            previewPage: ref(2),
+            previewPage: selection.leader,
             previewResult: ref(null),
             previewTotalPages: ref(3),
             previewViewMode: ref('cleaned'),
             readingOrderItems: ref([]),
+            resetControlOverride: selection.resetControlOverride,
             resetPageOverrides,
-            resetSelectionContentBoxes: vi.fn(),
-            resetSelectionManualSplit: vi.fn(),
             retryPreview: vi.fn(),
             run: vi.fn(),
             runLabel: ref('Clean up'),
             showFirstRunGuidance: ref(false),
             dismissFirstRunGuidance: vi.fn(),
-            selectedPages: ref(new Set([
-                1,
-                2,
-            ])),
-            selectionContentBoxes: ref({
-                empty: false,
-                mixed: false,
-                value: {},
-            }),
-            selectionExcluded: ref({
-                empty: false,
-                mixed: false,
-                value: false,
-            }),
-            selectionLayoutOverride,
-            selectionLeader: ref(2),
-            selectionManualSplit: ref({
-                empty: false,
-                mixed: false,
-                value: null,
-            }),
-            selectionPlacementAlignment: ref({
-                empty: false,
-                mixed: false,
-                value: 'top-left',
-            }),
-            selectionRotation: ref({
-                empty: false,
-                mixed: false,
-                value: 0,
-            }),
-            selectPage: vi.fn(),
-            setSettingsScope: (value: 'all' | 'page' | 'selected') => { settingsScope.value = value; },
-            settingsScope,
+            selectedPages: selection.selectedPages,
+            selectionLeader: selection.leader,
+            selectPage: selection.selectPage,
+            setSettingsScope: selection.setSettingsScope,
+            settingsScope: selection.settingsScope,
             resetScopeOverrides,
             settings,
             thicknessLabel: ref('0'),
-            updateCurrentManualContentBox: vi.fn(),
-            updateCurrentManualSplit: vi.fn(),
-            updateCurrentPlacement: vi.fn(),
-            updateCurrentPlacementAll: vi.fn(),
-            updatePageOverride: vi.fn(),
-            updateSelectionExcluded: vi.fn(),
-            updateSelectionLayoutOverride: (
-                value: 'auto' | 'single' | 'spread' | 'keep-left' | 'keep-right',
-                pages: Iterable<number>,
-            ) => {
-                updateScanCleanupPageOverrides(pageOverrides, pages, current => ({
-                    ...current,
-                    layoutOverride: value,
-                }), undefined);
-                selectionLayoutOverride.value = {
-                    empty: false,
-                    mixed: false,
-                    value,
-                };
-            },
-            updateSelectionMargins,
-            updateSelectionPlacement: vi.fn(),
-            updateSelectionRotation: vi.fn(),
-            updateSelectionOverrides: (
-                pages: Iterable<number>,
-                update: (current: ReturnType<typeof createScanCleanupPageOverride>, page: number) => ReturnType<typeof createScanCleanupPageOverride>,
-            ) => updateScanCleanupPageOverrides(pageOverrides, pages, update, settings.marginsMm),
+            updateCurrentManualContentBox: selection.updateCurrentManualContentBox,
+            updateCurrentManualSplit: selection.updateCurrentManualSplit,
+            updateCurrentPlacement: selection.updateCurrentPlacement,
+            updatePageOverride: selection.updatePageOverride,
+            updateScopeLayout: selection.updateScopeLayout,
+            updateScopeMargins,
+            updateScopePlacement: selection.updateScopePlacement,
+            updateScopeOverrides: selection.updateScopeOverrides,
         };
         const harness = mount(defineComponent(() => () => h(ScanCleanupWorkspace, {
             sourcePath: null,
@@ -2998,7 +2907,7 @@ describe('Scan cleanup components', () => {
 
         harness.host.querySelector<HTMLButtonElement>('[data-settings-scope="selected"]')?.click();
         await nextTick();
-        expect(settingsScope.value).toBe('selected');
+        expect(selection.settingsScope.value).toBe('selected');
         expect(harness.host.textContent).toContain('— Mixed');
         const outputMode = harness.host.querySelector<HTMLSelectElement>(
             '[aria-label="Output mode for pages"]',
@@ -3036,7 +2945,7 @@ describe('Scan cleanup components', () => {
 
         harness.host.querySelector<HTMLButtonElement>('[data-settings-scope="page"]')?.click();
         await nextTick();
-        expect(settingsScope.value).toBe('page');
+        expect(selection.settingsScope.value).toBe('page');
         expect(harness.host.querySelector('[data-customized-scope="page"]')?.getAttribute('aria-label'))
             .toBe('This page has custom settings');
         expect(harness.host.querySelector('[aria-label="Output mode for pages"]')).not.toBeNull();
@@ -3065,7 +2974,7 @@ describe('Scan cleanup components', () => {
         leftMarginField.dispatchEvent(new Event('input', {bubbles: true}));
         leftMarginField.dispatchEvent(new Event('change', {bubbles: true}));
         await nextTick();
-        expect(updateSelectionMargins).toHaveBeenCalledWith('leftMm', 11, [2]);
+        expect(updateScopeMargins).toHaveBeenCalledWith('leftMm', 11);
         expect(harness.host.querySelector('[data-override-marker="margins"]')).not.toBeNull();
         const resetMarginsButton = harness.host.querySelector<HTMLButtonElement>('[data-reset-override="margins"]');
         expect(resetMarginsButton?.getAttribute('aria-label')).toBe('Reset to document');
@@ -3087,8 +2996,10 @@ describe('Scan cleanup components', () => {
         expect(resetOverridesButton).not.toBeUndefined();
         expect(resetOverridesButton?.closest('.scan-thumbnail-rail-header')).toBeNull();
         harness.host.querySelector<HTMLButtonElement>('.scan-cleanup-reset-confirmation button:last-child')?.click();
-        expect(resetScopeOverrides).toHaveBeenCalledWith([2]);
+        expect(resetScopeOverrides).toHaveBeenCalledOnce();
         expect(resetPageOverrides).not.toHaveBeenCalled();
+        expect(getScanCleanupPageOverride(pageOverrides, requirePageNumber(1), undefined).layoutOverride).toBe('keep-right');
+        expect(getScanCleanupPageOverride(pageOverrides, requirePageNumber(2), undefined).layoutOverride).toBe('auto');
         await nextTick();
         expect(Array.from(harness.host.querySelectorAll<HTMLButtonElement>('button'))
             .some(button => button.textContent?.trim() === 'Reset this page…')).toBe(false);

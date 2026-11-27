@@ -44,7 +44,7 @@ import type {
     Ref,
 } from 'vue';
 import {isScanCleanupLifecycleIdentityPromotion} from '@app/modules/scan-cleanup/runtime/scanCleanupDetectionSessionCache';
-import type {TScanCleanupDetectionRecords} from '@app/modules/scan-cleanup/composables/useScanCleanupDetectionSession';
+import type {IScanCleanupPreviewPageEvidence} from '@app/modules/scan-cleanup/composables/useScanCleanupDetectionSession';
 import {
     createScanCleanupPreviewCache,
     SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR,
@@ -161,8 +161,8 @@ interface IUseScanCleanupPreviewSessionOptions {
     active: () => boolean;
     authoritativeLayoutByPage: ComputedRef<ReadonlyMap<number, TScanCleanupLayoutClassification>>;
     documentCanvasSignature: Readonly<Ref<string>>;
-    /** Detection's page records; a page's verdicts and plan are its `result`. */
-    detectionRecords: Readonly<Ref<TScanCleanupDetectionRecords>>;
+    /** Per-page detection evidence read lazily for cache keys and preview requests. */
+    getPreviewPageEvidence: (pageNumber: number) => IScanCleanupPreviewPageEvidence | undefined;
     documentRevision: ComputedRef<string>;
     initialViewMode?: 'original' | 'cleaned' | undefined;
     layoutDetectionComplete: ComputedRef<boolean>;
@@ -316,7 +316,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         options.settings.pageOverrideDefaults,
         options.settings.marginsMm,
     );
-    const detected = (pageNumber: number) => options.detectionRecords.value.get(pageNumber)?.result;
+    const detected = (pageNumber: number) => options.getPreviewPageEvidence(pageNumber);
     const i18n = useTypedI18n();
     const {t} = i18n;
     const frame = shallowRef<IScanCleanupPreviewFrame | null>(null);
@@ -568,9 +568,6 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             && resolved.calibrationIdentity === placementAnchorCalibrationIdentity(summary)
         ) {
             return resolved.anchors;
-        }
-        if (resolved !== undefined) {
-            resolvedPlacementAnchorsByPage.delete(pageNumber);
         }
         // A retained result store places pages from the main-process
         // calibration; while that is missing (pending or failed) the renderer's

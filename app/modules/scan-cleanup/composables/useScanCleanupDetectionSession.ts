@@ -1,5 +1,7 @@
 import type {
     IScanCleanupDetectionResult,
+    IScanCleanupDocumentPrior,
+    IScanCleanupPagePlanEvidence,
     IScanCleanupSourcePageMetadata,
     IScanCleanupOptions,
     IScanCleanupPageOverride,
@@ -9,6 +11,7 @@ import type {
     TScanCleanupErrorCode,
     TScanCleanupDetectionJobState,
     TScanCleanupJobClosure,
+    TScanCleanupOutputMode,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {isScanCleanupJobClosure} from '@contracts/scan-cleanup/ipc';
 import {
@@ -21,6 +24,7 @@ import {
     estimateScanCleanupOutputPages,
     resolveScanCleanupPageLayout,
     shouldShowScanCleanupOutputEstimate,
+    toScanCleanupLayoutByPage,
     usesScanCleanupInkAlignment,
     type IScanCleanupInkSheet,
 } from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
@@ -70,7 +74,7 @@ const DETECTION_PAGE_CACHE_LIMIT = 256;
  * Records are replaced, never edited: every per-page view (layouts,
  * recommendations, evidence, settled pages) is selected from them.
  */
-export interface IScanCleanupDetectionPageRecord {
+interface IScanCleanupDetectionPageRecord {
     /** The job has read or analyzed this page. */
     readonly settled: boolean;
     /** The analysis, present only when it was measured under the current options. */
@@ -80,9 +84,36 @@ export interface IScanCleanupDetectionPageRecord {
     readonly sourcePageMetadata?: IScanCleanupSourcePageMetadata | undefined;
 }
 
-export type TScanCleanupDetectionRecords = ReadonlyMap<number, IScanCleanupDetectionPageRecord>;
+type TScanCleanupDetectionRecords = ReadonlyMap<number, IScanCleanupDetectionPageRecord>;
 
-export function selectScanCleanupDetectionByPage<T>(
+/** Per-page detection evidence read by the preview session. */
+export interface IScanCleanupPreviewPageEvidence {
+    readonly documentPrior?: IScanCleanupDocumentPrior | undefined;
+    readonly pagePlanEvidence?: IScanCleanupPagePlanEvidence | undefined;
+    readonly recommendedOutputMode?: TScanCleanupOutputMode | undefined;
+    readonly softAlphaForegroundRecommendation?: boolean | undefined;
+}
+
+/** Legacy small-document detection fields attached to a conversion request. */
+export interface IScanCleanupConversionLegacyRequestFields {
+    readonly outputModeRecommendations?: Record<string, TScanCleanupOutputMode>;
+    readonly softAlphaForegroundRecommendations?: Record<string, boolean>;
+    readonly layoutByPage: ReturnType<typeof toScanCleanupLayoutByPage>;
+    readonly sourcePageMetadataByPage?: Record<string, IScanCleanupSourcePageMetadata>;
+    readonly documentPriorByPage?: Record<string, IScanCleanupDocumentPrior>;
+    readonly pagePlanEvidenceByPage?: Record<string, IScanCleanupPagePlanEvidence>;
+}
+
+/** Detection evidence evaluated on demand when building or validating a cleanup run. */
+export interface IScanCleanupConversionEvidence {
+    readonly pagePlanEvidenceByPage: ReadonlyMap<number, IScanCleanupPagePlanEvidence>;
+    readonly pagePlanEvidenceCount: number;
+    readonly recommendedOutputModeByPage: ReadonlyMap<number, TScanCleanupOutputMode>;
+    readonly recommendedOutputModeCount: number;
+    readonly legacyRequestFields?: IScanCleanupConversionLegacyRequestFields;
+}
+
+function selectScanCleanupDetectionByPage<T>(
     records: TScanCleanupDetectionRecords,
     select: (record: IScanCleanupDetectionPageRecord) => T | null | undefined,
 ) {
@@ -197,7 +228,6 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     const recommendedOutputModeByPage = select(record => record.result?.recommendedOutputMode);
     const recommendedOutputModeConfidenceByPage = select(record => record.result?.recommendedOutputModeConfidence);
     const recommendedOutputModeReasonByPage = select(record => record.result?.recommendedOutputModeReason);
-    const pagePlanEvidenceByPage = select(record => record.result?.pagePlanEvidence);
     // Pages the running job has finished a stage for, accumulated across the
     // job: the rasterizing stage reports read pages and the detecting stage
     // reports analyzed ones, and neither set is a superset of the other. A page
@@ -412,13 +442,6 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         && resolveScanCleanupSupport(getScanCleanupCapability()).detection);
     const canStart = computed(() => canStartDetection.value && !options.isRunning.value);
     const canDetectAll = computed(() => canStart.value && !autoPending.value);
-    const progress = computed(() => jobState.value?.progress ?? {
-        stage: 'detecting' as const,
-        completedUnits: 0,
-        totalUnits: Math.max(1, options.totalPages.value),
-        percent: 0,
-        completedPageNumbers: [],
-    });
     // The job's own progress, or null before a job has reported. Pages are
     // counted by their layout verdicts: raster production and native analysis
     // report separately, and the activity model shows both without letting
@@ -1468,6 +1491,83 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         }
     });
 
+    function getPreviewPageEvidence(pageNumber: number): IScanCleanupPreviewPageEvidence | undefined {
+        const result = records.value.get(pageNumber)?.result;
+        if (!result) {
+            return undefined;
+        }
+        return {
+            ...(result.documentPrior == null ? {} : {documentPrior: result.documentPrior}),
+            ...(result.pagePlanEvidence === undefined ? {} : {pagePlanEvidence: result.pagePlanEvidence}),
+            ...(result.recommendedOutputMode === undefined ? {} : {recommendedOutputMode: result.recommendedOutputMode}),
+            ...(result.softAlphaForegroundRecommendation === undefined ? {} : {softAlphaForegroundRecommendation: result.softAlphaForegroundRecommendation}),
+        };
+    }
+
+    function resolveConversionEvidence(
+        pageNumbers: readonly number[] | null,
+        resolveOptions?: {includeLegacyRequestFields?: boolean},
+    ): IScanCleanupConversionEvidence {
+        const currentRecords = records.value;
+        const layouts = authoritativeLayoutByPage.value;
+        const pagePlanEvidenceByPage = new Map<number, IScanCleanupPagePlanEvidence>();
+        const recommendedOutputModeByPage = new Map<number, TScanCleanupOutputMode>();
+        const collectPage = (pageNumber: number, record: IScanCleanupDetectionPageRecord | undefined) => {
+            const evidence = record?.result?.pagePlanEvidence;
+            if (evidence !== undefined && layouts.get(pageNumber) === evidence.layoutClassification) {
+                pagePlanEvidenceByPage.set(pageNumber, evidence);
+            }
+            const recommendedOutputMode = record?.result?.recommendedOutputMode;
+            if (recommendedOutputMode !== undefined) {
+                recommendedOutputModeByPage.set(pageNumber, recommendedOutputMode);
+            }
+        };
+        if (pageNumbers === null) {
+            for (const [
+                pageNumber,
+                record,
+            ] of currentRecords) {
+                collectPage(pageNumber, record);
+            }
+        } else {
+            for (const pageNumber of pageNumbers) {
+                collectPage(pageNumber, currentRecords.get(pageNumber));
+            }
+        }
+        if (!resolveOptions?.includeLegacyRequestFields) {
+            return {
+                pagePlanEvidenceByPage,
+                pagePlanEvidenceCount: pagePlanEvidenceByPage.size,
+                recommendedOutputModeByPage,
+                recommendedOutputModeCount: recommendedOutputModeByPage.size,
+            };
+        }
+        const byPage = <T>(selector: (record: IScanCleanupDetectionPageRecord) => T | null | undefined) => {
+            const selected = selectScanCleanupDetectionByPage(currentRecords, selector);
+            return selected.size === 0 ? undefined : Object.fromEntries(selected);
+        };
+        const outputModeRecommendations = byPage(record => record.result?.recommendedOutputMode);
+        const softAlphaForegroundRecommendations = byPage(record => record.result?.softAlphaForegroundRecommendation);
+        const sourcePageMetadataByPage = byPage(record => record.sourcePageMetadata);
+        const documentPriorByPage = byPage(record => record.result?.documentPrior);
+        return {
+            pagePlanEvidenceByPage,
+            pagePlanEvidenceCount: pagePlanEvidenceByPage.size,
+            recommendedOutputModeByPage,
+            recommendedOutputModeCount: recommendedOutputModeByPage.size,
+            legacyRequestFields: {
+                ...(outputModeRecommendations === undefined ? {} : {outputModeRecommendations}),
+                ...(softAlphaForegroundRecommendations === undefined ? {} : {softAlphaForegroundRecommendations}),
+                layoutByPage: toScanCleanupLayoutByPage(layouts),
+                ...(sourcePageMetadataByPage === undefined ? {} : {sourcePageMetadataByPage}),
+                ...(documentPriorByPage === undefined ? {} : {documentPriorByPage}),
+                ...(pagePlanEvidenceByPage.size === 0
+                    ? {}
+                    : {pagePlanEvidenceByPage: Object.fromEntries(pagePlanEvidenceByPage)}),
+            },
+        };
+    }
+
     return {
         activePages: computed<ReadonlySet<number>>(() => {
             if (!isDetecting.value) return new Set();
@@ -1483,31 +1583,28 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         cancelRequested,
         confidenceByPage,
         detectAllPages,
-        invalidateDetectionEvidence,
         documentCanvasSignature,
         detectionEvidenceComplete,
         detectionResultStoreId: computed(() => detectionResultStoreId.value),
+        getPreviewPageEvidence,
         inkSheets,
         placementAnchorSummary: computed(() => placementAnchorSummary.value),
         placementAnchorCalibrationError,
         placementAnchorCalibrationPending,
+        resolveConversionEvidence,
         resolvePlacementAnchorsForPage,
         error,
         errorCode,
-        isDetecting,
         layoutDetectionComplete,
         maybeAutoDetect,
         outputEstimate,
-        pagePlanEvidenceByPage,
         pending,
-        progress,
         jobProgress,
         analyzedPages,
         refreshDetection,
         recommendedOutputModeByPage,
         recommendedOutputModeConfidenceByPage,
         recommendedOutputModeReasonByPage,
-        records: computed(() => records.value),
         settledPages,
         textAxisByPage,
         terminalStatus,

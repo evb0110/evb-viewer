@@ -169,7 +169,6 @@ describe('scan cleanup selection override state', () => {
         });
         const selection = useScanCleanupSelection({
             initialPage: 1,
-            previewResult: () => null,
             previewTotalPages: () => 1_000_000,
             marginsLinked: ref(true),
             settings,
@@ -230,7 +229,6 @@ describe('scan cleanup selection override state', () => {
         });
         const selection = useScanCleanupSelection({
             initialPage: 1,
-            previewResult: () => null,
             previewTotalPages: () => 2,
             marginsLinked: ref(true),
             settings,
@@ -302,7 +300,11 @@ describe('scan cleanup selection override state', () => {
         expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1)))
             .not.toHaveProperty('manualSkewDegrees');
 
-        selection.updateRotation(90);
+        selection.setSettingsScope('page');
+        selection.updateScopeOverrides(current => ({
+            ...current,
+            rotationDegrees: 90,
+        }));
         expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1), undefined)).toMatchObject({rotationDegrees: 90});
         expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1), undefined))
             .not.toHaveProperty('manualZones');
@@ -314,7 +316,7 @@ describe('scan cleanup selection override state', () => {
                 rotationDegrees: 90,
             })),
         });
-        selection.resetControlOverride('rotation', [1]);
+        selection.resetControlOverride('rotation');
         const resetOverride = getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1), settings.pageOverrideDefaults, settings.marginsMm);
         expect(resetOverride.rotationDegrees).toBe(0);
         expect(resetOverride.manualZones ?? {
@@ -346,11 +348,11 @@ describe('scan cleanup selection override state', () => {
             skipBlankPages: false,
             pageOverrides: {},
         });
+        const marginsLinked = ref(true);
         const selection = useScanCleanupSelection({
             initialPage: 1,
-            previewResult: () => null,
             previewTotalPages: () => 1,
-            marginsLinked: ref(true),
+            marginsLinked,
             settings,
             editDocumentSettings: (_pages, change) => {
                 change();
@@ -358,8 +360,9 @@ describe('scan cleanup selection override state', () => {
             },
         });
 
-        expect(selection.marginsLinked.value).toBe(true);
-        selection.updateMargins('leftMm', 7);
+        selection.setSettingsScope('page');
+        expect(marginsLinked.value).toBe(true);
+        selection.updateScopeMargins('leftMm', 7);
         expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1), settings.pageOverrideDefaults, settings.marginsMm).marginsMm).toEqual({
             leftMm: 7,
             topMm: 7,
@@ -368,7 +371,7 @@ describe('scan cleanup selection override state', () => {
         });
 
         selection.setMarginsLinked(false);
-        selection.updateMargins('topMm', 3);
+        selection.updateScopeMargins('topMm', 3);
         expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1), settings.pageOverrideDefaults, settings.marginsMm).marginsMm).toEqual({
             leftMm: 7,
             topMm: 3,
@@ -407,7 +410,6 @@ describe('scan cleanup selection override state', () => {
         });
         const selection = useScanCleanupSelection({
             initialPage: 2,
-            previewResult: () => null,
             previewTotalPages: () => 3,
             marginsLinked: ref(true),
             settings,
@@ -417,7 +419,10 @@ describe('scan cleanup selection override state', () => {
             },
         });
 
-        selection.updateOutputModeOverride('mixed', [2]);
+        selection.updatePageOverride(2, {
+            ...selection.currentPageOverride.value,
+            outputModeOverride: 'mixed',
+        });
 
         expect(settings.outputMode).toBe('auto');
         expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1), settings.pageOverrideDefaults, settings.marginsMm).outputModeOverride).toBeUndefined();

@@ -1,19 +1,13 @@
 import type {
     IScanCleanupOptions,
-    IScanCleanupPagePlanEvidence,
     IScanCleanupPlacementAnchorSummary,
-    TScanCleanupLayoutClassification,
     TScanCleanupErrorCode,
     TScanCleanupDetectionJobState,
     TScanCleanupOutputHalf,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {TDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import {
-    selectScanCleanupDetectionByPage,
-    type IScanCleanupDetectionPageRecord,
-    type TScanCleanupDetectionRecords,
-} from '@app/modules/scan-cleanup/composables/useScanCleanupDetectionSession';
+import type {IScanCleanupConversionEvidence} from '@app/modules/scan-cleanup/composables/useScanCleanupDetectionSession';
 import type {
     ComputedRef,
     Ref,
@@ -25,7 +19,6 @@ import {
 } from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     collectScanCleanupSheetInkTops,
-    toScanCleanupLayoutByPage,
     usesScanCleanupInkAlignment,
 } from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {
@@ -65,12 +58,6 @@ import {formatFailurePresentationDescription} from '@app/composables/useFailureT
 const DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT = SCAN_CLEANUP_STREAMING_BATCH_PAGES;
 interface IUseScanCleanupRunSessionOptions {
     active: () => boolean;
-    /**
-     * How each page is expected to be cut. The run measures its matched canvas
-     * over the pages it produces, so it needs the same layouts the preview the
-     * user has been looking at was measured against.
-     */
-    authoritativeLayoutByPage: ComputedRef<ReadonlyMap<number, TScanCleanupLayoutClassification>>;
     beforeRun: (stopWait: Promise<void>) => Promise<void> | void;
     detectionError: Readonly<Ref<string>>;
     detectionErrorCode: Readonly<Ref<TScanCleanupErrorCode | null>>;
@@ -88,14 +75,15 @@ interface IUseScanCleanupRunSessionOptions {
      * completion cannot be inferred from the renderer's bounded page map.
      */
     detectionEvidenceComplete?: ComputedRef<boolean>;
-    /** Detection's page records; a page's verdicts and plan are its `result`. */
-    detectionRecords: Readonly<Ref<TScanCleanupDetectionRecords>>;
     documentRevision: ComputedRef<string>;
     ownerId: string;
     placementAnchorsByPage: ComputedRef<TScanCleanupPlacementAnchorsByPage>;
     previewTotalPages: () => number;
     resolvedOptions?: ComputedRef<IScanCleanupOptions>;
-    resolvePagePlanEvidence: (pageNumbers: readonly number[] | null) => ReadonlyMap<number, IScanCleanupPagePlanEvidence>;
+    resolveConversionEvidence: (
+        pageNumbers: readonly number[] | null,
+        options?: {includeLegacyRequestFields?: boolean},
+    ) => IScanCleanupConversionEvidence;
     sourcePageNumbers: ComputedRef<number[] | null>;
     settings: IScanCleanupOptions;
     sourcePath: ComputedRef<TDocumentRef | null>;
@@ -255,7 +243,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             // selected pages can observe a bounded-map eviction here.
             return null;
         }
-        const evidenceByPage = options.resolvePagePlanEvidence(requested);
+        const evidenceByPage = options.resolveConversionEvidence(requested).pagePlanEvidenceByPage;
         for (const pageNumber of requested) {
             const pageOverride = getScanCleanupPageOverride(
                 resolvedOptions.pageOverrides,
@@ -423,27 +411,9 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             // store takes the descriptor path instead of falling back to maps.
             const detectionResultStoreId = options.detectionResultStoreId?.value ?? null;
             const placementAnchorSummary = options.placementAnchorSummary?.value ?? null;
-            const pagePlanEvidence = options.resolvePagePlanEvidence(requestedPageNumbers);
-            const byPage = <T>(select: (record: IScanCleanupDetectionPageRecord) => T | null | undefined) => {
-                const selected = selectScanCleanupDetectionByPage(options.detectionRecords.value, select);
-                return selected.size === 0 ? undefined : Object.fromEntries(selected);
-            };
-            const outputModeRecommendations = byPage(record => record.result?.recommendedOutputMode);
-            const softAlphaForegroundRecommendations = byPage(record => record.result?.softAlphaForegroundRecommendation);
-            const sourcePageMetadataByPage = byPage(record => record.sourcePageMetadata);
-            const documentPriorByPage = byPage(record => record.result?.documentPrior);
             const legacyDetectionFields = detectionResultStoreId === null
                 && runPageCount.value <= DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT
-                ? {
-                    ...(outputModeRecommendations === undefined ? {} : {outputModeRecommendations}),
-                    ...(softAlphaForegroundRecommendations === undefined ? {} : {softAlphaForegroundRecommendations}),
-                    layoutByPage: toScanCleanupLayoutByPage(options.authoritativeLayoutByPage.value),
-                    ...(sourcePageMetadataByPage === undefined ? {} : {sourcePageMetadataByPage}),
-                    ...(documentPriorByPage === undefined ? {} : {documentPriorByPage}),
-                    ...(pagePlanEvidence.size === 0
-                        ? {}
-                        : {pagePlanEvidenceByPage: Object.fromEntries(pagePlanEvidence)}),
-                }
+                ? options.resolveConversionEvidence(requestedPageNumbers, {includeLegacyRequestFields: true}).legacyRequestFields ?? {}
                 : {};
             // Clustered over the whole document, then narrowed to the pages
             // this run produces: a partial run has to place its pages where a
@@ -600,7 +570,6 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                     return;
                 }
             }
-            const pagePlanEvidence = options.resolvePagePlanEvidence(requestedPageNumbers);
             if (isInkPlacementAnchorMissing()) {
                 reportScanCleanupRunError(
                     options.ownerId,
@@ -612,51 +581,50 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 return;
             }
             const hasAuthoritativeDetectionStore = detectionResultStoreId() !== null;
-            const detectionEvidenceComplete = options.detectionEvidenceComplete?.value;
-            const pagePlanEvidenceMissing = hasAuthoritativeDetectionStore
-                ? false
-                : requestedPageNumbers === null
+            if (!hasAuthoritativeDetectionStore) {
+                const evidence = options.resolveConversionEvidence(requestedPageNumbers);
+                const detectionEvidenceComplete = options.detectionEvidenceComplete?.value;
+                const pagePlanEvidenceMissing = requestedPageNumbers === null
                     ? detectionEvidenceComplete === undefined
-                        ? pagePlanEvidence.size < runPageCount.value
+                        ? evidence.pagePlanEvidenceCount < runPageCount.value
                         : !detectionEvidenceComplete
-                    : requestedPageNumbers.some(pageNumber => !pagePlanEvidence.has(pageNumber));
-            if (pagePlanEvidenceMissing) {
-                reportScanCleanupRunError(
-                    options.ownerId,
-                    t('scanCleanup.detectAll.evidenceMissing'),
-                    requestSourcePdfPath,
-                    'internal',
-                    requestDocumentRevision,
-                );
-                return;
-            }
-            // The completed detection result store is authoritative for a
-            // full-document run. Walking 1..N here would recreate the
-            // million-page allocation this session deliberately avoids. Small
-            // compatibility callers without that scalar still use their
-            // complete page map as the proof of coverage.
-            const missingAutomaticModeDecisions = !hasAuthoritativeDetectionStore && (requestedPageNumbers === null
-                ? !(detectionEvidenceComplete
-                    ?? [...options.detectionRecords.value.values()]
-                        .filter(record => record.result?.recommendedOutputMode !== undefined).length >= runPageCount.value)
-                : requestedPageNumbers.some(pageNumber => {
-                    const pageOverride = getScanCleanupPageOverride(
-                        requestOptions.pageOverrides,
-                        requirePageNumber(pageNumber, Math.max(1, options.totalPages.value)),
+                    : requestedPageNumbers.some(pageNumber => !evidence.pagePlanEvidenceByPage.has(pageNumber));
+                if (pagePlanEvidenceMissing) {
+                    reportScanCleanupRunError(
+                        options.ownerId,
+                        t('scanCleanup.detectAll.evidenceMissing'),
+                        requestSourcePdfPath,
+                        'internal',
+                        requestDocumentRevision,
                     );
-                    return !pageOverride.excluded
-                        && (pageOverride.outputModeOverride ?? requestOptions.outputMode) === 'auto'
-                        && options.detectionRecords.value.get(pageNumber)?.result?.recommendedOutputMode === undefined;
-                }));
-            if (missingAutomaticModeDecisions) {
-                reportScanCleanupRunError(
-                    options.ownerId,
-                    options.detectionError.value || t('scanCleanup.detectAll.evidenceMissing'),
-                    requestSourcePdfPath,
-                    options.detectionErrorCode.value ?? 'internal',
-                    requestDocumentRevision,
-                );
-                return;
+                    return;
+                }
+                // The completed detection result store is authoritative for a
+                // full-document run. Walking 1..N here would recreate the
+                // million-page allocation this session deliberately avoids. Small
+                // compatibility callers without that scalar still use their
+                // complete page map as the proof of coverage.
+                const missingAutomaticModeDecisions = requestedPageNumbers === null
+                    ? !(detectionEvidenceComplete ?? evidence.recommendedOutputModeCount >= runPageCount.value)
+                    : requestedPageNumbers.some(pageNumber => {
+                        const pageOverride = getScanCleanupPageOverride(
+                            requestOptions.pageOverrides,
+                            requirePageNumber(pageNumber, Math.max(1, options.totalPages.value)),
+                        );
+                        return !pageOverride.excluded
+                            && (pageOverride.outputModeOverride ?? requestOptions.outputMode) === 'auto'
+                            && !evidence.recommendedOutputModeByPage.has(pageNumber);
+                    });
+                if (missingAutomaticModeDecisions) {
+                    reportScanCleanupRunError(
+                        options.ownerId,
+                        options.detectionError.value || t('scanCleanup.detectAll.evidenceMissing'),
+                        requestSourcePdfPath,
+                        options.detectionErrorCode.value ?? 'internal',
+                        requestDocumentRevision,
+                    );
+                    return;
+                }
             }
             transition.value = 'starting-cleanup';
             await options.beforeRun(stopWait);

@@ -1212,12 +1212,10 @@ describe('scan cleanup run coordinator', () => {
             setup() {
                 useScanCleanupRunSession({
                     active: () => active.value,
-                    authoritativeLayoutByPage: computed(() => new Map()),
                     beforeRun: () => undefined,
                     detectionError: ref(''),
                     detectionErrorCode: ref(null),
                     detectionPending: computed(() => false),
-                    detectionRecords: ref(new Map()),
                     detectionStatus: computed(() => 'completed'),
                     documentRevision: computed(() => ownerContext.documentRevision),
                     documentSettingsReady: computed(() => true),
@@ -1225,7 +1223,12 @@ describe('scan cleanup run coordinator', () => {
                     placementAnchorsByPage: computed(() => new Map()),
                     previewTotalPages: () => 1,
                     refreshDetection: async () => undefined,
-                    resolvePagePlanEvidence: () => new Map(),
+                    resolveConversionEvidence: () => ({
+                        pagePlanEvidenceByPage: new Map(),
+                        pagePlanEvidenceCount: 0,
+                        recommendedOutputModeByPage: new Map(),
+                        recommendedOutputModeCount: 0,
+                    }),
                     settings: createScanCleanupOptions(),
                     sourcePageNumbers: computed(() => null),
                     sourcePath: computed(() => sourcePath),

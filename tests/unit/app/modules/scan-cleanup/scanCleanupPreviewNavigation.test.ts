@@ -383,25 +383,10 @@ function mountPreviewSession(
             active: () => true,
             authoritativeLayoutByPage: computed(() => new Map()),
             documentCanvasSignature: computed(() => ''),
-            detectionRecords: computed(() => new Map([...documentPriorByPage].map(([
-                pageNumber,
-                documentPrior,
-            ]) => [
-                pageNumber,
-                {
-                    settled: true,
-                    result: {
-                        pageNumber: requirePageNumber(pageNumber),
-                        classification: 'single-uncut-page' as const,
-                        confidence: 0.9,
-                        cutterXPx: null,
-                        tier1Verdict: 'single-uncut-page' as const,
-                        reconciled: false,
-                        clusterAgreement: 0,
-                        documentPrior,
-                    },
-                },
-            ]))),
+            getPreviewPageEvidence: pageNumber => {
+                const documentPrior = documentPriorByPage.get(pageNumber);
+                return documentPrior === undefined ? undefined : {documentPrior};
+            },
             documentRevision: computed(() => 'revision-1'),
             ...(initialViewMode === undefined ? {} : {initialViewMode}),
             layoutDetectionComplete: computed(() => false),
@@ -843,6 +828,53 @@ describe('scan cleanup preview navigation', () => {
 
         expect(backend.previewCalls).not.toHaveBeenCalled();
         mounted.unmount();
+    });
+
+    it('keeps reading resultCurrent pure when calibration identity changes before the watcher runs', async () => {
+        const backend = previewBackend();
+        capability.value = backend.capability;
+        const summaryA = placementAnchorSummary('detection-a');
+        const summaryB = placementAnchorSummary('detection-b');
+        const summary = shallowRef<IScanCleanupPlacementAnchorSummary | null>(summaryA);
+        const resolvePlacementAnchorsForPage = vi.fn(async (_pageNumber: number) => ({
+            summary: summary.value!,
+            placementAnchors: {full: {yNormalized: summary.value === summaryA ? 0.2 : 0.4}},
+        }));
+        const mounted = mountPreviewSession(
+            ref(100),
+            reactive(new Map()),
+            undefined,
+            undefined,
+            summary,
+            resolvePlacementAnchorsForPage,
+            'ink',
+            new Map(),
+            ref('store-1'),
+        );
+
+        await backend.advanceBy(PREVIEW_MS * 4);
+        expect(mounted.session.resultCurrent.value).toBe(true);
+        const page100Calls = () => resolvePlacementAnchorsForPage.mock.calls.filter(([page]) => page === 100).length;
+        expect(page100Calls()).toBe(1);
+
+        // Reading resultCurrent during a transient calibration-identity change
+        // must not evict retained anchors as a computed side effect.
+        summary.value = summaryB;
+        expect(mounted.session.resultCurrent.value).toBe(false);
+        summary.value = summaryA;
+        expect(mounted.session.resultCurrent.value).toBe(true);
+        await nextTick();
+        expect(page100Calls()).toBe(1);
+
+        // Once the watcher observes a real calibration change, it evicts the
+        // mismatched anchors and resolves the replacement calibration.
+        summary.value = summaryB;
+        await nextTick();
+        await backend.advanceBy(PREVIEW_MS + 500);
+        expect(page100Calls()).toBe(2);
+        expect(mounted.session.resultCurrent.value).toBe(true);
+        mounted.unmount();
+        capability.value = null;
     });
 
     it('keeps a mismatched preview when cancellation retires its pending refresh', async () => {

@@ -27,6 +27,7 @@ import {
     createScanCleanupPageOverride,
     getScanCleanupPageOverrideDefaults,
 } from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {resolveScanCleanupOutputPlacement} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {
     createDefaultScanCleanupSettingsFile,
     type IScanCleanupSettingsChange,
@@ -1060,7 +1061,6 @@ describe('scan cleanup renderer preference store', () => {
             });
             selection = useScanCleanupSelection({
                 initialPage: 1,
-                previewResult: () => null,
                 previewTotalPages: () => 3,
                 marginsLinked: ref(true),
                 settings: settings.values,
@@ -1079,10 +1079,17 @@ describe('scan cleanup renderer preference store', () => {
             if (unchangedPage) expect(settings.values.pageOverrides['1']?.rotationDegrees).toBe(90);
             if (action === 'reset') selection.updatePageOverride(2, createScanCleanupPageOverride({rotationDegrees: 90}));
             // Page 1 is already turned: the bulk turn changes only page 2.
-            if (unchangedPage) selection.updateRotation(90, [
-                1,
-                2,
-            ]);
+            if (unchangedPage) {
+                selection.selectPage(2, 'toggle', [
+                    1,
+                    2,
+                    3,
+                ]);
+                selection.updateScopeOverrides(current => ({
+                    ...current,
+                    rotationDegrees: 90,
+                }));
+            }
             else selection.updatePageOverride(1, createScanCleanupPageOverride({rotationDegrees: 180}));
             await nextTick();
             await flushScanCleanupDocumentPreferencesStore();
@@ -1142,7 +1149,6 @@ describe('scan cleanup renderer preference store', () => {
             });
             selection = useScanCleanupSelection({
                 initialPage: 1,
-                previewResult: () => null,
                 previewTotalPages: () => 3,
                 marginsLinked: ref(true),
                 settings: settings.values,
@@ -1195,10 +1201,10 @@ describe('scan cleanup renderer preference store', () => {
 
             // An All-scope rotation: the defaults and the pages that have their own entry.
             selection.updatePageOverride(3, createScanCleanupPageOverride({rotationDegrees: 90}));
-            selection.updateOverrides([3], current => ({
+            selection.updateScopeOverrides(current => ({
                 ...current,
                 rotationDegrees: 270,
-            }), createScanCleanupPageOverride({rotationDegrees: 270}));
+            }));
             // Page 3 now matches the defaults, so it keeps no entry of its own.
             expect(await shown()).toEqual({
                 defaults: 270,
@@ -1231,7 +1237,6 @@ describe('scan cleanup renderer preference store', () => {
             });
             selection = useScanCleanupSelection({
                 initialPage: 1,
-                previewResult: () => null,
                 previewTotalPages: () => 3,
                 marginsLinked: ref(true),
                 settings: settings.values,
@@ -1242,7 +1247,11 @@ describe('scan cleanup renderer preference store', () => {
                 defaults: settings.values.pageOverrideDefaults,
                 margins: settings.values.marginsMm,
                 pages: settings.values.pageOverrides,
-                effectivePlacement: selection.currentPlacementAlignment.value,
+                effectivePlacement: resolveScanCleanupOutputPlacement(
+                    settings.values.pageAlignment,
+                    selection.currentPageOverride.value,
+                    'full',
+                ),
             }));
         }}));
         app.provide(workspaceCommandSinkKey, {
@@ -1264,12 +1273,14 @@ describe('scan cleanup renderer preference store', () => {
                 rightMm: 13,
                 bottomMm: 13,
             };
-            selection.setPageOverrideDefaults(createScanCleanupPageOverride({
-                marginsMm: inheritedMargins,
-                placementOverrides: {full: 'top-left'},
-            }));
+            settings.editDocumentSettings([], () => {
+                settings.values.pageOverrideDefaults = createScanCleanupPageOverride({
+                    marginsMm: inheritedMargins,
+                    placementOverrides: {full: 'top-left'},
+                });
+            });
             const original = await shown();
-            selection.updateCurrentPlacementAll('top-left');
+            selection.updateScopePlacement('top-left');
             expect((await shown()).alignment).toBe('top-left');
             await ledger.undoTimeline();
             expect(await shown()).toEqual(original);
@@ -1278,7 +1289,7 @@ describe('scan cleanup renderer preference store', () => {
             await ledger.undoTimeline();
             selection.updatePageOverride(2, createScanCleanupPageOverride({rotationDegrees: 90}));
             const beforeSparseEdit = await shown();
-            selection.updateCurrentPlacementAll('top-left');
+            selection.updateScopePlacement('top-left');
             settings.values.pageOverrides['3'] = createScanCleanupPageOverride({rotationDegrees: 270});
             await ledger.undoTimeline();
             const undone = await shown();
@@ -1290,6 +1301,146 @@ describe('scan cleanup renderer preference store', () => {
             await ledger.redoTimeline();
             expect((await shown()).alignment).toBe('top-left');
             expect((await shown()).pages['3'].rotationDegrees).toBe(270);
+        } finally {
+            await nextTick();
+            app.unmount();
+            await flushScanCleanupPreferencesStore();
+            await flushScanCleanupDocumentPreferencesStore();
+            await store.get();
+        }
+    });
+
+    it('undoes All-scope layout changes and margin relinking as one step each', async () => {
+        const {store} = await createDurableSettingsStore();
+        connectMainProcessSettings(store);
+        const sourceSha256 = 'd'.repeat(64);
+        const ledger = useWorkspaceCommandLedger();
+        let settings!: ReturnType<typeof useScanCleanupDocumentSettings>;
+        let selection!: ReturnType<typeof useScanCleanupSelection>;
+        const host = document.createElement('div');
+        const app = createApp(defineComponent({setup() {
+            settings = useScanCleanupDocumentSettings({
+                documentLifecycleKey: computed(() => sourceSha256),
+                sourceSha256: computed(() => sourceSha256),
+            });
+            selection = useScanCleanupSelection({
+                initialPage: 1,
+                previewTotalPages: () => 3,
+                marginsLinked: settings.marginsLinked,
+                settings: settings.values,
+                editDocumentSettings: settings.editDocumentSettings,
+                updateDocumentMargin: settings.updateMargin,
+                setDocumentMarginsLinked: settings.setMarginsLinked,
+            });
+            return () => h('output', JSON.stringify({
+                layoutMode: settings.values.layoutMode,
+                margins: settings.values.marginsMm,
+                marginsLinked: settings.marginsLinked.value,
+                defaults: settings.values.pageOverrideDefaults,
+                pages: settings.values.pageOverrides,
+            }));
+        }}));
+        app.provide(workspaceCommandSinkKey, {
+            register: ledger.registerCommand,
+            reset: ledger.resetSource,
+            forget: ledger.forgetSourceEntries,
+        });
+        app.mount(host);
+        const shown = async () => {
+            await nextTick();
+            return JSON.parse(host.textContent ?? '{}');
+        };
+        try {
+            await vi.waitFor(() => expect(settings.documentSettingsReady.value).toBe(true));
+            selection.updatePageOverride(1, createScanCleanupPageOverride({layoutOverride: 'single'}));
+            const beforeLayout = await shown();
+            selection.updateScopeLayout('force-single');
+            expect((await shown()).layoutMode).toBe('force-single');
+            expect((await shown()).pages['1']).toBeUndefined();
+            selection.updateScopeLayout('force-two-page');
+            expect((await shown()).layoutMode).toBe('force-two-page');
+            await ledger.undoTimeline();
+            expect((await shown()).layoutMode).toBe('force-single');
+            await ledger.undoTimeline();
+            expect(await shown()).toEqual(beforeLayout);
+            await ledger.redoTimeline();
+            expect((await shown()).layoutMode).toBe('force-single');
+            await ledger.redoTimeline();
+            expect((await shown()).layoutMode).toBe('force-two-page');
+            await ledger.undoTimeline();
+            await ledger.undoTimeline();
+            expect(await shown()).toEqual(beforeLayout);
+
+            // If another document changes the shared layoutMode after this
+            // command (even back to the prior value), undo and redo here must
+            // restore this document's overrides without clobbering it.
+            selection.updateScopeLayout('force-single');
+            settings.values.layoutMode = 'auto';
+            await ledger.undoTimeline();
+            expect((await shown()).layoutMode).toBe('auto');
+            expect((await shown()).pages['1']?.layoutOverride).toBe('single');
+            await ledger.redoTimeline();
+            expect((await shown()).layoutMode).toBe('auto');
+            expect((await shown()).pages['1']).toBeUndefined();
+            await ledger.undoTimeline();
+
+            // Unlinking equal margins and editing one side keeps linking off on
+            // undo; relinking with inherited defaults restores both defaults
+            // and the unlinked state on undo.
+            const inheritedMargins = {
+                leftMm: 11,
+                topMm: 11,
+                rightMm: 11,
+                bottomMm: 11,
+            };
+            settings.editDocumentSettings([], () => {
+                settings.values.pageOverrideDefaults = createScanCleanupPageOverride({marginsMm: inheritedMargins});
+            });
+            selection.setMarginsLinked(false);
+            expect((await shown()).defaults.marginsMm).toEqual(inheritedMargins);
+            const beforeRelinkEqual = await shown();
+            selection.setMarginsLinked(true);
+            expect((await shown()).marginsLinked).toBe(true);
+            expect((await shown()).defaults.marginsMm).toBeUndefined();
+            await ledger.undoTimeline();
+            expect(await shown()).toEqual(beforeRelinkEqual);
+
+            selection.updateScopeMargins('topMm', 9);
+            const beforeLeftEdit = await shown();
+            selection.updateScopeMargins('leftMm', 4);
+            await ledger.undoTimeline();
+            expect(await shown()).toEqual(beforeLeftEdit);
+            expect((await shown()).marginsLinked).toBe(false);
+
+            selection.updateScopeMargins('leftMm', 4);
+            const beforeRelink = await shown();
+            selection.setMarginsLinked(true);
+            expect((await shown()).margins).toEqual({
+                leftMm: 9,
+                topMm: 9,
+                rightMm: 9,
+                bottomMm: 9,
+            });
+            await ledger.undoTimeline();
+            expect(await shown()).toEqual(beforeRelink);
+
+            // Page-scope relinking restores both unequal margins and the
+            // unlinked switch on undo.
+            selection.setSettingsScope('page');
+            selection.setMarginsLinked(false);
+            selection.updateScopeMargins('topMm', 12);
+            selection.updateScopeMargins('leftMm', 6);
+            const beforePageRelink = await shown();
+            selection.setMarginsLinked(true);
+            expect((await shown()).marginsLinked).toBe(true);
+            expect((await shown()).pages['1']?.marginsMm).toEqual({
+                leftMm: 12,
+                topMm: 12,
+                rightMm: 12,
+                bottomMm: 12,
+            });
+            await ledger.undoTimeline();
+            expect(await shown()).toEqual(beforePageRelink);
         } finally {
             await nextTick();
             app.unmount();

@@ -69,7 +69,7 @@
                     :thickness-label="thicknessLabel"
                     :total-pages="previewTotalPages"
                     @reset-content-boxes="resetScopeContentBoxes"
-                    @reset-control-override="resetScopeControlOverride"
+                    @reset-control-override="resetControlOverride"
                     @reset-manual-split="resetScopeManualSplit"
                     @reset-manual-skew="resetScopeManualSkew"
                     @reset-scope-overrides="resetScopeOverrides"
@@ -78,7 +78,7 @@
                     @thickness-input="handleThicknessInput"
                     @update-inclusion="handleScopeInclusion"
                     @update-layout="handleScopeLayout"
-                    @update-margin="updateScopeMargin"
+                    @update-margin="updateScopeMargins"
                     @update-manual-skew="updateScopeManualSkew"
                     @update-output-mode="handleScopeOutputMode"
                     @update:margins-linked="setScopeMarginsLinked"
@@ -170,13 +170,13 @@
 </template>
 
 <script setup lang="ts">
+import {whenever} from '@vueuse/core';
 import { useFailureToast } from '@app/composables/useFailureToast';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import type {TDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {
     IScanCleanupOptions,
-    IScanCleanupPageOverride,
     TScanCleanupOutputMode,
     TScanCleanupPageLayoutOverride,
     TScanCleanupPageRotation,
@@ -206,18 +206,12 @@ import ScanCleanupPreviewPane from '@app/modules/scan-cleanup/components/preview
 import ScanCleanupThumbnailRail from '@app/modules/scan-cleanup/components/ScanCleanupThumbnailRail.vue';
 import ScanCleanupToolbar from '@app/modules/scan-cleanup/components/ScanCleanupToolbar.vue';
 import ScanCleanupSettingsPanel from '@app/modules/scan-cleanup/components/settings/ScanCleanupSettingsPanel.vue';
-import type {TScanCleanupOverrideControl} from '@app/modules/scan-cleanup/composables/useScanCleanupSelection';
 import {useScanCleanupWorkspaceSession} from '@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession';
 import type {IScanCleanupPageFacts} from '@app/modules/scan-cleanup/runtime/describeScanCleanupPage';
-import {resolveScanCleanupMixedValue} from '@app/modules/scan-cleanup/runtime/scanCleanupSelectionOverrides';
 import {
+    resolveScanCleanupMixedValue,
     updateScanCleanupPageOverrideRotation,
-    type TScanCleanupPageOverrideUpdate,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupSelectionOverrides';
-import {
-    createScanCleanupPageRange,
-    type TScanCleanupPageScope,
-} from '@app/modules/scan-cleanup/runtime/resolveScanCleanupApplyScope';
 
 const { t } = useTypedI18n();
 const {
@@ -283,14 +277,12 @@ const {
     handleThicknessInput,
     layoutItems,
     marginsLinked: documentMarginsLinked,
-    setMarginsLinked: setDocumentMarginsLinked,
     outputItems,
     readingOrderItems,
     resetPageOverrides,
     showFirstRunGuidance,
     dismissFirstRunGuidance,
     thicknessLabel,
-    updateMargin: updateDocumentMargin,
     values: settings,
     editDocumentSettings,
 } = workspaceSession.settings;
@@ -318,25 +310,22 @@ const {
     currentPageOverride,
     highlightedScope,
     leader: selectionLeader,
-    resetOverrides,
+    resetControlOverride,
+    resetScopeOverrides,
     selectedPages,
     selectPage,
+    setMarginsLinked: setScopeMarginsLinked,
     setSettingsScope,
     settingsScope,
     updateCurrentManualContentBox,
     updateCurrentManualSplit,
     updateCurrentManualZones,
-    updateCurrentPlacementAll,
-    updatePageOverride,
-    updatePlacement: updateSelectionPlacement,
-    updateLayoutOverride: updateSelectionLayoutOverride,
-    updateMargins: updateSelectionMargins,
-    setMarginsLinked: setSelectionMarginsLinked,
-    updateOutputModeOverride: updateSelectionOutputModeOverride,
-    updateOverrides: updateSelectionOverrides,
-    setPageOverrideDefaults,
-    recordOverrideEdit,
     updateCurrentPlacement,
+    updatePageOverride,
+    updateScopeLayout,
+    updateScopeMargins,
+    updateScopeOverrides,
+    updateScopePlacement,
 } = workspaceSession.selection;
 const previewPage = selectionLeader;
 const {
@@ -511,8 +500,8 @@ function resetSettingsToDefaults() {
     editDocumentSettings([], () => resetScanCleanupOptionsToDefaults(settings));
 }
 
-const scopePageNumbers = computed<TScanCleanupPageScope | readonly number[]>(() => settingsScope.value === 'all'
-    ? createScanCleanupPageRange(1, Math.max(1, previewTotalPages.value))
+const scopePageNumbers = computed<readonly number[]>(() => settingsScope.value === 'all'
+    ? []
     : settingsScope.value === 'page'
         ? [selectionLeader.value]
         : [...selectedPages.value].sort((left, right) => left - right));
@@ -530,17 +519,7 @@ function existingOverridePages() {
         .filter(page => Number.isSafeInteger(page) && page >= 1 && page <= previewTotalPages.value);
 }
 
-function updateScopeOverrides(
-    update: TScanCleanupPageOverrideUpdate,
-    updateExisting: TScanCleanupPageOverrideUpdate = update,
-) {
-    if (settingsScope.value === 'all') updateSelectionOverrides(existingOverridePages(), updateExisting, update(allScopeDefaultOverride.value, selectionLeader.value));
-    else updateSelectionOverrides(scopePageNumbers.value, update);
-}
-
-const scopePageOverrides = computed(() => settingsScope.value === 'all'
-    ? []
-    : [...scopePageNumbers.value].map(page => getPageOverride(page)));
+const scopePageOverrides = computed(() => scopePageNumbers.value.map(page => getPageOverride(page)));
 
 function resolveAllPageOverrideValue<T>(
     defaultValue: T,
@@ -824,41 +803,20 @@ function updateDocumentSetting(
 
 function useMixedOutput() {
     settings.preserveOriginalQuality = false;
-    updateSelectionOutputModeOverride('mixed', [previewPage.value]);
+    updatePageOverride(previewPage.value, {
+        ...currentPageOverride.value,
+        outputModeOverride: 'mixed',
+    });
 }
 
 function handleScopeLayout(value: string | number) {
     const layout = String(value);
     if (settingsScope.value === 'all') {
-        if (![
-            'auto',
-            'force-single',
-            'force-two-page',
-        ].includes(layout)) {
-            return;
-        }
-        const layoutMode = layout as IScanCleanupOptions['layoutMode'];
-        settings.layoutMode = layoutMode;
-        const matchingOverride = layoutMode === 'force-single'
-            ? 'single'
-            : layoutMode === 'force-two-page' ? 'spread' : 'auto';
-        const resetMatchingPage = (current: IScanCleanupPageOverride) => current.layoutOverride === matchingOverride
-            ? {
-                ...current,
-                layoutOverride: 'auto' as const,
-            }
-            : current;
-        updateScopeOverrides(
-            current => ({
-                ...current,
-                layoutOverride: DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.layoutOverride,
-            }),
-            resetMatchingPage,
-        );
+        updateScopeLayout(layout as IScanCleanupOptions['layoutMode']);
         return;
     }
     if (scopeLayoutItems.value.some(item => item.value === layout && !('disabled' in item && item.disabled === true))) {
-        updateSelectionLayoutOverride(layout as TScanCleanupPageLayoutOverride, scopePageNumbers.value);
+        updateScopeLayout(layout as TScanCleanupPageLayoutOverride);
     }
 }
 
@@ -909,49 +867,6 @@ function handleScopeInclusion(value: string | number) {
     }
 }
 
-function updateScopeMargin(target: Parameters<typeof updateDocumentMargin>[0], value: number) {
-    if (settingsScope.value === 'all') {
-        recordOverrideEdit(Object.keys(settings.pageOverrides).map(Number), () => {
-            const {
-                marginsMm: _marginsMm,
-                ...withoutMargins
-            } = allScopeDefaultOverride.value;
-            setPageOverrideDefaults(withoutMargins);
-            updateDocumentMargin(target, value);
-        });
-        return;
-    }
-    updateSelectionMargins(target, value, scopePageNumbers.value);
-}
-
-function setScopeMarginsLinked(linked: boolean) {
-    if (settingsScope.value !== 'all') {
-        // Page and Selected scopes equalize their own pages' margins, like
-        // every other margin edit there; the document's stay as they are.
-        const margins = scopeMargins.value;
-        setSelectionMarginsLinked(
-            linked,
-            scopePageNumbers.value,
-            margins.mixed ? undefined : margins.value,
-        );
-        return;
-    }
-    const {
-        marginsMm: _marginsMm,
-        ...withoutMargins
-    } = allScopeDefaultOverride.value;
-    setPageOverrideDefaults(withoutMargins);
-    setDocumentMarginsLinked(linked);
-}
-
-function updateScopePlacement(value: Parameters<typeof updateCurrentPlacementAll>[0]) {
-    if (settingsScope.value === 'all') {
-        updateCurrentPlacementAll(value);
-        return;
-    }
-    updateSelectionPlacement(value, scopePageNumbers.value);
-}
-
 function resetScopeManualSplit() {
     updateScopeOverrides(current => ({
         ...current,
@@ -977,61 +892,9 @@ function resetScopeContentBoxes() {
     }));
 }
 
-function resetScopeControlOverride(control: TScanCleanupOverrideControl) {
-    updateScopeOverrides(current => {
-        if (control === 'layout') {
-            return {
-                ...current,
-                layoutOverride: DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.layoutOverride,
-            };
-        }
-        if (control === 'rotation') {
-            return updateScanCleanupPageOverrideRotation(
-                current,
-                DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.rotationDegrees,
-            );
-        }
-        if (control === 'inclusion') {
-            return {
-                ...current,
-                excluded: DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.excluded,
-            };
-        }
-        if (control === 'output-mode') {
-            const {
-                outputModeOverride: _outputModeOverride,
-                ...withoutOutputMode
-            } = current;
-            return withoutOutputMode;
-        }
-        if (control === 'margins') {
-            const {
-                marginsMm: _marginsMm,
-                ...withoutMargins
-            } = current;
-            return withoutMargins;
-        }
-        const {
-            placementOverrides: _placementOverrides,
-            ...withoutPlacement
-        } = current;
-        return withoutPlacement;
-    });
-}
-
-function resetScopeOverrides() {
-    if (settingsScope.value === 'all') {
-        resetPageOverrides();
-        return;
-    }
-    resetOverrides(scopePageNumbers.value);
-}
-
-watch(isRunning, running => {
-    if (running) {
-        zoneEditing.value = false;
-        marginBoundaryVisible.value = false;
-    }
+whenever(isRunning, () => {
+    zoneEditing.value = false;
+    marginBoundaryVisible.value = false;
 });
 </script>
 
