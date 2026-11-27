@@ -1,7 +1,10 @@
 <template>
     <g
         class="pdf-annotation-editor-entity pdf-annotation-editor-text-markup"
-        :class="{'is-selected': selected}"
+        :class="{
+            'is-selected': selected,
+            'is-original-appearance': originalAppearance,
+        }"
         :data-annotation-id="entity.identity.id"
         data-annotation-kind="text-markup"
         :data-markup-subtype="entity.subtype"
@@ -13,7 +16,12 @@
             <line v-else-if="entity.subtype !== 'Highlight'" data-annotation-visual v-bind="lineFor(quad)" />
         </template>
         <Teleport :to="highlightFillTarget" defer>
-            <g v-if="entity.subtype === 'Highlight' && highlightPath" class="pdf-annotation-editor-text-markup" :style="markupStyle">
+            <g
+                v-if="entity.subtype === 'Highlight' && highlightPath"
+                class="pdf-annotation-editor-text-markup"
+                :class="{'is-original-appearance': originalAppearance}"
+                :style="markupStyle"
+            >
                 <path data-annotation-visual :d="highlightPath" style="mix-blend-mode: multiply" />
             </g>
         </Teleport>
@@ -41,6 +49,7 @@ import { toPdfScaledCssLength } from '@app/modules/pdf-viewer/engine/pdf-page-sc
 const props = defineProps<{
     entity: ITextMarkupEntity;
     selected: boolean;
+    originalAppearance?: boolean;
     pageSize?: IAnnotationPageDimensions;
     pageRotation?: number;
     highlightFillTarget: string;
@@ -98,3 +107,9 @@ const markupStyle = computed(() => ({
     '--annotation-markup-stroke-width': toPdfScaledCssLength(1),
 }));
 </script>
+
+<style scoped>
+.pdf-annotation-editor-text-markup.is-original-appearance [data-annotation-visual] {
+    visibility: hidden;
+}
+</style>

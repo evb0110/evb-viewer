@@ -608,6 +608,26 @@
     top: 50%;
 }
 
+[data-pdf-viewer-host].is-capture-clean .pdf-annotation-selection-handles,
+[data-pdf-viewer-host].is-capture-clean .pdf-annotation-editor-highlight-outline,
+[data-pdf-viewer-host].is-capture-clean .pdf-annotation-editor-text-box-preview {
+    visibility: hidden;
+}
+
+[data-pdf-viewer-host].is-capture-clean .pdf-annotation-editor-entity {
+    outline: none;
+}
+
+[data-pdf-viewer-host].is-capture-clean .pdf-annotation-editor-note.is-selected {
+    border-color: color-mix(in srgb, var(--annotation-note-color) 62%, var(--ui-border) 38%);
+    background: color-mix(in srgb, var(--annotation-note-color) 20%, var(--ui-bg) 80%);
+    opacity: 0.82;
+}
+
+[data-pdf-viewer-host].is-capture-clean .pdf-annotation-editor-stamp.is-selected {
+    border-color: currentcolor;
+}
+
 .pdfViewer.is-selection-markup-tool .annotation-editor-layer,
 .pdfViewer.is-selection-markup-tool .annotationEditorLayer,
 .pdfViewer.is-text-selection-mode .annotation-editor-layer,

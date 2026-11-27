@@ -1037,6 +1037,7 @@ watch(isRunning, running => {
 
 <style>
 .scan-cleanup-surface {
+    grid-area: 1 / 1;
     display: flex;
     min-width: 0;
     min-height: 0;

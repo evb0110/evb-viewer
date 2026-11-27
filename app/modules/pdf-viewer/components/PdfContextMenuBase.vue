@@ -209,6 +209,10 @@ onBeforeUnmount(() => {
 });
 </script>
 
+<style lang="scss">
+@use '@app/assets/css/pdf-context-menu';
+</style>
+
 <style scoped>
 .pdf-context-menu-base {
     position: fixed;
@@ -221,6 +225,10 @@ onBeforeUnmount(() => {
     background: var(--app-pdf-context-menu-item-bg);
     box-shadow: var(--app-pdf-context-menu-grid-shadow);
     color: var(--app-pdf-context-menu-item-fg);
+}
+
+.pdf-context-menu-base:focus {
+    outline: none;
 }
 
 .pdf-context-menu-base--grid {
@@ -238,117 +246,5 @@ onBeforeUnmount(() => {
     border-radius: 0.55rem;
     background: var(--app-pdf-context-menu-panel-bg);
     box-shadow: var(--app-pdf-context-menu-panel-shadow);
-}
-
-.pdf-context-menu-base :deep(.pdf-context-menu__section-title) {
-    margin: 0;
-    padding: var(--app-space-3xl) var(--app-space-5xl) var(--app-space-sm);
-    color: var(--app-pdf-context-menu-title-fg);
-    font-size: var(--app-text-size-menu-shortcut);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    font-weight: var(--app-font-weight-semibold);
-    display: flex;
-    align-items: center;
-    gap: var(--app-space-md);
-    min-width: 0;
-    white-space: normal;
-    overflow: hidden;
-    overflow-wrap: anywhere;
-}
-
-.pdf-context-menu-base--grid :deep(.pdf-context-menu__section-title) {
-    padding-inline: var(--pdf-context-menu-inline-padding);
-}
-
-.pdf-context-menu-base :deep(.pdf-context-menu__divider) {
-    height: var(--app-hairline-height);
-    background: var(--app-pdf-context-menu-divider);
-}
-
-.pdf-context-menu-base--grid :deep(.pdf-context-menu__divider) {
-    margin: var(--app-space-sm) var(--app-space-2xs);
-}
-
-.pdf-context-menu-base--panel :deep(.pdf-context-menu__divider) {
-    margin: var(--app-space-2xs) 0.1rem;
-}
-
-.pdf-context-menu-base :deep(.pdf-context-menu__action) {
-    display: flex;
-    align-items: center;
-    gap: var(--app-space-2xl);
-    min-width: 0;
-    text-align: left;
-    color: var(--app-pdf-context-menu-item-fg);
-    white-space: normal;
-    overflow: hidden;
-    overflow-wrap: anywhere;
-}
-
-.pdf-context-menu-base--grid :deep(.pdf-context-menu__action) {
-    border: none;
-    border-radius: var(--app-pdf-context-menu-item-radius);
-    background: transparent;
-    min-height: var(--app-control-height-sm);
-    padding: 0 var(--pdf-context-menu-inline-padding);
-    cursor: pointer;
-    font-size: var(--app-text-size-body-sm);
-    transition: background-color 120ms ease, color 120ms ease;
-}
-
-.pdf-context-menu-base:focus {
-    outline: none;
-}
-
-.pdf-context-menu-base--grid :deep(.pdf-context-menu__action:focus) {
-    outline: none;
-    background: var(--app-pdf-context-menu-item-hover-bg);
-}
-
-.pdf-context-menu-base--grid :deep(.pdf-context-menu__action:disabled) {
-    color: var(--app-pdf-context-menu-item-disabled-fg);
-    background: transparent;
-    cursor: default;
-}
-
-.pdf-context-menu-base--panel :deep(.pdf-context-menu__action) {
-    border: 1px solid transparent;
-    border-radius: var(--app-radius-lg);
-    background: transparent;
-    color: var(--app-pdf-context-menu-panel-action-fg);
-    font-size: var(--app-text-size-meta);
-    min-height: 0;
-    padding: var(--app-space-md) var(--app-space-2xl);
-    cursor: pointer;
-}
-
-.pdf-context-menu-base--panel :deep(.pdf-context-menu__action:focus) {
-    outline: none;
-    border-color: var(--app-pdf-context-menu-panel-action-border);
-    background: var(--app-pdf-context-menu-panel-action-hover-bg);
-}
-
-.pdf-context-menu-base--panel :deep(.pdf-context-menu__action:disabled) {
-    opacity: var(--app-opacity-disabled);
-}
-
-.pdf-context-menu-base :deep(.pdf-context-menu__action--danger) {
-    color: var(--app-pdf-context-menu-danger-fg);
-}
-
-.pdf-context-menu-base--grid :deep(.pdf-context-menu__action--danger:focus) {
-    background: var(--app-pdf-context-menu-danger-hover-bg);
-}
-
-.pdf-context-menu-base :deep(.pdf-context-menu__icon) {
-    width: var(--app-icon-size-xs);
-    height: var(--app-icon-size-xs);
-    flex-shrink: 0;
-    color: var(--ui-text-muted);
-}
-
-.pdf-context-menu-base :deep(.pdf-context-menu__action--danger .pdf-context-menu__icon) {
-    color: inherit;
 }
 </style>

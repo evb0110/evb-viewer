@@ -35,6 +35,7 @@
                     :page="pageItem.page"
                     :show-skeleton="shouldRenderPageSkeleton(pageItem.page)"
                     :defer-skeleton="deferPageSkeleton"
+                    :paint-mode="pagePaintMode"
                     :render-failed="isPageRenderFailed(pageItem.page)"
                     :render-error-label="pageRenderErrorLabel"
                     :spread-single="isSpreadSingle(pageItem.page)"
@@ -57,6 +58,7 @@
                 :page="item.page"
                 :show-skeleton="shouldRenderPageSkeleton(item.page)"
                 :defer-skeleton="deferPageSkeleton"
+                :paint-mode="pagePaintMode"
                 :render-failed="isPageRenderFailed(item.page)"
                 :render-error-label="pageRenderErrorLabel"
                 :spread-single="isSpreadSingle(item.page)"
@@ -96,18 +98,19 @@ import {
     flattenPdfVirtualPageSegments,
     groupPdfVirtualPageItems,
 } from '@app/modules/pdf-viewer/runtime/composables/flattenPdfVirtualPageSegments';
-import { injectDocumentViewerRuntime } from '@app/modules/document-viewer/public';
+import {
+    injectDocumentViewerRuntime,
+    isDocumentOpenEmptySurfaceTransition,
+    resolveDocumentWheelInteraction,
+    type IDocumentViewportFlingBackdrop,
+    type IDocumentWheelInteraction,
+} from '@app/modules/document-viewer/public';
 import type {
     IPdfImagePlacementDraft,
     IPdfImagePlacementRectUpdate,
 } from '@app/types/pdfImagePlacement';
 import type { IPdfVirtualPageSegment } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
 import type { IPdfPageScale } from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
-import {
-    resolveDocumentWheelInteraction,
-    type IDocumentViewportFlingBackdrop,
-    type IDocumentWheelInteraction,
-} from '@app/modules/document-viewer/public';
 
 interface IProps {
     setViewerContainer: (element: HTMLElement | null) => void;
@@ -222,6 +225,17 @@ const deferPageSkeleton = computed(() => {
     const visual = chassisAuthority?.openSurface.viewportSession.value.visual;
     return chassisAuthority?.navigationTicket.value !== null
         && visual?.kind === 'page' && visual.deferSkeleton === true;
+});
+
+const pagePaintMode = computed<'normal' | 'hidden' | 'shell-owned'>(() => {
+    const snapshot = chassisAuthority?.openSurface.snapshot.value;
+    if (!snapshot) {
+        return 'normal';
+    }
+    if (isDocumentOpenEmptySurfaceTransition(snapshot) && snapshot.presentation === 'idle') {
+        return 'hidden';
+    }
+    return snapshot.presentation === 'page-shell' ? 'shell-owned' : 'normal';
 });
 
 function getEffectivePagePlaceholderStyle(page: TPageNumber) {

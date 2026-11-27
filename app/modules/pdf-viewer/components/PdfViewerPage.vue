@@ -9,6 +9,7 @@
             'page_container--spread-single': spreadSingle,
             'page_container--buffered': buffered,
             'page_container--rendered': rendered,
+            'page_container--paint-hidden': paintMode === 'hidden',
         }"
         :data-page="page"
         :data-document-page-number="page"
@@ -20,7 +21,10 @@
         ]"
         @click="handlePageClick"
     >
-        <div class="page_canvas">
+        <div
+            class="page_canvas"
+            :class="{'page_canvas--shell-owned': paintMode === 'shell-owned'}"
+        >
             <div
                 class="page_canvas__render-layer canvasWrapper"
                 :class="{'document-page-visual--committed': raster !== null}"
@@ -76,6 +80,7 @@ interface IProps {
     page: TPageNumber;
     showSkeleton: boolean;
     deferSkeleton?: boolean;
+    paintMode?: 'normal' | 'hidden' | 'shell-owned';
     renderFailed?: boolean;
     renderErrorLabel?: string;
     spreadSingle?: boolean;
@@ -94,6 +99,7 @@ const {
     page,
     showSkeleton,
     deferSkeleton = false,
+    paintMode = 'normal',
     renderFailed = false,
     renderErrorLabel = '',
     spreadSingle = false,
@@ -146,3 +152,19 @@ onBeforeUnmount(() => {
     emit('page-container-unmounted', page);
 });
 </script>
+
+<style scoped>
+/* Until an open knows its page shape the viewer shows only its background
+   (behavior contract T5). The renderer may already have laid its pages out
+   underneath at a scale it has not fitted, at the page it has not reached. */
+.page_container--paint-hidden {
+    visibility: hidden;
+}
+
+/* The opening shell is the sole visible page-frame owner until commit. The
+   renderer still mounts underneath so it can prepare pixels, but its matching
+   shadow must not composite through the opening shell's translucent shadow. */
+.page_canvas--shell-owned {
+    box-shadow: none;
+}
+</style>

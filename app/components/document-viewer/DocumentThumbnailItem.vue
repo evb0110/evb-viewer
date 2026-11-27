@@ -16,15 +16,13 @@
         <slot name="overlay" />
         <span
             class="document-thumbnail-item__frame"
-            :class="frameClass"
             data-document-thumbnail-frame
-            :style="frameStyle"
+            :style="aspectRatio === undefined ? undefined : {aspectRatio}"
         >
             <slot />
         </span>
         <span
             class="document-thumbnail-item__label"
-            :class="labelClass"
             data-document-thumbnail-label
         >
             <slot name="label" />
@@ -33,23 +31,17 @@
 </template>
 
 <script setup lang="ts">
-import type {CSSProperties} from 'vue';
-
 defineOptions({inheritAttrs: false});
 
 const {
+    aspectRatio = undefined,
     current = false,
-    frameStyle = undefined,
-    frameClass = undefined,
-    labelClass = undefined,
     selected = false,
     tag = 'button',
     disabled = false,
 } = defineProps<{
+    aspectRatio?: string | undefined;
     current?: boolean | undefined;
-    frameStyle?: CSSProperties | undefined;
-    frameClass?: string | undefined;
-    labelClass?: string | undefined;
     selected?: boolean | undefined;
     tag?: 'button' | 'div' | undefined;
     disabled?: boolean | undefined;
@@ -58,6 +50,9 @@ const {
 
 <style scoped>
 .document-thumbnail-item {
+    --document-thumbnail-page-shadow: var(--app-document-page-shadow);
+    --document-thumbnail-action-opacity: 0;
+
     position: relative;
     display: flex;
     box-sizing: border-box;
@@ -75,7 +70,17 @@ const {
         border-color 0.15s;
 }
 
-.document-thumbnail-item:hover { background: var(--app-sidebar-control-hover-bg); }
+.document-thumbnail-item:hover {
+    --document-thumbnail-action-opacity: 1;
+
+    background: var(--app-sidebar-control-hover-bg);
+}
+
+.document-thumbnail-item.is-current {
+    --document-thumbnail-page-shadow:
+        0 0 0 2px var(--ui-text),
+        var(--app-document-page-shadow);
+}
 
 .document-thumbnail-item.is-disabled {
     cursor: default;
@@ -87,7 +92,17 @@ const {
 }
 
 .document-thumbnail-item.is-selected {
+    --document-thumbnail-action-opacity: 1;
+    --document-thumbnail-page-shadow:
+        0 0 0 2px var(--ui-primary),
+        var(--app-document-page-shadow);
+
     background: color-mix(in oklab, var(--ui-bg) 65%, var(--ui-primary) 12%);
+}
+
+.document-thumbnail-item.is-disabled:hover {
+    --document-thumbnail-action-opacity: var(--document-thumbnail-disabled-action-opacity, var(--app-opacity-disabled));
+    --document-thumbnail-action-active-opacity: var(--document-thumbnail-disabled-action-opacity, var(--app-opacity-disabled));
 }
 
 .document-thumbnail-item__frame {
@@ -100,42 +115,6 @@ const {
     min-height: 0;
     flex: 0 0 auto;
     place-items: center;
-}
-
-.document-thumbnail-item__frame :deep(.document-thumbnail-list__canvas-host) {
-    display: grid;
-    grid-template: minmax(0, 1fr) / minmax(0, 1fr);
-    width: 100%;
-    height: 100%;
-    place-items: center;
-}
-
-/* The page itself carries the edge, so any page shape keeps a tight outline
-   inside the fixed slot. box-shadow stays untransitioned: animating
-   it repaints every frame. */
-.document-thumbnail-item__frame :deep(img),
-.document-thumbnail-item__frame :deep(canvas) {
-    display: block;
-    width: auto;
-    max-width: 100%;
-    height: auto;
-    max-height: 100%;
-    border-radius: var(--app-document-page-radius);
-    box-shadow: var(--app-document-page-shadow);
-}
-
-.document-thumbnail-item.is-current .document-thumbnail-item__frame :deep(img),
-.document-thumbnail-item.is-current .document-thumbnail-item__frame :deep(canvas) {
-    box-shadow:
-        0 0 0 2px var(--ui-text),
-        var(--app-document-page-shadow);
-}
-
-.document-thumbnail-item.is-selected .document-thumbnail-item__frame :deep(img),
-.document-thumbnail-item.is-selected .document-thumbnail-item__frame :deep(canvas) {
-    box-shadow:
-        0 0 0 2px var(--ui-primary),
-        var(--app-document-page-shadow);
 }
 
 .document-thumbnail-item__label {

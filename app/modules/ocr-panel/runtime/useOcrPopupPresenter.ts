@@ -395,6 +395,39 @@ export const useOcrPopupPresenter = ({
         availableLanguages.value.length,
     ));
     const hasLanguageDownloadFailure = computed(() => failedLanguageCodes.value.size > 0);
+    const languageSearchQueryModel = computed({
+        get: () => languageSearchQuery.value,
+        set: (value: string) => {
+            languageSearchQuery.value = value;
+        },
+    });
+    const pageRangeModel = computed({
+        get: () => settings.value.pageRange,
+        set: (pageRange: IOcrSettings['pageRange']) => {
+            settings.value = {
+                ...settings.value,
+                pageRange,
+            };
+        },
+    });
+    const customRangeModel = computed({
+        get: () => settings.value.customRange,
+        set: (customRange: IOcrSettings['customRange']) => {
+            settings.value = {
+                ...settings.value,
+                customRange,
+            };
+        },
+    });
+    const preprocessingModeModel = computed({
+        get: () => settings.value.preprocessingMode,
+        set: (preprocessingMode: IOcrSettings['preprocessingMode']) => {
+            settings.value = {
+                ...settings.value,
+                preprocessingMode,
+            };
+        },
+    });
     const supersessionChoiceModel = computed<TOcrSupersessionChoice>({
         get: () => settings.value.supersessionPolicy === 'missing-only'
             ? 'missing-only'
@@ -886,7 +919,7 @@ export const useOcrPopupPresenter = ({
         progressStatusText,
         applyingStatusText,
         triggerTooltip,
-        languageSearchQuery,
+        languageSearchQueryModel,
         languagePickerItems,
         languagePickerGroups,
         languageInventoryState,
@@ -894,6 +927,9 @@ export const useOcrPopupPresenter = ({
         hasSelectedLanguageDownload,
         showLanguageSearch,
         hasLanguageDownloadFailure,
+        pageRangeModel,
+        customRangeModel,
+        preprocessingModeModel,
         supersessionChoiceModel,
         replaceOnlyEvbModel,
         selectedLanguageModel,

@@ -351,20 +351,4 @@ defineExpose(createDocumentViewerExposeForwarder(activeFeaturePackRef, {
 .document-viewer-chassis--fling-backdrop > [data-document-viewer-chassis-viewport] {
     background: transparent;
 }
-
-/* Until an open knows its page shape the viewer shows only its background
-   (behavior contract T5). The renderer may already have laid its pages out
-   underneath at a scale it has not fitted, at the page it has not reached. */
-.document-viewer-chassis[aria-busy='true'][data-open-surface-presentation='idle'] :deep(.page_container),
-.document-viewer-chassis[aria-busy='true'][data-open-surface-presentation='idle'] :deep(.document-source-viewer__page) {
-    visibility: hidden;
-}
-
-/* The opening shell is the sole visible page-frame owner until commit. The
-   renderer still mounts underneath so it can prepare pixels, but its matching
-   shadow must not composite through the opening shell's translucent shadow. */
-.document-viewer-chassis[data-open-surface-presentation='page-shell'] :deep(.page_canvas),
-.document-viewer-chassis[data-open-surface-presentation='page-shell'] :deep(.document-source-viewer__page) {
-    box-shadow: none;
-}
 </style>

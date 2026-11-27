@@ -6,7 +6,7 @@
                 :tooltip="t('pageDropdown.firstPage')"
                 :disabled="disabled || commandPage <= 1"
                 grouped
-                icon-class="size-[var(--app-toolbar-icon-size)]"
+                variant="segmented"
                 @click="goToFirst"
             />
         </div>
@@ -16,7 +16,7 @@
                 :tooltip="t('pageDropdown.previousPage')"
                 :disabled="disabled || commandPage <= 1"
                 grouped
-                icon-class="size-[var(--app-toolbar-icon-size)]"
+                variant="segmented"
                 @click="goToPrevious"
             />
         </div>
@@ -78,7 +78,7 @@
                 :tooltip="t('pageDropdown.nextPage')"
                 :disabled="disabled || (totalPages > 0 && commandPage >= totalPages)"
                 grouped
-                icon-class="size-[var(--app-toolbar-icon-size)]"
+                variant="segmented"
                 @click="goToNext"
             />
         </div>
@@ -88,7 +88,7 @@
                 :tooltip="t('pageDropdown.lastPage')"
                 :disabled="disabled || totalPages === 0 || commandPage >= totalPages"
                 grouped
-                icon-class="size-[var(--app-toolbar-icon-size)]"
+                variant="segmented"
                 @click="goToLast"
             />
         </div>
@@ -297,12 +297,6 @@ onClickOutside(pageControlsRef, () => {
     .page-controls-item--edge {
         display: none;
     }
-}
-
-.page-controls-item :deep(.toolbar-btn) {
-    width: var(--toolbar-control-height, 2.25rem);
-    height: var(--toolbar-control-height, 2.25rem);
-    border-radius: 0;
 }
 
 .page-controls-display {

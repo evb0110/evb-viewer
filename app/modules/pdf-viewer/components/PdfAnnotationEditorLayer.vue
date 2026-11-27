@@ -47,7 +47,7 @@
                 :page-rotation="surface.getPageGeometry(pageIndex)?.rotation ?? 0"
                 :entity="entity"
                 :highlight-paint-quads="surface.isOriginalAppearance(entity) ? [] : highlightPaintQuads.get(entity.identity.id)"
-                :class="{'is-original-appearance': surface.isOriginalAppearance(entity)}"
+                :original-appearance="surface.isOriginalAppearance(entity)"
                 :highlight-fill-target="`#${highlightFillPlaneId}`"
                 :selected="isSelected(entity.identity.id)"
                 :page-size="pageDimensions"
@@ -56,7 +56,7 @@
                 v-for="entity in svgEntities.shapes"
                 :key="entity.identity.id"
                 :entity="entity"
-                :class="{'is-original-appearance': surface.isOriginalAppearance(entity)}"
+                :original-appearance="surface.isOriginalAppearance(entity)"
                 :selected="isSelected(entity.identity.id)"
                 :page-size="pageDimensions"
             />
@@ -73,7 +73,6 @@
                 :key="entity.identity.id"
                 :ref="element => setTextBoxRef(entity.identity.id, element)"
                 :entity="entity"
-                :class="{'is-original-appearance': surface.isOriginalAppearance(entity)}"
                 :selected="isSelected(entity.identity.id)"
                 :editing="editingId === entity.identity.id"
                 :original-appearance="surface.isOriginalAppearance(entity)"
@@ -93,7 +92,6 @@
                 v-for="entity in htmlEntities.notes"
                 :key="entity.identity.id"
                 :entity="entity"
-                :class="{'is-original-appearance': surface.isOriginalAppearance(entity)}"
                 :selected="isSelected(entity.identity.id)"
                 :display-rect="displayRectFor(entity)"
                 @pointer-down="handleEntityPointerDown(entity, $event)"
@@ -103,7 +101,7 @@
                 v-for="entity in htmlEntities.stamps"
                 :key="entity.identity.id"
                 :entity="entity"
-                :class="{'is-original-appearance': surface.isOriginalAppearance(entity)}"
+                :original-appearance="surface.isOriginalAppearance(entity)"
                 :selected="isSelected(entity.identity.id)"
                 :display-rect="displayRectFor(entity)"
             />
@@ -1084,11 +1082,3 @@ onBeforeUnmount(() => {
     pointerGesture.cancel();
 });
 </script>
-
-<style scoped>
-.is-original-appearance :deep([data-annotation-visual]),
-.is-original-appearance :deep(.pdf-annotation-editor-stamp__image),
-.is-original-appearance :deep(.iconify) {
-    visibility: hidden;
-}
-</style>

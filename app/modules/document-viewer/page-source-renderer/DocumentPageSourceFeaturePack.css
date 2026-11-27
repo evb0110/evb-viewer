@@ -18,3 +18,11 @@
     box-shadow: var(--app-document-page-shadow);
     border-radius: var(--app-document-page-radius);
 }
+
+.document-source-viewer__page--hidden {
+    visibility: hidden;
+}
+
+.document-source-viewer__page--shell-owned {
+    box-shadow: none;
+}

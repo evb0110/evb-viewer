@@ -4,6 +4,7 @@
             type="button"
             class="toolbar-btn"
             :class="{
+                'toolbar-btn--segmented': variant === 'segmented',
                 'is-toggle': active != null,
                 'is-active': active,
                 'is-grouped': grouped,
@@ -18,10 +19,10 @@
             square
             :aria-label="tooltip"
             :aria-pressed="active"
-            :ui="{ leadingIcon: iconClass }"
+            :ui="{ leadingIcon: resolvedIconClass }"
             @click="handleClick"
         >
-            <span v-if="hasDefaultSlot && !loading" :class="iconClass">
+            <span v-if="hasDefaultSlot && !loading" :class="resolvedIconClass">
                 <slot />
             </span>
         </UButton>
@@ -48,7 +49,8 @@ const {
     disabled = false,
     loading = false,
     grouped = false,
-    iconClass = 'size-5',
+    variant = 'default',
+    iconClass = undefined,
 } = defineProps<{
     icon: string;
     tooltip: string;
@@ -57,6 +59,7 @@ const {
     disabled?: boolean;
     loading?: boolean;
     grouped?: boolean;
+    variant?: 'default' | 'segmented';
     iconClass?: string;
 }>();
 
@@ -65,6 +68,9 @@ const emit = defineEmits<{ click: [] }>();
 const slots = useSlots();
 const shortcutLabel = computed(() => shortcut.trim());
 const hasDefaultSlot = computed(() => slots.default != null);
+const resolvedIconClass = computed(() => (
+    iconClass ?? (variant === 'segmented' ? 'size-[var(--app-toolbar-icon-size)]' : 'size-5')
+));
 
 function handleClick() {
     emit('click');
@@ -89,6 +95,14 @@ function handleClick() {
         border-color var(--app-transition-fast),
         color var(--app-transition-fast),
         box-shadow var(--app-transition-fast);
+}
+
+.toolbar-btn--segmented {
+    width: var(--toolbar-segmented-button-width, var(--toolbar-control-height, var(--app-toolbar-control-size)));
+    min-width: var(--toolbar-segmented-button-width, auto);
+    max-width: var(--toolbar-segmented-button-width, none);
+    height: var(--toolbar-control-height, var(--app-toolbar-control-size));
+    border-radius: 0;
 }
 
 .toolbar-btn.is-toggle {

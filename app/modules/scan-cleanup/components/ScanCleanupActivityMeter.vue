@@ -16,7 +16,10 @@
                 class="scan-cleanup-activity-trigger"
                 :aria-label="t('scanCleanup.activity.showDetails', {status: statusSentence})"
             >
-                <span class="scan-cleanup-activity-line">
+                <span
+                    class="scan-cleanup-activity-line"
+                    :class="{'is-beside-notice': notice}"
+                >
                     <span class="scan-cleanup-activity-phase">{{ t(`scanCleanup.activity.phase.${activity.phase}`) }}</span>
                     <UIcon
                         name="i-ph-caret-right"
@@ -31,7 +34,8 @@
                              holds the reserved widest count. -->
                         <ScanCleanupStableWidthText
                             class="scan-cleanup-activity-count"
-                            :class="{[SCAN_CLEANUP_TOOLBAR_COUNT_CLASS]: !activity.run, 'is-beside-notice': notice}"
+                            :class="{[SCAN_CLEANUP_TOOLBAR_COUNT_CLASS]: !activity.run}"
+                            align="start"
                             :aria-label="countText"
                             :text="countText"
                             :widest="countWidestText"
@@ -39,7 +43,7 @@
                     </template>
                     <ScanCleanupStableWidthText
                         class="scan-cleanup-activity-time"
-                        :class="{'is-beside-notice': notice}"
+                        align="start"
                         :text="timeText"
                         :widest="timeWidestText"
                     />
@@ -328,8 +332,8 @@ const stepGroups = computed(() => SCAN_CLEANUP_ACTIVITY_PHASES.map(phase => ({
     .scan-cleanup-activity-separator:not(.is-notice),
     .scan-cleanup-activity-detail:not(.is-notice),
     .scan-cleanup-activity-dot,
-    .scan-cleanup-activity-count.is-beside-notice,
-    .scan-cleanup-activity-time.is-beside-notice {
+    .scan-cleanup-activity-line.is-beside-notice .scan-cleanup-activity-count,
+    .scan-cleanup-activity-line.is-beside-notice .scan-cleanup-activity-time {
         display: none;
     }
 }
@@ -357,10 +361,6 @@ const stepGroups = computed(() => SCAN_CLEANUP_ACTIVITY_PHASES.map(phase => ({
 
 .scan-cleanup-activity-caret.is-open {
     transform: rotate(180deg);
-}
-
-.scan-cleanup-activity :deep(.scan-cleanup-stable-width-text) {
-    justify-items: start;
 }
 
 /* The three phases of a cleanup as one bar. A finished phase is full, the

@@ -80,7 +80,7 @@ describe('document thumbnail retained surfaces', () => {
 
     it('shapes the slots like the source\'s pages and again when a reload turns them', async () => {
         const frameAspect = (host: HTMLElement) => host
-            .querySelector<HTMLElement>('[data-thumbnail-page="1"] .document-thumbnail-list__frame')
+            .querySelector<HTMLElement>('[data-thumbnail-page="1"] [data-document-thumbnail-frame]')
             ?.style.aspectRatio ?? '';
         const spreads = createDocumentThumbnailSourceHarness(12, '/book.pdf', {
             widthPoints: 793,
@@ -138,7 +138,7 @@ describe('document thumbnail retained surfaces', () => {
         const row = documentThumbnailRow(host, 4)!;
         const top = Number(/translateY\((-?[\d.]+)px\)/.exec(row.style.transform)?.[1]);
         const bottom = top + parseFloat(row.style.height);
-        expect(parseFloat(host.querySelector<HTMLElement>('[data-thumbnail-page="4"] .document-thumbnail-list__frame')!
+        expect(parseFloat(host.querySelector<HTMLElement>('[data-thumbnail-page="4"] [data-document-thumbnail-frame]')!
             .style.aspectRatio)).toBeCloseTo(500 / 700, 3);
         expect(top, `page 4 spans ${String(top)}..${String(bottom)}, the rail shows ${String(rail.scrollTop)}+600`)
             .toBeGreaterThanOrEqual(rail.scrollTop);

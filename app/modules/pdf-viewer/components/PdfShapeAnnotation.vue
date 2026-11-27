@@ -1,7 +1,10 @@
 <template>
     <g
         class="pdf-annotation-editor-entity pdf-annotation-editor-shape"
-        :class="{'is-selected': selected}"
+        :class="{
+            'is-selected': selected,
+            'is-original-appearance': originalAppearance,
+        }"
         :data-annotation-id="entity.identity.id"
         :data-pdf-annotation-id="entity.identity.pdfRef"
         data-annotation-kind="shape"
@@ -57,7 +60,8 @@ import type { IAnnotationPageDimensions } from '@app/modules/pdf-viewer/engine/a
 const props = defineProps<{
     entity: IShapeEntity;
     selected: boolean;
-    pageSize?: IAnnotationPageDimensions
+    originalAppearance?: boolean;
+    pageSize?: IAnnotationPageDimensions;
 }>();
 const renderPasses = [
     'hit',
@@ -166,3 +170,9 @@ const shapeStyle = computed(() => ({
     '--annotation-hit-width': `max(14px, ${toPdfScaledCssLength(props.entity.strokeWidth, 10)})`,
 }));
 </script>
+
+<style scoped>
+.pdf-annotation-editor-shape.is-original-appearance [data-annotation-visual] {
+    visibility: hidden;
+}
+</style>
