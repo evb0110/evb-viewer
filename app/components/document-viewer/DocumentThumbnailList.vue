@@ -129,9 +129,11 @@ const {
 });
 // One tab stop among the mounted rows, so the rail stays reachable by Tab
 // after the focused row scrolls out of the virtual window.
+const resolvedVirtualItems = computed(() => unref(virtualItems) ?? []);
 const tabStopPage = computed(() => {
-    const first = virtualItems.value[0]?.pageNumber ?? 0;
-    const last = virtualItems.value.at(-1)?.pageNumber ?? 0;
+    const items = resolvedVirtualItems.value;
+    const first = items[0]?.pageNumber ?? 0;
+    const last = items.at(-1)?.pageNumber ?? 0;
     return Math.min(Math.max(props.focusPage ?? props.currentPage, first), last);
 });
 defineExpose({
@@ -144,15 +146,19 @@ defineExpose({
 // contained at their native density, while the slot stays unchanged.
 function surfaceState(pageNumber: number) {
     const state = states.get(pageNumber);
-    return state && state.requestWidthPx >= rasterWidth.value ? state : undefined;
+    return state && state.requestWidthPx >= (unref(rasterWidth) ?? 0) ? state : undefined;
 }
 
 const mountedRows = computed(() => {
+    const items = resolvedVirtualItems.value;
+    if (!items.length) {
+        return [];
+    }
     const hasSelection = props.selectedPages !== undefined;
-    const stopPage = tabStopPage.value;
-    const minRasterWidth = rasterWidth.value;
-    const scale = outputScale.value;
-    return virtualItems.value.map((item) => {
+    const stopPage = props.itemTag === 'div' ? tabStopPage.value : 0;
+    const minRasterWidth = unref(rasterWidth) ?? 0;
+    const scale = unref(outputScale) ?? 1;
+    return items.map((item) => {
         const { pageNumber } = item;
         const rawState = states.get(pageNumber);
         const qualifiedState = rawState && rawState.requestWidthPx >= minRasterWidth
