@@ -137,7 +137,10 @@ interface ICachedWordIndexEntry {
 }
 
 const wordIndexCache = new WeakMap<readonly IOcrWord[], ICachedWordIndexEntry>();
-const SUFFIX_INDEX_FAILURE_THRESHOLD = 16;
+const CHAR_SET_FAILURE_THRESHOLD = 8;
+// Only amortize the O(L log L) suffix-array build once enough distinct failed
+// indexOf scans have occurred to outweigh its construction cost on large pages.
+const SUFFIX_INDEX_FAILURE_THRESHOLD = 256;
 
 function buildSuffixMaxIndex(text: string): ISuffixMaxIndex {
     const length = text.length;
@@ -385,7 +388,7 @@ function findLogicalWordStart(index: ISearchPageWordIndex, needle: string): numb
     // does not appear from logicalTextCursor onward cannot appear later either.
     index.failedLogicalLookups.add(needle);
     index.failedIndexOfCount += 1;
-    if (index.pageTextChars === null) {
+    if (index.pageTextChars === null && index.failedIndexOfCount >= CHAR_SET_FAILURE_THRESHOLD) {
         const chars = new Set<number>();
         for (let charIndex = 0; charIndex < pageText.length; charIndex += 1) {
             chars.add(pageText.charCodeAt(charIndex));

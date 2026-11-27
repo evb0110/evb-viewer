@@ -996,4 +996,54 @@ describe('search conformance corpus', () => {
         expect(matched?.[0]?.text).toBe('hit');
         expect(elapsedMs).toBeLessThan(500);
     });
+
+    it('does not stall on a large page with only a handful of failed line-ending hyphen lookups before an early hit', async () => {
+        const {buildOcrTextLayerIndexText} = await import('@pdf-core');
+        const words = [
+            ...Array.from({length: 16}, (_, index) => ({
+                text: `h${index}-`,
+                x: 10,
+                y: index * 12,
+                width: 30,
+                height: 10,
+            })),
+            {
+                text: 'p'.repeat(120),
+                x: 10,
+                y: 192,
+                width: 200,
+                height: 10,
+            },
+            {
+                text: 'target',
+                x: 10,
+                y: 204,
+                width: 50,
+                height: 10,
+            },
+            ...Array.from({length: 50_000}, (_, index) => ({
+                text: `word${index % 997}`,
+                x: (index % 50) * 15,
+                y: 220 + Math.floor(index / 50) * 12,
+                width: 12,
+                height: 10,
+            })),
+        ];
+        const text = buildOcrTextLayerIndexText(words);
+        const targetStart = text.indexOf('target');
+        expect(targetStart).toBeGreaterThan(0);
+
+        const startedAt = performance.now();
+        const matched = collectSearchMatchWords({
+            text,
+            words,
+            pageWidth: 1_000,
+            pageHeight: 15_000,
+        }, targetStart, targetStart + 6);
+        const elapsedMs = performance.now() - startedAt;
+
+        expect(matched).toHaveLength(1);
+        expect(matched?.[0]?.text).toBe('target');
+        expect(elapsedMs).toBeLessThan(80);
+    });
 });
