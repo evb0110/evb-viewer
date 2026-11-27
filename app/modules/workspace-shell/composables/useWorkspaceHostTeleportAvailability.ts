@@ -1,3 +1,8 @@
+import {
+    useMutationObserver,
+    useTimeoutFn,
+} from '@vueuse/core';
+
 interface IWorkspaceHostTeleportAvailability {
     toolbarHostId: string;
     statusHostId: string;
@@ -6,50 +11,43 @@ interface IWorkspaceHostTeleportAvailability {
 export const useWorkspaceHostTeleportAvailability = (options: IWorkspaceHostTeleportAvailability) => {
     const canTeleportToolbar = ref(false);
     const canTeleportStatus = ref(false);
-    let hostObserver: MutationObserver | null = null;
-    let observerTimeout: number | null = null;
+    let stopHostObserver: (() => void) | null = null;
+
+    function stopObservation() {
+        stopHostObserver?.();
+        stopHostObserver = null;
+        stopObserverTimeout();
+    }
+
+    const {
+        start: startObserverTimeout,
+        stop: stopObserverTimeout,
+    } = useTimeoutFn(stopObservation, 5_000, { immediate: false });
 
     function refreshTeleportHosts() {
-        if (!import.meta.client) {
+        if (typeof document === 'undefined') {
             return;
         }
         canTeleportToolbar.value = Boolean(document.getElementById(options.toolbarHostId));
         canTeleportStatus.value = Boolean(document.getElementById(options.statusHostId));
         if (canTeleportToolbar.value && canTeleportStatus.value) {
-            hostObserver?.disconnect();
-            hostObserver = null;
-            if (observerTimeout !== null) {
-                window.clearTimeout(observerTimeout);
-                observerTimeout = null;
-            }
+            stopObservation();
         }
     }
 
     onMounted(() => {
         refreshTeleportHosts();
         if (!canTeleportToolbar.value || !canTeleportStatus.value) {
-            hostObserver = new MutationObserver(refreshTeleportHosts);
-            hostObserver.observe(document.documentElement, {
+            stopHostObserver = useMutationObserver(document.documentElement, refreshTeleportHosts, {
                 childList: true,
                 subtree: true,
-            });
-            observerTimeout = window.setTimeout(() => {
-                hostObserver?.disconnect();
-                hostObserver = null;
-                observerTimeout = null;
-            }, 5_000);
+            }).stop;
+            startObserverTimeout();
         }
         void nextTick(refreshTeleportHosts);
     });
 
-    onBeforeUnmount(() => {
-        hostObserver?.disconnect();
-        hostObserver = null;
-        if (observerTimeout !== null) {
-            window.clearTimeout(observerTimeout);
-            observerTimeout = null;
-        }
-    });
+    onBeforeUnmount(stopObservation);
 
     return {
         canTeleportStatus,

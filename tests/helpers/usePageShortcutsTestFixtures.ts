@@ -13,18 +13,10 @@ import {
 
 const pageShortcutsMocks = vi.hoisted(() => ({
     useEventListener: vi.fn(),
-    useMagicKeys: vi.fn(),
-    tryOnScopeDispose: vi.fn(),
-    whenever: vi.fn(),
     shouldHandleRendererMenuAccelerators: vi.fn(),
 }));
 
-vi.mock('@vueuse/core', () => ({
-    useEventListener: pageShortcutsMocks.useEventListener,
-    useMagicKeys: pageShortcutsMocks.useMagicKeys,
-    tryOnScopeDispose: pageShortcutsMocks.tryOnScopeDispose,
-    whenever: pageShortcutsMocks.whenever,
-}));
+vi.mock('@vueuse/core', () => ({useEventListener: pageShortcutsMocks.useEventListener}));
 vi.mock('@app/utils/shouldHandleRendererMenuAccelerators', () => ({shouldHandleRendererMenuAccelerators: pageShortcutsMocks.shouldHandleRendererMenuAccelerators}));
 
 export function getPageShortcutsMocks() {
@@ -68,7 +60,7 @@ export function createPageShortcutDeps() {
     };
 }
 
-let capturedOnEventFired: ((event: unknown) => void) | undefined;
+let capturedOnEventFired: ((event: KeyboardEvent) => void) | undefined;
 let capturedPointerDown: ((event: PointerEvent) => void) | undefined;
 let capturedKeyDown: ((event: KeyboardEvent) => void) | undefined;
 let capturedPaste: ((event: ClipboardEvent) => void) | undefined;
@@ -77,10 +69,17 @@ export function resetPageShortcutsTest() {
     vi.resetModules();
     vi.clearAllMocks();
     const windowMock = {
-        addEventListener: vi.fn((event: string, listener: EventListener) => {
-            if (event === 'pointerdown') capturedPointerDown = listener;
-            if (event === 'keydown') capturedKeyDown = listener;
-            if (event === 'paste') capturedPaste = listener;
+        addEventListener: vi.fn((event: string, listener: EventListener, options?: boolean | AddEventListenerOptions) => {
+            if (event === 'pointerdown') capturedPointerDown = listener as (event: PointerEvent) => void;
+            if (event === 'keydown') {
+                const isCapture = typeof options === 'boolean' ? options : Boolean(options?.capture);
+                if (isCapture) {
+                    capturedKeyDown = listener as (event: KeyboardEvent) => void;
+                } else {
+                    capturedOnEventFired = listener as (event: KeyboardEvent) => void;
+                }
+            }
+            if (event === 'paste') capturedPaste = listener as (event: ClipboardEvent) => void;
         }),
         removeEventListener: vi.fn(),
     };
@@ -98,11 +97,6 @@ export function resetPageShortcutsTest() {
     ) => {
         target?.addEventListener?.(event, listener, options);
         return vi.fn();
-    });
-    pageShortcutsMocks.useMagicKeys.mockImplementation((opts?: {onEventFired?: (event: unknown) => void}) => {
-        capturedOnEventFired = opts?.onEventFired;
-        const keys = new Map<PropertyKey, ReturnType<typeof ref<boolean>>>();
-        return new Proxy({}, {get: (_, key) => keys.get(key) ?? keys.set(key, ref(false)).get(key)});
     });
 }
 

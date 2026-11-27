@@ -90,31 +90,69 @@ describe('useShutdownSaveFlushReporting', () => {
     });
 
     it('attaches and removes the browser unload guard with reactive dirty state', async () => {
+        let activeBeforeUnloadListeners = 0;
         const browserWindow = new EventTarget();
+        const originalAdd = browserWindow.addEventListener.bind(browserWindow);
+        const originalRemove = browserWindow.removeEventListener.bind(browserWindow);
+        browserWindow.addEventListener = (type, listener, options) => {
+            if (type === 'beforeunload') {
+                activeBeforeUnloadListeners += 1;
+            }
+            return originalAdd(type, listener, options);
+        };
+        browserWindow.removeEventListener = (type, listener, options) => {
+            if (type === 'beforeunload') {
+                activeBeforeUnloadListeners -= 1;
+            }
+            return originalRemove(type, listener, options);
+        };
         vi.stubGlobal('window', browserWindow);
         const dirty = ref(false);
         const scope = effectScope();
         scope.run(() => useBrowserDirtyUnloadGuard(() => dirty.value));
 
+        expect(activeBeforeUnloadListeners).toBe(0);
         const initiallyClean = new Event('beforeunload', {cancelable: true});
         browserWindow.dispatchEvent(initiallyClean);
         expect(initiallyClean.defaultPrevented).toBe(false);
 
         dirty.value = true;
         await nextTick();
+        expect(activeBeforeUnloadListeners).toBe(1);
         const becameDirty = new Event('beforeunload', {cancelable: true});
         browserWindow.dispatchEvent(becameDirty);
         expect(becameDirty.defaultPrevented).toBe(true);
 
         dirty.value = false;
         await nextTick();
+        expect(activeBeforeUnloadListeners).toBe(0);
         const becameClean = new Event('beforeunload', {cancelable: true});
         browserWindow.dispatchEvent(becameClean);
         expect(becameClean.defaultPrevented).toBe(false);
 
         dirty.value = true;
+        await nextTick();
+        expect(activeBeforeUnloadListeners).toBe(1);
         scope.stop();
+        expect(activeBeforeUnloadListeners).toBe(0);
 
+        const afterStop = new Event('beforeunload', {cancelable: true});
+        browserWindow.dispatchEvent(afterStop);
+        expect(afterStop.defaultPrevented).toBe(false);
+    });
+
+    it('attaches immediately when initially dirty and detaches on scope disposal', () => {
+        const browserWindow = new EventTarget();
+        vi.stubGlobal('window', browserWindow);
+        const dirty = ref(true);
+        const scope = effectScope();
+        scope.run(() => useBrowserDirtyUnloadGuard(() => dirty.value));
+
+        const whileDirty = new Event('beforeunload', {cancelable: true});
+        browserWindow.dispatchEvent(whileDirty);
+        expect(whileDirty.defaultPrevented).toBe(true);
+
+        scope.stop();
         const afterStop = new Event('beforeunload', {cancelable: true});
         browserWindow.dispatchEvent(afterStop);
         expect(afterStop.defaultPrevented).toBe(false);

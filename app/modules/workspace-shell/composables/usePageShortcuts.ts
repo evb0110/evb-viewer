@@ -1,8 +1,5 @@
 import type { Ref } from 'vue';
-import {
-    useEventListener,
-    useMagicKeys,
-} from '@vueuse/core';
+import { useEventListener } from '@vueuse/core';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import type { TAnnotationTool } from '@app/types/annotations';
 import type { TFitMode } from '@app/types/pdfContracts';
@@ -322,7 +319,7 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
     }
 
     function handleCapturedWebMenuAccelerator(event: KeyboardEvent) {
-        if (!shouldHandleRendererMenuAccelerators() || isInDialog(event.target)) {
+        if (!shouldHandleRendererMenuAccelerators() || event.isComposing || isInDialog(event.target)) {
             return;
         }
         if (!eventHasCommandModifier(event) || event.altKey) {
@@ -433,16 +430,6 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
         deps.handlePasteImageFile(file);
     }
 
-    useMagicKeys({
-        passive: false,
-        onEventFired(e) {
-            if (e.type !== 'keydown') {
-                return;
-            }
-            handleKeyboardShortcut(e);
-        },
-    });
-
     // Pointerdown — close menus on outside clicks
     function handleGlobalPointerDown(event: PointerEvent) {
         if (!isActive.value) {
@@ -462,6 +449,7 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
     const windowTarget = typeof window !== 'undefined' && typeof window.addEventListener === 'function'
         ? window
         : null;
+    useEventListener(windowTarget, 'keydown', handleKeyboardShortcut, { passive: false });
     useEventListener(windowTarget, 'pointerdown', handleGlobalPointerDown);
     useEventListener(windowTarget, 'keydown', handleCapturedWebMenuAccelerator, { capture: true });
     useEventListener(windowTarget, 'paste', handleImagePaste);
