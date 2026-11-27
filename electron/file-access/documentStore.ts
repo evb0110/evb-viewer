@@ -63,6 +63,7 @@ import {
 } from '@contracts/documentRevision';
 import type {IPdfNativePageGeometry} from '@contracts/electronApiDocuments';
 import {DocumentOpenRefusalError} from '@contracts/documentOpenErrors';
+import {isErrnoException} from '@contracts/runtimeGuards';
 import {createEpochMs} from '@contracts/timestamps';
 import {createDesktopPublication} from '@electron/file-access/documentPublication';
 import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
@@ -284,7 +285,18 @@ export async function openDocumentFromFile(destination: string, options: {
     originalPath?: string;
 }) {
     await collected();
-    const before = await stat(destination, {bigint: true});
+    let before: BigIntStats;
+    try {
+        before = await stat(destination, {bigint: true});
+    } catch (error) {
+        if (isErrnoException(error) && error.code === 'ENOENT') {
+            throw new DocumentOpenRefusalError('not-found', `File not found: ${destination}`, {
+                cause: error,
+                fileName: basename(destination),
+            });
+        }
+        throw error;
+    }
     const doc = await createDocument(getDocumentStore(), {destination, ext: extensionOf(destination)});
     const after = await stat(destination, {bigint: true}).catch(() => null);
     if (!after || !sameIdentity(before, after)) {

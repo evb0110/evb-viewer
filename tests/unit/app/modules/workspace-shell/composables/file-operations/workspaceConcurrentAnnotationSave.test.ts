@@ -15,7 +15,10 @@ import {
 } from 'vue';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {createStaleRevisionError} from '@contracts/documentMutationErrors';
+import {requireEpochMs} from '@contracts/timestamps';
 import {requirePageIndex} from '@contracts/pageNumbers';
+import {BrowserLogger} from '@app/utils/browserLogger';
 import {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import {
     asAnnotationId,
@@ -31,6 +34,7 @@ import {
     createDeferred,
     createDeps,
     createShapeAnnotation,
+    toastAddMock,
     type TPdfNativeMutationSave,
     useWorkspaceSaveServiceForTest,
 } from '@tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveServiceFixture';
@@ -799,4 +803,303 @@ describe('native deletion readback', () => {
             expect(application.store.get(deleted.identity.id)?.identity.pdfRef).toBeUndefined();
         });
     }
+});
+
+describe('post-publication annotation read-back fault injection', () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+        toastAddMock.mockClear();
+    });
+
+    it.each([
+        ['worker error', () => new Error('WASM annotation parser crashed'), false],
+        ['stale revision during read-back', () => createStaleRevisionError({message: 'Revision moved during read-back'}), true],
+        ['aborted read-back', () => new DOMException('Read-back aborted', 'AbortError'), false],
+    ] as const)('still succeeds with a refresh warning, captured revision, and concurrent edits when read-back fails (%s)', async (_label, makeError, advanceRevisionDuringReadBack) => {
+        const warnSpy = vi.spyOn(BrowserLogger, 'warn').mockImplementation(() => undefined);
+        const application = new AnnotationApplication('readback-fault');
+        const note = savedNote();
+        application.store.replaceFromDocument([note], []);
+        application.store.updateNote(note.identity.id, {contents: 'captured before save'});
+
+        const enteredReadBack = createDeferred<undefined>();
+        const releaseReadBack = createDeferred<undefined>();
+        const annotationEditToken = ref(1);
+        const revision = ref(requireDocumentRevisionToken('rev-1'));
+        const committedRevision = requireDocumentRevisionToken('rev-2');
+        const nextRevision = requireDocumentRevisionToken('rev-3');
+        const receipts: Array<typeof committedRevision> = [];
+        const {deps} = createDeps({
+            originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
+            workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
+            documentRevisionToken: revision,
+            annotationDirty: ref(true),
+            hasAnnotationChanges: () => application.store.hasChangesSinceSavedBaseline(),
+            getAnnotationSaveStateToken: () => annotationEditToken.value,
+            trySavePdfNativeMutations: vi.fn(async () => {
+                revision.value = committedRevision;
+                return {
+                    success: true,
+                    outPath: requireDocumentRef('/tmp/source.pdf'),
+                    saveMode: 'rewrite' as const,
+                    didSaveAs: false,
+                    documentRevision: {
+                        version: 1 as const,
+                        token: committedRevision,
+                        documentRef: requireDocumentRef('/tmp/work.pdf'),
+                        authority: 'electron-working-copy' as const,
+                        contentRevision: 2,
+                        mintedAt: requireEpochMs(1),
+                    },
+                };
+            }),
+        });
+        const transaction = usePdfViewerSaveTransaction({
+            getPdfDocument: () => deps.pdfDocument.value,
+            annotationApplication: shallowRef(application),
+            documentRevisionToken: computed(() => revision.value),
+        });
+        deps.runSaveTransaction = request => transaction.runSaveTransaction(request);
+        let parseCalls = 0;
+        vi.spyOn(getDocumentWorkingCopyCapability(), 'parsePdfAnnotations').mockImplementation(async (_path, options) => {
+            parseCalls += 1;
+            expect(options.expectedDocumentRevisionToken).toBe(committedRevision);
+            if (parseCalls === 1) {
+                enteredReadBack.resolve(undefined);
+                await releaseReadBack.promise;
+            }
+            throw makeError();
+        });
+
+        const service = useWorkspaceSaveServiceForTest(deps);
+        const saving = service.handleSave(token => receipts.push(token));
+
+        await enteredReadBack.promise;
+        // User accepts another edit (and for the stale case, the renderer revision also advances to rev-3) while read-back is in flight.
+        application.store.updateNote(note.identity.id, {contents: 'accepted during failed read-back'});
+        annotationEditToken.value += 1;
+        if (advanceRevisionDuringReadBack) {
+            revision.value = nextRevision;
+        }
+        releaseReadBack.resolve(undefined);
+
+        await expect(saving).resolves.toBe(true);
+        expect(service.hasSaveFailure.value).toBe(false);
+        expect(toastAddMock).not.toHaveBeenCalled();
+        expect(receipts).toEqual([committedRevision]);
+        if (advanceRevisionDuringReadBack) {
+            expect(revision.value).toBe(nextRevision);
+        }
+        expect(deps.markAnnotationSaved).not.toHaveBeenCalled();
+        expect(application.store.get(note.identity.id)).toMatchObject({
+            contents: 'accepted during failed read-back',
+            persistedRevision: 1,
+        });
+        expect(application.store.hasChangesSinceSavedBaseline()).toBe(true);
+        expect(warnSpy).toHaveBeenCalledWith(
+            'workspace',
+            expect.stringContaining('Annotation read-back'),
+            expect.objectContaining({reason: 'refresh-failed'}),
+        );
+    });
+
+    it('marks annotations clean and delivers captured revision when read-back fails with no concurrent edits', async () => {
+        const warnSpy = vi.spyOn(BrowserLogger, 'warn').mockImplementation(() => undefined);
+        const application = new AnnotationApplication('readback-fault-clean');
+        const note = savedNote();
+        application.store.replaceFromDocument([note], []);
+        application.store.updateNote(note.identity.id, {contents: 'saved note'});
+
+        const annotationEditToken = ref(1);
+        const revision = ref(requireDocumentRevisionToken('rev-1'));
+        const committedRevision = requireDocumentRevisionToken('rev-2');
+        const receipts: Array<typeof committedRevision> = [];
+        const {deps} = createDeps({
+            originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
+            workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
+            documentRevisionToken: revision,
+            annotationDirty: ref(true),
+            hasAnnotationChanges: () => application.store.hasChangesSinceSavedBaseline(),
+            getAnnotationSaveStateToken: () => annotationEditToken.value,
+            trySavePdfNativeMutations: vi.fn(async () => {
+                revision.value = committedRevision;
+                return {
+                    success: true,
+                    outPath: requireDocumentRef('/tmp/source.pdf'),
+                    saveMode: 'rewrite' as const,
+                    didSaveAs: false,
+                    documentRevision: {
+                        version: 1 as const,
+                        token: committedRevision,
+                        documentRef: requireDocumentRef('/tmp/work.pdf'),
+                        authority: 'electron-working-copy' as const,
+                        contentRevision: 2,
+                        mintedAt: requireEpochMs(1),
+                    },
+                };
+            }),
+        });
+        const transaction = usePdfViewerSaveTransaction({
+            getPdfDocument: () => deps.pdfDocument.value,
+            annotationApplication: shallowRef(application),
+            documentRevisionToken: computed(() => revision.value),
+        });
+        deps.runSaveTransaction = request => transaction.runSaveTransaction(request);
+        vi.spyOn(getDocumentWorkingCopyCapability(), 'parsePdfAnnotations').mockRejectedValue(
+            new Error('Transient read-back I/O error'),
+        );
+
+        const service = useWorkspaceSaveServiceForTest(deps);
+        await expect(service.handleSave(token => receipts.push(token))).resolves.toBe(true);
+
+        expect(service.hasSaveFailure.value).toBe(false);
+        expect(toastAddMock).not.toHaveBeenCalled();
+        expect(receipts).toEqual([committedRevision]);
+        expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
+        expect(application.store.hasChangesSinceSavedBaseline()).toBe(false);
+        expect(warnSpy).toHaveBeenCalledWith(
+            'workspace',
+            expect.stringContaining('Annotation read-back'),
+            expect.objectContaining({reason: 'refresh-failed'}),
+        );
+    });
+
+    it('preserves captured Save As revision for guard and receipt when revision advances during read-back without documentRevision on persist result', async () => {
+        const warnSpy = vi.spyOn(BrowserLogger, 'warn').mockImplementation(() => undefined);
+        const application = new AnnotationApplication('readback-saveas-stale');
+        const note = savedNote();
+        application.store.replaceFromDocument([note], []);
+        application.store.updateNote(note.identity.id, {contents: 'captured for save-as'});
+
+        const enteredReadBack = createDeferred<undefined>();
+        const releaseReadBack = createDeferred<undefined>();
+        const revision = ref(requireDocumentRevisionToken('rev-1'));
+        const committedRevision = requireDocumentRevisionToken('rev-2');
+        const nextRevision = requireDocumentRevisionToken('rev-3');
+        const receipts: Array<typeof committedRevision> = [];
+        const {deps} = createDeps({
+            originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
+            workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
+            documentRevisionToken: revision,
+            annotationDirty: ref(true),
+            hasAnnotationChanges: () => application.store.hasChangesSinceSavedBaseline(),
+            trySavePdfNativeMutations: vi.fn(async () => {
+                revision.value = committedRevision;
+                // Mirrors createDocumentPersistence.saveWorkingCopyAs which returns no `documentRevision`.
+                return {
+                    success: true,
+                    outPath: requireDocumentRef('/tmp/copy.pdf'),
+                    saveMode: 'save_as_rewrite' as const,
+                    didSaveAs: true,
+                };
+            }),
+        });
+        const transaction = usePdfViewerSaveTransaction({
+            getPdfDocument: () => deps.pdfDocument.value,
+            annotationApplication: shallowRef(application),
+            documentRevisionToken: computed(() => revision.value),
+        });
+        deps.runSaveTransaction = request => transaction.runSaveTransaction(request);
+        vi.spyOn(getDocumentWorkingCopyCapability(), 'parsePdfAnnotations').mockImplementation(async (_path, options) => {
+            expect(options.expectedDocumentRevisionToken).toBe(committedRevision);
+            enteredReadBack.resolve(undefined);
+            await releaseReadBack.promise;
+            throw createStaleRevisionError({message: 'Moved to rev-3 during read-back'});
+        });
+
+        const service = useWorkspaceSaveServiceForTest(deps);
+        const saving = service.save({kind: 'save-as', optimizeLossless: false}, token => receipts.push(token));
+
+        await enteredReadBack.promise;
+        revision.value = nextRevision;
+        releaseReadBack.resolve(undefined);
+
+        await expect(saving).resolves.toBe(true);
+        expect(deps.markAnnotationSaved).not.toHaveBeenCalled();
+        expect(receipts).toEqual([committedRevision]);
+        expect(revision.value).toBe(nextRevision);
+        expect(warnSpy).toHaveBeenCalledWith(
+            'workspace',
+            expect.stringContaining('Annotation read-back'),
+            expect.objectContaining({reason: 'refresh-failed'}),
+        );
+    });
+
+    it('ignores stale resolved read-back when renderer moved from rev-2 to rev-3, returns true, and still issues rev-2 receipt', async () => {
+        const warnSpy = vi.spyOn(BrowserLogger, 'warn').mockImplementation(() => undefined);
+        const application = new AnnotationApplication('readback-stale-resolved');
+        const note = savedNote();
+        application.store.replaceFromDocument([note], []);
+        application.store.updateNote(note.identity.id, {contents: 'captured at rev-1'});
+
+        const enteredReadBack = createDeferred<undefined>();
+        const releaseReadBack = createDeferred<undefined>();
+        const revision = ref(requireDocumentRevisionToken('rev-1'));
+        const committedRevision = requireDocumentRevisionToken('rev-2');
+        const nextRevision = requireDocumentRevisionToken('rev-3');
+        const receipts: Array<typeof committedRevision> = [];
+        const {deps} = createDeps({
+            originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
+            workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
+            documentRevisionToken: revision,
+            annotationDirty: ref(true),
+            hasAnnotationChanges: () => application.store.hasChangesSinceSavedBaseline(),
+            trySavePdfNativeMutations: vi.fn(async () => {
+                revision.value = committedRevision;
+                return {
+                    success: true,
+                    outPath: requireDocumentRef('/tmp/source.pdf'),
+                    saveMode: 'rewrite' as const,
+                    didSaveAs: false,
+                    documentRevision: {
+                        version: 1 as const,
+                        token: committedRevision,
+                        documentRef: requireDocumentRef('/tmp/work.pdf'),
+                        authority: 'electron-working-copy' as const,
+                        contentRevision: 2,
+                        mintedAt: requireEpochMs(1),
+                    },
+                };
+            }),
+        });
+        const transaction = usePdfViewerSaveTransaction({
+            getPdfDocument: () => deps.pdfDocument.value,
+            annotationApplication: shallowRef(application),
+            documentRevisionToken: computed(() => revision.value),
+        });
+        const replaceSpy = vi.spyOn(application.store, 'replaceFromDocument');
+        deps.runSaveTransaction = request => transaction.runSaveTransaction(request);
+        vi.spyOn(getDocumentWorkingCopyCapability(), 'parsePdfAnnotations').mockImplementation(async (_path, options) => {
+            expect(options.expectedDocumentRevisionToken).toBe(committedRevision);
+            enteredReadBack.resolve(undefined);
+            await releaseReadBack.promise;
+            // Read-back resolves with stale rev-2 result AFTER the renderer already moved to rev-3.
+            return {
+                documentRevisionToken: committedRevision,
+                pageCount: 1,
+                ...(options.pageIndices ? {pageIndices: [...options.pageIndices]} : {}),
+                entities: [],
+                foreign: [],
+            };
+        });
+
+        const service = useWorkspaceSaveServiceForTest(deps);
+        const saving = service.handleSave(token => receipts.push(token));
+
+        await enteredReadBack.promise;
+        application.store.updateNote(note.identity.id, {contents: 'newer rev-3 edit'});
+        revision.value = nextRevision;
+        releaseReadBack.resolve(undefined);
+
+        await expect(saving).resolves.toBe(true);
+        expect(replaceSpy).not.toHaveBeenCalled();
+        expect(deps.markAnnotationSaved).not.toHaveBeenCalled();
+        expect(receipts).toEqual([committedRevision]);
+        expect(application.store.get(note.identity.id)).toMatchObject({contents: 'newer rev-3 edit'});
+        expect(warnSpy).toHaveBeenCalledWith(
+            'workspace',
+            'Annotation read-back skipped after published save',
+            expect.objectContaining({reason: 'refresh-failed'}),
+        );
+    });
 });

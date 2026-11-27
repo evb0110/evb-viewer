@@ -4,6 +4,8 @@ import {
     it,
 } from 'vitest';
 import type {TTranslateFn} from '@i18n-app';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 import {BrowserQpdfEngineUnavailableError} from '@app/platform/browser-api/browserQpdfEngineClient';
 import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
 import {
@@ -149,6 +151,52 @@ describe('classifyDocumentOpenError for a file that is gone', () => {
         const t = ((key: string, parameters?: {name?: string}) => `${key}:${parameters?.name ?? ''}`) as TTranslateFn;
 
         expect(classifyDocumentOpenError(error, null, t)).toBe('errors.file.openNotFound:gone.pdf');
+    });
+
+    it.each([
+        ['DOMException NotFoundError', new DOMException('handle missing', 'NotFoundError')],
+        ['PDF.js MissingPDFException', Object.assign(new Error('missing'), {name: 'MissingPDFException'})],
+        ['structured ENOENT code', Object.assign(new Error('missing'), {code: 'ENOENT'})],
+        ['wrapped NotFoundError cause', new Error('open failed', {cause: new DOMException('gone', 'NotFoundError')})],
+    ])('classifies structured %s without relying on message regexes', (_label, error) => {
+        const t = ((key: string, parameters?: {name?: string}) => `${key}:${parameters?.name ?? ''}`) as TTranslateFn;
+
+        expect(classifyDocumentOpenError(error, requireDocumentRef('/docs/missing.pdf'), t))
+            .toBe('errors.file.openNotFound:missing.pdf');
+    });
+
+    it.each([
+        'ENOENT in unstructured message',
+        'document not found in arbitrary log text',
+        'chunk missing in unrelated diagnostic',
+        'path does not exist',
+    ])('does not regex-match unstructured message "%s" as openNotFound', (message) => {
+        const t = ((key: string) => key) as TTranslateFn;
+
+        expect(classifyDocumentOpenError(new Error(message), requireDocumentRef('/docs/file.pdf'), t))
+            .toBe('errors.file.openDescription');
+    });
+
+    it.each([
+        ['SecurityError cause', new Error('wrapped', {cause: new DOMException('blocked', 'SecurityError')}), 'errors.browser.filePermissionDenied'],
+        ['QuotaExceededError cause', new Error('wrapped', {cause: new DOMException('full', 'QuotaExceededError')}), 'errors.browser.storageFull'],
+    ])('preserves structured browser %s through wrapped causes', (_label, error, expectedKey) => {
+        const t = ((key: string) => key) as TTranslateFn;
+
+        expect(classifyDocumentOpenError(error, null, t)).toBe(expectedKey);
+    });
+
+    it('classifies missing stored browser document lookups from browserDocumentStore.requireEntry as openNotFound', async () => {
+        const missingRef = requireDocumentRef('browser://documents/missing-doc/gone.pdf');
+        let caught: unknown;
+        try {
+            await browserDocumentStore.requireEntry(missingRef);
+        } catch (error) {
+            caught = error;
+        }
+        const t = ((key: string, parameters?: {name?: string}) => `${key}:${parameters?.name ?? ''}`) as TTranslateFn;
+
+        expect(classifyDocumentOpenError(caught, missingRef, t)).toBe('errors.file.openNotFound:gone.pdf');
     });
 });
 

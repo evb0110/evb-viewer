@@ -11,12 +11,16 @@ import {
     join,
 } from 'node:path';
 import {DamagedDocumentError} from '@document-store/documentDirectory';
-import type {TSaveResult} from '@document-store/saveDocument';
+import {
+    SavePublicationError,
+    type TSaveResult,
+} from '@document-store/saveDocument';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import type {
     IDocumentMutationRevisionOptions,
     TDocumentSaveResult,
 } from '@contracts/electronApiDocuments';
+import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     assertQueuedWorkingCopyMutationPreconditions,
@@ -70,13 +74,28 @@ export function toDocumentSaveResult(
 ): TDocumentSaveResult {
     switch (result.status) {
         case 'saved':
+            if (result.acknowledgmentError !== undefined) {
+                logger.warn('Working-copy save published with an unacknowledged manifest', {
+                    channel: 'file:saveStructured',
+                    phase: 'acknowledge',
+                    externalWriteCommitted: true,
+                    hasPendingPublish: result.pendingPublish !== undefined,
+                    error: getErrorMessage(result.acknowledgmentError),
+                });
+            }
             return result.keptOriginal === undefined
                 ? {
                     ok: true,
                     externalWriteCommitted: true,
-                    workingCopyRefreshed: true,
+                    workingCopyRefreshed: result.acknowledgmentError === undefined,
                     documentRevision: getDocumentRevisionInfo(entry),
                     validation,
+                    ...(result.acknowledgmentError === undefined ? {} : {
+                        warning: {
+                            reason: 'refresh-failed' as const,
+                            message: getErrorMessage(result.acknowledgmentError),
+                        },
+                    }),
                 }
                 : {
                     ok: false,
@@ -86,6 +105,15 @@ export function toDocumentSaveResult(
                     validation,
                 };
         case 'conflict':
+            if (result.acknowledgmentError !== undefined) {
+                logger.warn('Working-copy save conflict left pending publish for recovery', {
+                    channel: 'file:saveStructured',
+                    phase: 'acknowledge-conflict',
+                    keptFilePath: result.keptOriginal ?? null,
+                    hasPendingPublish: result.pendingPublish !== undefined,
+                    error: getErrorMessage(result.acknowledgmentError),
+                });
+            }
             return {
                 ok: false,
                 reason: 'original-changed',
@@ -120,6 +148,14 @@ async function saveRewritten(
         const validation = optimized ?? await validatePdfFile(tempPath);
         if (!validation.isValid) return validation;
         const saved = await saveOpenDocument(entry, token, {commit: {kind: 'move', file: tempPath}});
+        if (saved.status === 'saved' && saved.acknowledgmentError !== undefined) {
+            logger.warn('Rewritten working-copy save published with an unacknowledged manifest', {
+                phase: 'acknowledge',
+                externalWriteCommitted: true,
+                hasPendingPublish: saved.pendingPublish !== undefined,
+                error: getErrorMessage(saved.acknowledgmentError),
+            });
+        }
         return saved.status === 'saved' && saved.keptOriginal === undefined ? validation : createOriginalChangedValidationResult();
     } finally {
         await rm(tempPath, {force: true}).catch(() => undefined);
@@ -141,7 +177,16 @@ async function runNativePdfSaveMutation(
             return saveRewritten(entry, token, rewrite);
         });
     } catch (err) {
-        throw new Error(`${failureMessage}: ${getErrorMessage(await explainWriteRefusal(err, entry.originalPath ?? ''))}`, {cause: err});
+        const rootError = err instanceof SavePublicationError ? err.cause : err;
+        const explainedMessage = `${failureMessage}: ${getErrorMessage(await explainWriteRefusal(rootError, entry.originalPath ?? ''))}`;
+        if (err instanceof SavePublicationError && err.externalWriteCommitted !== false) {
+            throw new Error(encodeSerializableErrorEnvelope({
+                code: 'save-publication-outcome',
+                message: explainedMessage,
+                details: {externalWriteCommitted: err.externalWriteCommitted},
+            }), {cause: err});
+        }
+        throw new Error(explainedMessage, {cause: err});
     }
 }
 
@@ -170,17 +215,22 @@ export async function handleFileSaveStructured(
             return toDocumentSaveResult(entry, await saveOpenDocument(entry, token), validation);
         });
     } catch (err) {
-        const error = await explainWriteRefusal(err, entry.originalPath ?? '');
+        const rootError = err instanceof SavePublicationError ? err.cause : err;
+        const error = await explainWriteRefusal(rootError, entry.originalPath ?? '');
+        const externalWriteCommitted = err instanceof SavePublicationError ? err.externalWriteCommitted : false;
         logger.warn('Structured working-copy save failed', {
             channel: 'file:saveStructured',
             phase: 'publish',
+            externalWriteCommitted,
             error: getErrorMessage(error),
         });
         return {
             ok: false,
-            reason: err instanceof DamagedDocumentError ? 'working-copy-missing' : 'write-failed',
+            reason: rootError instanceof DamagedDocumentError
+                ? 'working-copy-missing'
+                : externalWriteCommitted === true ? 'refresh-failed' : 'write-failed',
             message: getErrorMessage(error),
-            externalWriteCommitted: false,
+            externalWriteCommitted,
             validation: null,
         };
     }

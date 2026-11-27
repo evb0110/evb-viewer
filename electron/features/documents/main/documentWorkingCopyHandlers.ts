@@ -24,6 +24,8 @@ import {
 } from '@electron/file-access/documentStore';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
 import type { IDocumentMutationRevisionOptions } from '@contracts/electronApiDocuments';
+import { DocumentOpenRefusalError } from '@contracts/documentOpenErrors';
+import { encodeSerializableErrorEnvelope } from '@contracts/serializableError';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import { isPdfFileEncrypted } from '@electron/file-access/isPdfFileEncrypted';
 import {
@@ -194,7 +196,18 @@ export async function handleCreateWorkingCopyFromPath(
         ? null
         : resolveTrustedOriginalDocument(originalPath, 'createWorkingCopyFromPath', context.senderId);
     if (document) return (await createRevisionOf(document, sourcePath, context.senderId)).ref;
-    return (await openFileAsDocument(sourcePath, context.senderId, {password: validatedPassword})).entry.ref;
+    try {
+        return (await openFileAsDocument(sourcePath, context.senderId, {password: validatedPassword})).entry.ref;
+    } catch (error) {
+        if (error instanceof DocumentOpenRefusalError) {
+            throw new Error(encodeSerializableErrorEnvelope({
+                code: error.code,
+                message: error.code,
+                ...(error.fileName === undefined ? {} : {fileName: error.fileName}),
+            }), {cause: error});
+        }
+        throw error;
+    }
 }
 
 /** Undo or redo of the document's bytes, in order with its other mutations. */

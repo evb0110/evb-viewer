@@ -1,5 +1,8 @@
 import {isAbortError} from '@contracts/isAbortError';
+import type {IPendingPublish} from '@document-store/documentDirectory';
+import {SavePublicationError} from '@document-store/saveDocument';
 import type {TDocumentRef} from '@contracts/documentRef';
+import type {IDocumentRevisionInfo} from '@contracts/documentRevision';
 import {isRecord} from '@contracts/runtimeGuards';
 import {readBrowserStoreStagedArtifact} from '@app/platform/browser/browserStagedArtifact';
 import type {
@@ -21,6 +24,7 @@ import {
 import { buildPdfSaveTypes } from '@app/platform/browser-api/browserFileAccepts';
 import { ensurePdfExtension } from '@app/platform/browser-api/browserFileName';
 import {
+    BrowserFileWriteOutcomeError,
     downloadBrowserBytes,
     ensureFileHandleWritePermission,
     pickSaveTarget,
@@ -53,17 +57,20 @@ function warnRecentWriteFailure(documentRef: TDocumentRef, error: unknown) {
     });
 }
 
-/**
- * Save: commit the edit appended to the working copy under `commitLease`, check its file against the
- * baseline, publish. A document without a file it can check (dropped in, generated, only downloaded) picks
- * one first, the way Save As does, and keeps working on it. Write permission is asked for before the save
- * starts, so no prompt waits inside it. Returns `false` when the picker is cancelled.
- */
-export async function saveWorkingBytesToSource(
+type TBrowserSourceSaveOutcome =
+    | { canceled: true }
+    | {
+        canceled: false;
+        documentRevision: IDocumentRevisionInfo | undefined;
+        refreshError?: unknown;
+        pendingPublish?: IPendingPublish | undefined;
+    };
+
+async function saveWorkingBytesToSourceWithOutcome(
     workingCopyPath: TDocumentRef,
     revisionOptions?: IDocumentMutationRevisionOptions,
     commitLease?: string,
-) {
+): Promise<TBrowserSourceSaveOutcome> {
     const entry = await browserDocumentStore.requireEntry(workingCopyPath);
     const destination = entry.doc?.state().destination ?? null;
     const sourceRef = entry.sourceRef ?? null;
@@ -75,7 +82,7 @@ export async function saveWorkingBytesToSource(
         await ensureFileHandleWritePermission(handle);
     } else if (destination === null || !entry.doc?.state().baseline) {
         const target = await pickSaveTarget({suggestedName: ensurePdfExtension(entry.saveName), pickerTypes: buildPdfSaveTypes()});
-        if (target.canceled) return false;
+        if (target.canceled) return {canceled: true};
         picked = target.handle;
         if (picked) {
             await ensureFileHandleWritePermission(picked);
@@ -93,16 +100,70 @@ export async function saveWorkingBytesToSource(
     if (result.status === 'conflict') throw new BrowserDocumentSourceChangedError(sourceRef ?? workingCopyPath);
     if (result.status === 'needs-save-as') throw new Error('The document has no file to save to; use Save As.');
     if (result.status !== 'saved') throw new Error('The document changed while it was being saved');
+
+    let refreshError: unknown = result.acknowledgmentError;
+    const recordRefreshFailure = (step: string, error: unknown) => {
+        refreshError ??= error;
+        BrowserLogger.warn('browser-save', `Post-publication ${step} failed after the file was saved`, {
+            workingCopyPath,
+            error: getErrorMessage(error),
+        });
+    };
+    if (result.acknowledgmentError !== undefined) {
+        BrowserLogger.warn('browser-save', 'Manifest acknowledgement failed after the file was saved', {
+            workingCopyPath,
+            hasPendingPublish: result.pendingPublish !== undefined,
+            error: getErrorMessage(result.acknowledgmentError),
+        });
+    }
     // A picked file takes the source's place, so Recent Files and the next open find it. Without one, the
     // stored copy Recent Files reopens takes the downloaded bytes.
-    if (picked && sourceRef) await browserDocumentStore.replaceWithHandleBackedDocument(sourceRef, {fileSize: 0, saveHandle: picked, saveName: picked.name});
+    if (picked && sourceRef) {
+        await browserDocumentStore.replaceWithHandleBackedDocument(sourceRef, {fileSize: 0, saveHandle: picked, saveName: picked.name})
+            .catch((error: unknown) => recordRefreshFailure('handle adoption', error));
+    }
     const source = sourceRef ? await browserDocumentStore.ensureEntry(sourceRef).catch(() => null) : null;
-    if (source?.doc && !source.saveHandle && entry.doc?.state().destination?.startsWith('download:')) {
-        await browserDocumentStore.replaceContent(source.ref, workingCopyPath);
+    const publishedDestination = saveAs ?? entry.doc?.state().destination ?? null;
+    if (source?.doc && !source.saveHandle && publishedDestination?.startsWith('download:')) {
+        await browserDocumentStore.replaceContent(source.ref, workingCopyPath)
+            .catch((error: unknown) => recordRefreshFailure('recent copy refresh', error));
     }
     if (sourceRef) await browserDocumentStore.touchRecentFile(sourceRef).catch((error: unknown) => warnRecentWriteFailure(sourceRef, error));
     if (source?.doc) browserDocumentStore.unload(source.ref);
-    return browserDocumentStore.getDocumentRevision(workingCopyPath);
+    let documentRevision: IDocumentRevisionInfo | undefined;
+    try {
+        documentRevision = await browserDocumentStore.getDocumentRevision(workingCopyPath);
+    } catch (error) {
+        recordRefreshFailure('revision refresh', error);
+    }
+    return {
+        canceled: false,
+        documentRevision,
+        ...(refreshError === undefined ? {} : {refreshError}),
+        ...(result.pendingPublish === undefined ? {} : {pendingPublish: result.pendingPublish}),
+    };
+}
+
+/**
+ * Save: commit the edit appended to the working copy under `commitLease`, check its file against the
+ * baseline, publish. A document without a file it can check (dropped in, generated, only downloaded) picks
+ * one first, the way Save As does, and keeps working on it. Write permission is asked for before the save
+ * starts, so no prompt waits inside it. Returns `false` when the picker is cancelled.
+ */
+export async function saveWorkingBytesToSource(
+    workingCopyPath: TDocumentRef,
+    revisionOptions?: IDocumentMutationRevisionOptions,
+    commitLease?: string,
+) {
+    const outcome = await saveWorkingBytesToSourceWithOutcome(workingCopyPath, revisionOptions, commitLease);
+    if (outcome.canceled) return false;
+    if (!outcome.documentRevision) {
+        throw new SavePublicationError(outcome.refreshError ?? new Error('Document revision unavailable after save'), {
+            externalWriteCommitted: true,
+            pendingPublish: outcome.pendingPublish,
+        });
+    }
+    return outcome.documentRevision;
 }
 
 export async function saveWorkingBytesToSourceStructured(
@@ -110,17 +171,35 @@ export async function saveWorkingBytesToSourceStructured(
     revisionOptions?: IDocumentMutationRevisionOptions,
 ): Promise<TDocumentSaveResult> {
     try {
-        const saved = await saveWorkingBytesToSource(workingCopyPath, revisionOptions);
-        return saved
-            ? {validation: null, ok: true, externalWriteCommitted: true, workingCopyRefreshed: true, documentRevision: saved}
-            : {validation: null, ok: false, reason: 'user-canceled', externalWriteCommitted: false};
+        const outcome = await saveWorkingBytesToSourceWithOutcome(workingCopyPath, revisionOptions);
+        if (outcome.canceled) {
+            return {validation: null, ok: false, reason: 'user-canceled', externalWriteCommitted: false};
+        }
+        return {
+            validation: null,
+            ok: true,
+            externalWriteCommitted: true,
+            workingCopyRefreshed: outcome.refreshError === undefined,
+            ...(outcome.documentRevision ? {documentRevision: outcome.documentRevision} : {}),
+            ...(outcome.refreshError === undefined ? {} : {
+                warning: {
+                    reason: 'refresh-failed' as const,
+                    message: getErrorMessage(outcome.refreshError),
+                },
+            }),
+        };
     } catch (error) {
+        const externalWriteCommitted = error instanceof SavePublicationError || error instanceof BrowserFileWriteOutcomeError
+            ? error.externalWriteCommitted
+            : false;
         return {
             ok: false,
             message: getErrorMessage(error),
             validation: null,
-            reason: error instanceof BrowserDocumentSourceChangedError ? 'original-changed' : 'write-failed',
-            externalWriteCommitted: false,
+            reason: error instanceof BrowserDocumentSourceChangedError
+                ? 'original-changed'
+                : externalWriteCommitted === true ? 'refresh-failed' : 'write-failed',
+            externalWriteCommitted,
         };
     }
 }
@@ -288,13 +367,22 @@ export async function savePdfAsFromWorkingCopy(
     }
     // The file is published. A picked file is opened through its handle; a downloaded one keeps a stored copy
     // for Recent Files.
-    const sourceRef = await browserDocumentStore.createStoredDocument(fileName, published, {
-        mimeType: 'application/pdf',
-        saveKind: 'pdf',
-        kind: 'source',
-        saveHandle: saveResult.handle,
-        ...(saveResult.handle ? {storageMode: 'handle' as const} : {}),
-    });
+    let sourceRef: TDocumentRef;
+    try {
+        sourceRef = await browserDocumentStore.createStoredDocument(fileName, published, {
+            mimeType: 'application/pdf',
+            saveKind: 'pdf',
+            kind: 'source',
+            saveHandle: saveResult.handle,
+            ...(saveResult.handle ? {storageMode: 'handle' as const} : {}),
+        });
+    } catch (error) {
+        const adoptionError = new Error(
+            `Saved copy "${fileName}" was written, but browser document adoption failed: ${getErrorMessage(error)}`,
+            {cause: error},
+        );
+        throw new BrowserFileWriteOutcomeError(adoptionError, true);
+    }
     // The browser keys Scan Cleanup settings by document, so the saved file takes them before the workspace
     // adopts it. A refused copy leaves the saved file at the defaults; the save still stands.
     try {

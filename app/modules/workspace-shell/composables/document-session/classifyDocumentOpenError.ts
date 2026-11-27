@@ -8,6 +8,7 @@ import {
     type TDocumentOpenErrorEnvelope,
 } from '@contracts/documentOpenErrors';
 import {getFailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import {isRecord} from '@contracts/runtimeGuards';
 import {findSerializableErrorEnvelope} from '@contracts/serializableError';
 import {
     isBrowserFilePickerSetupDeniedError,
@@ -16,7 +17,6 @@ import {
 } from '@app/platform/browser-api/public';
 import {getDocumentRefBaseName} from '@app/utils/documentRef';
 import {BrowserLogger} from '@app/utils/browserLogger';
-import {stripIpcInvocationPrefix} from '@app/utils/stripIpcInvocationPrefix';
 
 /** A browser engine's limit or unavailability, told alike for opening and saving; null for any other error. */
 export function describeBrowserEngineLimit(error: unknown, t: TTranslateFn) {
@@ -39,6 +39,35 @@ const NOT_DJVU_MESSAGE_KEYS = {
     unknown: 'errors.file.notDjvu',
 } as const satisfies Record<NonNullable<TDocumentOpenErrorEnvelope['detectedFormat']>, TTranslationKey>;
 
+type TStructuredOpenErrorKind = 'permission-denied' | 'storage-full' | 'invalid' | 'not-found';
+
+function findStructuredOpenErrorKind(error: unknown): TStructuredOpenErrorKind | null {
+    const seen = new Set<object>();
+    let candidate: unknown = error;
+    while (candidate !== null && candidate !== undefined && typeof candidate === 'object') {
+        if (seen.has(candidate)) {
+            return null;
+        }
+        seen.add(candidate);
+        const name = candidate instanceof Error ? candidate.name : (isRecord(candidate) && typeof candidate.name === 'string' ? candidate.name : undefined);
+        const code = isRecord(candidate) && typeof candidate.code === 'string' ? candidate.code : undefined;
+        if (name === 'NotAllowedError' || name === 'SecurityError' || name === 'NotReadableError') {
+            return 'permission-denied';
+        }
+        if (name === 'QuotaExceededError') {
+            return 'storage-full';
+        }
+        if (name === 'InvalidPDFException' || name === 'FormatError') {
+            return 'invalid';
+        }
+        if (name === 'NotFoundError' || name === 'MissingPDFException' || code === 'ENOENT') {
+            return 'not-found';
+        }
+        candidate = isRecord(candidate) ? candidate.cause : null;
+    }
+    return null;
+}
+
 export function classifyDocumentOpenError(
     error: unknown,
     path: TDocumentRef | null,
@@ -51,32 +80,28 @@ export function classifyDocumentOpenError(
     if (engineLimit) {
         return engineLimit;
     }
+    const fallbackFileName = path ? getDocumentRefBaseName(path) ?? String(path) : '';
     const openError = findSerializableErrorEnvelope(error, DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA);
-    const rawMessage = error instanceof Error ? stripIpcInvocationPrefix(error.message) : '';
-    if (error instanceof Error) {
-        if (error.name === 'NotAllowedError' || error.name === 'SecurityError' || error.name === 'NotReadableError') return t('errors.browser.filePermissionDenied');
-        if (error.name === 'QuotaExceededError') return t('errors.browser.storageFull');
-        if (error.name === 'InvalidPDFException' || error.name === 'FormatError') return t('errors.file.invalid');
-        if (error instanceof RangeError && /memory|alloc|array buffer|array length/iu.test(rawMessage)) return t('errors.browser.notEnoughMemory');
-    }
-    if (openError ? openError.code === 'not-found' : /ENOENT|could not be found|no such file|document not found|chunk missing|does not exist/i.test(rawMessage)) {
-        return t('errors.file.openNotFound', {name: openError?.fileName ?? (path ? getDocumentRefBaseName(path) ?? String(path) : '')});
-    }
     if (openError) {
         switch (openError.code) {
+            case 'not-found': return t('errors.file.openNotFound', {name: openError.fileName ?? fallbackFileName});
             case 'not-djvu': return t(NOT_DJVU_MESSAGE_KEYS[openError.detectedFormat ?? 'unknown']);
             case 'invalid-djvu': return t('errors.file.invalidDjvu');
             case 'djvu-components-required': return t('errors.file.djvuComponentsRequired');
             case 'source-changed': return t('errors.file.changedWhileOpening');
             case 'djvu-raster-limit': return t('errors.file.djvuRasterLimit');
             case 'empty-pdf': return t('errors.file.emptyPdf');
-            // Missing files and browser byte limits are explained above.
             case 'invalid-pdf':
-            case 'not-found':
             case 'browser-byte-limit': return t('errors.file.invalid');
         }
     }
-    return t('errors.file.openDescription');
+    switch (findStructuredOpenErrorKind(error)) {
+        case 'permission-denied': return t('errors.browser.filePermissionDenied');
+        case 'storage-full': return t('errors.browser.storageFull');
+        case 'invalid': return t('errors.file.invalid');
+        case 'not-found': return t('errors.file.openNotFound', {name: fallbackFileName});
+        case null: return t('errors.file.openDescription');
+    }
 }
 
 /**

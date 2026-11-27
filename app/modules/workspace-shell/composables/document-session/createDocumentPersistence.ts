@@ -1,4 +1,5 @@
 import {isAbortError} from '@contracts/isAbortError';
+import { SavePublicationError } from '@document-store/saveDocument';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import type {
     IPdfValidationResult,
@@ -976,9 +977,18 @@ export function createDocumentPersistence(
                     return {...createPersistResult(true, requestedSaveMode, true, savedPath), ...committed};
                 }
                 return createCancelledPersistResult(requestedSaveMode);
+            } catch (error) {
+                if (
+                    savedPath
+                    && !isStaleRevisionError(error)
+                    && !isAbortError(error)
+                    && !(error instanceof SavePublicationError)
+                ) {
+                    throw new SavePublicationError(error, {externalWriteCommitted: true});
+                }
+                throw error;
             } finally {
-                if (savedPath && (state.workingCopyPath.value !== previousWorkingPath
-                    || shouldRefreshWorkingCopyAfterSaveAs(savedPath, previousWorkingPath))) {
+                if (savedPath && state.workingCopyPath.value !== previousWorkingPath) {
                     void runDetached(
                         () => getDocumentWorkingCopyCapability().cleanupFile(previousWorkingPath),
                         {

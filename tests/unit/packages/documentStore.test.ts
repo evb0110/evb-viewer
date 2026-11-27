@@ -38,7 +38,10 @@ import {
     createRevisionTokenCodec,
     OpenDocument,
 } from '@document-store/openDocument';
-import { saveDocument } from '@document-store/saveDocument';
+import {
+    SavePublicationError,
+    saveDocument,
+} from '@document-store/saveDocument';
 import type {
     IStoreFile,
     IStorePort,
@@ -606,12 +609,20 @@ describe('recovery after a crash', () => {
         await doc.mutate(null, append(' new'));
 
         let published = false;
-        await crashDuring(
-            doc,
+        await doc.close();
+        const crash = crashingPort(
+            createNodeStorePort(root),
             (operation, target) => published && operation === 'writeAtomic' && target.endsWith('manifest.json'),
-            crashed => saveDocument(crashed, { expected: 2 }),
-            filePublication(() => { published = true; }),
         );
+        const crashed = await openDocument(store(crash.port, filePublication(() => { published = true; })), doc.id);
+        const unacknowledged = await saveDocument(crashed, { expected: 2 });
+        expect(unacknowledged).toMatchObject({
+            status: 'saved',
+            externalWriteCommitted: true,
+            pendingPublish: { destination, witness: await witnessOf(encode('old new')) },
+        });
+        expect(unacknowledged.status === 'saved' && unacknowledged.acknowledgmentError).toBeInstanceOf(Error);
+        await crash.kill();
         expect(await readFile(destination, 'utf8')).toBe('old new');
         await writeFile(destination, onDisk);
 
@@ -1322,4 +1333,274 @@ it('refuses queued and later operations on a closed DocumentDirectory without to
     } finally {
         await rm(workDir, { recursive: true, force: true });
     }
+});
+
+describe('save publication facts under fault injection', () => {
+    it('returns saved with externalWriteCommitted=true and preserves pendingPublish when final manifest acknowledgement fails', async () => {
+        const destination = path.join(workDir, 'ack-fail.pdf');
+        await writeFile(destination, 'v1');
+        let failAck = false;
+        const basePort = createNodeStorePort(root);
+        const port: IStorePort = {
+            ...basePort,
+            writeAtomic: async (target, bytes) => {
+                if (failAck && target.endsWith('manifest.json')) {
+                    failAck = false;
+                    throw new Error('ENOSPC: manifest acknowledgement failed');
+                }
+                return basePort.writeAtomic(target, bytes);
+            },
+        };
+        const publication = filePublication(() => { failAck = true; });
+        const doc = await create(store(port, publication), { ext: 'pdf', destination });
+        await doc.mutate(null, append('+edited'));
+
+        const saved = await saveDocument(doc, { expected: 2 });
+        const expectedWitness = await witnessOf(encode('v1+edited'));
+        expect(saved).toMatchObject({
+            status: 'saved',
+            externalWriteCommitted: true,
+            revision: { id: 2, witness: expectedWitness },
+            pendingPublish: { destination, witness: expectedWitness },
+        });
+        expect(saved.status === 'saved' && saved.acknowledgmentError).toBeInstanceOf(Error);
+        expect(await readFile(destination, 'utf8')).toBe('v1+edited');
+
+        const manifestOnDisk = JSON.parse(await readFile(path.join(docDir(doc), 'manifest.json'), 'utf8')) as {
+            pendingPublish?: { destination: string; witness?: string };
+        };
+        expect(manifestOnDisk.pendingPublish).toEqual({ destination, witness: expectedWitness });
+
+        // The next save settles the surviving pending witness without a false conflict and clears dirty state.
+        const settled = await saveDocument(doc, { expected: 2 });
+        expect(settled).toMatchObject({ status: 'saved', revision: { id: 2, witness: expectedWitness } });
+        expect(settled.status === 'saved' && settled.acknowledgmentError).toBeUndefined();
+        expect(doc.snapshot().pendingPublish).toBeUndefined();
+        expect(doc.state().dirty).toBe(false);
+    });
+
+    it('reports externalWriteCommitted=null and preserves pendingPublish when publish throws after staging completes', async () => {
+        const destination = path.join(workDir, 'unverified.pdf');
+        await writeFile(destination, 'v1');
+        const basePublication = filePublication();
+        const publication: IPublicationPort = {
+            ...basePublication,
+            async publish(dest, source, expected, stage, reserve) {
+                const bytes = await source.file.readAt(0, source.length);
+                const witness = await witnessOf(bytes);
+                await reserve?.(path.join(workDir, '.0123456789abcdef.tmp'));
+                await stage(witness);
+                throw new Error('I/O failure during close: write outcome unknown');
+            },
+        };
+        const doc = await create(store(undefined, publication), { ext: 'pdf', destination });
+        await doc.mutate(null, append('+uncertain'));
+
+        let caught: unknown;
+        try {
+            await saveDocument(doc, { expected: 2 });
+        } catch (error) {
+            caught = error;
+        }
+        const expectedWitness = await witnessOf(encode('v1+uncertain'));
+        expect(caught).toBeInstanceOf(SavePublicationError);
+        expect(caught).toMatchObject({
+            externalWriteCommitted: null,
+            pendingPublish: { destination, witness: expectedWitness },
+            message: 'I/O failure during close: write outcome unknown',
+        });
+        expect(doc.snapshot().pendingPublish).toMatchObject({ destination, witness: expectedWitness });
+    });
+
+    it('reports externalWriteCommitted=false and preserves errno code when publish fails before staging completes', async () => {
+        const destination = path.join(workDir, 'pre-stage.pdf');
+        await writeFile(destination, 'v1');
+        const basePublication = filePublication();
+        const publication: IPublicationPort = {
+            ...basePublication,
+            async publish(_dest, _source, _expected, _stage, reserve) {
+                await reserve?.(path.join(workDir, '.fedcba9876543210.tmp'));
+                throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+            },
+        };
+        const doc = await create(store(undefined, publication), { ext: 'pdf', destination });
+        await doc.mutate(null, append('+denied'));
+
+        let caught: unknown;
+        try {
+            await saveDocument(doc, { expected: 2 });
+        } catch (error) {
+            caught = error;
+        }
+        expect(caught).toBeInstanceOf(SavePublicationError);
+        expect(caught).toMatchObject({
+            externalWriteCommitted: false,
+            pendingPublish: undefined,
+            code: 'EACCES',
+        });
+        expect(doc.snapshot().pendingPublish).toBeUndefined();
+    });
+
+    it('reports externalWriteCommitted=false when the staging manifest commit itself fails before any write starts', async () => {
+        const destination = path.join(workDir, 'stage-commit-fail.pdf');
+        await writeFile(destination, 'v1');
+        const basePort = createNodeStorePort(root);
+        let failNextStage = false;
+        const port: IStorePort = {
+            ...basePort,
+            writeAtomic: async (target, bytes) => {
+                if (failNextStage && target.endsWith('manifest.json')) {
+                    const parsed = JSON.parse(new TextDecoder().decode(bytes)) as { pendingPublish?: { witness?: string } };
+                    if (parsed.pendingPublish?.witness !== undefined) {
+                        failNextStage = false;
+                        throw new Error('ENOSPC: could not record staged witness');
+                    }
+                }
+                return basePort.writeAtomic(target, bytes);
+            },
+        };
+        const doc = await create(store(port), { ext: 'pdf', destination });
+        await doc.mutate(null, append('+edit'));
+        failNextStage = true;
+
+        let caught: unknown;
+        try {
+            await saveDocument(doc, { expected: 2 });
+        } catch (error) {
+            caught = error;
+        }
+        expect(caught).toBeInstanceOf(SavePublicationError);
+        expect(caught).toMatchObject({
+            externalWriteCommitted: false,
+            message: 'ENOSPC: could not record staged witness',
+        });
+        expect(await readFile(destination, 'utf8')).toBe('v1');
+        expect(doc.snapshot().pendingPublish).toBeUndefined();
+    });
+
+    it('throws SavePublicationError(externalWriteCommitted=true) when Save As manifest acknowledgement fails before adopting the new destination', async () => {
+        const original = path.join(workDir, 'original.pdf');
+        const copy = path.join(workDir, 'copy.pdf');
+        await writeFile(original, 'v1');
+        let failAck = false;
+        const basePort = createNodeStorePort(root);
+        const port: IStorePort = {
+            ...basePort,
+            writeAtomic: async (target, bytes) => {
+                if (failAck && target.endsWith('manifest.json')) {
+                    failAck = false;
+                    throw new Error('ENOSPC: Save As manifest acknowledgement failed');
+                }
+                return basePort.writeAtomic(target, bytes);
+            },
+        };
+        const doc = await create(store(port, filePublication(() => { failAck = true; })), { ext: 'pdf', destination: original });
+        await doc.mutate(null, append('+copy-edit'));
+
+        let caught: unknown;
+        try {
+            await saveDocument(doc, { expected: 2, saveAs: copy });
+        } catch (error) {
+            caught = error;
+        }
+        const expectedWitness = await witnessOf(encode('v1+copy-edit'));
+        expect(caught).toBeInstanceOf(SavePublicationError);
+        expect(caught).toMatchObject({
+            externalWriteCommitted: true,
+            pendingPublish: { destination: copy, witness: expectedWitness },
+            message: 'ENOSPC: Save As manifest acknowledgement failed',
+        });
+        expect(await readFile(copy, 'utf8')).toBe('v1+copy-edit');
+        expect(await readFile(original, 'utf8')).toBe('v1');
+        // Manifest still names `original`, so adoption was NOT reported as complete.
+        expect(doc.state().destination).toBe(original);
+        expect(doc.snapshot().pendingPublish).toEqual({ destination: copy, witness: expectedWitness });
+
+        // After another edit, plain Save settles leftovers without silently switching destination to `copy.pdf`.
+        await doc.mutate(2, append('+followup'));
+        const plainSaved = await saveDocument(doc, { expected: 3 });
+        expect(plainSaved).toMatchObject({ status: 'saved', revision: { id: 3 } });
+        expect(doc.state().destination).toBe(original);
+        expect(await readFile(original, 'utf8')).toBe('v1+copy-edit+followup');
+        expect(await readFile(copy, 'utf8')).toBe('v1+copy-edit');
+    });
+
+    it('attaches surviving pendingPublish with externalWriteCommitted=false when staging manifest flush fails after rename', async () => {
+        const destination = path.join(workDir, 'stage-flush-fail.pdf');
+        await writeFile(destination, 'v1');
+        const basePort = createNodeStorePort(root);
+        let failAfterStageWrite = false;
+        const port: IStorePort = {
+            ...basePort,
+            writeAtomic: async (target, bytes) => {
+                await basePort.writeAtomic(target, bytes);
+                if (failAfterStageWrite && target.endsWith('manifest.json')) {
+                    const parsed = JSON.parse(new TextDecoder().decode(bytes)) as { pendingPublish?: { witness?: string } };
+                    if (parsed.pendingPublish?.witness !== undefined) {
+                        failAfterStageWrite = false;
+                        throw new Error('EIO: directory flush failed after staging manifest rename');
+                    }
+                }
+            },
+        };
+        const doc = await create(store(port), { ext: 'pdf', destination });
+        await doc.mutate(null, append('+edit'));
+        failAfterStageWrite = true;
+
+        let caught: unknown;
+        try {
+            await saveDocument(doc, { expected: 2 });
+        } catch (error) {
+            caught = error;
+        }
+        const expectedWitness = await witnessOf(encode('v1+edit'));
+        expect(caught).toBeInstanceOf(SavePublicationError);
+        expect(caught).toMatchObject({
+            externalWriteCommitted: false,
+            pendingPublish: { destination, witness: expectedWitness },
+            message: 'EIO: directory flush failed after staging manifest rename',
+        });
+        expect(await readFile(destination, 'utf8')).toBe('v1');
+        expect(doc.snapshot().pendingPublish).toEqual({ destination, witness: expectedWitness });
+    });
+
+    it('retains conflict and keptOriginal when clearing staged pendingPublish fails after a publication conflict', async () => {
+        const destination = path.join(workDir, 'conflict-cleanup-fail.pdf');
+        const keptOriginal = path.join(workDir, 'conflict-cleanup-fail (original).pdf');
+        await writeFile(destination, 'v1');
+        const basePort = createNodeStorePort(root);
+        let failConflictCleanup = false;
+        const port: IStorePort = {
+            ...basePort,
+            writeAtomic: async (target, bytes) => {
+                if (failConflictCleanup && target.endsWith('manifest.json')) {
+                    failConflictCleanup = false;
+                    throw new Error('ENOSPC: conflict cleanup manifest write failed');
+                }
+                return basePort.writeAtomic(target, bytes);
+            },
+        };
+        const basePublication = filePublication();
+        const publication: IPublicationPort = {
+            ...basePublication,
+            async publish(_dest, source, _expected, stage) {
+                const bytes = await source.file.readAt(0, source.length);
+                await stage(await witnessOf(bytes));
+                failConflictCleanup = true;
+                return { status: 'conflict', keptOriginal };
+            },
+        };
+        const doc = await create(store(port, publication), { ext: 'pdf', destination });
+        await doc.mutate(null, append('+edit'));
+
+        const result = await saveDocument(doc, { expected: 2 });
+        const expectedWitness = await witnessOf(encode('v1+edit'));
+        expect(result).toMatchObject({
+            status: 'conflict',
+            keptOriginal,
+            pendingPublish: { destination, witness: expectedWitness },
+        });
+        expect(result.status === 'conflict' && result.acknowledgmentError).toBeInstanceOf(Error);
+        expect(doc.snapshot().pendingPublish).toEqual({ destination, witness: expectedWitness });
+    });
 });

@@ -2219,4 +2219,57 @@ describe('workspace checkpoint owner lifecycle', () => {
         expect(await readAll(store.requireOpenDocument(dirtyEntry2.ref, ownerG.id))).toEqual(EDITED);
         ownerG.destroy();
     });
+
+    it('restores the adopted Save As destination on restart when Save As wrote copy.pdf but manifest acknowledgement failed', async () => {
+        const originalPdf = await writeTemp('restart-saveas-original.pdf', ORIGINAL);
+        const copyPdf = join(tempRoot, 'restart-saveas-copy.pdf');
+        const editedSrc = await writeTemp('restart-saveas-edited.pdf', EDITED);
+
+        const ownerA = createLifecycleWebContents(200901);
+        const ownerB = createLifecycleWebContents(200902);
+        const entry = await store.openDocumentFromFile(originalPdf, {ownerWebContentsId: ownerA.id});
+        await store.commitDocumentMutation(entry, store.documentRevisionToken(entry), {kind: 'rewrite', source: editedSrc}, 'write');
+
+        await checkpoints.saveWorkspaceCheckpoint(makeCheckpoint({
+            fileName: 'restart-saveas-original.pdf',
+            sourceRef: originalPdf,
+            workingCopyRef: entry.ref,
+            isDirty: true,
+        }), ownerA.id, ownerA as never);
+
+        const docStore = store.getDocumentStore();
+        const realWriteAtomic = docStore.port.writeAtomic.bind(docStore.port);
+        let sawStagedPending = false;
+        let injected = false;
+        vi.spyOn(docStore.port, 'writeAtomic').mockImplementation(async (target, bytes) => {
+            if (target.endsWith('manifest.json')) {
+                const parsed = JSON.parse(new TextDecoder().decode(bytes)) as {pendingPublish?: {witness?: string}};
+                if (parsed.pendingPublish?.witness !== undefined) {
+                    sawStagedPending = true;
+                } else if (sawStagedPending && !injected) {
+                    injected = true;
+                    throw new Error('ENOSPC: Save As manifest ack failed');
+                }
+            }
+            return realWriteAtomic(target, bytes);
+        });
+
+        await expect(store.saveOpenDocument(entry, store.documentRevisionToken(entry), {saveAs: copyPdf})).rejects.toThrow('ENOSPC');
+        expect(injected).toBe(true);
+        expect(await readFile(copyPdf)).toEqual(Buffer.from(EDITED));
+        vi.restoreAllMocks();
+
+        // Simulate immediate restart: close open handles, reset store state on the same root, and claim checkpoint.
+        ownerA.destroy();
+        await restart();
+
+        const claimed = await checkpoints.claimWorkspaceCheckpoint(ownerB.id, ownerB as never);
+        expect(claimed?.tabs[0]).toMatchObject({
+            isDirty: false,
+            workingCopyRef: null,
+            sourceRef: copyPdf,
+            fileName: 'restart-saveas-copy.pdf',
+        });
+        ownerB.destroy();
+    });
 });

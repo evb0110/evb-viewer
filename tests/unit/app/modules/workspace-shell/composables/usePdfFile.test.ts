@@ -1,3 +1,4 @@
+import {SavePublicationError} from '@document-store/saveDocument';
 import {useWorkspaceCommandLedger} from '@app/modules/workspace-shell/composables/useWorkspaceCommandLedger';
 import {
     beforeEach,
@@ -279,6 +280,23 @@ describe('usePdfFile façade', () => {
         expect(file.pdfSrc.value === loadedSource).toBe(outcome === 'keeps');
         // The save service tells a kept source by its revision: Save waits for the view's reload otherwise.
         expect(file.documentRevisionToken.value === openedRevision).toBe(outcome === 'keeps');
+    });
+
+    it('keeps the active working copy intact and preserves externalWriteCommitted=true when browser Save As fails creating the replacement working copy', async () => {
+        mocks.hasElectronApi.mockReturnValue(false);
+        const file = createFacade();
+        await file.openFile(pdfResult('browser-save-as-keep-working'));
+        const activeWorkingCopy = file.workingCopyPath.value;
+        mocks.saveAs.mockResolvedValueOnce('browser://documents/saved-copy.pdf');
+        mocks.cloneWorkingCopy.mockRejectedValueOnce(new Error('OPFS quota exceeded'));
+
+        const result = await file.saveWorkingCopyAs();
+
+        expect(result.success).toBe(false);
+        expect(file.workingCopyPath.value).toBe(activeWorkingCopy);
+        expect(mocks.cleanup).not.toHaveBeenCalledWith(activeWorkingCopy);
+        expect(result.failure?.cause).toBeInstanceOf(SavePublicationError);
+        expect((result.failure?.cause as SavePublicationError).externalWriteCommitted).toBe(true);
     });
 
     it('finishes a staged Save As while its staging lease cleanup is pending', async () => {

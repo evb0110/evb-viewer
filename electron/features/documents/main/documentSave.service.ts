@@ -39,6 +39,12 @@ import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMut
 import { optimizePdfForSaveAs } from '@electron/features/documents/public/pdfSaveAsOptimization';
 import type { IDocumentsDialogContext } from '@electron/features/documents/documentsContexts';
 import {createStaleRevisionError} from '@contracts/documentMutationErrors';
+import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
+import {SavePublicationError} from '@document-store/saveDocument';
+import {createLogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
+
+const logger = createLogger('document-save');
 
 export type TShowSaveDialogWithExtension = (
     context: IDocumentsDialogContext,
@@ -124,10 +130,25 @@ export async function savePdfAs(
                 throw new Error('Working copy is not a valid PDF');
             }
             const optimizedValidation = await optimizePdfForSaveAs(tempPath, options);
-            const result = await saveOpenDocument(entry, expectedDocumentRevisionToken, {
-                ...(optimizedValidation || stagedOutput || damaged ? {commit: {kind: 'move' as const, file: tempPath}} : {}),
-                saveAs: targetPath,
-            });
+            let result: Awaited<ReturnType<typeof saveOpenDocument>>;
+            try {
+                result = await saveOpenDocument(entry, expectedDocumentRevisionToken, {
+                    ...(optimizedValidation || stagedOutput || damaged ? {commit: {kind: 'move' as const, file: tempPath}} : {}),
+                    saveAs: targetPath,
+                });
+            } catch (error) {
+                if (error instanceof SavePublicationError && error.externalWriteCommitted !== false) {
+                    const detail = error.externalWriteCommitted === true
+                        ? `Saved copy "${basename(targetPath)}" was written, but document adoption failed: ${getErrorMessage(error)}`
+                        : `Saved copy "${basename(targetPath)}" may have been written before an error interrupted confirmation: ${getErrorMessage(error)}`;
+                    throw new Error(encodeSerializableErrorEnvelope({
+                        code: 'save-publication-outcome',
+                        message: detail,
+                        details: {externalWriteCommitted: error.externalWriteCommitted},
+                    }), {cause: error});
+                }
+                throw error;
+            }
             if (result.status === 'stale-revision') {
                 throw createStaleRevisionError({
                     documentRef: requireDocumentRef(entry.ref),
@@ -144,8 +165,15 @@ export async function savePdfAs(
     });
 
     allowOpenPath(targetPath, context.sender);
-    await addRecentFile(targetPath);
-    updateRecentFilesMenu();
+    try {
+        await addRecentFile(targetPath);
+        updateRecentFilesMenu();
+    } catch (error) {
+        logger.warn('Save As succeeded, but updating recent files failed', {
+            targetPath,
+            error: getErrorMessage(error),
+        });
+    }
 
     return requireDocumentRef(targetPath);
 }

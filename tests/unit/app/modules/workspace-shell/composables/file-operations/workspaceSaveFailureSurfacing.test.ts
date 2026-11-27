@@ -13,10 +13,12 @@ import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import { createAbortError } from '@contracts/isAbortError';
 import { createStaleRevisionError } from '@contracts/documentMutationErrors';
 import { createDocumentPersistence } from '@app/modules/workspace-shell/composables/document-session/createDocumentPersistence';
+import { encodeSerializableErrorEnvelope } from '@contracts/serializableError';
 import {requireEpochMs} from '@contracts/timestamps';
 import { requireDocumentRef } from '@contracts/documentRef';
 import { requirePageIndex } from '@contracts/pageNumbers';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { BrowserFileWriteOutcomeError } from '@app/platform/browser-api/browserFilePickerAdapter';
 import type {IPdfNativePlacedImageGeometryUpdate} from '@contracts/electronApiDocuments';
 import {
     createDeferred,
@@ -1273,5 +1275,149 @@ describe('workspace save failure surfacing', () => {
         expect(toastAddMock).not.toHaveBeenCalled();
         expect(service.hasSaveFailure.value).toBe(false);
         expectWorkspaceSaveNotMarked(deps);
+    });
+
+    it('carries externalWriteCommitted=true and adoption-failure detail from Save As failure cause at the workspace boundary', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const errorSpy = vi.spyOn(BrowserLogger, 'error');
+        const adoptionMessage = 'Saved copy "saved-copy.pdf" was written, but browser document adoption failed: OPFS full';
+        const outcomeError = new BrowserFileWriteOutcomeError(new Error(adoptionMessage), true);
+        const {deps} = createDeps({
+            saveWorkingCopyAs: vi.fn(async () => ({
+                success: false,
+                outPath: null,
+                saveMode: 'save_as_rewrite' as const,
+                didSaveAs: true,
+                failure: {
+                    channel: 'persist',
+                    operation: 'persist',
+                    phase: 'write',
+                    reason: 'write-failed' as const,
+                    message: adoptionMessage,
+                    cause: outcomeError,
+                },
+            })),
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(service.handleSaveAs()).resolves.toBe(false);
+
+        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+            color: 'error',
+            title: 'errors.file.save',
+            description: toastDescriptionContaining(adoptionMessage),
+        }));
+        expect(errorSpy).toHaveBeenCalledWith(
+            'workspace',
+            'Workspace save failed',
+            expect.objectContaining({
+                diagnostics: expect.objectContaining({
+                    externalWriteCommitted: true,
+                    reason: 'refresh-failed',
+                }),
+            }),
+            expect.anything(),
+        );
+    });
+
+    it('decodes serialized desktop Save As publication outcome across IPC without exposing the envelope prefix', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const errorSpy = vi.spyOn(BrowserLogger, 'error');
+        const cleanMessage = 'Saved copy "copy.pdf" was written, but document adoption failed: ENOSPC';
+        const ipcError = new Error(
+            `Error invoking remote method 'file:savePdfAs': Error: ${encodeSerializableErrorEnvelope({
+                code: 'save-publication-outcome',
+                message: cleanMessage,
+                details: {externalWriteCommitted: true},
+            })}`,
+        );
+        const {deps} = createDeps({
+            saveWorkingCopyAs: vi.fn(async () => ({
+                success: false,
+                outPath: null,
+                saveMode: 'save_as_rewrite' as const,
+                didSaveAs: true,
+                failure: {
+                    channel: 'persist',
+                    operation: 'persist',
+                    phase: 'write',
+                    reason: 'write-failed' as const,
+                    message: ipcError.message,
+                    cause: ipcError,
+                },
+            })),
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(service.handleSaveAs()).resolves.toBe(false);
+
+        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+            color: 'error',
+            title: 'errors.file.save',
+            description: toastDescriptionContaining(cleanMessage),
+        }));
+        expect(toastAddMock.mock.calls[0]?.[0].description).not.toContain('EVB_SERIALIZABLE_ERROR:');
+        expect(errorSpy).toHaveBeenCalledWith(
+            'workspace',
+            'Workspace save failed',
+            expect.objectContaining({
+                diagnostics: expect.objectContaining({
+                    externalWriteCommitted: true,
+                    reason: 'refresh-failed',
+                    message: cleanMessage,
+                }),
+            }),
+            expect.anything(),
+        );
+    });
+
+    it('explains that the copy may already exist when desktop Save As fails with externalWriteCommitted=null', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const errorSpy = vi.spyOn(BrowserLogger, 'error');
+        const unconfirmedMessage = 'Saved copy "copy.pdf" may have been written before an error interrupted confirmation: EIO';
+        const ipcError = new Error(
+            `Error invoking remote method 'file:savePdfAs': Error: ${encodeSerializableErrorEnvelope({
+                code: 'save-publication-outcome',
+                message: unconfirmedMessage,
+                details: {externalWriteCommitted: null},
+            })}`,
+        );
+        const {deps} = createDeps({
+            saveWorkingCopyAs: vi.fn(async () => ({
+                success: false,
+                outPath: null,
+                saveMode: 'save_as_rewrite' as const,
+                didSaveAs: true,
+                failure: {
+                    channel: 'persist',
+                    operation: 'persist',
+                    phase: 'write',
+                    reason: 'write-failed' as const,
+                    message: ipcError.message,
+                    cause: ipcError,
+                },
+            })),
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(service.handleSaveAs()).resolves.toBe(false);
+
+        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+            color: 'error',
+            title: 'errors.file.save',
+            description: toastDescriptionContaining(unconfirmedMessage),
+        }));
+        expect(toastAddMock.mock.calls[0]?.[0].description).not.toContain('errors.save.notCompleted');
+        expect(errorSpy).toHaveBeenCalledWith(
+            'workspace',
+            'Workspace save failed',
+            expect.objectContaining({
+                diagnostics: expect.objectContaining({
+                    externalWriteCommitted: null,
+                    message: unconfirmedMessage,
+                }),
+            }),
+            expect.anything(),
+        );
     });
 });
