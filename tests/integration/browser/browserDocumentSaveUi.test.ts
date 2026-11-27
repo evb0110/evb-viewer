@@ -580,4 +580,237 @@ describe('browser document lifecycle UI', () => {
             await context.close();
         }
     }, 120000);
+
+    it('succeeds without a false failure and preserves concurrent edits when post-publication annotation read-back fails', async () => {
+        const context = await lifecycle.browser.newContext({
+            viewport: {
+                width: 1280,
+                height: 900,
+            },
+            acceptDownloads: true,
+        });
+        let page: Awaited<ReturnType<typeof context.newPage>> | undefined;
+        try {
+            await context.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            page = await context.newPage();
+            const problems = collectConsoleProblems(page);
+            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+
+            const pdf = await PDFDocument.create();
+            pdf.addPage([
+                612,
+                792,
+            ]).drawText('Read-back fault injection document', {
+                x: 40,
+                y: 740,
+            });
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooser).setFiles({
+                name: 'readback-fault.pdf',
+                mimeType: 'application/pdf',
+                buffer: Buffer.from(await pdf.save()),
+            });
+            await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30000});
+            await settleActiveOpen(page);
+
+            const triggerSave = async (as: boolean) => {
+                const download = page!.waitForEvent('download');
+                if (as) {
+                    await page!.getByRole('button', {
+                        name: 'Save options',
+                        exact: true,
+                    }).click();
+                    await page!.getByRole('menuitem', {name: /^Save As/u}).click();
+                } else {
+                    await page!.getByRole('button', {
+                        name: 'Save',
+                        exact: true,
+                    }).click();
+                }
+                return PDFDocument.load(await readDownloadBytes(await download));
+            };
+
+            // Establish a download-backed destination first so Save takes the in-place native-mutation + read-back path.
+            await triggerSave(true);
+            await settleActiveOpen(page);
+            await page.locator('.editor-pane.is-active .page_container--rendered [data-pdf-annotation-editor-ready="true"]').first().waitFor();
+
+            await addNote(page, 'Published before read-back failure', {
+                x: 160,
+                y: 180,
+            });
+
+            // Fault-inject both scoped and full post-publication annotation read-back after pausing so a concurrent edit can land.
+            await page.evaluate(`(async () => {
+                const {getDocumentWorkingCopyCapability} = await import('/_nuxt/utils/platformDocuments.ts');
+                const capability = getDocumentWorkingCopyCapability();
+                const original = capability.parsePdfAnnotations.bind(capability);
+                const held = new Promise(resolve => Reflect.set(window, '__releaseReadBackFault', resolve));
+                let failedCalls = 0;
+                capability.parsePdfAnnotations = async (...args) => {
+                    failedCalls += 1;
+                    if (failedCalls === 1) {
+                        Reflect.set(window, '__readBackFaultHeld', true);
+                        await held;
+                    }
+                    if (failedCalls <= 2) {
+                        throw new Error('Injected post-publish annotation read-back failure');
+                    }
+                    capability.parsePdfAnnotations = original;
+                    return original(...args);
+                };
+            })()`);
+
+            const firstSave = triggerSave(false);
+            await page.waitForFunction(() => Reflect.get(window, '__readBackFaultHeld') === true);
+
+            // Accept a new note while post-publication read-back is failing.
+            await addNote(page, 'Accepted during failed read-back', {
+                x: 260,
+                y: 280,
+            });
+            await page.evaluate(() => Reflect.get(window, '__releaseReadBackFault')());
+
+            const firstPublished = noteTexts(await firstSave);
+            expect(firstPublished).toContain('Published before read-back failure');
+
+            const saveButton = page.getByRole('button', {
+                name: 'Save',
+                exact: true,
+            });
+            await expect.poll(() => saveButton.getAttribute('aria-busy'), {timeout: 30000}).toBe('false');
+            expect(await page.locator('.app-toast-failure').allTextContents()).toEqual([]);
+            await expect.poll(() => saveButton.isEnabled()).toBe(true);
+            await expect.poll(() => page!.locator('.pdf-annotation-editor-note').count()).toBe(2);
+
+            // Next Save publishes the concurrent edit cleanly too.
+            const secondPublished = noteTexts(await triggerSave(false));
+            expect(secondPublished).toEqual(new Set([
+                'Published before read-back failure',
+                'Accepted during failed read-back',
+            ]));
+            expect(await page.locator('.app-toast-failure').count()).toBe(0);
+            expect(problems.filter(problem => !problem.startsWith('warning:'))).toEqual([]);
+            expect(problems.some(problem => problem.includes('Annotation read-back failed after published save') && problem.includes('refresh-failed'))).toBe(true);
+        } finally {
+            if (page && !page.isClosed()) await page.evaluate(() => Reflect.get(window, '__releaseReadBackFault')?.()).catch(() => undefined);
+            await context.close();
+        }
+    });
+
+    it('preserves pendingPublish and completes without a false save failure when final manifest acknowledgement fails in the browser', async () => {
+        const context = await lifecycle.browser.newContext({
+            viewport: {
+                width: 1280,
+                height: 900,
+            },
+        });
+        try {
+            await context.addInitScript(installPickerHandleFixture);
+            await context.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+            });
+            const page = await context.newPage();
+            const problems = collectConsoleProblems(page);
+            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+
+            const pdf = await PDFDocument.create();
+            pdf.addPage([
+                612,
+                792,
+            ]).drawText('Ack fault injection document', {
+                x: 40,
+                y: 740,
+            });
+            const initialBytes = Array.from(await pdf.save());
+            await page.evaluate(async ({fileName, bytes}) => {
+                const handle = await (await navigator.storage.getDirectory()).getFileHandle(fileName, {create: true});
+                const output = await handle.createWritable();
+                await output.write(Uint8Array.from(bytes));
+                await output.close();
+                sessionStorage.removeItem('evb-viewer:browser:open-picker-mode');
+                Reflect.set(window, 'showOpenFilePicker', async () => [new File([], fileName)]);
+            }, {fileName: 'ack-fault.pdf', bytes: initialBytes});
+
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30000});
+            await settleActiveOpen(page);
+
+            await addNote(page, 'Note saved despite failed manifest ack', {
+                x: 160,
+                y: 180,
+            });
+
+            // Fault-inject the final manifest acknowledgement write after pendingPublish.witness is written.
+            const armed = await page.evaluate(`(async () => {
+                const {browserDocumentStore} = await import('/_nuxt/platform/browserDocumentStore.ts');
+                const working = browserDocumentStore.openEntries().find(entry => entry.kind === 'working' && entry.doc && entry.store);
+                if (!working?.doc || !working.store) return false;
+                const port = working.store.port;
+                const realWriteAtomic = port.writeAtomic.bind(port);
+                let sawPendingWitness = false;
+                let injected = false;
+                port.writeAtomic = async (target, bytes) => {
+                    if (target.endsWith('/manifest.json')) {
+                        const parsed = JSON.parse(new TextDecoder().decode(bytes));
+                        if (parsed.pendingPublish?.witness !== undefined) {
+                            sawPendingWitness = true;
+                        } else if (sawPendingWitness && !injected) {
+                            injected = true;
+                            port.writeAtomic = realWriteAtomic;
+                            Reflect.set(window, '__ackFaultInjected', true);
+                            throw new Error('Injected browser manifest acknowledgement failure');
+                        }
+                    }
+                    return realWriteAtomic(target, bytes);
+                };
+                Reflect.set(window, '__workingDocId', working.doc.id);
+                return true;
+            })()`);
+            expect(armed).toBe(true);
+
+            const saveButton = page.getByRole('button', {
+                name: 'Save',
+                exact: true,
+            });
+            await saveButton.click();
+            await expect.poll(() => saveButton.getAttribute('aria-busy'), {timeout: 30000}).toBe('false');
+            expect(await page.evaluate(() => Reflect.get(window, '__ackFaultInjected'))).toBe(true);
+            expect(await page.locator('.app-toast-failure').allTextContents()).toEqual([]);
+
+            // Destination file holds the published note bytes AND manifest.json preserves pendingPublish.
+            const inspection = await page.evaluate(async () => {
+                const root = await navigator.storage.getDirectory();
+                const savedFile = await (await root.getFileHandle('ack-fault.pdf')).getFile();
+                const savedBytes = Array.from(new Uint8Array(await savedFile.arrayBuffer()));
+                const docId = String(Reflect.get(window, '__workingDocId'));
+                const docDir = await (await root.getDirectoryHandle('documents')).getDirectoryHandle(docId);
+                const manifestText = await (await (await docDir.getFileHandle('manifest.json')).getFile()).text();
+                return {
+                    savedBytes,
+                    manifest: JSON.parse(manifestText) as {pendingPublish?: {destination: string; witness?: string}},
+                };
+            });
+            expect(noteTexts(await PDFDocument.load(Uint8Array.from(inspection.savedBytes)))).toContain('Note saved despite failed manifest ack');
+            expect(inspection.manifest.pendingPublish?.witness).toEqual(expect.any(String));
+            expect(problems.filter(problem => !problem.startsWith('warning:'))).toEqual([]);
+            expect(problems.some(problem => problem.includes('Manifest acknowledgement failed after the file was saved'))).toBe(true);
+        } finally {
+            await context.close();
+        }
+    });
 });

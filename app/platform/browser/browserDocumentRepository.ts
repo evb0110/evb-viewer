@@ -11,7 +11,6 @@ import {
     createRevisionTokenCodec,
     OpenDocument,
     type TOpenMutationResult,
-    type TRevisionCheckResult,
 } from '@document-store/openDocument';
 import type { TSaveResult } from '@document-store/saveDocument';
 import type {
@@ -59,6 +58,7 @@ import {
     createMissingRevisionError,
     createStaleRevisionError,
 } from '@contracts/documentMutationErrors';
+import { DocumentOpenRefusalError } from '@contracts/documentOpenErrors';
 import {
     parseDocumentRef,
     type TDocumentRef,
@@ -339,7 +339,7 @@ export class BrowserDocumentStore {
 
     public async requireEntry(ref: string): Promise<IBrowserDocumentEntry> {
         const entry = await this.ensureEntry(ref);
-        if (!entry) throw new Error(`Browser document not found: ${ref}`);
+        if (!entry) throw new DocumentOpenRefusalError('not-found', `Browser document not found: ${ref}`, {fileName: getBrowserDocumentFileName(ref)});
         return entry;
     }
 
@@ -611,15 +611,13 @@ export class BrowserDocumentStore {
         const session = this.requireSession(entry);
         const previous = this.tokenOf(entry);
         try {
-            const outcome = await session.save(token, {
+            const checked = this.unwrapRevisionCheck(entry, token, await session.save(token, {
                 requireToken: entry.kind === 'working',
                 ...(options.commit !== undefined ? {commitLease: options.commit} : {}),
                 ...(options.saveAs !== undefined ? {saveAs: options.saveAs} : {}),
-            });
-            if (outcome.status === 'missing-revision') throw createMissingRevisionError({documentRef: entry.ref});
-            if (outcome.status === 'stale-revision') this.throwStale(entry, token);
-            if (outcome.result.status === 'stale-revision') this.throwStale(entry, token);
-            return outcome.result;
+            }));
+            if (checked.result.status === 'stale-revision') this.throwStale(entry, token);
+            return checked.result;
         } finally {
             if (this.tokenOf(entry) !== previous) {
                 entry.file = null;
@@ -633,9 +631,7 @@ export class BrowserDocumentStore {
     /** Undo or redo: makes `revision`, which the document keeps for its undo history, current again. Nothing is copied. */
     public async restoreRevision(ref: string, revision: TDocumentRevisionToken, token: TDocumentRevisionToken | null | undefined) {
         const entry = await this.requireEntry(ref);
-        const outcome = await this.requireSession(entry).restore(token, revision, {requireToken: entry.kind === 'working'});
-        if (outcome.status === 'missing-revision') throw createMissingRevisionError({documentRef: entry.ref});
-        if (outcome.status === 'stale-revision') this.throwStale(entry, token);
+        const outcome = this.unwrapRevisionCheck(entry, token, await this.requireSession(entry).restore(token, revision, {requireToken: entry.kind === 'working'}));
         if (outcome.status === 'conflict') {
             if (outcome.sourceBackingUnavailable) {
                 throw Object.assign(new Error('The document as it was opened could not be retained when it was saved, so it cannot be restored'), {code: 'SOURCE_BACKING_UNAVAILABLE'});
@@ -1013,15 +1009,10 @@ export class BrowserDocumentStore {
 
     private async fileOf(entry: IBrowserDocumentEntry) {
         if (entry.file) return entry.file;
-        if (entry.saveHandle && !entry.doc) {
-            entry.file = await entry.saveHandle.getFile();
-            return entry.file;
-        }
         const key = handleKeyOf(entry.doc?.state().destination ?? null);
-        const handle = key === null ? null : await resolveFileHandle(key);
+        const handle = (!entry.doc && entry.saveHandle) || (key === null ? null : await resolveFileHandle(key));
         if (!handle) throw new Error(`Browser document has no readable bytes: ${entry.ref}`);
-        entry.file = await handle.getFile();
-        return entry.file;
+        return (entry.file = await handle.getFile());
     }
 
     /** A picked file read in place is looked at again; a store document never changes behind its manifest. */
@@ -1080,14 +1071,14 @@ export class BrowserDocumentStore {
             && (expectedInstance === undefined || entry.instance === expectedInstance);
     }
 
-    private unwrapRevisionCheck(
+    private unwrapRevisionCheck<T extends {status: string}>(
         entry: IBrowserDocumentEntry,
         expected: TDocumentRevisionToken | null | undefined,
-        result: TRevisionCheckResult,
-    ) {
+        result: T,
+    ): Exclude<T, {status: 'missing-revision' | 'stale-revision'}> {
         if (result.status === 'missing-revision') throw createMissingRevisionError({documentRef: entry.ref});
         if (result.status === 'stale-revision') this.throwStale(entry, expected);
-        return result;
+        return result as Exclude<T, {status: 'missing-revision' | 'stale-revision'}>;
     }
 
     private async mutate(
@@ -1118,13 +1109,12 @@ export class BrowserDocumentStore {
         reason: TDocumentRevisionChangeReason,
         announce = true,
     ) {
-        if (outcome.status === 'missing-revision') throw createMissingRevisionError({documentRef: entry.ref});
-        if (outcome.status === 'stale-revision') this.throwStale(entry, token);
-        if (outcome.status === 'conflict') throw new BrowserDocumentSourceChangedError(entry.ref);
+        const checked = this.unwrapRevisionCheck(entry, token, outcome);
+        if (checked.status === 'conflict') throw new BrowserDocumentSourceChangedError(entry.ref);
         entry.file = null;
-        entry.fileSize = outcome.revision.length;
+        entry.fileSize = checked.revision.length;
         entry.updatedAt = Date.now();
-        if (announce) this.emitRevision(entry, requireDocumentRevisionToken(outcome.previousToken), reason);
+        if (announce) this.emitRevision(entry, requireDocumentRevisionToken(checked.previousToken), reason);
         return this.revisionInfo(entry);
     }
 

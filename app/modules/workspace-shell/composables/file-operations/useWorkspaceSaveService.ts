@@ -1,8 +1,14 @@
 import type { Ref } from 'vue';
+import {SavePublicationError} from '@document-store/saveDocument';
 import type {TDocumentCommitReceipt} from '@app/types/workspaceExpose';
 import type {IDocumentOperationOwnership} from '@app/types/documentOperationKind';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import {isRecord} from '@contracts/runtimeGuards';
+import {
+    findSerializableErrorEnvelope,
+    SERIALIZABLE_ERROR_ENVELOPE_SCHEMA,
+} from '@contracts/serializableError';
 import type { TRequestId } from '@contracts/shared';
 import type { ExpectedOutcome } from '@contracts/diagnostics/failureReceipt';
 import {getFailureReceipt} from '@contracts/diagnostics/failureReceipt';
@@ -78,6 +84,49 @@ export type {
     IWorkspaceSaveDirtyState,
     TWorkspaceSaveRequest,
 } from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionSupport';
+
+type TInternalWorkspaceSaveExecutionResult =
+    | (Extract<TWorkspaceSaveExecutionResult, {status: 'saved'}> & {
+        /** Working path and revision captured for post-publication read-back, including Save As paths that omit `documentRevision`. */
+        capturedWorkingPath?: TDocumentRef;
+        capturedRevisionToken?: TDocumentRevisionToken;
+        /** True when the document held the committed revision right after publication, then post-publish read-back failed or became stale. */
+        readBackDeferredCommitHeld?: true;
+    })
+    | Exclude<TWorkspaceSaveExecutionResult, {status: 'saved'}>;
+
+function extractSavePublicationOutcome(error: unknown): {
+    externalWriteCommitted: boolean | null;
+    message?: string;
+} | null {
+    const envelope = findSerializableErrorEnvelope(error, SERIALIZABLE_ERROR_ENVELOPE_SCHEMA);
+    if (envelope?.code === 'save-publication-outcome' && isRecord(envelope.details)) {
+        const committed = envelope.details.externalWriteCommitted;
+        if (typeof committed === 'boolean' || committed === null) {
+            return {
+                externalWriteCommitted: committed,
+                message: envelope.message,
+            };
+        }
+    }
+    const seen = new Set<object>();
+    let candidate: unknown = error;
+    while (candidate !== null && candidate !== undefined && typeof candidate === 'object') {
+        if (seen.has(candidate)) return null;
+        seen.add(candidate);
+        if (candidate instanceof SavePublicationError) {
+            return {externalWriteCommitted: candidate.externalWriteCommitted};
+        }
+        if (
+            'externalWriteCommitted' in candidate
+            && (typeof candidate.externalWriteCommitted === 'boolean' || candidate.externalWriteCommitted === null)
+        ) {
+            return {externalWriteCommitted: candidate.externalWriteCommitted};
+        }
+        candidate = 'cause' in candidate ? candidate.cause : null;
+    }
+    return null;
+}
 
 const SLOW_SAVE_TOTAL_WARN_MS = 10_000;
 
@@ -218,7 +267,7 @@ async function persistNativeMutationProjection(
 async function executeNativeMutationSave(
     plan: Extract<TWorkspaceSavePlan, {kind: 'native-mutation'}>,
     deps: IWorkspaceSaveDependencies,
-): Promise<TWorkspaceSaveExecutionResult> {
+): Promise<TInternalWorkspaceSaveExecutionResult> {
     const saveTransaction = await deps.pdf.runSaveTransaction(
         buildSaveTransactionRequest(
             plan,
@@ -308,7 +357,12 @@ async function executeNativeMutationSave(
         || Boolean(projection.placedImageGeometryUpdates?.length);
     const expectedWorkingPath = persisted.didSaveAs ? deps.document.workingCopyPath.value : plan.target.expectedWorkingPath;
     // Bind read-back to the published revision.
-    const committedRevisionToken = deps.document.revisionToken.value;
+    const committedRevisionToken = persisted.documentRevision?.token ?? deps.document.revisionToken.value;
+    const stillHoldsCommittedRevision = () => deps.document.sessionKey.value === plan.target.expectedDocumentSessionKey
+        && deps.document.workingCopyPath.value === expectedWorkingPath
+        && (!committedRevisionToken || deps.document.revisionToken.value === committedRevisionToken);
+    const heldCommitBeforeReadBack = stillHoldsCommittedRevision();
+    let readBackRefreshFailed = false;
     if (annotationEditsWritten && saveTransaction.replaceFromDocument
         && expectedWorkingPath && committedRevisionToken) {
         const parse = (pageIndices?: number[]) => timedSavePhase(
@@ -323,18 +377,53 @@ async function executeNativeMutationSave(
             () => ({pageCount: pageIndices?.length ?? 'all'}),
         );
         const pageIndices = committedAffectedPageIndices(saveTransaction.affectedPageIndices, projection, deleteEffects);
+        let readBackSkipped = false;
         const replacedPages = pageIndices !== undefined && await parse(pageIndices).then(
-            parsed => saveTransaction.replaceFromDocument!(parsed, deleteEffects?.deletedReplyRefs),
-            (error: unknown) => {
-                if (isStaleRevisionError(error) || isAbortError(error)) {
-                    throw error;
+            (parsed) => {
+                if (!stillHoldsCommittedRevision()) {
+                    readBackSkipped = true;
+                    readBackRefreshFailed = true;
+                    BrowserLogger.warn('workspace', 'Annotation read-back skipped after published save', {
+                        reason: 'refresh-failed',
+                        error: 'Document revision changed before annotation read-back could be applied',
+                    });
+                    return true;
                 }
-                BrowserLogger.warn('workspace', 'Parsing the saved pages failed; parsing the whole document', {error});
-                return false;
+                return saveTransaction.replaceFromDocument!(parsed, deleteEffects?.deletedReplyRefs);
             },
-        );
-        if (!replacedPages) {
-            saveTransaction.replaceFromDocument(await parse());
+        ).catch((error: unknown) => {
+            if (isStaleRevisionError(error) || isAbortError(error)) {
+                readBackSkipped = true;
+                readBackRefreshFailed = true;
+                BrowserLogger.warn('workspace', 'Annotation read-back skipped after published save', {
+                    reason: 'refresh-failed',
+                    error: getErrorMessage(error),
+                });
+                return true;
+            }
+            BrowserLogger.warn('workspace', 'Parsing the saved pages failed; parsing the whole document', {error});
+            return false;
+        });
+        if (!replacedPages && !readBackSkipped) {
+            try {
+                const parsed = await parse();
+                if (!stillHoldsCommittedRevision()) {
+                    readBackRefreshFailed = true;
+                    BrowserLogger.warn('workspace', 'Annotation read-back skipped after published save', {
+                        reason: 'refresh-failed',
+                        error: 'Document revision changed before annotation read-back could be applied',
+                    });
+                } else {
+                    saveTransaction.replaceFromDocument(parsed);
+                }
+            } catch (error) {
+                readBackRefreshFailed = true;
+                // The save already published and committed its annotation frontier; read-back failure is a refresh warning, not a save failure.
+                BrowserLogger.warn('workspace', 'Annotation read-back failed after published save', {
+                    reason: 'refresh-failed',
+                    error: getErrorMessage(error),
+                });
+            }
         }
     }
 
@@ -347,6 +436,9 @@ async function executeNativeMutationSave(
             markBookmarksStateSaved: bookmarks !== undefined,
             markPageLabelsStateSaved: pageLabels !== undefined,
         },
+        ...(expectedWorkingPath ? {capturedWorkingPath: expectedWorkingPath} : {}),
+        ...(committedRevisionToken ? {capturedRevisionToken: committedRevisionToken} : {}),
+        ...(readBackRefreshFailed && heldCommitBeforeReadBack ? {readBackDeferredCommitHeld: true as const} : {}),
     };
 }
 
@@ -444,7 +536,7 @@ async function executeOptimizationSave(
 function executeSavePlan(
     plan: TWorkspaceSavePlan,
     deps: IWorkspaceSaveDependencies,
-): Promise<TWorkspaceSaveExecutionResult> {
+): Promise<TInternalWorkspaceSaveExecutionResult> {
     if (plan.kind === 'optimization') {
         return executeOptimizationSave(plan, deps);
     }
@@ -590,15 +682,73 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
             if (result.reason === 'cancelled') {
                 return false;
             }
+            const outcome = extractSavePublicationOutcome(result.failure?.cause);
+            const derivedExternalWriteCommitted = result.failure?.externalWriteCommitted ?? outcome?.externalWriteCommitted;
+            const cleanMessage = outcome?.message ?? result.failure?.message;
+            const diagnostics = result.failure === undefined
+                ? undefined
+                : derivedExternalWriteCommitted === undefined && outcome?.message === undefined
+                    ? result.failure
+                    : {
+                        ...result.failure,
+                        ...(cleanMessage === undefined ? {} : {message: cleanMessage}),
+                        ...(derivedExternalWriteCommitted === undefined ? {} : {externalWriteCommitted: derivedExternalWriteCommitted}),
+                        ...(derivedExternalWriteCommitted === true && result.failure.reason === 'write-failed'
+                            ? {reason: 'refresh-failed' as const}
+                            : {}),
+                    };
+            const detail = derivedExternalWriteCommitted === true && cleanMessage
+                ? cleanMessage
+                : derivedExternalWriteCommitted === null
+                    ? (cleanMessage && /may have been written/iu.test(cleanMessage)
+                        ? cleanMessage
+                        : `The file may have been written before an error interrupted confirmation${cleanMessage ? `: ${cleanMessage}` : '.'}`)
+                    : undefined;
             return reportSaveFailureIfCurrent(
                 result.reason,
                 result.origin.phase === 'pre-write'
                     ? {
                         expectedRevisionToken: result.origin.plannedRevisionToken,
-                        ...(result.failure === undefined ? {} : {diagnostics: result.failure}),
+                        ...(detail === undefined ? {} : {detail}),
+                        ...(diagnostics === undefined ? {} : {diagnostics}),
                     }
-                    : result.failure === undefined ? {} : {diagnostics: result.failure},
+                    : {
+                        ...(detail === undefined ? {} : {detail}),
+                        ...(diagnostics === undefined ? {} : {diagnostics}),
+                    },
             );
+        }
+
+        function reportSaveError(error: unknown) {
+            if (isAbortError(error)) return false;
+            // The revision moved after this save captured it: a conflict,
+            // told once. The user's edits stay unsaved for the next Save.
+            if (isStaleRevisionError(error)) {
+                return reportSaveFailureIfCurrent('document-changed');
+            }
+            const outcome = extractSavePublicationOutcome(error);
+            const failure = isFailurePresentation(error) ? error : getFailureReceipt(error)
+                ?? BrowserLogger.error('workspace', 'Save failed', error, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
+            const rawDetail = outcome?.message ?? (isFailurePresentation(error)
+                ? error.description ?? getErrorMessage(error)
+                : getDocumentMutationErrorPayload(error)?.message ?? getErrorMessage(error));
+            const detail = outcome?.externalWriteCommitted === null && !/may have been written/iu.test(rawDetail)
+                ? `The file may have been written before an error interrupted confirmation${rawDetail ? `: ${rawDetail}` : '.'}`
+                : rawDetail;
+            return reportSaveFailureIfCurrent('unexpected-error', {
+                detail,
+                failure,
+                // Its cause lets an engine limit be told as one.
+                diagnostics: {
+                    channel: 'save',
+                    operation: 'persist',
+                    phase: 'preflight',
+                    reason: outcome?.externalWriteCommitted === true ? 'refresh-failed' : 'unknown',
+                    message: rawDetail,
+                    ...(outcome === null ? {} : {externalWriteCommitted: outcome.externalWriteCommitted}),
+                    cause: error,
+                },
+            });
         }
 
         const runSave = async () => {
@@ -612,7 +762,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
             }
             try {
                 let plan: TWorkspaceSavePlan;
-                let result: TWorkspaceSaveExecutionResult;
+                let result: TInternalWorkspaceSaveExecutionResult;
                 try {
                     // Nothing has been written yet, so the revision seen here
                     // still identifies the open document.
@@ -663,50 +813,36 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                         failureSurface,
                     });
                     if (result.status !== 'saved') {
-                        if (result.status === 'failed') throw result.error;
+                        if (result.status === 'failed') {
+                            reportSaveError(result.error);
+                            return false;
+                        }
                         reportSaveAbort(result);
                         return false;
                     }
                     // A Save in another owner's turn (Close, a switch) ends at its durable result; that owner decides what follows.
                     if (!holder && result.persisted.adoption) acceptance = deps.lifecycle.acceptAdoption?.(result.persisted.adoption);
                 } catch (error) {
-                    if (isAbortError(error)) return false;
-                    // The revision moved after this save captured it: a conflict,
-                    // told once. The user's edits stay unsaved for the next Save.
-                    if (isStaleRevisionError(error)) {
-                        reportSaveFailureIfCurrent('document-changed');
-                        return false;
-                    }
-                    const failure = isFailurePresentation(error) ? error : getFailureReceipt(error)
-                        ?? BrowserLogger.error('workspace', 'Save failed', error, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
-                    const detail = isFailurePresentation(error) ? error.description ?? getErrorMessage(error) : getDocumentMutationErrorPayload(error)?.message
-                        ?? getErrorMessage(error);
-                    reportSaveFailureIfCurrent('unexpected-error', {
-                        detail,
-                        failure,
-                        // Its cause lets an engine limit be told as one.
-                        diagnostics: {
-                            channel: 'save',
-                            operation: 'persist',
-                            phase: 'preflight',
-                            reason: 'unknown',
-                            message: detail,
-                            cause: error,
-                        },
-                    });
+                    reportSaveError(error);
                     return false;
                 }
-                const committedPath = deps.document.workingCopyPath.value;
-                const committedRevision = result.persisted.documentRevision?.token;
+                const committedPath = result.capturedWorkingPath ?? deps.document.workingCopyPath.value;
+                const committedRevision = result.persisted.documentRevision?.token ?? result.capturedRevisionToken;
+                const sameDocumentSession = () => deps.document.sessionKey.value === queuedTarget.expectedDocumentSessionKey
+                    && deps.document.workingCopyPath.value === committedPath;
                 // The document still holds the revision this save committed.
-                const holdsCommit = () => deps.document.sessionKey.value === queuedTarget.expectedDocumentSessionKey
-                    && deps.document.workingCopyPath.value === committedPath && (!committedRevision || deps.document.revisionToken.value === committedRevision);
-                if (!holdsCommit()) return false;
-                completeSuccessfulSaveState(getCompletionBaseline(plan, result, deps), result.completion, deps);
-                // The PDF holds this Save, so settling its drafts never fails it; drafts it could not settle stay stale.
-                await deps.lifecycle.commitDrafts('reported')
-                    .catch((error: unknown) => BrowserLogger.warn('workspace', 'Drafts stay unsettled after a published Save', {error}));
-                if (!holdsCommit()) return false;
+                const holdsCommit = () => sameDocumentSession()
+                    && (!committedRevision || deps.document.revisionToken.value === committedRevision);
+                const durableResultHeldBeforeReadBack = result.readBackDeferredCommitHeld === true && sameDocumentSession();
+                if (holdsCommit()) {
+                    completeSuccessfulSaveState(getCompletionBaseline(plan, result, deps), result.completion, deps);
+                    // The PDF holds this Save, so settling its drafts never fails it; drafts it could not settle stay stale.
+                    await deps.lifecycle.commitDrafts('reported')
+                        .catch((error: unknown) => BrowserLogger.warn('workspace', 'Drafts stay unsettled after a published Save', {error}));
+                    if (!holdsCommit() && !durableResultHeldBeforeReadBack) return false;
+                } else if (!durableResultHeldBeforeReadBack) {
+                    return false;
+                }
                 if (result.persisted.outPath) deps.lifecycle.loadRecentFiles();
                 if (committedRevision) onCommitted?.(committedRevision);
                 saveSucceeded = true;

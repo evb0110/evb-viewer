@@ -32,6 +32,7 @@ import {
     normalizePdfNativeAnnotationIdentityBindings,
 } from '@pdf-core';
 import {hasNativeErrorCode} from '@contracts/nativeErrors';
+import {SavePublicationError} from '@document-store/saveDocument';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public';
 import {
@@ -460,12 +461,25 @@ export async function handleCommitStagedPdfNativeMutations(
                 ...createNotAppliedResult(),
                 reason: 'original-changed',
                 ...(saved.keptFilePath === undefined ? {} : {keptFilePath: saved.keptFilePath}),
+                ...(saved.externalWriteCommitted === undefined ? {} : {externalWriteCommitted: saved.externalWriteCommitted}),
             };
         }, {
             kind: 'native-pdf-mutation-staged-commit',
             ownerWebContentsId: senderId,
         });
     } catch (error) {
+        if (error instanceof SavePublicationError) {
+            const explained = await explainWriteRefusal(error.cause, entry.originalPath ?? '');
+            return {
+                applied: false,
+                validation: null,
+                externalWriteCommitted: error.externalWriteCommitted,
+                error: {
+                    code: 'io',
+                    message: getErrorMessage(explained) || 'Native PDF mutation failed',
+                },
+            };
+        }
         throw await explainWriteRefusal(error, entry.originalPath ?? '');
     } finally {
         releaseManagedTempFileHandle(context, stagedOutput.leaseId);

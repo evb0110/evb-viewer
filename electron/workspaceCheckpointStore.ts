@@ -170,9 +170,11 @@ function nameEditedDirectory(entry: IOpenDocument) {
 
 setDocumentDirectoryNaming(nameEditedDirectory);
 
-async function holdsUnsavedWork(directory: string) {
+async function holdsUnsavedWork(directory: string, expectedSourceRef?: string | null) {
     try {
-        return isDirty(decodeManifest(await port().read(`${DOCUMENTS_DIR}/${directory}/${MANIFEST_NAME}`)));
+        const manifest = decodeManifest(await port().read(`${DOCUMENTS_DIR}/${directory}/${MANIFEST_NAME}`));
+        if (isDirty(manifest)) return true;
+        return expectedSourceRef != null && manifest.destination !== undefined && manifest.destination !== expectedSourceRef;
     } catch (error) {
         return !(isErrnoException(error) && error.code === 'ENOENT');
     }
@@ -417,7 +419,7 @@ async function claimTab(tab: IWorkspaceCheckpointTab, stored: IStoredCheckpoint,
 
 async function reopenTab(tab: IWorkspaceCheckpointTab, stored: IStoredCheckpoint, senderId: number, touchedRefs: Set<string>): Promise<IWorkspaceCheckpointTab> {
     const directory = stored.tabs[tab.tabId]?.directory;
-    if (!directory || !await holdsUnsavedWork(directory)) return tab;
+    if (!directory || !await holdsUnsavedWork(directory, tab.sourceRef)) return tab;
     const {annotationRecovery: _stale, ...rest} = tab;
     try {
         const entry = await reopenStoredDocument(directory, {ownerWebContentsId: senderId, ...(tab.sourceRef ? {originalPath: tab.sourceRef} : {})});
@@ -425,6 +427,15 @@ async function reopenTab(tab: IWorkspaceCheckpointTab, stored: IStoredCheckpoint
         const state = entry.doc.state();
         if (!state.dirty) {
             await releaseDocument(entry.ref);
+            if (state.destination && state.destination !== tab.sourceRef) {
+                return {
+                    ...rest,
+                    isDirty: false,
+                    workingCopyRef: null,
+                    sourceRef: requireDocumentRef(state.destination),
+                    fileName: basename(state.destination),
+                };
+            }
             return tab;
         }
         const drafts = isRecord(state.drafts) ? (state.drafts as unknown as IDrafts).annotationRecovery : undefined;
