@@ -51,6 +51,9 @@ impl<'a> OverlayDestinations<'a> {
         let batch_pages = pages.iter().copied().collect::<HashSet<_>>();
         let mut extra = HashSet::new();
         let mut named = Vec::new();
+        let mut seen_named: HashSet<Vec<u8>> = HashSet::new();
+        let mut visited_annotations: HashSet<ObjectId> = HashSet::new();
+        let mut visited_action_ids: HashSet<ObjectId> = HashSet::new();
         for &page in pages {
             let page_number = overlay_page_number(page, "sourcePageIndex")?;
             let page_id = *self.page_id_by_index.get(page).ok_or_else(|| {
@@ -63,13 +66,20 @@ impl<'a> OverlayDestinations<'a> {
                 continue;
             };
             for annotation in self.probe.dereference(annotations)?.1.as_array()? {
-                let Ok((_, annotation)) = self.probe.dereference(annotation) else {
+                let Ok((annot_id, annotation)) = self.probe.dereference(annotation) else {
                     continue;
                 };
+                if let Some(annot_id) = annot_id {
+                    if !visited_annotations.insert(annot_id) {
+                        continue;
+                    }
+                }
                 let Ok(annotation) = annotation.as_dict() else {
                     continue;
                 };
-                for destination in annotation_action_destinations(self.probe, annotation) {
+                for destination in
+                    annotation_action_destinations(self.probe, annotation, &mut visited_action_ids)
+                {
                     let Some(array) = self.names.resolve(&destination)? else {
                         continue;
                     };
@@ -85,6 +95,9 @@ impl<'a> OverlayDestinations<'a> {
                             extra.insert(index);
                         }
                         if let Object::Name(name) | Object::String(name, _) = &destination {
+                            if !seen_named.insert(name.clone()) {
+                                continue;
+                            }
                             let rest = array[1..]
                                 .iter()
                                 .map(|object| {
@@ -118,7 +131,13 @@ impl<'a> OverlayDestinations<'a> {
 
 /// Collects every unresolved internal destination reachable from `annotation`,
 /// including `/Dest`, `/A`, `/AA`, and chained `/Next` actions (dictionaries or arrays).
-fn annotation_action_destinations(document: &Document, annotation: &Dictionary) -> Vec<Object> {
+/// `visited_ids` is shared across the batch so shared indirect action graphs are
+/// walked once rather than once per annotation.
+fn annotation_action_destinations(
+    document: &Document,
+    annotation: &Dictionary,
+    visited_ids: &mut HashSet<ObjectId>,
+) -> Vec<Object> {
     let mut destinations = Vec::new();
     if let Ok(dest) = annotation.get(b"Dest") {
         if let Ok((_, resolved)) = document.dereference(dest) {
@@ -136,7 +155,6 @@ fn annotation_action_destinations(document: &Document, annotation: &Dictionary) 
             }
         }
     }
-    let mut visited_ids = HashSet::new();
     while let Some(item) = pending.pop() {
         let Ok((id, resolved)) = document.dereference(&item) else {
             continue;
@@ -207,4 +225,107 @@ pub(crate) fn carry_named_destinations(
     let root = source.trailer.get(b"Root")?.as_reference()?;
     source.get_dictionary_mut(root)?.set("Dests", dests);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::PageTreeResolver;
+
+    #[test]
+    fn shared_action_graphs_deduplicate_traversal_and_named_destinations() {
+        let mut doc = Document::with_version("1.5");
+        let pages_id = doc.new_object_id();
+        let page0 = doc.new_object_id();
+        let page1 = doc.new_object_id();
+        let shared_next: Vec<Object> = (0..1_000)
+            .map(|_| {
+                Object::Dictionary(dictionary! {
+                    "S" => "GoTo",
+                    "D" => Object::Name(b"SharedTarget".to_vec()),
+                })
+            })
+            .collect();
+        let shared_action = doc.add_object(dictionary! {
+            "S" => "URI",
+            "URI" => Object::string_literal("https://example.test"),
+            "Next" => shared_next,
+        });
+        let annots: Vec<Object> = (0..1_000)
+            .map(|_| {
+                Object::Reference(doc.add_object(dictionary! {
+                    "Type" => "Annot",
+                    "Subtype" => "Link",
+                    "Rect" => vec![0.into(), 0.into(), 10.into(), 10.into()],
+                    "A" => Object::Reference(shared_action),
+                }))
+            })
+            .collect();
+        doc.objects.insert(
+            page0,
+            Object::Dictionary(dictionary! {
+                "Type" => "Page",
+                "Parent" => pages_id,
+                "MediaBox" => vec![0.into(), 0.into(), 200.into(), 200.into()],
+                "Annots" => annots,
+            }),
+        );
+        doc.objects.insert(
+            page1,
+            Object::Dictionary(dictionary! {
+                "Type" => "Page",
+                "Parent" => pages_id,
+                "MediaBox" => vec![0.into(), 0.into(), 200.into(), 200.into()],
+            }),
+        );
+        doc.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![Object::Reference(page0), Object::Reference(page1)],
+                "Count" => 2,
+            }),
+        );
+        let catalog = doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+            "Dests" => dictionary! {
+                "SharedTarget" => vec![Object::Reference(page1), Object::Name(b"Fit".to_vec())],
+            },
+        });
+        doc.trailer.set("Root", catalog);
+
+        let instructions = TextLayerFile {
+            pages: vec![
+                TextLayerInstruction {
+                    source_page_index: 0,
+                    output_page_index: 0,
+                    matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                    source_region: None,
+                    filter_to_output_page: false,
+                    normalize_greek_micro_sign: false,
+                    link_only: false,
+                    unmapped_geometry: false,
+                },
+                TextLayerInstruction {
+                    source_page_index: 1,
+                    output_page_index: 1,
+                    matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                    source_region: None,
+                    filter_to_output_page: false,
+                    normalize_greek_micro_sign: false,
+                    link_only: false,
+                    unmapped_geometry: false,
+                },
+            ],
+            provenance_stamp_hex: None,
+        };
+        let tree = PageTreeResolver::validated(&doc).unwrap();
+        let destinations =
+            OverlayDestinations::new(&doc, tree.validated_pages().unwrap(), &instructions).unwrap();
+        let subset = destinations.subset_pages(&[0]).unwrap();
+        assert_eq!(subset.pages, vec![0, 1]);
+        assert_eq!(subset.named.len(), 1);
+        assert_eq!(subset.named[0].name, b"SharedTarget");
+    }
 }

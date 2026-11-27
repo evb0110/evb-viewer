@@ -460,16 +460,18 @@ fn check_overlay_xref_budget(
     let new_objects = &incremental.new_document.objects;
     let mut new_object_numbers = 0usize;
     let mut net_value_delta = 0isize;
+    let reopened_value_count = |object: &Object| -> isize {
+        let stream_length_extra =
+            usize::from(matches!(object, Object::Stream(stream) if !stream.dict.has(b"Length")));
+        (crate::pdf_source::object_value_count(object) + stream_length_extra) as isize
+    };
     for id in expected_object_ids {
         let Some(new_obj) = new_objects.get(id) else {
             continue;
         };
-        let stream_length_extra =
-            usize::from(matches!(new_obj, Object::Stream(stream) if !stream.dict.has(b"Length")));
-        let new_values =
-            (crate::pdf_source::object_value_count(new_obj) + stream_length_extra) as isize;
+        let new_values = reopened_value_count(new_obj);
         let old_values = match previous_objects.get(id) {
-            Some(old_obj) => crate::pdf_source::object_value_count(old_obj) as isize,
+            Some(old_obj) => reopened_value_count(old_obj),
             None => {
                 new_object_numbers += 1;
                 0
@@ -2113,5 +2115,16 @@ mod tests {
             .unwrap_err();
         assert!(is_too_large_error(err.as_ref()));
         assert!(err.to_string().contains("20000000-value ceiling"));
+
+        let mut xref_stream_budget = crate::pdf_source::IndexedXrefBudget {
+            sections: 1,
+            offsets: 10,
+            entries: 10,
+            values: 19_999_990,
+        };
+        let err = xref_stream_budget
+            .check_and_record_revision(1, 1, 0, true)
+            .unwrap_err();
+        assert!(is_too_large_error(err.as_ref()));
     }
 }

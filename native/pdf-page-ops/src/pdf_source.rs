@@ -200,10 +200,22 @@ impl IndexedXrefBudget {
                 format!("PDF exceeds the {MAX_PDF_OBJECTS}-object admission ceiling"),
             ));
         }
-        let next_values = if net_value_delta >= 0 {
-            self.values.saturating_add(net_value_delta as usize)
+        let xref_stream_values = if wrote_xref_stream {
+            // An appended cross-reference stream dictionary adds /Type, /Size,
+            // /W [1 8 2], /Root, /Prev, /Length, optional /Info+/ID, and an
+            // /Index array with at most one [start count] pair per written object.
+            16usize.saturating_add(written_objects.saturating_mul(2))
         } else {
-            self.values.saturating_sub(net_value_delta.unsigned_abs())
+            0
+        };
+        let next_values = if net_value_delta >= 0 {
+            self.values
+                .saturating_add(net_value_delta as usize)
+                .saturating_add(xref_stream_values)
+        } else {
+            self.values
+                .saturating_sub(net_value_delta.unsigned_abs())
+                .saturating_add(xref_stream_values)
         };
         if next_values > MAX_SOURCE_VALUES {
             return Err(domain_error(

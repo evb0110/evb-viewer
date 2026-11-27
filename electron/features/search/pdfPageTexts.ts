@@ -573,7 +573,10 @@ async function* streamPdfPageTextRanges(
             }
         }
     } finally {
-        await visibilitySession.close();
+        // Release any worker-cached visibility session asynchronously so a
+        // completed or canceled search never stalls behind an unrelated
+        // long-running page operation on the worker that held the session.
+        void visibilitySession.close().catch(() => undefined);
     }
 }
 
