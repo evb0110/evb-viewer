@@ -22,13 +22,13 @@
             :tabindex="enabled ? 0 : -1"
             :role="enabled ? 'button' : undefined"
             :aria-label="enabled ? labels[output.metadata.half] : undefined"
-            @pointerdown="$emit('start', $event, output)"
-            @pointermove="$emit('move', $event)"
-            @pointerup="$emit('finish', $event)"
-            @pointercancel="$emit('abort', $event)"
-            @lostpointercapture="$emit('lost-pointer-capture', $event)"
-            @keydown.esc.stop.prevent="$emit('cancel')"
-            @keydown="$emit('nudge', $event, output)"
+            @pointerdown="emit('start', $event, output)"
+            @pointermove="emit('move', $event)"
+            @pointerup="emit('finish', $event)"
+            @pointercancel="emit('abort', $event)"
+            @lostpointercapture="emit('lost-pointer-capture', $event)"
+            @keydown.esc.stop.prevent="emit('cancel')"
+            @keydown="emit('nudge', $event, output)"
         >
             <template v-if="output.active">
                 <img
@@ -60,7 +60,7 @@ defineProps<{
     labels: Partial<Record<TScanCleanupOutputHalf, string>>;
     outputs: IScanCleanupPlacementOverlayOutput[];
 }>();
-defineEmits<{
+const emit = defineEmits<{
     abort: [event: PointerEvent];
     cancel: [];
     finish: [event: PointerEvent];

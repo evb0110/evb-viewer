@@ -15,57 +15,53 @@
         >
             <span v-if="slotPatternStyle" class="document-thumbnail-list__slots" aria-hidden="true" />
             <span
-                v-for="item in virtualItems"
-                :key="item.pageNumber"
+                v-for="row in mountedRows"
+                :key="row.pageNumber"
                 class="document-thumbnail-list__underlay"
-                :style="{height: `${String(item.height)}px`, transform: `translateY(${String(item.top)}px)`}"
+                :style="row.placementStyle"
                 aria-hidden="true"
             />
             <DocumentThumbnailItem
-                v-for="item in virtualItems"
-                :key="item.pageNumber"
+                v-for="row in mountedRows"
+                :key="row.pageNumber"
                 class="document-thumbnail-list__item"
-                :current="item.pageNumber === currentPage"
+                :current="row.current"
                 :aria-disabled="disabled || undefined"
-                :selected="selectedPages?.has(item.pageNumber)"
+                :selected="row.selected"
                 :tag="itemTag"
-                :role="selectedPages ? 'option' : undefined"
-                :aria-selected="selectedPages ? selectedPages.has(item.pageNumber) : undefined"
-                :tabindex="itemTag === 'div'
-                    ? (disabled ? -1 : item.pageNumber === tabStopPage ? 0 : -1)
-                    : undefined"
-                :aspect-ratio="item.aspectRatio"
-                :style="{height: `${String(item.height)}px`, transform: `translateY(${String(item.top)}px)`}"
-                :aria-label="showsRenderError(item.pageNumber)
-                    ? t('documentSourceSidebar.goToPageRenderFailed', {page: labelPage(item.pageNumber)})
-                    : t('documentSourceSidebar.goToPage', {page: labelPage(item.pageNumber)})"
-                :data-thumbnail-page="item.pageNumber"
-                :data-thumbnail-render-error="showsRenderError(item.pageNumber) ? '' : undefined"
-                :data-thumbnail-request-width="states.get(item.pageNumber)?.widthPx ?? ''"
+                :role="row.role"
+                :aria-selected="row.ariaSelected"
+                :tabindex="row.tabindex"
+                :aspect-ratio="row.aspectRatio"
+                :style="row.placementStyle"
+                :aria-label="row.ariaLabel"
+                :data-thumbnail-page="row.pageNumber"
+                :data-thumbnail-render-error="row.renderErrorAttr"
+                :data-thumbnail-request-width="row.requestWidthAttr"
                 :disabled="disabled"
-                @click="handleItemClick(item.pageNumber, $event)"
+                @click="handleItemClick(row.pageNumber, $event)"
             >
                 <template #overlay>
-                    <slot name="overlay" :page-number="item.pageNumber" />
+                    <slot name="overlay" :page-number="row.pageNumber" />
                 </template>
                 <img
-                    v-if="typeof surfaceState(item.pageNumber)?.surface === 'string'"
+                    v-if="row.imageSrc !== undefined"
                     class="document-thumbnail-list__image"
-                    :src="surfaceState(item.pageNumber)?.surface as string"
-                    :style="surfaceStyle(item.pageNumber)"
+                    :src="row.imageSrc"
+                    :style="row.surfaceStyle"
                     alt=""
                     draggable="false"
                 >
                 <span
-                    v-else-if="surfaceState(item.pageNumber)?.surface"
-                    :ref="element => setCanvasHost(item.pageNumber, element)"
+                    v-else-if="row.hasCanvasSurface"
+                    :ref="element => setCanvasHost(row.pageNumber, element)"
                     class="document-thumbnail-list__canvas-host"
-                    :style="surfaceStyle(item.pageNumber)"
+                    :style="row.surfaceStyle"
                 />
                 <span v-else class="document-thumbnail-list__placeholder" />
                 <template #label>
-                    <slot name="label" :page-number="item.pageNumber">{{ item.pageNumber }}</slot>
-                    <span v-if="showsRenderError(item.pageNumber)" class="document-thumbnail-list__error" aria-hidden="true">
+                    <slot name="label" :page-number="row.pageNumber">{{ row.pageNumber }}</slot>
+                    <span v-if="row.showsRenderError" class="document-thumbnail-list__error" aria-hidden="true">
                         <UIcon name="i-ph-warning-circle" />
                         <span class="sr-only document-thumbnail-list__error-text">{{ t('common.pageRenderFailed') }}</span>
                     </span>
@@ -151,13 +147,53 @@ function surfaceState(pageNumber: number) {
     return state && state.requestWidthPx >= rasterWidth.value ? state : undefined;
 }
 
-function surfaceStyle(pageNumber: number) {
-    const state = surfaceState(pageNumber);
-    return state ? {
-        maxWidth: `min(100%, ${String(state.widthPx / outputScale.value)}px)`,
-        maxHeight: `min(100%, ${String(state.heightPx / outputScale.value)}px)`,
-    } : undefined;
-}
+const mountedRows = computed(() => {
+    const hasSelection = props.selectedPages !== undefined;
+    const stopPage = tabStopPage.value;
+    const minRasterWidth = rasterWidth.value;
+    const scale = outputScale.value;
+    return virtualItems.value.map((item) => {
+        const { pageNumber } = item;
+        const rawState = states.get(pageNumber);
+        const qualifiedState = rawState && rawState.requestWidthPx >= minRasterWidth
+            ? rawState
+            : undefined;
+        const surface = qualifiedState?.surface;
+        // A committed surface wins over a render error everywhere in the row: the
+        // failure semantics belong to a row that has nothing to show, so a page still
+        // holding an older thumbnail keeps its plain name and no failure marker.
+        const showsRenderError = renderErrors.has(pageNumber) && !surface;
+        const selected = hasSelection ? props.selectedPages!.has(pageNumber) : undefined;
+        const displayPage = labelPage(pageNumber);
+        return {
+            pageNumber,
+            aspectRatio: item.aspectRatio,
+            placementStyle: {
+                height: `${String(item.height)}px`,
+                transform: `translateY(${String(item.top)}px)`,
+            },
+            current: pageNumber === props.currentPage,
+            selected,
+            role: hasSelection ? 'option' : undefined,
+            ariaSelected: selected,
+            tabindex: props.itemTag === 'div'
+                ? (props.disabled ? -1 : pageNumber === stopPage ? 0 : -1)
+                : undefined,
+            ariaLabel: showsRenderError
+                ? t('documentSourceSidebar.goToPageRenderFailed', {page: displayPage})
+                : t('documentSourceSidebar.goToPage', {page: displayPage}),
+            showsRenderError,
+            renderErrorAttr: showsRenderError ? '' : undefined,
+            requestWidthAttr: rawState?.widthPx ?? '',
+            imageSrc: typeof surface === 'string' ? surface : undefined,
+            hasCanvasSurface: Boolean(surface && typeof surface !== 'string'),
+            surfaceStyle: qualifiedState ? {
+                maxWidth: `min(100%, ${String(qualifiedState.widthPx / scale)}px)`,
+                maxHeight: `min(100%, ${String(qualifiedState.heightPx / scale)}px)`,
+            } : undefined,
+        };
+    });
+});
 
 function setCanvasHost(
     pageNumber: number,
@@ -173,15 +209,6 @@ function setCanvasHost(
     if (surface && typeof surface !== 'string' && host.firstChild !== surface) {
         host.replaceChildren(surface);
     }
-}
-
-/**
- * A committed surface wins over a render error everywhere in the row: the
- * failure semantics belong to a row that has nothing to show, so a page still
- * holding an older thumbnail keeps its plain name and no failure marker.
- */
-function showsRenderError(pageNumber: number) {
-    return renderErrors.has(pageNumber) && !surfaceState(pageNumber)?.surface;
 }
 
 function handleItemClick(pageNumber: number, event: MouseEvent) {

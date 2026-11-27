@@ -12,7 +12,7 @@
             <slot />
         </span>
 
-        <template v-if="$slots.content" #content="slotProps">
+        <template v-if="slots.content" #content="slotProps">
             <slot name="content" v-bind="slotProps" />
         </template>
     </UTooltip>
@@ -57,6 +57,7 @@ const {
 } = defineProps<IAppTooltipProps>();
 
 const emit = defineEmits<{ 'update:open': [value: boolean] }>();
+const slots = useSlots();
 
 const triggerRef = useTemplateRef<HTMLElement>('triggerRef');
 // The trigger wrapper has `display: contents` and no box, so the tooltip is

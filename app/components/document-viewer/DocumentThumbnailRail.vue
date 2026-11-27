@@ -1,7 +1,6 @@
 <template>
     <div
         ref="root"
-        v-bind="$attrs"
         class="document-thumbnail-rail app-scrollbar app-scroll-region--balanced"
         :class="{'is-scroll-suppressed': scrollSuppressed}"
         data-document-thumbnail-rail
@@ -11,8 +10,6 @@
 </template>
 
 <script setup lang="ts">
-defineOptions({inheritAttrs: false});
-
 const {
     scrollSuppressed = false,
     setRoot = undefined,

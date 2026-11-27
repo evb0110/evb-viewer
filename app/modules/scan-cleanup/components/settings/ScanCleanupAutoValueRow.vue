@@ -29,14 +29,14 @@
                         class="scan-cleanup-auto-value-reset"
                         :aria-label="t('scanCleanup.settings.returnToAutomatic')"
                         :disabled="disabled"
-                        @click="$emit('reset')"
+                        @click="emit('reset')"
                     >
                         <UIcon name="i-ph-x" aria-hidden="true" />
                     </button>
                 </AppTooltip>
             </span>
         </div>
-        <div v-if="$slots.entry" class="scan-cleanup-auto-value-entry">
+        <div v-if="slots.entry" class="scan-cleanup-auto-value-entry">
             <slot name="entry" />
         </div>
         <p v-if="reserveHint || hint" class="scan-cleanup-auto-value-hint">{{ hint }}&nbsp;</p>
@@ -54,7 +54,8 @@ defineProps<{
     state: 'auto' | 'manual' | 'mixed';
     valueText?: string | undefined;
 }>();
-defineEmits<{reset: []}>();
+const emit = defineEmits<{reset: []}>();
+const slots = useSlots();
 const {t} = useTypedI18n();
 const mixedLabel = computed(() => t('scanCleanup.settings.mixed').replace(/^—\s*/, ''));
 </script>

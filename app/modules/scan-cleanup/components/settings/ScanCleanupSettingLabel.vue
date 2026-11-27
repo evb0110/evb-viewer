@@ -23,7 +23,7 @@
                     icon="i-ph-arrow-u-up-left"
                     :data-reset-override="control"
                     :aria-label="t('scanCleanup.settings.resetToDocument')"
-                    @click="$emit('reset')"
+                    @click="emit('reset')"
                 />
             </AppTooltip>
         </span>
@@ -37,7 +37,7 @@ defineProps<{
     mixed?: boolean;
     overridden?: boolean;
 }>();
-defineEmits<{reset: []}>();
+const emit = defineEmits<{reset: []}>();
 const {t} = useTypedI18n();
 </script>
 

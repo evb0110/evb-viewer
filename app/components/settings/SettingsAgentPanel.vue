@@ -13,53 +13,20 @@
         <p v-for="notice in notices" :key="notice" class="settings-field-hint" role="status">{{ notice }}</p>
         <!-- Edits pause while a save or refresh runs, so its reply cannot overwrite them. -->
         <fieldset :disabled="!!activeAction" class="instance-editor">
-        <article v-for="card in instanceCards" :key="card.instance.id" class="settings-agent-card settings-agent-card--stack">
-            <div class="instance-heading">
-                <UIcon :name="card.icon" />
-                <strong>{{ card.instance.displayName }}</strong>
-                <span>{{ card.instance.id }}</span>
-                <USwitch v-model="card.instance.enabled" :label="t('assistant.instanceEnabled')" size="sm" />
-            </div>
-            <p class="settings-field-hint">{{ t(card.statusLabelKey) }}</p>
-            <p v-if="card.statusMessage" class="instance-message">{{ card.statusMessage }}</p>
-            <dl class="settings-agent-details">
-                <div><dt>{{ t('assistant.binaryPath') }}</dt><dd>{{ card.binaryPath }}</dd></div>
-                <div><dt>{{ t('assistant.version') }}</dt><dd>{{ card.version }}</dd></div>
-                <div><dt>{{ t('assistant.homePath') }}</dt><dd>{{ card.homePath }}</dd></div>
-            </dl>
-            <p v-if="card.loginCode" class="instance-message">{{ t('assistant.deviceCode') }} {{ card.loginCode }}</p>
-            <a v-if="card.loginUrl" :href="card.loginUrl" target="_blank" rel="noopener noreferrer">{{ card.loginUrl }}</a>
-            <div class="settings-agent-actions settings-agent-actions--assistant">
-                <UButton :label="t('assistant.refresh')" icon="i-ph-arrows-clockwise" color="neutral" variant="ghost" size="xs" :disabled="!!activeAction" @click="refreshInstance(card.instance.id)" />
-                <UButton v-if="card.canSignIn" :label="t('assistant.signIn')" size="xs" :disabled="!!activeAction" @click="loginInstance(card.instance.id, 'chatgpt')" />
-                <UButton v-if="card.canSignIn" :label="t('assistant.signInDeviceCode')" color="neutral" variant="ghost" size="xs" :disabled="!!activeAction" @click="loginInstance(card.instance.id, 'device-code')" />
-                <UButton v-if="card.loginPending" :label="t('assistant.cancelLogin')" size="xs" :disabled="!!activeAction" @click="cancelInstanceLogin(card.instance.id)" />
-                <UButton :label="t('assistant.deleteInstance')" icon="i-ph-trash" color="error" variant="ghost" size="xs" :disabled="!!activeAction" @click="removeInstance(card.instance.id)" />
-            </div>
-            <details class="instance-editor">
-                <summary>{{ t('assistant.editInstance') }}</summary>
-                <div class="instance-fields">
-                    <UFormField :label="t('assistant.displayName')"><UInput v-model="card.instance.displayName" class="w-full" /></UFormField>
-                    <UFormField :label="t('assistant.binaryPath')"><UInput :model-value="card.instance.binaryPath ?? ''" class="w-full" @update:model-value="card.instance.binaryPath = String($event)" /></UFormField>
-                    <UFormField :label="t('assistant.homePath')"><UInput :model-value="card.instance.homePath ?? ''" class="w-full" @update:model-value="card.instance.homePath = String($event)" /></UFormField>
-                    <UFormField v-if="card.instance.driver === 'codex'" :label="t('assistant.shadowHomePath')"><UInput :model-value="card.instance.shadowHomePath ?? ''" class="w-full" @update:model-value="card.instance.shadowHomePath = String($event)" /></UFormField>
-                    <UFormField :label="t('assistant.launchArgs')" :hint="card.launchArgsHint">
-                        <UInput :model-value="card.instance.launchArgs ?? ''" :type="card.instance.launchArgsSecret ? 'password' : 'text'" autocomplete="off" class="w-full" @update:model-value="card.instance.launchArgs = String($event)" />
-                    </UFormField>
-                    <UCheckbox v-model="card.instance.launchArgsSecret" :label="t('assistant.secret')" />
-                    <fieldset class="instance-fields">
-                        <legend>{{ t('assistant.environment') }}</legend>
-                        <div v-for="(entry, index) in card.instance.environment" :key="index" class="environment-row">
-                            <UInput v-model="entry.name" :aria-label="t('assistant.environmentName')" :placeholder="t('assistant.environmentName')" />
-                            <UInput v-model="entry.value" :aria-label="t('assistant.environmentValue')" :placeholder="entry.secret && entry.configured ? t('assistant.secretConfigured') : t('assistant.environmentValue')" :type="entry.secret ? 'password' : 'text'" autocomplete="off" />
-                            <UCheckbox v-model="entry.secret" :label="t('assistant.secret')" />
-                            <UButton :aria-label="t('assistant.removeEnvironment')" icon="i-ph-x" color="neutral" variant="ghost" @click="removeEnvironmentEntry(card.instance, index)" />
-                        </div>
-                        <UButton :label="t('assistant.addEnvironment')" icon="i-ph-plus" color="neutral" variant="outline" size="xs" @click="addEnvironmentEntry(card.instance)" />
-                    </fieldset>
-                </div>
-            </details>
-        </article>
+            <SettingsAgentInstanceCard
+                v-for="card in instanceCards"
+                :key="card.instance.id"
+                :card="card"
+                :disabled="!!activeAction"
+                @refresh="refreshInstance(card.instance.id)"
+                @login="loginInstance(card.instance.id, $event)"
+                @cancel-login="cancelInstanceLogin(card.instance.id)"
+                @remove="removeInstance(card.instance.id)"
+                @update-instance="updateInstance(card.instance.id, $event)"
+                @add-environment="addEnvironmentEntry(card.instance)"
+                @update-environment="(uiId, patch) => updateEnvironmentEntry(card.instance, uiId, patch)"
+                @remove-environment="removeEnvironmentEntry(card.instance, $event)"
+            />
         </fieldset>
         <div class="instance-add">
             <USelect v-model="newDriver" :items="drivers" :aria-label="t('assistant.driver')" />
@@ -260,6 +227,11 @@ import {
 import { getAgentCapability } from '@app/utils/getAgentCapability';
 import { useTypedI18n } from '@app/composables/useTypedI18n';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import SettingsAgentInstanceCard, {
+    type IEditableAssistantEnvironmentEntry,
+    type IEditableAssistantInstanceConfig,
+    type ISettingsAgentInstanceCardModel,
+} from '@app/components/settings/SettingsAgentInstanceCard.vue';
 
 const {
     assistantPanelEnabled,
@@ -281,7 +253,7 @@ const emit = defineEmits<{
 const { t } = useTypedI18n();
 const { copy: copyClipboardText } = useClipboard();
 const setupGuideOpen = ref(false);
-const instances = ref<IAssistantInstanceConfig[]>([]);
+const instances = ref<IEditableAssistantInstanceConfig[]>([]);
 const liveState = ref<IAssistantState | null>(null);
 const instanceError = ref('');
 const notices = ref<string[]>([]);
@@ -301,13 +273,18 @@ const drivers = [
     },
 ];
 let disposed = false;
+let nextEnvironmentEntryUiId = 0;
+function createEnvironmentEntryUiId() {
+    nextEnvironmentEntryUiId += 1;
+    return `env-${nextEnvironmentEntryUiId}`;
+}
 const liveInstancesById = computed(() => new Map(
     (liveState.value?.instances ?? []).map(instance => [
         instance.id,
         instance,
     ]),
 ));
-const instanceCards = computed(() => instances.value.map(instance => {
+const instanceCards = computed<ISettingsAgentInstanceCardModel[]>(() => instances.value.map(instance => {
     const live = liveInstancesById.value.get(instance.id) ?? null;
     const instanceStatus = getSettingsAssistantStatusModel(live);
     const loginPending = Boolean(live?.loginPending);
@@ -331,15 +308,35 @@ const instanceCards = computed(() => instances.value.map(instance => {
 function removeInstance(id: string) {
     instances.value = instances.value.filter(item => item.id !== id);
 }
-function addEnvironmentEntry(instance: IAssistantInstanceConfig) {
-    (instance.environment ??= []).push({
+function updateInstance(id: string, patch: Partial<IEditableAssistantInstanceConfig>) {
+    const target = instances.value.find(item => item.id === id);
+    if (target) {
+        Object.assign(target, patch);
+    }
+}
+function addEnvironmentEntry(instance: IEditableAssistantInstanceConfig) {
+    instance.environment.push({
+        uiId: createEnvironmentEntryUiId(),
         name: '',
         value: '',
         secret: false,
     });
 }
-function removeEnvironmentEntry(instance: IAssistantInstanceConfig, index: number) {
-    instance.environment?.splice(index, 1);
+function updateEnvironmentEntry(
+    instance: IEditableAssistantInstanceConfig,
+    uiId: string,
+    patch: Partial<Omit<IEditableAssistantEnvironmentEntry, 'uiId'>>,
+) {
+    const entry = instance.environment.find(item => item.uiId === uiId);
+    if (entry) {
+        Object.assign(entry, patch);
+    }
+}
+function removeEnvironmentEntry(instance: IEditableAssistantInstanceConfig, uiId: string) {
+    const index = instance.environment.findIndex(item => item.uiId === uiId);
+    if (index >= 0) {
+        instance.environment.splice(index, 1);
+    }
 }
 function applyInstances(result: IAssistantInstancesResult) {
     if (disposed) return;
@@ -347,8 +344,20 @@ function applyInstances(result: IAssistantInstancesResult) {
     instanceError.value = result.error ?? '';
     if (result.ok) instances.value = result.instances.map(instance => ({
         ...instance,
-        environment: instance.environment?.map(entry => ({ ...entry })) ?? [],
+        environment: instance.environment?.map(entry => ({
+            ...entry,
+            uiId: createEnvironmentEntryUiId(),
+        })) ?? [],
     }));
+}
+function serializeInstanceForSave(instance: IEditableAssistantInstanceConfig): IAssistantInstanceConfig {
+    return {
+        ...instance,
+        environment: instance.environment.map(({
+            uiId: _uiId,
+            ...entry
+        }) => ({ ...entry })),
+    };
 }
 function applyOperation(result: IAssistantOperationResult) {
     if (disposed) return;
@@ -405,10 +414,9 @@ function addInstance() {
 function saveInstances() {
     void run('save', async () => {
         // IPC needs plain objects, not the reactive rows the editor binds to.
-        applyInstances(await getAgentCapability().saveAssistantInstances(instances.value.map(instance => ({
-            ...instance,
-            ...(instance.environment ? { environment: instance.environment.map(entry => ({ ...entry })) } : {}),
-        }))));
+        applyInstances(await getAgentCapability().saveAssistantInstances(
+            instances.value.map(serializeInstanceForSave),
+        ));
         const state = await getAgentCapability().getAssistantState();
         if (!disposed) liveState.value = state;
     });
@@ -644,10 +652,6 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
     background: var(--ui-bg-elevated);
 }
 
-.settings-agent-card--stack {
-    flex-direction: column;
-}
-
 .settings-agent-card-row {
     display: flex;
     align-items: flex-start;
@@ -841,31 +845,6 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
     }
 }
 
-.instance-heading {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: var(--app-space-3xl);
-    width: 100%;
-}
-
-.instance-heading strong {
-    flex: 1;
-}
-
-.instance-heading span {
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-kicker);
-}
-
-.instance-message {
-    margin: 0;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    user-select: text;
-    font-size: var(--app-text-size-body-sm);
-}
-
 .instance-error {
     color: var(--ui-error);
     white-space: pre-wrap;
@@ -875,25 +854,6 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
 
 .instance-editor {
     width: 100%;
-}
-
-.instance-editor summary {
-    cursor: pointer;
-    color: var(--ui-text-muted);
-}
-
-.instance-fields {
-    display: flex;
-    flex-direction: column;
-    gap: var(--app-space-3xl);
-    padding-top: var(--app-space-3xl);
-}
-
-.environment-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--app-space-3xl);
 }
 
 .instance-add {

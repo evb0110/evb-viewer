@@ -17,7 +17,7 @@
                     icon="i-ph-caret-left"
                     :aria-label="t('scanCleanup.preview.previous')"
                     :disabled="disabled || pageNumber <= 1"
-                    @click="$emit('previous')"
+                    @click="emit('previous')"
                 />
                 <ScanCleanupStableWidthText
                     class="page-label"
@@ -33,7 +33,7 @@
                     icon="i-ph-caret-right"
                     :aria-label="t('scanCleanup.preview.next')"
                     :disabled="disabled || pageNumber >= totalPages"
-                    @click="$emit('next')"
+                    @click="emit('next')"
                 />
             </div>
             <div class="preview-controls">
@@ -49,7 +49,7 @@
                         :aria-label="t('scanCleanup.zones.toggle')"
                         :aria-pressed="zoneEditing === true"
                         :disabled="disabled"
-                        @click="$emit('update:zoneEditing', zoneEditing !== true)"
+                        @click="emit('update:zoneEditing', zoneEditing !== true)"
                     />
                 </AppTooltip>
                 <div
@@ -155,7 +155,7 @@
                     :items="viewModes"
                     :disabled="disabled"
                     :group-label="t('scanCleanup.preview.comparison')"
-                    @update:model-value="$emit('update:viewMode', $event as 'original' | 'cleaned')"
+                    @update:model-value="emit('update:viewMode', $event as 'original' | 'cleaned')"
                 />
             </div>
         </header>
@@ -170,7 +170,7 @@
                 'is-panning-preview': panGesture !== null,
             }"
             :data-preview-zoom-mode="previewZoomMode"
-            :data-preview-zoom-percent="Math.round(previewEffectiveZoom * 100)"
+            :data-preview-zoom-percent="previewZoomPercent"
             :aria-disabled="disabled || undefined"
             aria-live="polite"
             @dblclick="handlePreviewDoubleClick"
@@ -182,22 +182,20 @@
             @wheel="handlePreviewWheel"
         >
             <div
-                v-if="!requestedPageLoadingVisible && (presentationResult || rawLayerVisible)"
+                v-if="resultLayerVisible"
                 class="preview-result-layer"
-                :data-testid="presentationResult ? undefined : 'scan-cleanup-original-only'"
+                :data-testid="resultLayerTestId"
                 :class="{
                     'is-cutter-source-dimmed': cutterSourceUnderlayVisible,
                     'is-source-underlay-dimmed': sourceUnderlayVisible,
                 }"
             >
                 <div
-                    v-if="presentationResult && presentationResult.outputs.length === 0 && effectiveViewMode === 'cleaned'"
+                    v-if="emptyResultVisible"
                     class="preview-message"
                     :class="{'is-stale-content': isStalePage}"
                 >
-                    <span>{{ presentationResult.pageMetadata.excluded
-                        ? t('scanCleanup.preview.excluded')
-                        : t('scanCleanup.preview.blankSkipped') }}</span>
+                    <span>{{ emptyResultMessage }}</span>
                 </div>
                 <div v-else class="preview-viewport-layout">
                     <div
@@ -211,7 +209,7 @@
                             class="preview-comparison-layer"
                             :class="{'is-visible': originalLayerVisible}"
                             :aria-hidden="!originalLayerVisible"
-                            :alt="t('scanCleanup.preview.originalAlt', {page: (rawResult ?? result)?.pageNumber ?? pageNumber})"
+                            :alt="originalAltText"
                             :crop-overlay-styles="losslessCropOverlayStyles"
                             :inert="!originalLayerVisible"
                             :pixel-swap="rawPixelSwap"
@@ -219,14 +217,14 @@
                             @load="loadRawPixelSwap"
                         />
                         <CleanedCanvas
-                            v-if="presentationResult && !lossless"
+                            v-if="cleanedCanvasVisible"
                             class="preview-comparison-layer"
                             :class="{'is-visible': cleanedLayerVisible}"
                             :aria-hidden="!cleanedLayerVisible"
                             :active-placement-half="activePlacementHalf"
                             :alt-by-half="cleanedAltByHalf"
                             :detail-styles="detailRegionStyles"
-                            :detail-urls="detailResultMatchesPage ? detailPixelUrls : {}"
+                            :detail-urls="activeDetailPixelUrls"
                             :inert="!cleanedLayerVisible"
                             :match-page-size="matchPageSize"
                             :outputs="renderedOutputs"
@@ -271,8 +269,8 @@
                     <span
                         class="preview-viewport-caption"
                         :class="{'is-cleaning': liveStageStatus !== null}"
-                        :aria-hidden="liveStageStatus === null && canvasNotice === ''"
-                        :data-canvas-notice="liveStageStatus !== null ? 'cleaning' : canvasNoticeKind"
+                        :aria-hidden="viewportCaptionHidden"
+                        :data-canvas-notice="viewportCaptionNoticeKind"
                         :data-processing-stage="liveStageStatus?.stage"
                     >
                         <template v-if="liveStageStatus !== null">
@@ -298,7 +296,7 @@
                     <UIcon name="i-ph-circle-notch" class="size-4 is-spinning" />
                     <span class="sr-only">{{ t('scanCleanup.preview.refreshing') }}</span>
                 </div>
-                <div v-if="effectiveError && effectiveViewMode === 'cleaned'" class="preview-refresh-error" role="alert">
+                <div v-if="refreshErrorVisible" class="preview-refresh-error" role="alert">
                     <span>{{ t('scanCleanup.preview.unavailable') }}</span>
                     <UButton
                         type="button"
@@ -307,7 +305,7 @@
                         size="xs"
                         :label="t('scanCleanup.preview.retry')"
                         :disabled="disabled"
-                        @click="$emit('retry')"
+                        @click="emit('retry')"
                     />
                     <details class="preview-error-disclosure">
                         <summary>{{ t('scanCleanup.preview.technicalDetails') }}</summary>
@@ -316,7 +314,7 @@
                 </div>
             </div>
             <div
-                v-if="requestedPageLoadingVisible || (!result && !rawLayerVisible)"
+                v-if="emptyLayerVisible"
                 class="preview-empty-layer"
             >
                 <div v-if="!effectiveError" class="preview-viewport-layout preview-loading" role="status">
@@ -376,7 +374,7 @@
                         size="sm"
                         :label="t('scanCleanup.preview.retry')"
                         :disabled="disabled"
-                        @click="$emit('retry')"
+                        @click="emit('retry')"
                     />
                     <details class="preview-error-disclosure">
                         <summary>{{ t('scanCleanup.preview.technicalDetails') }}</summary>
@@ -456,7 +454,7 @@
                     size="sm"
                     :label="t('scanCleanup.firstRun.dismiss')"
                     :disabled="disabled"
-                    @click="$emit('dismiss-first-run-guidance')"
+                    @click="emit('dismiss-first-run-guidance')"
                 />
             </aside>
         </div>
@@ -486,6 +484,7 @@ import type {
     IScanCleanupManualZones,
     IScanCleanupNormalizedRect,
     IScanCleanupNormalizedSplit,
+    IScanCleanupNormalizedZonePolygon,
     IScanCleanupPreviewMetadata,
     IScanCleanupPreviewRequest,
     IScanCleanupPixelRect,
@@ -608,34 +607,64 @@ const useScanCleanupZoneEditor = (options: IUseScanCleanupZoneEditorOptions) => 
         options.updateManualZones(next);
     }
 
-    watch([
-        () => toValue(options.pageNumber),
-        () => toValue(options.editing),
-    ], () => {
-        selectedZone.value = null;
-    });
+    const zonePolygonSignature = (polygon: IScanCleanupNormalizedZonePolygon) => (
+        `${polygon.rotationDegrees}:${polygon.points.map(point => `${point.xNormalized},${point.yNormalized}`).join(';')}`
+    );
+
     watch(
-        () => [
-            toValue(options.manualZones)?.picture.length ?? 0,
-            toValue(options.manualZones)?.fill.length ?? 0,
-        ] as const,
+        () => {
+            const manualZones = toValue(options.manualZones);
+            return [
+                toValue(options.pageNumber),
+                toValue(options.editing),
+                (manualZones?.picture ?? []).map(zone => `${zone.layer}:${zonePolygonSignature(zone.polygon)}`),
+                (manualZones?.fill ?? []).map(zonePolygonSignature),
+            ] as const;
+        },
         ([
-            pictureCount,
-            fillCount,
+            pageNumber,
+            editing,
+            pictureSignatures,
+            fillSignatures,
         ], [
-            previousPictureCount,
-            previousFillCount,
+            previousPageNumber,
+            previousEditing,
+            previousPictureSignatures,
+            previousFillSignatures,
         ]) => {
+            if (pageNumber !== previousPageNumber || editing !== previousEditing) {
+                selectedZone.value = null;
+                return;
+            }
             const selection = selectedZone.value;
             if (!selection) {
                 return;
             }
-            const count = selection.kind === 'picture' ? pictureCount : fillCount;
-            const previousCount = selection.kind === 'picture' ? previousPictureCount : previousFillCount;
-            if (count < previousCount || selection.index >= count) {
+            const signatures = selection.kind === 'picture' ? pictureSignatures : fillSignatures;
+            const previousSignatures = selection.kind === 'picture'
+                ? previousPictureSignatures
+                : previousFillSignatures;
+            if (signatures.length < previousSignatures.length || selection.index >= signatures.length) {
                 selectedZone.value = null;
+                return;
             }
-        });
+            if (signatures.length > previousSignatures.length) {
+                const selectedSignature = previousSignatures[selection.index];
+                if (selectedSignature !== undefined && signatures[selection.index] !== selectedSignature) {
+                    const relocatedIndex = signatures.indexOf(selectedSignature, selection.index + 1);
+                    const fallbackIndex = relocatedIndex >= 0
+                        ? relocatedIndex
+                        : signatures.indexOf(selectedSignature);
+                    selectedZone.value = fallbackIndex >= 0
+                        ? {
+                            kind: selection.kind,
+                            index: fallbackIndex,
+                        }
+                        : null;
+                }
+            }
+        },
+    );
 
     return {
         selectedPictureLayer,
@@ -872,6 +901,7 @@ const detailLayerEligible = computed(() => effectiveViewMode.value === 'cleaned'
     && detailDensityExceeded.value);
 const detailResultMatchesPage = computed(() => detailLayerEligible.value
     && props.detailResult?.pageNumber === presentationResult.value?.pageNumber);
+const activeDetailPixelUrls = computed(() => detailResultMatchesPage.value ? detailPixelUrls : {});
 const detailRegionStyles = computed<Partial<Record<TScanCleanupOutputHalf, CSSProperties>>>(() => {
     if (!detailResultMatchesPage.value) {
         return {};
@@ -907,6 +937,25 @@ const rawLayerVisible = computed(() => props.rawResult?.pageNumber === props.pag
         && props.rawResult.pageNumber === props.pageNumber
     )
 ) || Boolean(props.lossless && props.result));
+const resultLayerVisible = computed(() => !requestedPageLoadingVisible.value
+    && (Boolean(presentationResult.value) || rawLayerVisible.value));
+const emptyLayerVisible = computed(() => requestedPageLoadingVisible.value
+    || (!props.result && !rawLayerVisible.value));
+const resultLayerTestId = computed(() => (
+    presentationResult.value ? undefined : 'scan-cleanup-original-only'
+));
+const emptyResultVisible = computed(() => Boolean(presentationResult.value)
+    && presentationResult.value?.outputs.length === 0
+    && effectiveViewMode.value === 'cleaned');
+const emptyResultMessage = computed(() => presentationResult.value?.pageMetadata.excluded
+    ? t('scanCleanup.preview.excluded')
+    : t('scanCleanup.preview.blankSkipped'));
+const originalAltText = computed(() => t('scanCleanup.preview.originalAlt', {
+    page: (props.rawResult ?? props.result)?.pageNumber ?? props.pageNumber,
+}));
+const cleanedCanvasVisible = computed(() => Boolean(presentationResult.value) && !props.lossless);
+const refreshErrorVisible = computed(() => Boolean(effectiveError.value) && effectiveViewMode.value === 'cleaned');
+const previewZoomPercent = computed(() => Math.round(previewEffectiveZoom.value * 100));
 const originalLayerVisible = computed(() => rawLayerVisible.value
     && effectiveViewMode.value === 'original');
 const cleanedLayerVisible = computed(() => Boolean(presentationResult.value) && !originalLayerVisible.value);
@@ -1007,6 +1056,10 @@ const liveStageStatus = computed(() => {
 // background detection; only replace it when an active cleanup run is underway.
 const skeletonLiveStageStatus = computed(() => (
     props.activity?.run === true ? liveStageStatus.value : null
+));
+const viewportCaptionHidden = computed(() => liveStageStatus.value === null && canvasNotice.value === '');
+const viewportCaptionNoticeKind = computed(() => (
+    liveStageStatus.value !== null ? 'cleaning' : canvasNoticeKind.value
 ));
 const viewModes = computed(() => props.lossless ? [{
     value: 'original' as const,
@@ -1791,31 +1844,66 @@ watch(() => dragTransaction.active.value, active => {
         void nextTick(updateOverlayGeometry);
     }
 });
-watch(() => props.disabled, disabled => {
-    if (disabled) {
-        dragTransaction.cancel();
-    }
-});
-watch([
-    () => props.pageNumber,
-    () => props.resultPresentationKey,
-    () => displayedCleanedFrame.value?.result,
-    previewEditsEnabled,
-], () => {
-    dragTransaction.cancel();
-});
-watch(previewTransformScale, () => {
-    void nextTick(() => {
-        updateOverlayGeometry();
-        updateOutputFitAreaSizes();
-    });
-});
-watch(() => presentationResult.value?.pageNumber, () => {
-    void nextTick(() => {
-        updateOverlayGeometry();
-        clampPreviewPan();
-    });
-});
+watch(
+    [
+        () => props.disabled,
+        () => props.pageNumber,
+        () => props.resultPresentationKey,
+        () => displayedCleanedFrame.value?.result,
+        previewEditsEnabled,
+    ],
+    (
+        [
+            disabled,
+            pageNumber,
+            resultPresentationKey,
+            displayedResult,
+            editsEnabled,
+        ],
+        [
+            ,
+            previousPageNumber,
+            previousResultPresentationKey,
+            previousDisplayedResult,
+            previousEditsEnabled,
+        ],
+    ) => {
+        if (
+            disabled
+            || pageNumber !== previousPageNumber
+            || resultPresentationKey !== previousResultPresentationKey
+            || displayedResult !== previousDisplayedResult
+            || editsEnabled !== previousEditsEnabled
+        ) {
+            dragTransaction.cancel();
+        }
+    },
+);
+watch(
+    [
+        previewTransformScale,
+        () => presentationResult.value?.pageNumber,
+    ],
+    ([
+        scale,
+        pageNumber,
+    ], [
+        previousScale,
+        previousPageNumber,
+    ]) => {
+        const scaleChanged = scale !== previousScale;
+        const pageChanged = pageNumber !== previousPageNumber;
+        void nextTick(() => {
+            updateOverlayGeometry();
+            if (scaleChanged) {
+                updateOutputFitAreaSizes();
+            }
+            if (pageChanged) {
+                clampPreviewPan();
+            }
+        });
+    },
+);
 const renderedOutputs = computed(() => {
     if (dragTransaction.active.value && dragOutputSnapshot.value) {
         return dragOutputSnapshot.value;

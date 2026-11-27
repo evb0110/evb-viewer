@@ -50,7 +50,7 @@
             <component
                 :is="activeFeaturePack"
                 ref="activeFeaturePackRef"
-                v-bind="$attrs"
+                v-bind="attrs"
                 :mount-presentation="props.mountPresentation"
                 :is-resizing="props.isResizing"
                 @update:total-pages="handleTotalPagesUpdate"

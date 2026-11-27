@@ -1,7 +1,6 @@
 <template>
     <component
         :is="tag"
-        v-bind="$attrs"
         class="document-thumbnail-item"
         data-document-thumbnail-item
         :class="{
@@ -31,8 +30,6 @@
 </template>
 
 <script setup lang="ts">
-defineOptions({inheritAttrs: false});
-
 const {
     aspectRatio = undefined,
     current = false,

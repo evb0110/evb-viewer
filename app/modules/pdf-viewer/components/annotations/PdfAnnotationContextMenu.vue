@@ -42,15 +42,14 @@
                 <span class="annotation-context-menu-color-label">{{ t('annotationProperties.color') }}</span>
                 <div class="annotation-context-menu-color-swatches">
                     <button
-                        v-for="swatch in ANNOTATION_COLOR_SWATCHES"
-                        :key="swatch"
+                        v-for="swatch in colorSwatches"
+                        :key="swatch.value"
                         type="button"
                         class="annotation-context-menu-color-button"
-                        :class="{ 'is-active': normalizeColorValue(swatch) === normalizeColorValue(editableColor) }"
-                        :style="{ backgroundColor: swatch }"
-                        :aria-label="swatch"
-                        :aria-pressed="normalizeColorValue(swatch) === normalizeColorValue(editableColor)"
-                        @click="updateColor(swatch)"
+                        :style="{ backgroundColor: swatch.value }"
+                        :aria-label="swatch.value"
+                        :aria-pressed="swatch.pressed"
+                        @click="updateColor(swatch.value)"
                     />
                 </div>
             </div>
@@ -280,6 +279,18 @@ function normalizeColorValue(color: string | null | undefined) {
     return color?.trim().toLowerCase() ?? '';
 }
 
+const NORMALIZED_COLOR_SWATCHES = ANNOTATION_COLOR_SWATCHES.map(value => ({
+    value,
+    normalized: normalizeColorValue(value),
+}));
+
+const normalizedEditableColor = computed(() => normalizeColorValue(editableColor.value));
+
+const colorSwatches = computed(() => NORMALIZED_COLOR_SWATCHES.map(swatch => ({
+    value: swatch.value,
+    pressed: swatch.normalized === normalizedEditableColor.value,
+})));
+
 function openNote() {
     emit('open-note');
 }
@@ -380,7 +391,7 @@ function pasteImageFromClipboard() {
     cursor: pointer;
 }
 
-.annotation-context-menu-color-button.is-active {
+.annotation-context-menu-color-button[aria-pressed='true'] {
     border-color: var(--app-sidebar-bg);
     box-shadow:
         0 0 0 1px var(--app-sidebar-bg),

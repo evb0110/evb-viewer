@@ -271,20 +271,16 @@
                             </p>
                             <template v-else-if="languagePickerItems.length > 0">
                                 <template
-                                    v-for="group in languagePickerGroups"
+                                    v-for="group in visibleLanguagePickerGroups"
                                     :key="group.key"
                                 >
-                                    <p
-                                        v-if="group.items.length > 0"
-                                        class="language-group-heading"
-                                    >
-                                        {{ t(`ocr.languagePicker.groups.${group.key}`, undefined) }}
+                                    <p class="language-group-heading">
+                                        {{ group.legend }}
                                     </p>
                                     <URadioGroup
-                                        v-if="group.items.length > 0"
-                                        v-bind="selectedLanguageModel === undefined ? {} : { modelValue: selectedLanguageModel }"
+                                        v-bind="selectedLanguageModelBinding"
                                         name="ocrLanguage"
-                                        :legend="t(`ocr.languagePicker.groups.${group.key}`, undefined)"
+                                        :legend="group.legend"
                                         :items="group.items"
                                         value-key="value"
                                         size="sm"
@@ -615,6 +611,19 @@ function handleCancelDocxExport() {
 }
 
 const repeatAdvancedOpen = ref(false);
+
+const visibleLanguagePickerGroups = computed(() => languagePickerGroups.value
+    .filter(group => group.items.length > 0)
+    .map(group => ({
+        key: group.key,
+        legend: t(`ocr.languagePicker.groups.${group.key}`, undefined),
+        items: group.items,
+    })));
+const selectedLanguageModelBinding = computed(() => (
+    selectedLanguageModel.value === undefined
+        ? {}
+        : { modelValue: selectedLanguageModel.value }
+));
 
 const triggerIcon = computed(() => (
     showSuccessState.value ? 'ph:check-circle' : getReaderCommandToolbarIcon('ocr')

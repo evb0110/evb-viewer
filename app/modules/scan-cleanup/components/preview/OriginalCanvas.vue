@@ -14,8 +14,8 @@
             :class="{'is-entering': pixelSwap.entering}"
             :src="pixelSwap.currentUrl"
             :alt="alt"
-            @transitionend="$emit('complete', pixelSwap.currentUrl)"
-            @transitioncancel="$emit('complete', pixelSwap.currentUrl)"
+            @transitionend="emit('complete', pixelSwap.currentUrl)"
+            @transitioncancel="emit('complete', pixelSwap.currentUrl)"
         >
         <img
             v-if="pixelSwap.incomingUrl"
@@ -23,7 +23,7 @@
             class="preview-pixel is-incoming"
             :src="pixelSwap.incomingUrl"
             alt=""
-            @load="$emit('load', pixelSwap.incomingUrl)"
+            @load="emit('load', pixelSwap.incomingUrl)"
         >
         <span
             v-for="(style, index) in cropOverlayStyles"
@@ -44,7 +44,7 @@ defineProps<{
     cropOverlayStyles: CSSProperties[];
     pixelSwap: IScanCleanupPreviewImageSwap;
 }>();
-defineEmits<{
+const emit = defineEmits<{
     complete: [url: string];
     load: [url: string];
 }>();

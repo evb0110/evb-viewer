@@ -5730,6 +5730,276 @@ describe('Scan cleanup components', () => {
         expect(updateManualZones).not.toHaveBeenCalled();
     });
 
+    it('preserves zone polygon element identity across move, resize, and deletion', async () => {
+        const makeSquare = (left: number, top: number) => ({
+            points: [
+                {
+                    xNormalized: left,
+                    yNormalized: top,
+                },
+                {
+                    xNormalized: left + 0.15,
+                    yNormalized: top,
+                },
+                {
+                    xNormalized: left + 0.15,
+                    yNormalized: top + 0.15,
+                },
+                {
+                    xNormalized: left,
+                    yNormalized: top + 0.15,
+                },
+            ],
+            rotationDegrees: 0 as const,
+        });
+        const zones = ref<IScanCleanupManualZones>({
+            picture: [
+                {
+                    layer: 'painter2',
+                    polygon: makeSquare(0.1, 0.1),
+                },
+                {
+                    layer: 'painter2',
+                    polygon: makeSquare(0.4, 0.1),
+                },
+                {
+                    layer: 'painter2',
+                    polygon: makeSquare(0.7, 0.1),
+                },
+            ],
+            fill: [],
+        });
+        const selected = ref<IScanCleanupZoneSelection | null>(null);
+        const harness = mount(defineComponent({setup: () => () => h(ZoneEditorOverlay, {
+            frame: {
+                height: 300,
+                left: 0,
+                top: 0,
+                width: 200,
+            },
+            manualZones: zones.value,
+            rotationDegrees: 0,
+            selected: selected.value,
+            zoneKind: 'picture',
+            'onUpdate:manualZones': (value: IScanCleanupManualZones) => {
+                zones.value = value;
+            },
+            'onUpdate:selected': (value: IScanCleanupZoneSelection | null) => {
+                selected.value = value;
+            },
+        })}));
+        const editor = harness.host.querySelector<HTMLElement>('.zone-editor-overlay')!;
+        vi.spyOn(editor, 'getBoundingClientRect').mockReturnValue(domRect(0, 0, 200, 300));
+        mockPointerCapture(editor);
+
+        const initialPolygons = [...harness.host.querySelectorAll<SVGPolygonElement>('.zone-editor-polygon')];
+        expect(initialPolygons).toHaveLength(3);
+        const [
+            firstPolygon,
+            secondPolygon,
+            thirdPolygon,
+        ] = initialPolygons;
+
+        // Move the first zone and verify all three polygon DOM nodes stay identical.
+        firstPolygon!.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            button: 0,
+            clientX: 30,
+            clientY: 45,
+            pointerId: 61,
+        }));
+        editor.dispatchEvent(new PointerEvent('pointermove', {
+            bubbles: true,
+            clientX: 40,
+            clientY: 60,
+            pointerId: 61,
+        }));
+        editor.dispatchEvent(new PointerEvent('pointerup', {
+            bubbles: true,
+            clientX: 40,
+            clientY: 60,
+            pointerId: 61,
+        }));
+        await nextTick();
+        expect([...harness.host.querySelectorAll('.zone-editor-polygon')]).toEqual([
+            firstPolygon,
+            secondPolygon,
+            thirdPolygon,
+        ]);
+
+        // Resize the selected first zone via keyboard and verify DOM identity stays intact.
+        const seHandle = harness.host.querySelector<HTMLButtonElement>('.zone-editor-handle.is-se')!;
+        seHandle.dispatchEvent(new KeyboardEvent('keydown', {
+            bubbles: true,
+            key: 'ArrowRight',
+        }));
+        await nextTick();
+        expect([...harness.host.querySelectorAll('.zone-editor-polygon')]).toEqual([
+            firstPolygon,
+            secondPolygon,
+            thirdPolygon,
+        ]);
+
+        // Delete the first zone; the surviving second and third zones keep their original DOM elements.
+        harness.host.querySelector<HTMLButtonElement>('.zone-editor-delete')!.click();
+        await nextTick();
+        const remainingPolygons = [...harness.host.querySelectorAll('.zone-editor-polygon')];
+        expect(remainingPolygons).toHaveLength(2);
+        expect(remainingPolygons[0]).toBe(secondPolygon);
+        expect(remainingPolygons[1]).toBe(thirdPolygon);
+
+        // Undo restoring the first zone keeps B and C on their existing DOM elements rather than shifting B's key to A.
+        zones.value = {
+            picture: [
+                {
+                    layer: 'painter2',
+                    polygon: makeSquare(0.1, 0.1),
+                },
+                ...zones.value.picture,
+            ],
+            fill: [],
+        };
+        await nextTick();
+        const restoredPolygons = [...harness.host.querySelectorAll('.zone-editor-polygon')];
+        expect(restoredPolygons).toHaveLength(3);
+        expect(restoredPolygons[0]).not.toBe(secondPolygon);
+        expect(restoredPolygons[1]).toBe(secondPolygon);
+        expect(restoredPolygons[2]).toBe(thirdPolygon);
+    });
+
+    it('keeps the focused zone selected instead of retargeting to a restored earlier zone on undo', async () => {
+        const makeSquare = (left: number, top: number) => ({
+            points: [
+                {
+                    xNormalized: left,
+                    yNormalized: top,
+                },
+                {
+                    xNormalized: left + 0.15,
+                    yNormalized: top,
+                },
+                {
+                    xNormalized: left + 0.15,
+                    yNormalized: top + 0.15,
+                },
+                {
+                    xNormalized: left,
+                    yNormalized: top + 0.15,
+                },
+            ],
+            rotationDegrees: 0 as const,
+        });
+        const zoneA = {
+            layer: 'painter2' as const,
+            polygon: makeSquare(0.1, 0.1),
+        };
+        const zoneB = {
+            layer: 'painter2' as const,
+            polygon: makeSquare(0.4, 0.1),
+        };
+        const zoneC = {
+            layer: 'painter2' as const,
+            polygon: makeSquare(0.7, 0.1),
+        };
+        const manualZonesRef = ref<IScanCleanupManualZones>({
+            picture: [
+                zoneA,
+                zoneB,
+                zoneC,
+            ],
+            fill: [],
+        });
+        const harness = mountPreviewZoomHarness({
+            manualZonesRef,
+            onUpdateManualZones: (value: IScanCleanupManualZones) => {
+                manualZonesRef.value = value;
+            },
+            viewMode: 'cleaned',
+            zoneEditing: true,
+        });
+        await nextTick();
+
+        // Delete zone A (index 0).
+        const initialPolygons = [...harness.host.querySelectorAll<SVGPolygonElement>('.zone-editor-polygon')];
+        expect(initialPolygons).toHaveLength(3);
+        initialPolygons[0]!.focus();
+        await nextTick();
+        harness.host.querySelector<HTMLButtonElement>('.zone-editor-delete')!.click();
+        await nextTick();
+        expect(manualZonesRef.value.picture).toHaveLength(2);
+
+        // Focus zone B (now at index 0), then undo the deletion of zone A.
+        const afterDeletePolygons = [...harness.host.querySelectorAll<SVGPolygonElement>('.zone-editor-polygon')];
+        const polygonB = afterDeletePolygons[0]!;
+        polygonB.focus();
+        await nextTick();
+
+        manualZonesRef.value = {
+            picture: [
+                zoneA,
+                zoneB,
+                zoneC,
+            ],
+            fill: [],
+        };
+        await nextTick();
+
+        const afterUndoPolygons = [...harness.host.querySelectorAll<SVGPolygonElement>('.zone-editor-polygon')];
+        expect(afterUndoPolygons[1]).toBe(polygonB);
+        expect(afterUndoPolygons[0]!.classList.contains('is-selected')).toBe(false);
+        expect(afterUndoPolygons[1]!.classList.contains('is-selected')).toBe(true);
+
+        // Deleting now removes B, leaving A and C intact.
+        harness.host.querySelector<HTMLButtonElement>('.zone-editor-delete')!.click();
+        await nextTick();
+        expect(manualZonesRef.value.picture).toEqual([
+            zoneA,
+            zoneC,
+        ]);
+
+        // Overlapping picture zones with identical coordinates but different layers also stay distinct across undo.
+        const eraserZone = {
+            layer: 'eraser3' as const,
+            polygon: makeSquare(0.2, 0.2),
+        };
+        const painterZone = {
+            layer: 'painter2' as const,
+            polygon: makeSquare(0.2, 0.2),
+        };
+        manualZonesRef.value = {
+            picture: [
+                eraserZone,
+                painterZone,
+            ],
+            fill: [],
+        };
+        await nextTick();
+        const overlappingInitial = [...harness.host.querySelectorAll<SVGPolygonElement>('.zone-editor-polygon')];
+        overlappingInitial[0]!.focus();
+        await nextTick();
+        harness.host.querySelector<HTMLButtonElement>('.zone-editor-delete')!.click();
+        await nextTick();
+        expect(manualZonesRef.value.picture).toEqual([painterZone]);
+
+        const survivingPainter = harness.host.querySelector<SVGPolygonElement>('.zone-editor-polygon')!;
+        survivingPainter.focus();
+        await nextTick();
+        manualZonesRef.value = {
+            picture: [
+                eraserZone,
+                painterZone,
+            ],
+            fill: [],
+        };
+        await nextTick();
+        const overlappingAfterUndo = [...harness.host.querySelectorAll<SVGPolygonElement>('.zone-editor-polygon')];
+        expect(overlappingAfterUndo[1]).toBe(survivingPainter);
+        expect(overlappingAfterUndo[1]!.classList.contains('is-selected')).toBe(true);
+        harness.host.querySelector<HTMLButtonElement>('.zone-editor-delete')!.click();
+        await nextTick();
+        expect(manualZonesRef.value.picture).toEqual([eraserZone]);
+    });
+
     it('toggles preview zoom between fit and bitmap 100% on double-click', async () => {
         const harness = mountPreviewZoomHarness();
 

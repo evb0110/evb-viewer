@@ -235,4 +235,65 @@ describe('provider instance settings', () => {
         expect(host.querySelector('[role="alert"]')?.textContent).toBe('Secure storage unavailable');
         expect(host.querySelectorAll('article')).toHaveLength(1);
     });
+
+    it('preserves environment row element identity on removal and omits uiId when saving', async () => {
+        api.getAssistantInstances.mockResolvedValue({
+            ok: true,
+            instances: [{
+                ...configs[0]!,
+                environment: [
+                    {
+                        name: 'FIRST_VAR',
+                        value: 'one',
+                        secret: false,
+                    },
+                    {
+                        name: 'SECOND_VAR',
+                        value: 'two',
+                        secret: false,
+                    },
+                ],
+            }],
+            notices: [],
+        });
+        const host = mount();
+        await settle();
+
+        click(host, 'assistant.addEnvironment');
+        await settle();
+        const rowsBefore = [...host.querySelectorAll<HTMLElement>('.environment-row')];
+        expect(rowsBefore).toHaveLength(3);
+        const thirdNameInput = rowsBefore[2]!.querySelector<HTMLInputElement>('input[aria-label="assistant.environmentName"]')!;
+        thirdNameInput.value = 'THIRD_VAR';
+        thirdNameInput.dispatchEvent(new Event('input', { bubbles: true }));
+        await settle();
+
+        const secondRowNode = rowsBefore[1]!;
+        const thirdRowNode = rowsBefore[2]!;
+        const removeFirstButton = rowsBefore[0]!.querySelector<HTMLButtonElement>('button[aria-label="assistant.removeEnvironment"]')!;
+        removeFirstButton.click();
+        await settle();
+
+        const rowsAfter = [...host.querySelectorAll<HTMLElement>('.environment-row')];
+        expect(rowsAfter).toHaveLength(2);
+        expect(rowsAfter[0]).toBe(secondRowNode);
+        expect(rowsAfter[1]).toBe(thirdRowNode);
+
+        click(host, 'assistant.saveInstances');
+        await settle();
+        const savedInstances = api.saveAssistantInstances.mock.calls.at(-1)?.[0] as IAssistantInstanceConfig[];
+        expect(savedInstances[0]?.environment).toEqual([
+            {
+                name: 'SECOND_VAR',
+                value: 'two',
+                secret: false,
+            },
+            {
+                name: 'THIRD_VAR',
+                value: '',
+                secret: false,
+            },
+        ]);
+        expect(savedInstances[0]?.environment?.every(entry => !('uiId' in entry))).toBe(true);
+    });
 });

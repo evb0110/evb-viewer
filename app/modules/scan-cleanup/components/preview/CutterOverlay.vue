@@ -7,17 +7,17 @@
         :style="style"
         :aria-label="label"
         aria-describedby="scan-cleanup-cutter-hint"
-        @pointerdown="$emit('start', $event)"
-        @pointermove="$emit('move', $event)"
-        @pointerup="$emit('finish', $event)"
-        @pointercancel="$emit('abort', $event)"
-        @lostpointercapture="$emit('lost-pointer-capture', $event)"
-        @keydown.esc.stop.prevent="$emit('cancel')"
-        @dblclick.prevent="$emit('reset')"
-        @keydown.left.prevent="!horizontal && $emit('nudge', -1, $event.shiftKey)"
-        @keydown.right.prevent="!horizontal && $emit('nudge', 1, $event.shiftKey)"
-        @keydown.up.prevent="horizontal && $emit('nudge', -1, $event.shiftKey)"
-        @keydown.down.prevent="horizontal && $emit('nudge', 1, $event.shiftKey)"
+        @pointerdown="emit('start', $event)"
+        @pointermove="emit('move', $event)"
+        @pointerup="emit('finish', $event)"
+        @pointercancel="emit('abort', $event)"
+        @lostpointercapture="emit('lost-pointer-capture', $event)"
+        @keydown.esc.stop.prevent="emit('cancel')"
+        @dblclick.prevent="emit('reset')"
+        @keydown.left.prevent="!horizontal && emit('nudge', -1, $event.shiftKey)"
+        @keydown.right.prevent="!horizontal && emit('nudge', 1, $event.shiftKey)"
+        @keydown.up.prevent="horizontal && emit('nudge', -1, $event.shiftKey)"
+        @keydown.down.prevent="horizontal && emit('nudge', 1, $event.shiftKey)"
     >
         <span class="cutter-line" :class="{'is-horizontal': horizontal}" aria-hidden="true" />
         <span class="cutter-grab-handle" :class="{'is-horizontal': horizontal}" aria-hidden="true">
@@ -39,7 +39,7 @@ defineProps<{
     style: CSSProperties;
     visible: boolean;
 }>();
-defineEmits<{
+const emit = defineEmits<{
     abort: [event: PointerEvent];
     cancel: [];
     finish: [event: PointerEvent];

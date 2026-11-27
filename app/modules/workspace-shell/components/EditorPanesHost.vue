@@ -24,20 +24,20 @@
         paint already shows the tab bar and Start. Mounting moves the same pane
         into its slot without remounting it. -->
         <Teleport
-            v-for="pane in panes"
-            :key="pane.paneId"
-            :to="paneSlotTargets.get(pane.paneId) ?? parkingTarget ?? 'body'"
-            :disabled="isPaneRenderedInPlace(pane.paneId)"
+            v-for="host in paneHosts"
+            :key="host.pane.paneId"
+            :to="host.to"
+            :disabled="host.disabled"
         >
                 <EditorPaneView
-                    :key="pane.paneId"
-                    :pane="pane"
+                    :key="host.pane.paneId"
+                    :pane="host.pane"
                     :pane-count="panes.length"
-                    :in-place="isPaneRenderedInPlace(pane.paneId)"
+                    :in-place="host.disabled"
                     :tabs="tabs"
                     :active-pane-id="activePaneId"
                     :is-tab-transition-busy="isTabTransitionBusy"
-                    :tab-context-availability="tabContextAvailabilityByPane[pane.paneId] ?? null"
+                    :tab-context-availability="host.tabContextAvailability"
                     :start-section-by-tab-id="startSectionByTabId"
                     :tab-lifecycle-by-id="tabLifecycleById"
                     :document-sessions-by-tab-id="documentSessionsByTabId"
@@ -152,24 +152,20 @@ onErrorCaptured((error, instance, info) => {
 const parkingTarget = ref<HTMLElement | null>(null);
 const hostRef = ref<HTMLElement | null>(null);
 const paneSlotTargets = shallowReactive(new Map<string, HTMLElement>());
-function isPaneRenderedInPlace(paneId: string) {
-    return !(paneSlotTargets.get(paneId) ?? parkingTarget.value);
-}
+const paneHosts = computed(() => panes.map((pane) => {
+    const slotTarget = paneSlotTargets.get(pane.paneId) ?? parkingTarget.value;
+    return {
+        pane,
+        to: slotTarget ?? 'body',
+        disabled: !slotTarget,
+        tabContextAvailability: tabContextAvailabilityByPane[pane.paneId] ?? null,
+    };
+}));
 const zenActivePaneId = computed(() => {
     const tabId = parseTabId(zenActiveTabId);
     return tabId === null
         ? null
         : panes.find(pane => pane.tabIds.includes(tabId))?.paneId ?? null;
-});
-
-watchEffect(() => {
-    const livePaneIds = new Set(panes.map(pane => pane.paneId));
-    for (const paneId of paneSlotTargets.keys()) {
-        const parsedPaneId = parsePaneId(paneId);
-        if (parsedPaneId === null || !livePaneIds.has(parsedPaneId)) {
-            paneSlotTargets.delete(paneId);
-        }
-    }
 });
 
 const emit = defineEmits<{
@@ -267,7 +263,9 @@ function handlePaneSlot(paneId: string, element: HTMLElement | null) {
         return;
     }
     const current = paneSlotTargets.get(paneId);
-    if (current && !current.isConnected) {
+    const parsedPaneId = parsePaneId(paneId);
+    const paneIsLive = parsedPaneId !== null && panes.some(pane => pane.paneId === parsedPaneId);
+    if (paneIsLive && current && !current.isConnected) {
         // Keep the detached target until its replacement registers in the
         // same layout transition. Teleport then moves the persistent pane
         // without ever unmounting its document workspace.
