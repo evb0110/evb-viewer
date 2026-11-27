@@ -132,20 +132,18 @@ run_affected_oracles() {
     scan_cleanup_changed=1
     native_changed=1
   else
-    classifier_output=$(mktemp "${TMPDIR:-/tmp}/evb-scan-cleanup-classifier.XXXXXX")
-    cleanup_classifier_output() {
-      rm -f "$classifier_output"
-    }
-    trap cleanup_classifier_output EXIT
-    trap 'exit 1' HUP INT TERM
-    if GITHUB_OUTPUT="$classifier_output" node scripts/ci/classify-changed-areas.mjs \
-      --base="$upstream_ref" --head=HEAD --include-worktree >/dev/null; then
-      if grep -qE '^scan_cleanup_export=(true|false)$' "$classifier_output" \
-        && grep -qE '^rust=(true|false)$' "$classifier_output"; then
-        scan_cleanup_changed=0
-        native_changed=0
-        grep -qx 'scan_cleanup_export=true' "$classifier_output" && scan_cleanup_changed=1
-        grep -qx 'rust=true' "$classifier_output" && native_changed=1
+    if classifier_json=$(node scripts/ci/classify-changed-areas.mjs \
+      --base="$upstream_ref" --head=HEAD --include-worktree); then
+      if selected_flags=$(printf '%s' "$classifier_json" | node --input-type=module -e '
+        import { readFileSync } from "node:fs";
+        const payload = JSON.parse(readFileSync(0, "utf8"));
+        if (!Array.isArray(payload.selected)) process.exit(1);
+        const selected = new Set(payload.selected);
+        process.stdout.write(`${selected.has("scan_cleanup_oracles") ? 1 : 0} ${selected.has("rust") ? 1 : 0}\n`);
+      '); then
+        read -r scan_cleanup_changed native_changed <<EOF
+$selected_flags
+EOF
       else
         printf '%s\n' 'warning: expected changed-area outputs missing; running all scan-cleanup oracles conservatively' >&2
         scan_cleanup_changed=1
@@ -156,8 +154,6 @@ run_affected_oracles() {
       scan_cleanup_changed=1
       native_changed=1
     fi
-    cleanup_classifier_output
-    trap - EXIT HUP INT TERM
   fi
 
   if [ "$scan_cleanup_changed" -eq 0 ] && [ "$native_changed" -eq 0 ]; then

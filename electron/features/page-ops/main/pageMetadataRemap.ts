@@ -28,7 +28,6 @@ import {readNativePdfCatalogPart} from '@electron/features/page-ops/main/readNat
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {decodeMetadataSnapshot} from '@contracts/pageOpsPlatformFeature';
 import {getPdfPageCount} from '@electron/pdf/pdfPageCount';
-import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 
 const PAGE_METADATA_REMAP_TIMEOUT_MS = 2 * 60 * 1000;
 
@@ -116,8 +115,6 @@ export async function resolvePageMetadataSourceTargets(
                 sourcePath,
                 '--mutations-file',
                 mutationsPath,
-                '--qpdf',
-                getPdfNativeToolPaths().qpdf,
             ], {
                 ...options,
                 timeoutMs: PAGE_METADATA_REMAP_TIMEOUT_MS,
@@ -394,8 +391,6 @@ export async function applyPageMetadataRemap(input: {
                 input.workingCopyPath,
                 '--mutations-file',
                 chunkMutationsPath,
-                '--qpdf',
-                getPdfNativeToolPaths().qpdf,
                 '--modified-at',
                 createNativeModifiedAt(),
                 '--append',

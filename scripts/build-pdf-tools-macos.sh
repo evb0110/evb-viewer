@@ -37,7 +37,6 @@ fetch https://downloads.sourceforge.net/project/lcms/lcms/2.19.1/lcms2-2.19.1.ta
 fetch https://github.com/uclouvain/openjpeg/archive/refs/tags/v2.5.4.tar.gz a695fbe19c0165f295a8531b1e4e855cd94d0875d2f88ec4b61080677e27188a
 fetch https://poppler.freedesktop.org/poppler-26.02.0.tar.xz dded8621f7b2f695c91063aab1558691c8418374cd583501e89ed39487e7ab77
 fetch https://poppler.freedesktop.org/poppler-data-0.4.12.tar.gz c835b640a40ce357e1b83666aabd95edffa24ddddd49b8daff63adb851cdab74
-fetch https://github.com/qpdf/qpdf/releases/download/v12.3.2/qpdf-12.3.2.tar.gz 6cba2f9f2cd887d905faeb99e0e51a307b217920d1bbf3e9cfbb2e8178a2deda
 cmake_configure() {
   local source="$1"; shift
   cmake -S "$BUILD_DIR/$source" -B "$BUILD_DIR/$source/build" -G Ninja \
@@ -89,18 +88,9 @@ cmake --build "$BUILD_DIR/poppler-26.02.0/build" --parallel "$JOBS" --target pdf
 # Only the four utilities were built, so stage their library without installing
 # the unbuilt GUI/test/utility targets.
 cp -P "$BUILD_DIR/poppler-26.02.0/build/"libpoppler*.dylib "$PREFIX/lib/"
-# qpdf's built-in crypto removes the OpenSSL bottle dependency (as on Linux).
-# libqpdf stays a shared library: pdf-page-ops loads it beside qpdf to read a
-# large document's metadata selectively, and without it falls back to reading
-# every object, which the largest documents exceed. The CLI links it, so the
-# dylib closure below ships it.
-cmake_configure qpdf-12.3.2 -DBUILD_STATIC_LIBS=OFF \
-  -DREQUIRE_CRYPTO_NATIVE=ON -DUSE_IMPLICIT_CRYPTO=OFF -DBUILD_DOC=OFF -DINSTALL_EXAMPLES=OFF
-cmake --build "$BUILD_DIR/qpdf-12.3.2/build" --parallel "$JOBS" --target qpdf
-find "$BUILD_DIR/qpdf-12.3.2/build/libqpdf" -maxdepth 1 -name 'libqpdf*.dylib' -exec cp -P {} "$PREFIX/lib/" \;
 # shellcheck source=scripts/lib/macos-dylib-bundle.sh
 source "$SCRIPT_DIR/lib/macos-dylib-bundle.sh"
-for family in poppler qpdf; do
+for family in poppler; do
   stage="$BUILD_DIR/$family-stage"
   mkdir -p "$stage/bin" "$stage/lib"
   case "$family" in
@@ -116,7 +106,6 @@ for family in poppler qpdf; do
         -e "\|<cachedir>$PREFIX/|d" "$stage/etc/fonts/fonts.conf"
       # Fontconfig includes its conf.d snippets relatively within the bundle.
       ;;
-    qpdf) cp "$BUILD_DIR/qpdf-12.3.2/build/qpdf/qpdf" "$stage/bin/" ;;
   esac
   macos_bundle_dylib_closure "$stage/lib" "$PREFIX" "$stage/bin/"*
   destination="$PROJECT_ROOT/resources/$family/darwin-arm64"
@@ -132,7 +121,4 @@ smoke_tool() {
   node "$SCRIPT_DIR/release/assert-packaged-tool-smoke.mjs" "$tool" "$status" "$output"
   cat "$output"
 }
-smoke_tool qpdf qpdf --version
-compgen -G "$PROJECT_ROOT/resources/qpdf/darwin-arm64/lib/libqpdf*.dylib" >/dev/null \
-  || { echo "Error: the qpdf bundle has no libqpdf for pdf-page-ops" >&2; exit 1; }
 smoke_tool pdftoppm poppler -v

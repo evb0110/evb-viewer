@@ -142,8 +142,6 @@ fn split_pages_accepts_pdf_input_above_the_shared_encoded_limit() {
         .arg(&output)
         .arg("--instructions-file")
         .arg(&instructions)
-        .arg("--qpdf")
-        .arg(qpdf_path())
         .output()
         .unwrap();
 
@@ -1841,9 +1839,7 @@ fn split_pages_refuses_a_supported_note_wider_than_its_output_page() {
             .arg(&output)
             .arg("--instructions-file")
             .arg(&instructions);
-        if incremental {
-            command.arg("--qpdf").arg(qpdf_path());
-        }
+        let _ = incremental;
 
         let result = command.output().unwrap();
 
@@ -2265,8 +2261,7 @@ fn split_pages_accepts_forms_without_a_readable_field_list() {
             )
             .unwrap();
             let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
-                .args(["overlay-text", "--qpdf"])
-                .arg(qpdf_path())
+                .arg("overlay-text")
                 .arg("--input")
                 .arg(&output)
                 .arg("--source")
@@ -2934,8 +2929,7 @@ fn split_pages_assembly_trailer_policy_is_identical_across_the_size_boundary() {
             }
             write(&instructions, value.to_string()).unwrap();
             let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
-                .args(["split-pages", "--qpdf"])
-                .arg(qpdf_path())
+                .arg("split-pages")
                 .arg("--input")
                 .arg(&input)
                 .arg("--output")
@@ -3102,8 +3096,7 @@ fn compact_catalog_follows_raster_replacements_at_every_size() {
                 {"sourcePageIndex":2,"outputPageIndex":1,"matrix":[1,0,0,1,0,0],"linkOnly":true}
             ]}).to_string()).unwrap();
             let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
-                .args(["overlay-text", "--qpdf"])
-                .arg(qpdf_path())
+                .arg("overlay-text")
                 .arg("--input")
                 .arg(&assembled)
                 .arg("--source")
@@ -3289,8 +3282,7 @@ fn r8_mixed_compact_replies_target_only_listed_final_annotations() {
             ]}).to_string()).unwrap();
             // A retained raster page may crop away its root annotation.
             let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
-                .args(["overlay-text", "--qpdf"])
-                .arg(qpdf_path())
+                .arg("overlay-text")
                 .arg("--input")
                 .arg(&interleave)
                 .arg("--source")
@@ -3403,8 +3395,7 @@ fn r8_radio_exports_follow_pruned_and_duplicated_widgets() {
     )
     .unwrap();
     let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
-        .args(["overlay-text", "--qpdf"])
-        .arg(qpdf_path())
+        .arg("overlay-text")
         .arg("--input")
         .arg(&interleave)
         .arg("--source")
@@ -3654,8 +3645,7 @@ fn r9_compact(source: &mut Document, specs: &[(usize, bool, i32, i32)]) -> Docum
         "sourcePageIndex":spec.0,"outputPageIndex":index,"matrix":[1,0,0,1,spec.2,0],"linkOnly":spec.1,"filterToOutputPage":true
     })).collect::<Vec<_>>()}).to_string()).unwrap();
     let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
-        .args(["overlay-text", "--qpdf"])
-        .arg(qpdf_path())
+        .arg("overlay-text")
         .arg("--input")
         .arg(&interleave)
         .arg("--source")

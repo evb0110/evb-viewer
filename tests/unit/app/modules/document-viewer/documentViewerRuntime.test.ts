@@ -751,6 +751,55 @@ describe('document viewer chassis authority', () => {
                 expect(fling.port.userScrollSuppressed.value).toBe(false);
                 expect(fling.lands()).toBe(true);
             });
+
+            it('keeps a cancelable packet inside an open host wheel sequence across a >200ms delivery gap', () => {
+                vi.useFakeTimers();
+                const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
+                const container = createViewportContainer();
+                const send = (timeStamp: number, deltaY: number) => (
+                    observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, deltaY, 0, true), container)
+                );
+
+                send(0, 60);
+                port.observeWheelScrollSequence('begin');
+                expect(port.isWheelSequenceOpen?.()).toBe(true);
+                port.fenceCommandAgainstLiveGesture(10);
+                const navigation = port.beginIntent('navigate:2');
+
+                expect(send(260, 40)).toBe('command-residue');
+                expect(port.isWheelSequenceOpen?.()).toBe(true);
+                expect(port.apply(container, {
+                    intent: navigation,
+                    reason: 'navigation',
+                    top: 700,
+                })).toBe(true);
+
+                port.observeWheelScrollSequence('end');
+                expect(port.isWheelSequenceOpen?.()).toBe(false);
+                vi.advanceTimersByTime(400);
+                expect(send(520, 60)).toBe('user-input');
+            });
+
+            it('releases a stalled open host sequence after HOST_SEQUENCE_STALL_MS when end never arrives', () => {
+                vi.useFakeTimers();
+                const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
+                const container = createViewportContainer();
+                const send = (timeStamp: number, deltaY: number) => (
+                    observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, deltaY, 0, true), container)
+                );
+
+                send(0, 60);
+                port.observeWheelScrollSequence('begin');
+                port.fenceCommandAgainstLiveGesture(10);
+                expect(port.isWheelSequenceOpen?.()).toBe(true);
+
+                // Host end never arrives: once the 2s stall window expires and
+                // restore settles, a new cancelable gesture is treated as user input.
+                vi.advanceTimersByTime(2_400);
+                expect(port.isWheelSequenceOpen?.()).toBe(false);
+                expect(port.userScrollSuppressed.value).toBe(false);
+                expect(send(2_400, 60)).toBe('user-input');
+            });
         });
 
         describe('a genuine next sequence', () => {

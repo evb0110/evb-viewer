@@ -9,8 +9,8 @@ import {
 } from '@contracts/pdfAppendAdmission';
 import {DocumentOpenRefusalError} from '@contracts/documentOpenErrors';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
+import { runDesktopQpdfWasm } from '@electron/native-tools/qpdfWasmWorkerClient';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
-import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import {
     getQpdfRewriteArgs,
     QPDF_SUCCESS_EXIT_CODES,
@@ -36,7 +36,7 @@ export async function rewritePdfWithQpdf(
         cancelGroup?: string;
     },
 ) {
-    await runNativeToolCommand(getPdfNativeToolPaths().qpdf, getQpdfRewriteArgs(inputPath, outputPath), {
+    await runDesktopQpdfWasm(getQpdfRewriteArgs(inputPath, outputPath), {
         allowedExitCodes: QPDF_SUCCESS_EXIT_CODES,
         commandLabel: 'qpdf(rewrite)',
         timeoutMs: QPDF_REWRITE_TIMEOUT_MS,
@@ -60,8 +60,6 @@ async function readPdfAppendAdmission(
         'append-admission',
         '--input',
         filePath,
-        '--qpdf',
-        getPdfNativeToolPaths().qpdf,
     ], {
         timeoutMs: APPEND_ADMISSION_TIMEOUT_MS,
         maxStdoutBytes: APPEND_ADMISSION_MAX_OUTPUT_BYTES,

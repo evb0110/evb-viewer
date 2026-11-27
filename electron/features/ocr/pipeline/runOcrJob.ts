@@ -197,7 +197,6 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
     };
     const pageSizeSource = createOcrPageSizeSource({
         ...(paths.pdfPageOpsBinary ? {pdfPageOpsBinary: paths.pdfPageOpsBinary} : {}),
-        qpdfBinary: paths.qpdfBinary,
         tempDir: paths.tempDir,
         signal: jobSignal,
         log,
@@ -278,7 +277,6 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
                 supersessionPolicy,
                 ...(paths.pdftotextBinary ? {pdftotextBinary: paths.pdftotextBinary} : {}),
                 ...(paths.pdfPageOpsBinary ? {pdfPageOpsBinary: paths.pdfPageOpsBinary} : {}),
-                qpdfBinary: paths.qpdfBinary,
                 tempDir: paths.tempDir,
                 log,
                 signal: jobSignal,
@@ -432,7 +430,6 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
             }
             resultPath = await writeSearchablePdf({
                 pdfPageOpsBinary: paths.pdfPageOpsBinary,
-                qpdfBinary: paths.qpdfBinary,
                 sourcePdfPath,
                 pages: iterateOcrPageCheckpoints(requestedSelection, checkpointDir, jobSignal),
                 tempDir: paths.tempDir,

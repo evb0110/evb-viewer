@@ -9,9 +9,9 @@ import {
 } from 'fs/promises';
 import { join } from 'path';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
+import { runDesktopQpdfWasm } from '@electron/native-tools/qpdfWasmWorkerClient';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
-import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import {
     PdfCombineCapabilityError,
     isPdfCombineCapabilityError,
@@ -79,7 +79,7 @@ async function getBookmarkInputPdfPageCount(
     inputPdfPath: string,
     options: IBookmarkNativeCommandOptions = {},
 ) {
-    const result = await runNativeToolCommand(getPdfNativeToolPaths().qpdf, [
+    const result = await runDesktopQpdfWasm([
         '--show-npages',
         inputPdfPath,
     ], {
@@ -145,8 +145,6 @@ async function tryEmbedBookmarksWithNativePageOps(
                 workingPath,
                 '--mutations-file',
                 mutationsPath,
-                '--qpdf',
-                getPdfNativeToolPaths().qpdf,
                 '--modified-at',
                 createNativeModifiedAt(),
                 '--append',

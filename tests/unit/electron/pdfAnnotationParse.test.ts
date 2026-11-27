@@ -269,8 +269,6 @@ describe('PDF annotation parse main session', () => {
                 join(tempRoot, 'working.pdf'),
                 '--output',
                 sidecarPath,
-                '--qpdf',
-                '/native/qpdf',
                 '--modified-at',
                 'D:19700101000000Z',
             ]),

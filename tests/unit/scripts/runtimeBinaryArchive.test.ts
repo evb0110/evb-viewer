@@ -48,7 +48,7 @@ function entry(overrides: Partial<IRuntimeBinaryManifestEntry> = {}): IRuntimeBi
         archiveSha256,
         archiveUrl: 'https://example.test/runtime.zip',
         executableEntry: 'bin/runtime.exe',
-        familyId: 'qpdf',
+        familyId: 'poppler',
         target,
         ...overrides,
     };
@@ -77,7 +77,7 @@ type TFetchArchiveOptions = Omit<
 function fetchArchive(options: TFetchArchiveOptions) {
     return fetchVerifiedRuntimeArchive({
         ...options,
-        familyId: 'qpdf',
+        familyId: 'poppler',
     });
 }
 
@@ -185,7 +185,7 @@ describe('runtime binary manifest and verified archive cache', () => {
         expect(computeRuntimeBinaryManifestSha256([base])).not.toBe(
             computeRuntimeBinaryManifestSha256([{
                 ...base,
-                familyId: 'poppler',
+                familyId: 'pdf-image-combine',
             }]),
         );
         expect(computeRuntimeBinaryManifestSha256([base])).not.toBe(
@@ -461,31 +461,31 @@ describe('runtime binary manifest and verified archive cache', () => {
     });
 
     it('separates tools that share a native target by family id', async () => {
-        const qpdfEntry = entry({familyId: 'qpdf'});
+        const combinerEntry = entry({familyId: 'pdf-image-combine'});
         const popplerEntry = entry({
             archiveUrl: 'https://example.test/poppler.zip',
             familyId: 'poppler',
         });
         const value = manifest([
-            qpdfEntry,
+            combinerEntry,
             popplerEntry,
         ]);
 
         expect(validateRuntimeBinaryManifest(value)).toBe(value);
         expect(() => validateRuntimeBinaryManifest(manifest([
-            qpdfEntry,
-            entry({familyId: 'qpdf'}),
+            combinerEntry,
+            entry({familyId: 'pdf-image-combine'}),
         ]))).toThrow('duplicate family target');
 
         const cacheDirectory = await createCacheDirectory();
         directories.push(cacheDirectory);
-        const qpdf = await fetchVerifiedRuntimeArchive({
+        const combiner = await fetchVerifiedRuntimeArchive({
             cacheDirectory,
-            familyId: 'qpdf',
+            familyId: 'pdf-image-combine',
             manifest: value,
             target,
             transport: async function* (url) {
-                expect(url).toBe(qpdfEntry.archiveUrl);
+                expect(url).toBe(combinerEntry.archiveUrl);
                 yield archiveBytes;
             },
         });
@@ -500,7 +500,7 @@ describe('runtime binary manifest and verified archive cache', () => {
             },
         });
 
-        expect(qpdf.archivePath).not.toBe(poppler.archivePath);
+        expect(combiner.archivePath).not.toBe(poppler.archivePath);
     });
 
     it('keeps concurrent downloads isolated until verified promotion', async () => {

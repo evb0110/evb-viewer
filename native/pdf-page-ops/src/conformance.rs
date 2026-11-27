@@ -95,19 +95,15 @@ pub(crate) fn pdf_conformance_facts(document: &Document) -> Result<PdfConformanc
 
 pub(crate) fn write_pdf_conformance(
     input_path: &Path,
-    qpdf_path: Option<&Path>,
+    strict: bool,
     output: &mut impl Write,
 ) -> Result<()> {
-    let facts = match SourcePdf::open_conformance_path(input_path) {
-        Ok(source) => pdf_conformance_facts(&source.document)?,
-        Err(source_error) => {
-            let Some(qpdf_path) = qpdf_path else {
-                return Err(source_error);
-            };
-            let document = load_qpdf_structural_document(input_path, qpdf_path)?;
-            pdf_conformance_facts(&document)?
-        }
+    let source = if strict {
+        SourcePdf::open_strict_verify_path(input_path)?
+    } else {
+        SourcePdf::open_conformance_path(input_path)?
     };
+    let facts = pdf_conformance_facts(&source.document)?;
     serde_json::to_writer(output, &facts)?;
     Ok(())
 }

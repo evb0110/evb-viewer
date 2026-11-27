@@ -36,20 +36,21 @@ particular file layout.
 
 ## Adding a check
 
-New checks are a deliberate decision, not a by-product of a task. A commit that
-adds a test file, workflow, CI script, git hook, vitest project, package.json
-check script, custom lint rule, or gate policy entry must carry an
-`Adds-Checks:` trailer that quotes the request for it:
+New check infrastructure is a deliberate decision, not a by-product of a task.
+A commit that adds a workflow, job, action, git hook, CI script, vitest
+project, `package.json` check script, custom lint rule, or gate policy entry
+must carry an `Adds-Checks:` trailer that quotes the owner's request for it:
 
 ```
-Cover Windows atomic replacement on a real filesystem
+Add Windows filesystem acceptance job
 
-Adds-Checks: user asked for "a real Windows filesystem test for atomic save"
+Adds-Checks: owner asked for "a real Windows filesystem job in CI"
 ```
 
 `scripts/check-publication-policy.mjs` enforces this in the commit-msg hook,
-the pre-push hook, and the CI publication-policy job. Deleting or editing a check
-needs no trailer. Audit past additions with `git log --grep=Adds-Checks`.
+the pre-push hook, and the CI publication-policy job. A test file in an
+existing lane needs no trailer, and deleting or editing an existing check needs
+no trailer. Audit past additions with `git log --grep=Adds-Checks`.
 
 The same trailer covers flake tolerance. A test retry, a wall-clock sleep in a
 test, a raised `testTimeout` or `hookTimeout`, a per-test timeout argument, an
@@ -60,12 +61,13 @@ or a changed `timeout-minutes` needs the user's words too. See
 ## Routine CI
 
 Push CI has one required verdict, `ci.yml`'s `gates_ok`, described in
-[the CI guide](./ci.md): lint, typecheck, unit tests, the Rust, build, native,
-browser, scan-cleanup and landing jobs its changed areas select, and the
-Electron E2E lanes as a Linux matrix, in about fifteen minutes. The release
-cutter reads only this verdict. [ci-nightly.yml](../../.github/workflows/ci-nightly.yml)
-reports the slow, large-fixture, second-platform and timing-budget checks and
-never gates.
+[the CI guide](./ci.md): lint, upstream browser WASM build, typecheck and unit
+tests, the Rust, strict build, native PDF integration, Windows atomic
+replacement, browser integration, scan-cleanup oracle and landing jobs its
+changed areas select, and the selected Electron E2E lanes as a Linux matrix, in
+about fifteen minutes. The release cutter reads only this verdict.
+[ci-nightly.yml](../../.github/workflows/ci-nightly.yml) reports the slow,
+large-fixture, second-platform and timing-budget checks and never gates.
 
 Routine CI runs the unit suite without coverage instrumentation. Coverage is an
 optional diagnostic without percentage thresholds.
@@ -74,11 +76,13 @@ Every push to main runs `ci.yml` to completion; a newer push does not cancel
 it. The changed-area classifier diffs from the last push whose run succeeded,
 so lanes that an unfinished or failed run has not verified are selected again
 by the next run. A merge whose tree is already proven runs only Electron smoke
-with Strict Build, policy and classification; the four conditions are in
-[the CI guide](./ci.md#changed-areas). Strict Build produces the one Electron
-build used by the Linux lanes. The native integration and oracle jobs share
-its staged native-tool cache. Nightly macOS runs smoke Monday to Saturday and
-all eight ordinary lanes on Sunday and manual dispatch.
+with Build Browser WASM, Strict Build, policy and classification; the four
+conditions are in [the CI guide](./ci.md#changed-areas). Build Browser WASM
+produces `browser-wasm` once for `unit`, `strict_build` and
+`browser_integration`. Strict Build produces the one Linux desktop and native
+bundle consumed by the Electron E2E lanes, native PDF integration and
+scan-cleanup oracles. Nightly macOS runs smoke Monday to Saturday and all eight
+ordinary lanes on Sunday and manual dispatch.
 
 ### A red verdict
 

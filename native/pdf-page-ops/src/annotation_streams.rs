@@ -1,6 +1,4 @@
 use super::*;
-use base64::Engine;
-use serde_json::Value;
 
 /// The indexed reader leaves stream bytes in the file. Annotation parsing
 /// still needs each stamp's appearance form and image, and each note thread's
@@ -319,29 +317,6 @@ fn note_appearance_stream_refs(
         .into_iter()
         .filter(|object_id| matches!(document.object(*object_id), Ok(Object::Stream(_))))
         .collect()
-}
-
-/// A stream in qpdf's JSON. Inline data is the stream's raw bytes, which a
-/// batch read requested. Without data the structural stand-in stands in for
-/// bytes that are not read, so the caller must record it as unavailable.
-pub(crate) fn qpdf_stream_from_json(stream: &Value, object_id: ObjectId) -> Result<(Stream, bool)> {
-    let dict = stream.get("dict").ok_or_else(|| {
-        format!(
-            "qpdf stream object {} {} is missing its dictionary",
-            object_id.0, object_id.1
-        )
-    })?;
-    let dict = qpdf_dictionary(dict)?;
-    let Some(data) = stream.get("data").and_then(Value::as_str) else {
-        return Ok((Stream::with_position(dict, 0), true));
-    };
-    Ok((
-        Stream::new(
-            dict,
-            base64::engine::general_purpose::STANDARD.decode(data)?,
-        ),
-        false,
-    ))
 }
 
 impl IncrementalDocument {

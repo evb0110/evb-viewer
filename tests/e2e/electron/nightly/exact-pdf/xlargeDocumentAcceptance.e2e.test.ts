@@ -55,7 +55,7 @@ import {
     readWorkspaceStateValues,
     requireWorkspaceCommand,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
-import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
+import { runDesktopQpdfWasm } from '@electron/native-tools/qpdfWasmWorkerClient';
 
 /**
  * Opt in explicitly with:
@@ -705,13 +705,10 @@ async function stageFixture(sourcePath: string): Promise<IStagedFixture> {
 }
 
 async function assertQpdfCheck(pdfPath: string) {
-    await execFileAsync(getPdfNativeToolPaths().qpdf, [
+    await runDesktopQpdfWasm([
         '--check',
         pdfPath,
-    ], {
-        encoding: 'utf8',
-        maxBuffer: 1024 * 1024,
-    });
+    ], {commandLabel: 'qpdf(e2e-xlarge-check)'});
 }
 
 async function startRendererHeartbeat(page: Page) {
@@ -1206,14 +1203,11 @@ async function readAnnotationObjectContents(
     pdfPath: string,
     annotation: Pick<IPdfAnnotationIndexEntry, 'generationNumber' | 'objectNumber'>,
 ) {
-    const {stdout} = await execFileAsync(getPdfNativeToolPaths().qpdf, [
+    const {stdout} = await runDesktopQpdfWasm([
         `--show-object=${annotation.objectNumber},${annotation.generationNumber}`,
         '--raw-stream-data',
         pdfPath,
-    ], {
-        encoding: 'utf8',
-        maxBuffer: 1024 * 1024,
-    });
+    ], {commandLabel: 'qpdf(e2e-xlarge-read-object)'});
     return {
         stdout,
         normalized: stdout.toLowerCase().replace(/\s+/gu, ''),

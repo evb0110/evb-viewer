@@ -860,7 +860,6 @@ export function resolveCliNativeToolPath(
         join(currentDir, '.tmp', crateName, platformArchTag(), 'bin', executableName),
         join(currentDir, 'resources', crateName, platformArchTag(), 'bin', executableName),
         join(currentDir, 'resources', 'poppler', platformArchTag(), 'bin', executableName),
-        join(currentDir, 'resources', 'qpdf', platformArchTag(), 'bin', executableName),
         ...(rustTargetTag() === undefined
             ? []
             : [join(currentDir, 'native', 'target', rustTargetTag()!, 'release', executableName)]),

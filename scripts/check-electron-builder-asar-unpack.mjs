@@ -8,10 +8,11 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const builderConfigPath = path.join(projectRoot, 'electron-builder.yml');
 const requiredNonWorkerUnpackEntries = [
     'dist-electron/package.json',
-    // The OCR, DjVuLibre, and PDF page-ops WASM engines that worker threads read by path.
+    // The OCR, DjVuLibre, PDF page-ops, and qpdf WASM engines that worker threads read by path.
     'nuxt-output/public/wasm/evb-tesseract.*',
     'nuxt-output/public/wasm/evb-djvulibre.*',
     'nuxt-output/public/wasm/evb-pdf-page-ops.wasm',
+    'nuxt-output/public/wasm/evb-qpdf.*',
 ];
 
 export function parseAsarUnpackEntries(source) {

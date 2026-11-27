@@ -84,6 +84,13 @@ vi.mock('fs/promises', () => ({
 vi.mock('pdf-lib', () => ({PDFDocument: {load: mocks.load}}));
 
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runNativeToolCommand}));
+vi.mock('@electron/native-tools/qpdfWasmWorkerClient', () => ({
+    runDesktopQpdfWasm: (args: string[], options?: {
+        cancelGroup?: string;
+        commandLabel?: string;
+        signal?: AbortSignal;
+    }) => mocks.runNativeToolCommand('/native/qpdf', args, options),
+}));
 
 vi.mock('@electron/features/page-ops/public/nativePageOpsPath', () => ({resolveNativePageOpsPath: mocks.resolveNativePageOpsPath}));
 
@@ -146,7 +153,6 @@ describe('embedBookmarksIntoPdfFile native path', () => {
         const size = await embedBookmarksIntoPdfFile('/tmp/input.pdf', '/tmp/output.pdf', bookmarks);
 
         expect(size).toBe(321);
-        expect(mocks.getPdfNativeToolPaths).toHaveBeenCalled();
         expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
             '/native/qpdf',
             [
@@ -178,8 +184,6 @@ describe('embedBookmarksIntoPdfFile native path', () => {
                 join('/tmp/pdf-page-ops-bookmarks-native', 'input.pdf'),
                 '--mutations-file',
                 join('/tmp/pdf-page-ops-bookmarks-native', 'bookmarks.json'),
-                '--qpdf',
-                '/native/qpdf',
                 '--modified-at',
                 'D:20260203040506Z',
                 '--append',

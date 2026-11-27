@@ -23,17 +23,17 @@ import {
 import { minifyPdfjsWorker } from './copy-pdfjs-assets.mjs';
 
 const projectRoot = fileURLToPath(new URL('..', import.meta.url));
-const archiveName = 'pdfjs-dist-6.3.316-c6bd7213.tgz';
+const archiveName = 'pdfjs-dist-6.3.317-0b4dd364.tgz';
 const dependencyKey = `file:vendor/pdfjs-dist/${archiveName}`;
 const expectedPackage = {
     name: 'pdfjs-dist',
-    version: '6.3.316',
+    version: '6.3.317',
 };
 const expectedFork = {
     repository: 'https://github.com/evb0110/pdf.js.git',
-    branch: 'evb-1442-background-rendering',
-    commit: 'c6bd72136cf5f51423071ee298e99e251a7cef74',
-    tree: 'f7a8f4f759078918288f5993a5a93404e7dd48b8',
+    branch: 'evb-1734-wide-xref-offsets',
+    commit: '0b4dd364e07b4370cf5e53b6e57a3b0816afb0cb',
+    tree: '5a047db1e92a13b5f7cb7dad13e69c2d076eba76',
     sourceBaseCommit: '5e0ac85d697d41a2232045033962b3437b7e2ad1',
     sourceBaseTree: '9dbb438c9a4bce5a958ca8b37d305b79b5b74c6a',
     upstreamTag: 'v6.3.289',

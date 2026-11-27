@@ -14,7 +14,6 @@ const mocks = vi.hoisted(() => ({
         tesseractBinary: '/tmp/tesseract',
         tessdataPath: '/tmp/tessdata',
         pdftoppmBinary: '/tmp/pdftoppm',
-        qpdfBinary: '/tmp/qpdf',
         tempDir: '/tmp',
     },
 }));

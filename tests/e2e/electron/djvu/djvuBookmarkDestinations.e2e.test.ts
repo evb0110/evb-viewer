@@ -1,5 +1,3 @@
-import {execFile} from 'node:child_process';
-import {promisify} from 'node:util';
 import {
     clickAsUser,
     clickFoundAsUser,
@@ -24,14 +22,13 @@ import {
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
-import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
+import {runDesktopQpdfWasm} from '@electron/native-tools/qpdfWasmWorkerClient';
 import {
     OVERSIZED_OUTLINE_NAVM_CHUNK,
     setDjvuNavmChunkInFile,
     UNICODE_INDIRECT_NAVM_CHUNK,
 } from '@tests/e2e/electron/helpers/djvuFixtureWriter';
 
-const execFileAsync = promisify(execFile);
 const sourcePath = resolve('tests/fixtures/djvu/sources/bookmark-component-ids.djvu');
 
 describe('DjVu converted bookmark destinations', () => {
@@ -174,12 +171,11 @@ describe('DjVu converted bookmark destinations', () => {
             timeoutMs: 30_000,
         });
         await expect.poll(() => existsSync(outputPath), {timeout: 300_000}).toBe(true);
-        const qpdf = getPdfNativeToolPaths().qpdf;
-        const {stdout: outlineJson} = await execFileAsync(qpdf, [
+        const {stdout: outlineJson} = await runDesktopQpdfWasm([
             '--json',
             '--json-key=outlines',
             outputPath,
-        ]);
+        ], {commandLabel: 'qpdf(e2e-djvu-outlines)'});
         const outline = JSON.parse(outlineJson) as {outlines: Array<{
             action?: unknown;
             dest?: unknown;

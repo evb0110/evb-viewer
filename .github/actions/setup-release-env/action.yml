@@ -1,10 +1,8 @@
 name: Setup release environment
 description: >-
-  Single owner for release and build runner provisioning: pnpm plus pinned
-  Node, dependency install with retries, Rust targets, and per-OS system
-  packages. Workflows that build or verify release artifacts
-  use this action instead of copy-pasting provisioning steps, so a lane can
-  no longer drift by missing one ambient dependency.
+  Single owner for release and build runner provisioning: delegates shared
+  Node, pnpm, and dependency setup to setup-ci-env and adds release-specific
+  Rust targets and Linux packaging tools.
 
 inputs:
   node-version:
@@ -19,12 +17,6 @@ inputs:
   apt-packages:
     description: Space-separated apt packages installed through scripts/ci/apt-install.sh (Linux only).
     default: ''
-  pip-packages:
-    description: Space-separated pinned pip packages (for example "Pillow==11.3.0").
-    default: ''
-  needs-playwright-chromium:
-    description: Install Playwright Chromium with system dependencies.
-    default: 'false'
   needs-system-fpm:
     description: >-
       Install system fpm for Linux electron-builder packaging.
@@ -35,33 +27,11 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Setup pnpm
-      uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-
-    - name: Setup Node.js
-      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+    - name: Setup shared CI environment
+      uses: ./.github/actions/setup-ci-env
       with:
         node-version: ${{ inputs.node-version }}
-        cache: pnpm
-        cache-dependency-path: pnpm-lock.yaml
-
-    # Windows: pnpm postinstall uses Unix commands (mkdir -p, cp) that
-    # require bash. Configure pnpm to use Git Bash for lifecycle scripts.
-    - name: Configure pnpm script shell (Windows)
-      if: runner.os == 'Windows'
-      shell: pwsh
-      run: pnpm config set script-shell "C:\Program Files\Git\bin\bash.exe"
-
-    - name: Cache runtime binary archives
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-      with:
-        path: .cache/runtime-binaries
-        key: runtime-binaries-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/runtimeBinaryManifest.ts') }}
-
-    - name: Install dependencies
-      if: inputs.install-dependencies == 'true'
-      shell: bash
-      run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+        install-dependencies: ${{ inputs.install-dependencies }}
 
     - name: Install Rust targets
       if: inputs.rust-targets != ''
@@ -72,16 +42,6 @@ runs:
       if: runner.os == 'Linux' && inputs.apt-packages != ''
       shell: bash
       run: scripts/ci/apt-install.sh ${{ inputs.apt-packages }}
-
-    - name: Install pinned pip packages
-      if: inputs.pip-packages != ''
-      shell: bash
-      run: python3 -m pip install --disable-pip-version-check ${{ inputs.pip-packages }}
-
-    - name: Install Playwright Chromium
-      if: inputs.needs-playwright-chromium == 'true'
-      shell: bash
-      run: pnpm exec playwright install --with-deps chromium
 
     - name: Install system fpm (Linux)
       if: runner.os == 'Linux' && inputs.needs-system-fpm == 'true'

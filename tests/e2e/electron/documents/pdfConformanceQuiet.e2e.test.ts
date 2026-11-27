@@ -9,7 +9,6 @@ import {
 } from 'node:fs';
 import {tmpdir} from 'node:os';
 import {randomBytes} from 'node:crypto';
-import {execFileSync} from 'node:child_process';
 import {
     basename, resolve,
 } from 'node:path';
@@ -17,7 +16,7 @@ import {decodeWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
 import {readWorkspaceRecoveryRecords} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 import {PDFDocument} from 'pdf-lib';
 import {electronFileLogDir} from '@scripts/electron-run/electronRunSessionPaths';
-import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
+import {runDesktopQpdfWasm} from '@electron/native-tools/qpdfWasmWorkerClient';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {observeRendererErrors} from '@tests/e2e/electron/helpers/rendererErrorObservation';
 import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
@@ -79,9 +78,7 @@ async function createLargeConformancePdf() {
         modificationDate: new Date('2026-01-01T00:00:00.000Z'),
     });
     writeFileSync(unencryptedPath, await pdf.save());
-    const qpdfPath = getPdfNativeToolPaths().qpdf;
-    expect(qpdfPath).toBeTruthy();
-    execFileSync(qpdfPath!, [
+    await runDesktopQpdfWasm([
         '--encrypt',
         '',
         'conformance-close-test-owner',
@@ -89,7 +86,7 @@ async function createLargeConformancePdf() {
         '--',
         unencryptedPath,
         filePath,
-    ]);
+    ], {commandLabel: 'qpdf(e2e-conformance-encrypt)'});
     return filePath;
 }
 

@@ -1,4 +1,3 @@
-import {execFile} from 'node:child_process';
 import {
     access,
     mkdtemp,
@@ -9,7 +8,6 @@ import {
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {promisify} from 'node:util';
 import {
     PDFDocument,
     StandardFonts,
@@ -23,17 +21,16 @@ import {
 } from 'vitest';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
 import {copyFileAtomic} from '@electron/file-access/documentFileWriteAtomic';
+import {runDesktopQpdfWasm} from '@electron/native-tools/qpdfWasmWorkerClient';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
-import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 
-const execFileAsync = promisify(execFile);
 const NATIVE_INTEGRATION_TIMEOUT_MS = 120_000;
 
 async function runQpdf(args: string[]) {
-    return execFileAsync(getPdfNativeToolPaths().qpdf, args, {
-        encoding: 'utf8',
-        maxBuffer: 256 * 1024,
-        timeout: NATIVE_INTEGRATION_TIMEOUT_MS,
+    return runDesktopQpdfWasm(args, {
+        maxStdoutBytes: 256 * 1024,
+        maxStderrBytes: 256 * 1024,
+        timeoutMs: NATIVE_INTEGRATION_TIMEOUT_MS,
     });
 }
 
@@ -110,8 +107,6 @@ describe('native PDF save integration', () => {
             mutationsPath,
             '--modified-at',
             'D:20260829000000Z',
-            '--qpdf',
-            getPdfNativeToolPaths().qpdf,
         ], {
             timeoutMs: NATIVE_INTEGRATION_TIMEOUT_MS,
         });
@@ -148,8 +143,6 @@ describe('native PDF save integration', () => {
             malformedMutationsPath,
             '--modified-at',
             'D:20260829000000Z',
-            '--qpdf',
-            getPdfNativeToolPaths().qpdf,
         ]);
         await expect(access(failedOutputPath)).rejects.toMatchObject({code: 'ENOENT'});
 

@@ -173,28 +173,6 @@ pub use types::Result;
 
 pub use dispatcher::run_cli_entry;
 
-// Fake tools are POSIX shell scripts, so the tests that use them run on Unix.
-// What they feed (qpdf's output parsing) is platform-independent, and Windows
-// runs the real qpdf through tests/multi_gib_incremental.rs.
-//
-// A concurrent fork can retain a writable script descriptor until its exec,
-// even with CLOEXEC, and make Linux reject another exec with ETXTBSY. Tests
-// hold the returned guard until they no longer run the fake executable.
-#[cfg(all(test, unix))]
-pub(crate) fn write_fake_executable(
-    path: &std::path::Path,
-    script: &str,
-) -> std::sync::MutexGuard<'static, ()> {
-    use std::os::unix::fs::PermissionsExt;
-    static FAKE_EXECUTABLE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let guard = FAKE_EXECUTABLE_LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    std::fs::write(path, script).unwrap();
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
-    guard
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -72,6 +72,7 @@ interface IUsePdfSinglePageNavigationControllerOptions extends IUsePdfSinglePage
 
 interface IPdfSinglePageWheelEvent {
     cancelable?: boolean;
+    deltaMode?: number;
     deltaX: number;
     deltaY: number;
     timeStamp: number;
@@ -122,7 +123,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
     // settle into the shorter document.
     const toBoundedPageNumber = (page: number) => toPageNumber(clamp(Math.trunc(page), 1, pageCount()));
     let intentSequence = 0;
-    const wheelFlipGate = createWheelFlipGate();
+    const wheelFlipGate = createWheelFlipGate(options.viewportWritePort);
     let geometry: IPdfViewportGeometry | null = null;
     const navigationRuntime = options.chassisAuthority;
     const navigationTicket = computed(() => navigationRuntime?.navigationTicket.value ?? null);
@@ -1043,26 +1044,20 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
     }
 
     function handleWheel(event: IPdfSinglePageWheelEvent, deltaPx = event.deltaY) {
-        if (options.continuousScroll.value) {
-            return false;
-        }
         const container = options.viewerContainer.value;
-        if (!container) {
-            return false;
-        }
+        if (options.continuousScroll.value || !container) return false;
         const packet = {
             cancelable: event.cancelable,
+            deltaMode: event.deltaMode,
             deltaY: deltaPx,
             timeStamp: event.timeStamp,
         };
-        if (deltaPx === 0 || Math.abs(deltaPx) < Math.abs(event.deltaX)) {
-            if (wheelFlipGate.consumeGestureJitter(packet)) {
-                event.preventDefault();
-                return true;
-            }
-            return false;
+        if (!deltaPx || Math.abs(event.deltaY) < Math.abs(event.deltaX)) {
+            if (!wheelFlipGate.consumeGestureJitter(packet)) return false;
+            event.preventDefault();
+            return true;
         }
-        const direction = resolveWheelDirection(deltaPx);
+        const dir = resolveWheelDirection(deltaPx);
         const bounds = getPageScrollBounds({
             container,
             pageNumber: toBoundedPageNumber(viewportAuthority.currentPage.value),
@@ -1070,31 +1065,25 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             viewMode: options.viewMode.value,
             scaledMargin: options.scaledMargin.value,
         });
-        if (bounds === null) {
-            return false;
-        }
-        if (canScrollWithinPageBounds(container, bounds, direction)) {
+        if (!bounds) return false;
+        if (canScrollWithinPageBounds(container, bounds, dir)) {
             wheelFlipGate.recordInteriorScroll(packet);
             return false;
         }
-        if (wheelFlipGate.shouldBlockFlip(direction, packet)) {
+        if (wheelFlipGate.shouldBlockFlip(dir, packet)) {
             event.preventDefault();
             return true;
         }
-        const desiredPage = navigationAnchorPage.value ?? viewportAuthority.currentPage.value;
-        const target = resolveWheelTargetPage(desiredPage, options.viewMode.value, options.numPages.value, direction);
-        if (target === desiredPage) {
-            return false;
-        }
+        const page = navigationAnchorPage.value ?? viewportAuthority.currentPage.value;
+        const target = resolveWheelTargetPage(page, options.viewMode.value, options.numPages.value, dir);
+        if (target === page) return false;
         event.preventDefault();
-        const submitted = submitPageNavigation(toPageNumber(target), {
+        if (submitPageNavigation(toPageNumber(target), {
             navigationSource: 'wheel',
-            alignPageBottom: direction < 0,
-        }) !== false;
-        if (submitted) {
-            wheelFlipGate.recordFlip(direction, packet);
-        }
-        return submitted;
+            alignPageBottom: dir < 0,
+        }) === false) return false;
+        wheelFlipGate.recordFlip(dir, packet);
+        return true;
     }
 
 

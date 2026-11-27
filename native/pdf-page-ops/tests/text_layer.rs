@@ -143,9 +143,7 @@ fn run_overlay_text_with_qpdf(
         .arg("--output")
         .arg(output)
         .arg("--instructions-file")
-        .arg(instructions)
-        .arg("--qpdf")
-        .arg(qpdf_path());
+        .arg(instructions);
     command.output().unwrap()
 }
 
@@ -4451,8 +4449,7 @@ fn run_text_box_command(operation: &str, input: &Path, output: &Path, mutations:
         .arg(input)
         .arg("--output")
         .arg(output)
-        .args(["--modified-at", "D:19700101000000Z", "--qpdf"])
-        .arg(qpdf_path());
+        .args(["--modified-at", "D:19700101000000Z"]);
     if let Some(mutations) = mutations {
         command.arg("--mutations-file").arg(mutations);
     }

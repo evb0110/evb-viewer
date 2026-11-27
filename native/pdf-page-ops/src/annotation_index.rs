@@ -686,7 +686,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_annotation_name_index_command_and_qpdf_path() {
+    fn parses_annotation_name_index_command() {
         let config = parse_args(
             [
                 "annotation-name-index".to_string(),
@@ -694,15 +694,12 @@ mod tests {
                 "/tmp/input.pdf".to_string(),
                 "--output".to_string(),
                 "/tmp/index.json".to_string(),
-                "--qpdf".to_string(),
-                "/opt/qpdf".to_string(),
             ]
             .into_iter(),
         )
         .unwrap();
 
         assert!(matches!(config.operation, Operation::AnnotationNameIndex));
-        assert_eq!(config.qpdf_path, Some(PathBuf::from("/opt/qpdf")));
     }
 
     struct SparsePdfObjectSource {

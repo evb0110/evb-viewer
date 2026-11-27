@@ -432,7 +432,6 @@ export interface IScanCleanupPreviewDependencies {
     runSidecar: TScanCleanupRunSidecar;
     resolveBinary: () => string | null;
     resolvePageOpsBinary: () => string | null;
-    resolveQpdfBinary?: () => string;
     getTempDir: () => string;
     getPdftoppmBinary: () => string;
     detectSourceDpi?: (sourcePdfPath: string, pageNumber: number, signal: AbortSignal) => Promise<number | null>;
@@ -483,8 +482,7 @@ export type IScanCleanupRasterDependencies = Pick<IScanCleanupPreviewDependencie
     | 'stat' | 'open'
     | 'renderPage' | 'resolvePageOpsBinary'
     | 'getTempDir' | 'getPdftoppmBinary' | 'detectSourceDpi' | 'getAvailableScratchBytes'
-    | 'detectRasterPages' | 'isRasterDetectionAvailable' | 'getSourceStatIdentity' | 'fileSystem'
-    | 'resolveQpdfBinary'>;
+    | 'detectRasterPages' | 'isRasterDetectionAvailable' | 'getSourceStatIdentity' | 'fileSystem'>;
 
 export type IScanCleanupDetectionOwnerDependencies = Pick<IScanCleanupPreviewDependencies,
     | 'runWithDetectionLease' | 'getPdftoppmBinary' | 'fileSystem' | 'resolveRasterAdmissionPolicy'

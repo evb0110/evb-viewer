@@ -48,6 +48,8 @@ export interface IDocumentViewportWritePort {
     isCommandResidueLive(): boolean;
     /** The host reports that the browser began or ended a wheel scroll sequence. */
     observeWheelScrollSequence(boundary: 'begin' | 'end'): void;
+    /** Whether the host currently reports an open wheel scroll sequence on this viewport. */
+    isWheelSequenceOpen?(): boolean;
     /** True while residue must not scroll the viewport. */
     readonly userScrollSuppressed: Readonly<Ref<boolean>>;
     /**
@@ -126,6 +128,16 @@ const SCROLL_RESTORE_SETTLE_FLOOR_MS = 120;
 /** How long an open host sequence may go without any wheel activity before it is presumed lost. */
 const HOST_SEQUENCE_STALL_MS = 2000;
 
+const observedWheelPacketSequenceReaders = new WeakMap<object, () => boolean>();
+
+/**
+ * Reports whether the host wheel scroll sequence associated with a packet
+ * already observed by a viewport write port is still open.
+ */
+export function isObservedWheelPacketSequenceOpen(packet: object): boolean {
+    return observedWheelPacketSequenceReaders.get(packet)?.() ?? false;
+}
+
 export function createDocumentViewportWritePort(
     options: IDocumentViewportWritePortOptions = {},
 ): IDocumentViewportWritePort {
@@ -147,7 +159,12 @@ export function createDocumentViewportWritePort(
     // arriving after it. Wheel packets stop being cancelable after the first
     // of a sequence, so the tail cannot be swallowed; suppressing user
     // scrolling is the only way to stop it from displacing the command.
-    const wheelGestures = createWheelGestureStream();
+    const wheelGestures = createWheelGestureStream({
+        isSequenceOpen: sequenceId => (
+            isSequenceOpen(sequenceId)
+            && performance.now() - lastWheelActivityAtMs < HOST_SEQUENCE_STALL_MS
+        ),
+    });
     const userScrollSuppressed = ref(false);
     // Ownership: packets of this gesture are residue of a superseded intent.
     // It ends when a packet of another gesture arrives, never on a timer. Late
@@ -227,6 +244,16 @@ export function createDocumentViewportWritePort(
                 && sequenceId === wheelGestures.getSequenceId()
                 && unclaimedSequenceStarts.some(start => start.sequenceId === sequenceId)
             );
+    }
+
+    function isHostWheelSequenceOpen() {
+        if (retired) {
+            return false;
+        }
+        const currentSequenceId = wheelGestures.getSequenceId();
+        return currentSequenceId > 0
+            && isSequenceOpen(currentSequenceId)
+            && performance.now() - lastWheelActivityAtMs < HOST_SEQUENCE_STALL_MS;
     }
 
     function suppressUserScroll() {
@@ -494,6 +521,7 @@ export function createDocumentViewportWritePort(
                 // Nothing left to protect, and nothing to scroll by hand.
                 return 'user-input';
             }
+            observedWheelPacketSequenceReaders.set(packet, isHostWheelSequenceOpen);
             const nativeScrollUnavailable = userScrollSuppressed.value || scrollRestoreSettling;
             const previousGestureId = wheelGestures.getGestureId();
             const {
@@ -576,6 +604,7 @@ export function createDocumentViewportWritePort(
             restoreUserScroll();
         },
         isCommandResidueLive,
+        isWheelSequenceOpen: isHostWheelSequenceOpen,
         userScrollSuppressed: readonly(userScrollSuppressed),
         retire() {
             retired = true;

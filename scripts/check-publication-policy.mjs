@@ -8,6 +8,7 @@ import {
     findAddedCheckViolations,
     findStagedAddedChecks,
     readAddsChecksTrailer,
+    readCommitMetadata,
 } from './lib/added-checks.mjs';
 import {
     describeFixChainRule,
@@ -383,6 +384,7 @@ export function findPushPolicyViolations(commits, cwd = process.cwd(), {
     nestedTagRefs = [],
     rejectedRefs = [],
 } = {}) {
+    const commitMetadata = readCommitMetadata(commits, cwd);
     return mergeViolations([
         rejectedRefs.map(ref => ({
             matches: ['destination outside refs/heads/* and refs/tags/*'],
@@ -393,8 +395,8 @@ export function findPushPolicyViolations(commits, cwd = process.cwd(), {
             subject: ref,
         })),
         findHistoryArtifactViolations(commits, cwd),
-        findAddedCheckViolations(commits, cwd),
-        findFixChainViolations(commits, cwd),
+        findAddedCheckViolations(commits, cwd, commitMetadata),
+        findFixChainViolations(commits, cwd, commitMetadata),
     ]);
 }
 

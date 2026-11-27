@@ -1725,8 +1725,7 @@ fn auto_print_draws_free_text_text_on_a_page_without_a_media_box() {
         .arg(&temp.pdf)
         .arg("--output")
         .arg(&printed)
-        .args(["--view-mode", "single", "--orientation", "auto", "--qpdf"])
-        .arg(external_tool::tool_path("QPDF_PATH", "qpdf", "qpdf"))
+        .args(["--view-mode", "single", "--orientation", "auto"])
         .output()
         .unwrap();
     assert_success(output, "print-layout");

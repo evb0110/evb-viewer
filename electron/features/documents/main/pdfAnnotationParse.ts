@@ -34,7 +34,6 @@ import {
     runWithWorkingCopyReadBacking,
 } from '@electron/file-access/documentStore';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
-import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {registerNativePdfSenderCleanup} from '@electron/features/documents/main/nativePdfMetadata';
 import {getAppTempDir} from '@electron/utils/appTempDir';
@@ -175,15 +174,13 @@ function clearParseTtlTimerIfIdle() {
     }
 }
 
-function buildParseCommandArgs(inputPath: string, outputPath: string, qpdfPath: string, pagesPath?: string) {
+function buildParseCommandArgs(inputPath: string, outputPath: string, pagesPath?: string) {
     return [
         'parse-annotations',
         '--input',
         inputPath,
         '--output',
         outputPath,
-        '--qpdf',
-        qpdfPath,
         '--modified-at',
         PARSE_MODIFIED_AT,
         ...(pagesPath === undefined ? [] : [
@@ -206,7 +203,7 @@ async function runParseNative(
     }
     await runNativeToolCommand(
         nativePath,
-        buildParseCommandArgs(inputPath, outputPath, getPdfNativeToolPaths().qpdf, pagesPath),
+        buildParseCommandArgs(inputPath, outputPath, pagesPath),
         {
             timeoutMs: PARSE_NATIVE_TIMEOUT_MS,
             maxStdoutBytes: PARSE_NATIVE_STDOUT_BYTES,

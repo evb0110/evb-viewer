@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
     readPngDimensions: vi.fn(),
     rm: vi.fn(),
     runOcrCommand: vi.fn(),
+    runQpdfWasm: vi.fn(),
     stat: vi.fn(),
     // Poppler writes PPM and the shared renderer encodes the PNG; these tests
     // cover OCR's use of that renderer, not the encoder.
@@ -32,6 +33,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runOcrCommand}));
+vi.mock('@electron/native-tools/qpdfWasmWorkerClient', () => ({runDesktopQpdfWasm: mocks.runQpdfWasm}));
 vi.mock('@evb/scan-cleanup/core/rasterLayerDimensions', () => ({
     readPngDimensions: mocks.readPngDimensions,
     writePngFromPpm: mocks.writePngFromPpm,
@@ -46,7 +48,6 @@ const workerPaths: IOcrPipelinePaths = {
     tessdataPath: '/share/tessdata',
     pdftoppmBinary: '/bin/pdftoppm',
     pdftotextBinary: '/bin/pdftotext',
-    qpdfBinary: '/bin/qpdf',
     tempDir: '/tmp/ocr',
 };
 
@@ -79,7 +80,7 @@ describe('preparePdfForPoppler', () => {
     });
 
     it('returns surfaced warnings when qpdf preflight falls back to the original PDF', async () => {
-        mocks.runOcrCommand.mockRejectedValueOnce(new Error('qpdf failed'));
+        mocks.runQpdfWasm.mockRejectedValueOnce(new Error('qpdf failed'));
         const log = vi.fn();
         const trackTempFile = vi.fn((path: string) => path);
 
@@ -112,7 +113,7 @@ describe('preparePdfForPoppler', () => {
         const controller = new AbortController();
         const registered: string[] = [];
         const log = vi.fn();
-        mocks.runOcrCommand.mockImplementationOnce(async (_binary: string, args: string[]) => {
+        mocks.runQpdfWasm.mockImplementationOnce(async (args: string[]) => {
             await fs.writeFile(args[1]!, 'partially normalized PDF');
             if (aborted) controller.abort(new Error('different abort reason'));
             throw failure;

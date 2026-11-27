@@ -21,7 +21,7 @@ import {
     collectDescendantPidsUnix, isProcessAlive,
 } from '@scripts/electron-run/electronRunProcessTree';
 import { readWorkspaceStateValues } from '@tests/e2e/electron/helpers/workspaceExpose';
-import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
+import { runDesktopQpdfWasm } from '@electron/native-tools/qpdfWasmWorkerClient';
 
 
 
@@ -241,12 +241,12 @@ export async function expectCleanAnnotationHydration(page: Page) {
 
 
 export async function qpdfCheck(filePath: string) {
-    await execFileAsync(getPdfNativeToolPaths().qpdf, [
+    await runDesktopQpdfWasm([
         '--check',
         filePath,
     ], {
-        maxBuffer: 1024 * 1024,
-        timeout: 120_000,
+        timeoutMs: 120_000,
+        commandLabel: 'qpdf(e2e-large-check)',
     });
 }
 
@@ -260,7 +260,7 @@ export async function readQpdfObject(
     },
     streamData: 'filtered' | 'none' | 'raw' = 'raw',
 ) {
-    const {stdout} = await execFileAsync(getPdfNativeToolPaths().qpdf, [
+    const {stdout} = await runDesktopQpdfWasm([
         `--show-object=${objectRef.objectNumber},${objectRef.generationNumber}`,
         ...(streamData === 'filtered'
             ? ['--filtered-stream-data']
@@ -269,9 +269,8 @@ export async function readQpdfObject(
                 : []),
         filePath,
     ], {
-        encoding: 'utf8',
-        maxBuffer: 1024 * 1024,
-        timeout: 120_000,
+        timeoutMs: 120_000,
+        commandLabel: 'qpdf(e2e-large-read-object)',
     });
     return stdout;
 }

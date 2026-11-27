@@ -1,6 +1,7 @@
 import {
     mkdir,
     mkdtemp,
+    readFile,
     rm,
     writeFile,
 } from 'node:fs/promises';
@@ -19,6 +20,7 @@ import {
 
 interface IAssertPackagedAppContentsModule {
     EXPECTED_UNPACKED_DIST_ELECTRON: string[];
+    FORBIDDEN_EXACT_ENTRIES: string[];
     REQUIRED_ASAR_ENTRIES: string[];
     REQUIRED_ASAR_PREFIXES: string[];
     collectEntryViolations: (entries: string[]) => string[];
@@ -86,12 +88,19 @@ describe('assert-packaged-app-contents', () => {
         const root = await mkdtemp(join(tmpdir(), 'evb-packaged-contents-'));
         const asarPath = join(root, 'app.asar');
         const unpackedDistElectron = join(`${asarPath}.unpacked`, 'dist-electron');
+        const unpackedWasmDir = join(`${asarPath}.unpacked`, 'nuxt-output', 'public', 'wasm');
         try {
             await mkdir(unpackedDistElectron, {recursive: true});
+            await mkdir(unpackedWasmDir, {recursive: true});
             await Promise.all(EXPECTED_UNPACKED_DIST_ELECTRON.map(file => writeFile(
                 join(unpackedDistElectron, file),
                 file === 'package.json' ? '{"type":"module"}' : '',
             )));
+            await Promise.all([
+                'evb-pdf-page-ops.wasm',
+                'evb-qpdf.mjs',
+                'evb-qpdf.wasm',
+            ].map(file => writeFile(join(unpackedWasmDir, file), '')));
             await writeFile(
                 join(unpackedDistElectron, 'main-chunk-fixture.js'),
                 '',
@@ -100,6 +109,36 @@ describe('assert-packaged-app-contents', () => {
             expect(collectUnpackedViolations(asarPath)).toContain(
                 'unexpected unpacked file: dist-electron/main-chunk-fixture.js',
             );
+        } finally {
+            await rm(root, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('reports missing unpacked evb-qpdf.mjs under app.asar.unpacked/nuxt-output/public/wasm', async () => {
+        const {
+            EXPECTED_UNPACKED_DIST_ELECTRON,
+            collectUnpackedViolations,
+        } = await loadPackagedContentsModule();
+        const root = await mkdtemp(join(tmpdir(), 'evb-packaged-qpdf-unpacked-'));
+        const asarPath = join(root, 'app.asar');
+        const unpackedDistElectron = join(`${asarPath}.unpacked`, 'dist-electron');
+        const unpackedWasmDir = join(`${asarPath}.unpacked`, 'nuxt-output', 'public', 'wasm');
+        try {
+            await mkdir(unpackedDistElectron, {recursive: true});
+            await mkdir(unpackedWasmDir, {recursive: true});
+            await Promise.all(EXPECTED_UNPACKED_DIST_ELECTRON.map(file => writeFile(
+                join(unpackedDistElectron, file),
+                file === 'package.json' ? '{"type":"module"}' : '',
+            )));
+            await writeFile(join(unpackedWasmDir, 'evb-pdf-page-ops.wasm'), '');
+            await writeFile(join(unpackedWasmDir, 'evb-qpdf.wasm'), '');
+
+            expect(collectUnpackedViolations(asarPath)).toEqual([
+                'missing unpacked file: nuxt-output/public/wasm/evb-qpdf.mjs',
+            ]);
         } finally {
             await rm(root, {
                 force: true,
@@ -200,5 +239,77 @@ describe('assert-packaged-app-contents', () => {
             ].join('\n'),
             {target: 'web-static'},
         )).toContain('multiple runtime Sentry endpoints');
+    });
+
+    it('keeps EXPECTED_UNPACKED_DIST_ELECTRON and WASM packaging entries aligned with electron-builder.yml', async () => {
+        const {
+            EXPECTED_UNPACKED_DIST_ELECTRON,
+            FORBIDDEN_EXACT_ENTRIES,
+            REQUIRED_ASAR_ENTRIES,
+        } = await loadPackagedContentsModule();
+        const {parseAsarUnpackEntries} = await import(
+            pathToFileURL(resolve(process.cwd(), 'scripts/check-electron-builder-asar-unpack.mjs')).href
+        ) as {parseAsarUnpackEntries: (source: string) => string[]};
+        const builderSource = await readFile(resolve(process.cwd(), 'electron-builder.yml'), 'utf8');
+        const unpackedEntries = parseAsarUnpackEntries(builderSource);
+
+        // Every top-level dist-electron/* entry unpacked by electron-builder.yml
+        // must match EXPECTED_UNPACKED_DIST_ELECTRON so stale entries (such as
+        // removed native runtime folders) fail in PR CI rather than Release.
+        const configuredDistElectronUnpack = [...new Set(
+            unpackedEntries
+                .filter(entry => entry.startsWith('dist-electron/'))
+                .map(entry => entry.slice('dist-electron/'.length).split('/')[0]!),
+        )].sort();
+        expect(EXPECTED_UNPACKED_DIST_ELECTRON).toEqual(configuredDistElectronUnpack);
+
+        // Extract top-level `files:` exclusions from electron-builder.yml.
+        const lines = builderSource.split(/\r?\n/u);
+        const filesStart = lines.findIndex(line => line.trim() === 'files:');
+        expect(filesStart).toBeGreaterThanOrEqual(0);
+        const fileEntries: string[] = [];
+        for (const line of lines.slice(filesStart + 1)) {
+            if (/^\S/u.test(line)) {
+                break;
+            }
+            const match = line.match(/^\s*-\s+["']?(.+?)["']?\s*$/u);
+            if (match?.[1]) {
+                fileEntries.push(match[1]);
+            }
+        }
+        const excludedFileEntries = fileEntries
+            .filter(entry => entry.startsWith('!'))
+            .map(entry => entry.slice(1));
+
+        // Desktop ships evb-qpdf.{mjs,wasm} inside ASAR and unpacked for worker threads.
+        expect(REQUIRED_ASAR_ENTRIES).toContain('/nuxt-output/public/wasm/evb-qpdf.mjs');
+        expect(REQUIRED_ASAR_ENTRIES).toContain('/nuxt-output/public/wasm/evb-qpdf.wasm');
+        expect(FORBIDDEN_EXACT_ENTRIES).not.toContain('/nuxt-output/public/wasm/evb-qpdf.mjs');
+        expect(FORBIDDEN_EXACT_ENTRIES).not.toContain('/nuxt-output/public/wasm/evb-qpdf.wasm');
+        expect(unpackedEntries).toContain('nuxt-output/public/wasm/evb-qpdf.*');
+
+        // No required ASAR entry may be excluded by electron-builder.yml `files:`.
+        const wildcardToRegExp = (pattern: string) => new RegExp(
+            `^/${pattern.replaceAll('.', '\\.').replaceAll('*', '[^/]*')}$`,
+            'u',
+        );
+        for (const requiredEntry of REQUIRED_ASAR_ENTRIES) {
+            for (const excluded of excludedFileEntries) {
+                if (excluded.includes('**')) {
+                    continue;
+                }
+                expect(
+                    wildcardToRegExp(excluded).test(requiredEntry),
+                    `electron-builder.yml excludes required ASAR entry ${requiredEntry} via !${excluded}`,
+                ).toBe(false);
+            }
+        }
+
+        // Every explicitly excluded single file under nuxt-output/public/ should be forbidden in ASAR.
+        for (const excluded of excludedFileEntries) {
+            if (excluded.startsWith('nuxt-output/public/') && !excluded.includes('*')) {
+                expect(FORBIDDEN_EXACT_ENTRIES).toContain(`/${excluded}`);
+            }
+        }
     });
 });

@@ -24,16 +24,12 @@ export async function resolveScanCleanupRasterPageSizeStore(input: {
         || input.disposed()
         || input.currentGeneration() !== input.generation
         || document.removeWhenIdle;
-    if (!dependencies.resolveQpdfBinary) {
-        throw new Error('Scan cleanup page geometry requires injected qpdf resolution');
-    }
     const pdfPageOpsBinary = dependencies.resolvePageOpsBinary();
     if (!pdfPageOpsBinary) {
         throw new Error('evb-pdf-page-ops is unavailable to read page geometry');
     }
     const store = await dependencies.getPageSizeStore(document.sourcePdfPath, {
         pdfPageOpsBinary,
-        qpdfBinary: dependencies.resolveQpdfBinary(),
         tempDir: await document.dir,
         signal: document.lifetime.signal,
         log: logScanCleanupMessage,

@@ -287,10 +287,7 @@ export async function fetchRuntimeBinaries({
     };
 }
 
-const RUNTIME_FAMILIES = [
-    'poppler',
-    'qpdf',
-] as const;
+const RUNTIME_FAMILIES = ['poppler'] as const;
 
 function parseArguments(argv: readonly string[]) {
     let targetTag: string | undefined;

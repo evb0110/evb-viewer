@@ -17,6 +17,8 @@ export const PDF_NATIVE_MUTATION_LIMITS = {
     shapes: 4_096,
     shapeDeletedItems: 4_096,
     shapePoints: 20_000,
+    shapeChunkPoints: 100_000,
+    shapeSetPoints: 2_000_000,
     shapeStrokes: 4_096,
     shapeTextLength: 2_048,
     markupGeometryItems: 512,

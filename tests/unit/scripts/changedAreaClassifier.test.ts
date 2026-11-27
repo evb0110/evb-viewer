@@ -1,4 +1,5 @@
 import {
+    chmodSync,
     mkdirSync,
     mkdtempSync,
     readFileSync,
@@ -9,6 +10,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import {
+    delimiter,
     join,
     resolve,
 } from 'node:path';
@@ -23,12 +25,31 @@ import {
 
 const classifierPath = resolve(process.cwd(), 'scripts/ci/classify-changed-areas.mjs');
 const pushDiffBasePath = resolve(process.cwd(), 'scripts/ci/push-diff-base.sh');
+const lanesModulePath = resolve(process.cwd(), 'scripts/electron-e2e-lanes.mjs');
 
-interface IChangedAreaClassification { matched: boolean }
+interface IChangedAreaSelection {
+    lanes: string[];
+    selected: string[];
+    verifiedTree: boolean;
+}
 
-interface IChangedAreaClassifierModule { classifyChangedFiles: (files: string[] | null) => Record<string, IChangedAreaClassification> }
+interface IChangedAreaClassifierModule {
+    ALL_GATED_JOBS: readonly string[];
+    classifyChangedFiles: (
+        files: string[] | null,
+        options?: {
+            event?: string;
+            verifiedTree?: boolean;
+        },
+    ) => IChangedAreaSelection;
+}
 
-interface IReleasePolicyModule {getNativePdfSaveDependencyPaths: () => string[];}
+interface IElectronLanesModule {
+    listRequiredElectronE2ELanes: () => Array<{
+        directory: string;
+        name: string;
+    }>;
+}
 
 function runGit(cwd: string, args: string[]) {
     const result = spawnSync('git', [
@@ -79,13 +100,24 @@ function commitAll(root: string, message: string) {
     ]);
 }
 
-function runClassifierForRange(root: string, base: string, head: string, includeWorktree = false) {
+function runClassifierForRange(
+    root: string,
+    base: string,
+    head: string,
+    options: {
+        event?: string;
+        includeWorktree?: boolean;
+    } = {},
+) {
     const arguments_ = [
         classifierPath,
         `--base=${base}`,
         `--head=${head}`,
     ];
-    if (includeWorktree) {
+    if (options.event) {
+        arguments_.push(`--event=${options.event}`);
+    }
+    if (options.includeWorktree) {
         arguments_.push('--include-worktree');
     }
     const result = spawnSync(process.execPath, arguments_, {
@@ -94,12 +126,19 @@ function runClassifierForRange(root: string, base: string, head: string, include
     });
     expect(result.status, result.stderr).toBe(0);
     return JSON.parse(result.stdout) as {
-        files: string[];
-        result: Record<string, IChangedAreaClassification>;
+        files: string[] | null;
+        lanes: string[];
+        selected: string[];
+        verifiedTree: boolean;
     };
 }
 
-function runPushDiffBase(root: string, before: string, head: string) {
+function runPushDiffBase(
+    root: string,
+    before: string,
+    head: string,
+    extraEnv: Record<string, string> = {},
+) {
     const bash = process.platform === 'win32'
         ? resolve(runGit(root, ['--exec-path']), '../../../bin/bash.exe')
         : 'bash';
@@ -110,234 +149,298 @@ function runPushDiffBase(root: string, before: string, head: string) {
     ], {
         cwd: root,
         encoding: 'utf8',
+        env: {
+            ...process.env,
+            ...extraEnv,
+        },
     });
     expect(result.status, result.stderr).toBe(0);
     return result.stdout.trim();
 }
 
-const { classifyChangedFiles } = await import(
-    pathToFileURL(classifierPath).href
-) as IChangedAreaClassifierModule;
-const { getNativePdfSaveDependencyPaths } = await import(
-    pathToFileURL(resolve(process.cwd(), 'scripts/release/policy.mjs')).href
-) as IReleasePolicyModule;
+const {
+    ALL_GATED_JOBS,
+    classifyChangedFiles,
+} = await import(pathToFileURL(classifierPath).href) as IChangedAreaClassifierModule;
+const { listRequiredElectronE2ELanes } = await import(
+    pathToFileURL(lanesModulePath).href
+) as IElectronLanesModule;
+const ALL_LANES = listRequiredElectronE2ELanes().map(lane => lane.name).sort();
 
 describe('changed-area classifier', () => {
-    it('classifies release-critical hooks, workflows, resources, and landing sources', () => {
+    it('keeps docs, markdown, hooks, and non-ci workflows to lint, unit, and build_wasm', () => {
         for (const file of [
-            '.github/workflows/build.yml',
-            'native/pdf-search/Cargo.toml',
-            'resources/tesseract/tessdata/eng.traineddata',
-            'scripts/afterPack.cjs',
-            'scripts/afterSign.cjs',
-            'scripts/build-warning-allowlist.json',
-            'scripts/cargo-artifacts.mjs',
-            'scripts/ci/classify-changed-areas.mjs',
-            'scripts/generate-djvu-fidelity-corpus.mjs',
-            'scripts/nativeResourceManifest.ts',
-            'scripts/fixtures/ocr-quality-corpus.json',
-            'scripts/ocrQualityMetrics.mjs',
-            'scripts/test-ocr-quality-corpus.mjs',
-            'scripts/verify-packaged-startup.sh',
+            'README.md',
+            'AGENTS.md',
+            'docs/contributing/ci.md',
+            'native/pdf-page-ops/README.md',
+            '.husky/pre-push',
+            '.github/workflows/release.yml',
+            '.github/workflows/ci-nightly.yml',
+            '.github/workflows/dependency-audit.yml',
         ]) {
-            expect(classifyChangedFiles([file]).desktop_build?.matched, file).toBe(true);
-        }
-        expect(classifyChangedFiles(['landing/app/pages/index.vue']).landing?.matched).toBe(true);
-        expect(classifyChangedFiles(['.github/actions/setup-ci-env/action.yml']).landing?.matched).toBe(true);
-        expect(classifyChangedFiles(['packages/release-selection/index.ts']).landing?.matched).toBe(true);
-        expect(classifyChangedFiles(['scripts/ci/classify-changed-areas.mjs']).landing?.matched).toBe(true);
-        expect(classifyChangedFiles(['app/modules/pdf-viewer/PdfViewer.vue']).electron_smoke?.matched).toBe(true);
-        expect(classifyChangedFiles(['scripts/electron-run/electronLaunch.ts']).electron_smoke?.matched).toBe(true);
-        expect(classifyChangedFiles(['scripts/electron-e2e-lanes.mjs']).electron_smoke?.matched).toBe(true);
-        expect(classifyChangedFiles(['scripts/test-electron-e2e-headless.sh']).electron_smoke?.matched).toBe(true);
-        for (const file of [
-            'tests/fixtures/electron/generated-text.pdf',
-            'tests/fixtures/electron/interop/synthetic-annotation-interoperability.pdf',
-            'tests/fixtures/electron/interop/corpus-manifest.json',
-        ]) {
-            expect(classifyChangedFiles([file]).electron_smoke?.matched, file).toBe(true);
-        }
-        expect(classifyChangedFiles(['tests/fixtures/electron/generated-text.pdf']).rust?.matched).toBe(false);
-        expect(classifyChangedFiles(['tests/fixtures/electron/interop/corpus-manifest.json']).rust?.matched).toBe(true);
-        expect(classifyChangedFiles(['scripts/generate-large-pdf-e2e-fixture.mjs']).electron_smoke?.matched).toBe(false);
-        expect(classifyChangedFiles(['.github/actions/setup-ci-env/action.yml'])).toMatchObject({
-            browser_integration: {matched: true},
-            electron_smoke: {matched: true},
-            electron_save_reopen: {matched: true},
-            rust: {matched: true},
-            desktop_build: {matched: true},
-        });
-        expect(classifyChangedFiles(['.github/actions/upload-electron-e2e-artifacts/action.yml']).electron_smoke?.matched).toBe(true);
-        expect(classifyChangedFiles(['.github/workflows/ci.yml'])).toMatchObject({
-            browser_integration: {matched: true},
-            electron_smoke: {matched: true},
-            rust: {matched: true},
-            desktop_build: {matched: true},
-        });
-        expect(classifyChangedFiles(['public/fonts/annotation/DejaVuSans.ttf'])).toMatchObject({
-            browser_integration: {matched: true},
-            electron_smoke: {matched: true},
-            rust: {matched: true},
-            desktop_build: {matched: true},
-        });
-        for (const font of [
-            'public/fonts/annotation/NotoSansSyriac-Regular.ttf',
-            'public/fonts/annotation/NotoSansHebrew-Regular.ttf',
-            'public/pdf/standard_fonts/LiberationSans-Regular.ttf',
-        ]) {
-            expect(classifyChangedFiles([font])).toMatchObject({
-                electron_smoke: {matched: true},
-                rust: {matched: true},
-                desktop_build: {matched: true},
-            });
-        }
-        expect(classifyChangedFiles(['app/app.vue'])).toMatchObject({
-            rust: {matched: false},
-            desktop_build: {matched: false},
-        });
-        expect(classifyChangedFiles(['native/pdf-search/src/lib.rs'])).toMatchObject({
-            browser_integration: {matched: true},
-            electron_smoke: {matched: true},
-            rust: {matched: true},
-            desktop_build: {matched: true},
-        });
-        expect(classifyChangedFiles(['packages/contracts/searchConformanceCorpus.json'])).toMatchObject({
-            rust: {matched: true},
-            desktop_build: {matched: true},
-        });
-        expect(classifyChangedFiles(['app/platform/browser/browserDocumentIdb.ts']).browser_integration?.matched).toBe(true);
-        expect(classifyChangedFiles(['app/app.vue'])).toMatchObject({
-            landing: { matched: false },
-            desktop_build: { matched: false },
-        });
-    });
-
-    it('routes native PDF save sources to the required Electron save and reopen lane', () => {
-        expect(getNativePdfSaveDependencyPaths()).toEqual(expect.arrayContaining([
-            'app/modules/workspace-shell/composables/document-session/createDocumentPersistence.ts',
-            'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
-            'packages/contracts/documentsPersistenceSchemas.ts',
-            'packages/contracts/electronApiDocuments.ts',
-            'packages/pdf-core/nativePdfMutationPolicy.ts',
-            'app/modules/pdf-viewer/runtime/save/**',
-            'native/evb-native-support/**',
-        ]));
-        expect(classifyChangedFiles(['native/pdf-page-ops/src/incremental.rs'])).toMatchObject({electron_save_reopen: {
-            area: 'nativePdfSave',
-            matched: true,
-            owner: 'windows_atomic_pdf_replacement',
-        }});
-        expect(classifyChangedFiles(['electron/features/documents/main/documentFileWriteHandlers.ts']))
-            .toMatchObject({electron_save_reopen: {matched: true}});
-        expect(classifyChangedFiles(['native/pdf-search/src/lib.rs']))
-            .toMatchObject({electron_save_reopen: {matched: false}});
-        expect(classifyChangedFiles(['tests/integration/native/nativePdfSave.test.ts']))
-            .toMatchObject({desktop_build: {matched: true}});
-        expect(classifyChangedFiles(['packages/contracts/electronApiDocuments.ts']))
-            .toMatchObject({electron_save_reopen: {matched: true}});
-        expect(classifyChangedFiles(['app/modules/pdf-viewer/runtime/save/pdfDocumentPersistence.ts']))
-            .toMatchObject({electron_save_reopen: {matched: true}});
-        expect(classifyChangedFiles(['tests/e2e/electron/annotations/annotationLifecycle.e2e.test.ts']))
-            .toMatchObject({electron_save_reopen: {matched: true}});
-        for (const file of [
-            'app/modules/workspace-shell/composables/document-session/createDocumentPersistence.ts',
-            'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
-            'packages/contracts/documentsPersistenceSchemas.ts',
-            'packages/pdf-core/nativePdfMutationPolicy.ts',
-            'native/evb-native-support/src/lib.rs',
-        ]) {
-            expect(classifyChangedFiles([file]), file).toMatchObject({
-                electron_save_reopen: {matched: true},
-                electron_smoke: {matched: true},
-                desktop_build: {matched: true},
-            });
+            const selection = classifyChangedFiles([file], {event: 'pull_request'});
+            expect(selection.selected, file).toEqual([
+                'publication_policy',
+                'lint',
+                'unit',
+                'build_wasm',
+            ]);
+            expect(selection.lanes, file).toEqual([]);
         }
     });
 
-    it('runs browser journeys for their production graph without claiming unrelated platforms', () => {
+    it('selects landing and browser_integration for landing and shared landing package changes', () => {
+        const selection = classifyChangedFiles(['landing/app/pages/index.vue'], {event: 'pull_request'});
+        expect(selection.selected).toEqual([
+            'publication_policy',
+            'lint',
+            'unit',
+            'build_wasm',
+            'browser_integration',
+            'landing',
+        ]);
+        expect(selection.lanes).toEqual([]);
+
+        for (const file of [
+            'packages/i18n-core/index.ts',
+            'packages/release-selection/index.ts',
+        ]) {
+            const sharedSelection = classifyChangedFiles([file], {event: 'pull_request'});
+            expect(sharedSelection.selected, file).toContain('landing');
+            expect(sharedSelection.selected, file).toContain('electron_e2e');
+        }
+    });
+
+    it('selects the product suite and all Electron lanes for product paths', () => {
         for (const file of [
             'app/app.vue',
-            'app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale.ts',
-            'nuxt.config.ts',
+            'electron/main.ts',
             'packages/pdf-core/index.ts',
-            'public/pdfjs/pdf.worker.min.mjs',
-            'packages/scan-cleanup/adapters/createScanCleanupRenderers.ts',
-            'packages/scan-cleanup/core/detection.ts',
             'server/api/releases.get.ts',
-            'landing/app/pages/index.vue',
-            'landing/server/routes/app.get.ts',
-            'landing/nuxt.config.ts',
+            'public/pdfjs/pdf.worker.min.mjs',
+            'vendor/pdfjs/pdf.mjs',
+            'resources/tesseract/tessdata/eng.traineddata',
+            'build/icons/icon.png',
+            'types/global.d.ts',
+            'nuxt.config.ts',
+            'electron-builder.yml',
             'tests/fixtures/electron/generated-text.pdf',
             'tests/helpers/pdfAnnotationCommentsListHarness.ts',
             'tests/setup.ts',
             'tests/setupApp.ts',
-            'tsconfig.base.json',
         ]) {
-            expect(classifyChangedFiles([file]).browser_integration?.matched, file).toBe(true);
+            const selection = classifyChangedFiles([file], {event: 'pull_request'});
+            expect(selection.selected, file).toEqual([
+                'publication_policy',
+                'lint',
+                'unit',
+                'build_wasm',
+                'strict_build',
+                'native_pdf_integration',
+                'windows_atomic_pdf_replacement',
+                'browser_integration',
+                'electron_e2e',
+            ]);
+            expect(selection.lanes, file).toEqual(ALL_LANES);
         }
-
-        for (const file of [
-            'docs/contributing/releasing.md',
-            'electron/main.ts',
-            'native/windows-job-launcher/src/main.rs',
-        ]) {
-            expect(classifyChangedFiles([file]).browser_integration?.matched, file).toBe(false);
-        }
-        expect(classifyChangedFiles(null).browser_integration?.matched).toBe(true);
     });
 
-    it('owns scan-cleanup export dependencies and fails closed when the diff is unknown', () => {
+    it('selects rust, product jobs, and scan_cleanup_oracles for native, contract, and embedded-font paths', () => {
         for (const file of [
-            '.github/actions/setup-ci-env/action.yml',
+            'native/pdf-page-ops/src/incremental.rs',
+            'native/pdf-search/src/lib.rs',
+            '.cargo/config.toml',
+            'rust-toolchain.toml',
+            'public/fonts/annotation/DejaVuSans.ttf',
+            'public/pdf/standard_fonts/LiberationSans-Regular.ttf',
+            'tests/fixtures/electron/interop/hebrew-punctuation-reference.pdf',
+        ]) {
+            const selection = classifyChangedFiles([file], {event: 'pull_request'});
+            expect(selection.selected, file).toEqual([
+                'publication_policy',
+                'lint',
+                'unit',
+                'build_wasm',
+                'rust',
+                'strict_build',
+                'native_pdf_integration',
+                'windows_atomic_pdf_replacement',
+                'browser_integration',
+                'scan_cleanup_oracles',
+                'electron_e2e',
+            ]);
+            expect(selection.lanes, file).toEqual(ALL_LANES);
+        }
+
+        const contractsSelection = classifyChangedFiles(['packages/contracts/electronApiDocuments.ts'], {event: 'pull_request'});
+        expect(contractsSelection.selected).toContain('rust');
+        expect(contractsSelection.selected).toContain('landing');
+        expect(contractsSelection.selected).toContain('scan_cleanup_oracles');
+        expect(contractsSelection.lanes).toEqual(ALL_LANES);
+    });
+
+    it('adds scan_cleanup_oracles additively and includes strict_build and build_wasm dependencies', () => {
+        for (const file of [
             'app/modules/scan-cleanup/geometry/placement.ts',
-            'native/pdf-image-combine/src/lib.rs',
-            'native/scan-cleanup/src/mrc.rs',
-            'packages/contracts/scan-cleanup/domain.ts',
-            'scripts/ensure-wasm-artifacts.mjs',
-            'packages/scan-cleanup/adapters/createScanCleanupRenderers.ts',
             'packages/scan-cleanup/core/detection.ts',
-            'scripts/ci-install-dependencies.mjs',
-            'scripts/ci/apt-install.sh',
-            'scripts/ci/scan-cleanup-oracles.sh',
-            'scripts/diagnostics/generate-scan-cleanup-rgb-fixture.mjs',
+            'electron/features/scan-cleanup/handler.ts',
+            'tests/fixtures/electron/test-scanned.pdf',
             'tests/fixtures/release/scan-cleanup-four-page-grayscale.pdf',
-            'native/pdf-page-ops/src/main.rs',
-            'scripts/createCliRetention.ts',
-            'public/fonts/annotation/NotoSansSyriac-Regular.ttf',
-            'scripts/lib/cli-error.mjs',
-            'scripts/diagnostics/scan-cleanup-preview-harness.mjs',
-            'scripts/diagnostics/stroke-weight-oracle/stroke_weight_oracle.py',
-            'scripts/flattenLayeredManifestPage.ts',
+        ]) {
+            const selection = classifyChangedFiles([file], {event: 'pull_request'});
+            expect(selection.selected, file).toContain('scan_cleanup_oracles');
+            expect(selection.selected, file).toContain('strict_build');
+            expect(selection.selected, file).toContain('electron_e2e');
+            expect(selection.selected, file).not.toContain('rust');
+            expect(selection.lanes, file).toEqual(ALL_LANES);
+        }
+
+        for (const file of [
             'scripts/scan-cleanup-convert.ts',
             'scripts/scanCleanupCliAdapters.ts',
-            'tests/fixtures/electron/test-scanned.pdf',
-            'tsconfig.json',
+            'scripts/diagnostics/stroke-weight-oracle/stroke_weight_oracle.py',
+            'tests/unit/electron/scanCleanupPipeline.test.ts',
+            'tests/unit/scripts/scanCleanupStagedWindowEndToEnd.test.ts',
+            'tests/unit/scripts/scanCleanupDiagnosticsManifestRoots.test.ts',
         ]) {
-            expect(classifyChangedFiles([file]).scan_cleanup_export?.matched, file).toBe(true);
+            const selection = classifyChangedFiles([file], {event: 'pull_request'});
+            expect(selection.selected, file).toEqual([
+                'publication_policy',
+                'lint',
+                'unit',
+                'build_wasm',
+                'strict_build',
+                'scan_cleanup_oracles',
+            ]);
+            expect(selection.lanes, file).toEqual([]);
         }
-
-        for (const file of [
-            'docs/contributing/releasing.md',
-            'electron/updater.ts',
-            'landing/app/pages/index.vue',
-            'native/pdf-search/src/lib.rs',
-        ]) {
-            expect(classifyChangedFiles([file]).scan_cleanup_export?.matched, file).toBe(false);
-        }
-        expect(classifyChangedFiles(null).scan_cleanup_export?.matched).toBe(true);
     });
 
-    // The classifier is declared once per tier that skips lanes with it, and
-    // every area's owning job has to exist in one of the tiers, or the area
-    // would be classified and then silently gate nothing.
+    it('scopes test-only changes to their specific lane or integration job', () => {
+        const singleLane = classifyChangedFiles(
+            ['tests/e2e/electron/save/savePipeline.e2e.test.ts'],
+            {event: 'pull_request'},
+        );
+        expect(singleLane.selected).toEqual([
+            'publication_policy',
+            'lint',
+            'unit',
+            'build_wasm',
+            'strict_build',
+            'electron_e2e',
+        ]);
+        expect(singleLane.lanes).toEqual(['e2e-save']);
 
-    it('writes executable GitHub outputs from the canonical policy', () => {
+        const twoLanes = classifyChangedFiles([
+            'tests/e2e/electron/save/savePipeline.e2e.test.ts',
+            'tests/e2e/electron/annotations/annotationLifecycle.e2e.test.ts',
+        ], {event: 'pull_request'});
+        expect(twoLanes.lanes).toEqual([
+            'e2e-annotations',
+            'e2e-save',
+        ]);
+
+        for (const file of [
+            'tests/unit/scripts/publicationPolicy.test.ts',
+            'tests/e2e/electron/nightly/large-pdf/largePdfAnnotationSave.e2e.test.ts',
+        ]) {
+            const selection = classifyChangedFiles([file], {event: 'pull_request'});
+            expect(selection.selected, file).toEqual([
+                'publication_policy',
+                'lint',
+                'unit',
+                'build_wasm',
+            ]);
+            expect(selection.lanes, file).toEqual([]);
+        }
+
+        const browserTests = classifyChangedFiles(
+            ['tests/integration/browser/documentLifecycle.test.ts'],
+            {event: 'pull_request'},
+        );
+        expect(browserTests.selected).toEqual([
+            'publication_policy',
+            'lint',
+            'unit',
+            'build_wasm',
+            'browser_integration',
+        ]);
+        expect(browserTests.lanes).toEqual([]);
+
+        const nativeTests = classifyChangedFiles(
+            ['tests/integration/native/nativePdfSave.test.ts'],
+            {event: 'pull_request'},
+        );
+        expect(nativeTests.selected).toEqual([
+            'publication_policy',
+            'lint',
+            'unit',
+            'build_wasm',
+            'strict_build',
+            'native_pdf_integration',
+            'windows_atomic_pdf_replacement',
+        ]);
+        expect(nativeTests.lanes).toEqual([]);
+    });
+
+    it('fails open to every gated job and all lanes for unmatched files or null diffs', () => {
+        for (const file of [
+            '.github/workflows/ci.yml',
+            '.github/actions/setup-ci-env/action.yml',
+            'scripts/afterPack.cjs',
+            'scripts/ci/classify-changed-areas.mjs',
+            'package.json',
+            'pnpm-lock.yaml',
+            'vitest.config.ts',
+            'tsconfig.json',
+            'tests/e2e/electron/helpers/session.ts',
+            'tests/e2e/electron/globalSetup.ts',
+        ]) {
+            const selection = classifyChangedFiles([file], {event: 'pull_request'});
+            expect(selection.selected, file).toEqual([
+                'publication_policy',
+                ...ALL_GATED_JOBS,
+            ]);
+            expect(selection.lanes, file).toEqual(ALL_LANES);
+        }
+
+        const nullDiff = classifyChangedFiles(null, {event: 'push'});
+        expect(nullDiff.selected).toEqual([
+            'publication_policy',
+            ...ALL_GATED_JOBS,
+        ]);
+        expect(nullDiff.lanes).toEqual(ALL_LANES);
+    });
+
+    it('handles workflow_dispatch and verified-tree push runs inside the classifier', () => {
+        const dispatch = classifyChangedFiles(['README.md'], {event: 'workflow_dispatch'});
+        expect(dispatch.selected).toEqual([...ALL_GATED_JOBS]);
+        expect(dispatch.selected).not.toContain('publication_policy');
+        expect(dispatch.lanes).toEqual(ALL_LANES);
+        expect(dispatch.verifiedTree).toBe(false);
+
+        const verified = classifyChangedFiles([], {
+            event: 'push',
+            verifiedTree: true,
+        });
+        expect(verified.selected).toEqual([
+            'publication_policy',
+            'build_wasm',
+            'strict_build',
+            'electron_e2e',
+        ]);
+        expect(verified.lanes).toEqual(['e2e-smoke']);
+        expect(verified.verifiedTree).toBe(true);
+    });
+
+    it('writes selected and lanes JSON outputs to GITHUB_OUTPUT', () => {
         const tempDir = mkdtempSync(join(tmpdir(), 'evb-changed-areas-'));
         const outputPath = join(tempDir, 'github-output');
         try {
             const result = spawnSync(process.execPath, [
                 classifierPath,
-                '--file=scripts/afterPack.cjs',
+                '--event=pull_request',
                 '--file=landing/app/pages/index.vue',
             ], {
                 encoding: 'utf8',
@@ -348,14 +451,10 @@ describe('changed-area classifier', () => {
             });
 
             expect(result.status, result.stderr).toBe(0);
-            expect(readFileSync(outputPath, 'utf8').trim().split('\n').sort()).toEqual([
-                'browser_integration=true',
-                'desktop_build=true',
-                'electron_save_reopen=false',
-                'electron_smoke=false',
-                'landing=true',
-                'rust=false',
-                'scan_cleanup_export=false',
+            const lines = readFileSync(outputPath, 'utf8').trim().split('\n');
+            expect(lines).toEqual([
+                'selected=["publication_policy","lint","unit","build_wasm","browser_integration","landing"]',
+                'lanes=[]',
             ]);
         } finally {
             removeTemporaryDirectorySync(tempDir);
@@ -372,30 +471,11 @@ describe('changed-area classifier', () => {
             rmSync(landingPage);
             const head = commitAll(root, 'delete landing page');
 
-            const classification = runClassifierForRange(root, base, head);
+            const classification = runClassifierForRange(root, base, head, {event: 'pull_request'});
 
             expect(classification.files).toContain('landing/app/pages/removed.vue');
-            expect(classification.result.landing?.matched).toBe(true);
-        } finally {
-            removeTemporaryDirectorySync(root);
-        }
-    });
-
-    it('leaves the push base unavailable for a first root push', () => {
-        const root = createTempRepository();
-        try {
-            const source = join(root, 'app/app.vue');
-            mkdirSync(resolve(source, '..'), {recursive: true});
-            writeFileSync(source, '<template />\n', 'utf8');
-            const head = commitAll(root, 'first root commit');
-
-            const base = runPushDiffBase(
-                root,
-                '0000000000000000000000000000000000000000',
-                head,
-            );
-            expect(base).toBe('unavailable-push-base');
-            expect(runClassifierForRange(root, base, head).files).toBeNull();
+            expect(classification.selected).toContain('landing');
+            expect(classification.selected).toContain('browser_integration');
         } finally {
             removeTemporaryDirectorySync(root);
         }
@@ -405,7 +485,7 @@ describe('changed-area classifier', () => {
         const root = createTempRepository();
         try {
             const source = join(root, 'landing/app/pages/moved.vue');
-            const destination = join(root, 'notes/moved.vue');
+            const destination = join(root, 'docs/moved.md');
             mkdirSync(resolve(source, '..'), {recursive: true});
             writeFileSync(source, '<template />\n', 'utf8');
             const base = commitAll(root, 'add landing page');
@@ -413,17 +493,40 @@ describe('changed-area classifier', () => {
             runGit(root, [
                 'mv',
                 'landing/app/pages/moved.vue',
-                'notes/moved.vue',
+                'docs/moved.md',
             ]);
             const head = commitAll(root, 'move landing page out');
 
-            const classification = runClassifierForRange(root, base, head);
+            const classification = runClassifierForRange(root, base, head, {event: 'pull_request'});
 
             expect(classification.files).toEqual(expect.arrayContaining([
                 'landing/app/pages/moved.vue',
-                'notes/moved.vue',
+                'docs/moved.md',
             ]));
-            expect(classification.result.landing?.matched).toBe(true);
+            expect(classification.selected).toContain('landing');
+        } finally {
+            removeTemporaryDirectorySync(root);
+        }
+    });
+
+    it('detects verified-tree push when base equals head without --include-worktree', () => {
+        const root = createTempRepository();
+        try {
+            const source = join(root, 'app/app.vue');
+            mkdirSync(resolve(source, '..'), {recursive: true});
+            writeFileSync(source, '<template />\n', 'utf8');
+            const head = commitAll(root, 'verified merge');
+
+            const classification = runClassifierForRange(root, head, head, {event: 'push'});
+
+            expect(classification.verifiedTree).toBe(true);
+            expect(classification.selected).toEqual([
+                'publication_policy',
+                'build_wasm',
+                'strict_build',
+                'electron_e2e',
+            ]);
+            expect(classification.lanes).toEqual(['e2e-smoke']);
         } finally {
             removeTemporaryDirectorySync(root);
         }
@@ -456,7 +559,7 @@ describe('changed-area classifier', () => {
             mkdirSync(resolve(untrackedPath, '..'), {recursive: true});
             writeFileSync(untrackedPath, 'export const untracked = true;\n', 'utf8');
 
-            const classification = runClassifierForRange(root, base, base, true);
+            const classification = runClassifierForRange(root, base, base, {includeWorktree: true});
 
             expect(classification.files).toEqual(expect.arrayContaining([
                 'app/modules/scan-cleanup/tracked.ts',
@@ -464,8 +567,9 @@ describe('changed-area classifier', () => {
                 'native/scan-cleanup/staged.rs',
                 'packages/scan-cleanup/core/untracked.ts',
             ]));
-            expect(classification.result.scan_cleanup_export?.matched).toBe(true);
-            expect(classification.result.rust?.matched).toBe(true);
+            expect(classification.selected).toContain('scan_cleanup_oracles');
+            expect(classification.selected).toContain('rust');
+            expect(classification.verifiedTree).toBe(false);
         } finally {
             removeTemporaryDirectorySync(root);
         }
@@ -482,12 +586,273 @@ describe('changed-area classifier', () => {
             unlinkSync(trackedPath);
             symlinkSync('replacement.ts', trackedPath);
 
-            const classification = runClassifierForRange(root, base, base, true);
+            const classification = runClassifierForRange(root, base, base, {includeWorktree: true});
 
             expect(classification.files).toContain('app/modules/scan-cleanup/type-change.ts');
-            expect(classification.result.scan_cleanup_export?.matched).toBe(true);
+            expect(classification.selected).toContain('scan_cleanup_oracles');
         } finally {
             removeTemporaryDirectorySync(root);
         }
+    });
+
+    describe('push-diff-base.sh', () => {
+        it('returns unavailable-push-base for new refs even when HEAD has a parent', () => {
+            const root = createTempRepository();
+            try {
+                const source = join(root, 'app/app.vue');
+                mkdirSync(resolve(source, '..'), {recursive: true});
+                writeFileSync(source, '<template>1</template>\n', 'utf8');
+                const first = commitAll(root, 'first root commit');
+                writeFileSync(source, '<template>2</template>\n', 'utf8');
+                const second = commitAll(root, 'second commit');
+
+                for (const [
+                    before,
+                    head,
+                ] of [
+                    [
+                        '0000000000000000000000000000000000000000',
+                        first,
+                    ],
+                    [
+                        '0000000000000000000000000000000000000000',
+                        second,
+                    ],
+                    [
+                        '',
+                        second,
+                    ],
+                ]) {
+                    const base = runPushDiffBase(root, before ?? '', head ?? '');
+                    expect(base).toBe('unavailable-push-base');
+                    expect(runClassifierForRange(root, base, head ?? '', {event: 'push'}).files).toBeNull();
+                }
+            } finally {
+                removeTemporaryDirectorySync(root);
+            }
+        });
+
+        it.skipIf(process.platform === 'win32')('intersects push runs in one query, ignores in-flight before, and proves merged PR trees', () => {
+            const root = createTempRepository();
+            const fakeBin = mkdtempSync(join(tmpdir(), 'evb-fake-gh-'));
+            const ghLog = join(fakeBin, 'gh-calls.log');
+            try {
+                const filePath = join(root, 'app/app.vue');
+                mkdirSync(resolve(filePath, '..'), {recursive: true});
+                writeFileSync(filePath, '<template>v1</template>\n', 'utf8');
+                const provedOld = commitAll(root, 'proved old');
+
+                writeFileSync(filePath, '<template>v2</template>\n', 'utf8');
+                const inFlightBefore = commitAll(root, 'in-flight before');
+
+                runGit(root, [
+                    'checkout',
+                    '-q',
+                    '-b',
+                    'feature',
+                ]);
+                writeFileSync(filePath, '<template>v3</template>\n', 'utf8');
+                const prHead = commitAll(root, 'pr head');
+
+                runGit(root, [
+                    'checkout',
+                    '-q',
+                    '-',
+                ]);
+                runGit(root, [
+                    'merge',
+                    '--quiet',
+                    '--no-ff',
+                    'feature',
+                    '-m',
+                    'merge feature',
+                ]);
+                const mergeHead = runGit(root, [
+                    'rev-parse',
+                    'HEAD',
+                ]);
+
+                const fakeGh = join(fakeBin, 'gh');
+                writeFileSync(fakeGh, `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$*" >> "${ghLog}"
+exec "${process.execPath}" --input-type=module -e '
+  const args = process.argv.slice(1);
+  const query = args.join(" ");
+  const jqIndex = args.indexOf("--jq");
+  const jqFilter = jqIndex === -1 ? "" : (args[jqIndex + 1] ?? "");
+  if (query.includes("event=push")) {
+    const runs = JSON.parse(process.env.FAKE_PUSH_RUNS_JSON ?? "{\\"workflow_runs\\":[]}").workflow_runs;
+    for (const run of runs) {
+      if (run.status === "completed" && run.conclusion === "success") {
+        console.log(run.head_sha);
+      }
+    }
+  } else if (query.includes("head_sha=${prHead}")) {
+    if (!jqFilter.includes("env.GITHUB_REF_NAME")) {
+      process.exit(2);
+    }
+    const refName = process.env.GITHUB_REF_NAME ?? "";
+    const runs = JSON.parse(process.env.FAKE_PR_RUNS_JSON ?? "{\\"workflow_runs\\":[]}").workflow_runs;
+    const count = runs.filter(run =>
+      run.status === "completed"
+      && run.conclusion === "success"
+      && (
+        run.event === "push"
+        || (
+          run.event === "pull_request"
+          && Array.isArray(run.pull_requests)
+          && run.pull_requests.some(pr => pr.base?.ref === refName)
+        )
+      ),
+    ).length;
+    console.log(String(count));
+  } else {
+    process.exit(1);
+  }
+' -- "$@"
+`, 'utf8');
+                chmodSync(fakeGh, 0o755);
+
+                const baseEnv = {
+                    GITHUB_REF_NAME: 'main',
+                    GITHUB_REPOSITORY: 'evb0110/evb-viewer',
+                    PATH: `${fakeBin}${delimiter}${process.env.PATH ?? ''}`,
+                };
+
+                const pushRuns = (runs: Array<{
+                    conclusion: string | null;
+                    head_sha: string;
+                    status: string;
+                }>) => JSON.stringify({workflow_runs: runs});
+
+                const prRuns = (runs: Array<{
+                    conclusion: string | null;
+                    event: string;
+                    pull_requests?: Array<{base: {ref: string}}>;
+                    status: string;
+                }>) => JSON.stringify({workflow_runs: runs});
+
+                const provedBeforePushRuns = pushRuns([
+                    {
+                        conclusion: 'success',
+                        head_sha: inFlightBefore,
+                        status: 'completed',
+                    },
+                    {
+                        conclusion: 'success',
+                        head_sha: provedOld,
+                        status: 'completed',
+                    },
+                ]);
+
+                const passingMainPrRuns = prRuns([{
+                    conclusion: 'success',
+                    event: 'pull_request',
+                    pull_requests: [{base: {ref: 'main'}}],
+                    status: 'completed',
+                }]);
+
+                // Case 1: `inFlightBefore` is in_progress (not completed success);
+                // walks back to `provedOld` in ONE query and does NOT prove the merge tree.
+                writeFileSync(ghLog, '', 'utf8');
+                const baseWhenInFlight = runPushDiffBase(root, inFlightBefore, mergeHead, {
+                    ...baseEnv,
+                    FAKE_PR_RUNS_JSON: passingMainPrRuns,
+                    FAKE_PUSH_RUNS_JSON: pushRuns([
+                        {
+                            conclusion: null,
+                            head_sha: inFlightBefore,
+                            status: 'in_progress',
+                        },
+                        {
+                            conclusion: 'success',
+                            head_sha: provedOld,
+                            status: 'completed',
+                        },
+                    ]),
+                });
+                expect(baseWhenInFlight).toBe(provedOld);
+                expect(readFileSync(ghLog, 'utf8').trim().split('\n')).toHaveLength(1);
+
+                // Case 2: `inFlightBefore` IS proved and PR head passed against `main` with identical tree ->
+                // returns `mergeHead` (verified tree) using 2 queries total (1 push + 1 pr head).
+                writeFileSync(ghLog, '', 'utf8');
+                const baseWhenProved = runPushDiffBase(root, inFlightBefore, mergeHead, {
+                    ...baseEnv,
+                    FAKE_PR_RUNS_JSON: passingMainPrRuns,
+                    FAKE_PUSH_RUNS_JSON: provedBeforePushRuns,
+                });
+                expect(baseWhenProved).toBe(mergeHead);
+                expect(readFileSync(ghLog, 'utf8').trim().split('\n')).toHaveLength(2);
+
+                // Case 3: `inFlightBefore` IS proved, but PR head only passed against a DIFFERENT target branch ->
+                // falls back to `inFlightBefore`, NOT `mergeHead`.
+                const baseWhenPrTargetedOtherBranch = runPushDiffBase(root, inFlightBefore, mergeHead, {
+                    ...baseEnv,
+                    FAKE_PR_RUNS_JSON: prRuns([{
+                        conclusion: 'success',
+                        event: 'pull_request',
+                        pull_requests: [{base: {ref: 'other-branch'}}],
+                        status: 'completed',
+                    }]),
+                    FAKE_PUSH_RUNS_JSON: provedBeforePushRuns,
+                });
+                expect(baseWhenPrTargetedOtherBranch).toBe(inFlightBefore);
+
+                // Case 4: `inFlightBefore` IS proved but PR head has no passing run ->
+                // falls back to `inFlightBefore`, NOT `mergeHead`.
+                const baseWhenPrUnproved = runPushDiffBase(root, inFlightBefore, mergeHead, {
+                    ...baseEnv,
+                    FAKE_PR_RUNS_JSON: prRuns([]),
+                    FAKE_PUSH_RUNS_JSON: provedBeforePushRuns,
+                });
+                expect(baseWhenPrUnproved).toBe(inFlightBefore);
+
+                // Case 5: `inFlightBefore` IS proved and PR head passed, but the merge commit
+                // modified the tree (evil merge) -> falls back to `inFlightBefore`.
+                writeFileSync(filePath, '<template>evil-merge</template>\n', 'utf8');
+                runGit(root, [
+                    'add',
+                    '--all',
+                ]);
+                runGit(root, [
+                    'commit',
+                    '--quiet',
+                    '--amend',
+                    '--no-edit',
+                ]);
+                const evilMergeHead = runGit(root, [
+                    'rev-parse',
+                    'HEAD',
+                ]);
+                const baseWhenTreeDiffers = runPushDiffBase(root, inFlightBefore, evilMergeHead, {
+                    ...baseEnv,
+                    FAKE_PR_RUNS_JSON: passingMainPrRuns,
+                    FAKE_PUSH_RUNS_JSON: provedBeforePushRuns,
+                });
+                expect(baseWhenTreeDiffers).toBe(inFlightBefore);
+
+                // Case 6: force-push where `before` is not an ancestor of `head` ->
+                // returns `unavailable-push-base` instead of accepting a non-ancestor SHA.
+                runGit(root, [
+                    'checkout',
+                    '-q',
+                    '--orphan',
+                    'rewritten',
+                ]);
+                writeFileSync(filePath, '<template>rewritten</template>\n', 'utf8');
+                const rewrittenHead = commitAll(root, 'rewritten history');
+                const baseOnForcePush = runPushDiffBase(root, inFlightBefore, rewrittenHead, {
+                    ...baseEnv,
+                    FAKE_PR_RUNS_JSON: passingMainPrRuns,
+                    FAKE_PUSH_RUNS_JSON: provedBeforePushRuns,
+                });
+                expect(baseOnForcePush).toBe('unavailable-push-base');
+            } finally {
+                removeTemporaryDirectorySync(fakeBin);
+                removeTemporaryDirectorySync(root);
+            }
+        });
     });
 });

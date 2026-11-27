@@ -22,13 +22,12 @@ import {
     callWorkspaceCommand, getLatestAutomationEventId, getWorkspaceToolbarSnapshot, installWorkspaceExposeProbe, readWorkspaceStateValues, requireWorkspaceCommand, type IWorkspaceExposeProbeWindow, waitForAutomationEvent, waitForSaveFrontierReady,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import { enablePdfDiagnosticSession } from '@tests/e2e/electron/helpers/pdfDiagnosticSession';
-import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
+import { runDesktopQpdfWasm } from '@electron/native-tools/qpdfWasmWorkerClient';
 import type {IStagedArtifactCaptureWindow} from '../large-pdf/largePdfAnnotationSaveShared';
 import {
     LARGE_PDF_TIMEOUT_MS,
     NOTE_TEXT_ENTRY_TIMEOUT_MS,
     editVisibleStickyNote,
-    execFileAsync,
     expectCleanAnnotationHydration,
     expectProcessesExited,
     installStagedArtifactCapture,
@@ -816,13 +815,12 @@ function expectPdfRectClose(
 }
 
 async function qpdfPageCount(filePath: string) {
-    const {stdout} = await execFileAsync(getPdfNativeToolPaths().qpdf, [
+    const {stdout} = await runDesktopQpdfWasm([
         '--show-npages',
         filePath,
     ], {
-        encoding: 'utf8',
-        maxBuffer: 64 * 1024,
-        timeout: 120_000,
+        timeoutMs: 120_000,
+        commandLabel: 'qpdf(e2e-large-page-count)',
     });
     const pageCount = Number.parseInt(stdout.trim(), 10);
     if (!Number.isSafeInteger(pageCount) || pageCount < 1) {
@@ -934,7 +932,7 @@ async function combineImportedTextPopupWithExactFixture(
     exactFixturePath: string,
     outputPath: string,
 ) {
-    await execFileAsync(getPdfNativeToolPaths().qpdf, [
+    await runDesktopQpdfWasm([
         onePageFixturePath,
         '--pages',
         '.',
@@ -944,8 +942,8 @@ async function combineImportedTextPopupWithExactFixture(
         '--',
         outputPath,
     ], {
-        maxBuffer: 128 * 1024,
-        timeout: IMPORTED_TEXT_POPUP_TIMEOUT_MS,
+        timeoutMs: IMPORTED_TEXT_POPUP_TIMEOUT_MS,
+        commandLabel: 'qpdf(e2e-large-combine-popup)',
     });
 }
 
@@ -959,13 +957,12 @@ async function inspectImportedTextPopupStructure(
         popupInPageAnnots?: boolean;
     } = {},
 ) {
-    const {stdout: pagesOutput} = await execFileAsync(getPdfNativeToolPaths().qpdf, [
+    const {stdout: pagesOutput} = await runDesktopQpdfWasm([
         '--show-pages',
         filePath,
     ], {
-        encoding: 'utf8',
-        maxBuffer: 2 * 1024 * 1024,
-        timeout: IMPORTED_TEXT_POPUP_TIMEOUT_MS,
+        timeoutMs: IMPORTED_TEXT_POPUP_TIMEOUT_MS,
+        commandLabel: 'qpdf(e2e-large-show-pages)',
     });
     const pageRefMatch = pagesOutput.match(/^page 1: (\d+) (\d+) R$/mu);
     if (!pageRefMatch) {

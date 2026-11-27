@@ -1,4 +1,3 @@
-import {execFile} from 'node:child_process';
 import {
     access,
     copyFile,
@@ -9,7 +8,6 @@ import {
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {promisify} from 'node:util';
 import {
     PDFDict,
     PDFDocument,
@@ -27,10 +25,9 @@ import {
 import {normalizePdfNativeMutationSet} from '@contracts/nativePdfMutations';
 import {splitPdfNativeMutationSetIntoBoundedChunks} from '@pdf-core/nativePdfMutationPolicy';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
+import {runDesktopQpdfWasm} from '@electron/native-tools/qpdfWasmWorkerClient';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
-import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 
-const execFileAsync = promisify(execFile);
 const NATIVE_BOOKMARK_TIMEOUT_MS = 180_000;
 
 function decodePdfText(value: unknown) {
@@ -56,7 +53,6 @@ describe('native bookmark continuation integration', () => {
         tempRoot = await mkdtemp(join(tmpdir(), 'evb-native-bookmarks-'));
         const binaryPath = resolveNativePageOpsPath();
         expect(binaryPath).not.toBeNull();
-        const qpdfPath = getPdfNativeToolPaths().qpdf;
         await access(binaryPath!);
         const inputPath = join(tempRoot, 'input.pdf');
         const workingPath = join(tempRoot, 'working.pdf');
@@ -101,20 +97,17 @@ describe('native bookmark continuation integration', () => {
                 mutationsPath,
                 '--modified-at',
                 'D:20260829120500+04\'00\'',
-                '--qpdf',
-                qpdfPath,
                 '--append',
             ], {
                 timeoutMs: NATIVE_BOOKMARK_TIMEOUT_MS,
             });
         }
 
-        await expect(execFileAsync(qpdfPath, [
+        await expect(runDesktopQpdfWasm([
             '--check',
             workingPath,
         ], {
-            encoding: 'utf8',
-            timeout: NATIVE_BOOKMARK_TIMEOUT_MS,
+            timeoutMs: NATIVE_BOOKMARK_TIMEOUT_MS,
         })).resolves.toBeTruthy();
 
         const reopened = await PDFDocument.load(await readFile(workingPath), {updateMetadata: false});

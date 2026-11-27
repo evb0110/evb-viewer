@@ -325,7 +325,6 @@ export function createScanCleanupPreviewDependencies(
         runWithPreviewLease: (_ownerId, _visibility, _signal, _options, _rasterMaxPixels, work) => work(),
         runWithDetectionLease: (_ownerId, _signal, _policy, _options, work) => work(),
         getSourceStatIdentity: async () => 'fixture-source',
-        resolveQpdfBinary: () => '/usr/bin/qpdf',
         getPageCount: vi.fn(async () => 3),
         getPageSizes: vi.fn(async () => DOCUMENT_PAGE_SIZES),
         getPageSizeStore: vi.fn(async () => createArrayBackedPdfPageSizeStore(DOCUMENT_PAGE_SIZES)),

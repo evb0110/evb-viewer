@@ -5,9 +5,9 @@ inputs:
   node-version:
     description: Exact Node version to install.
     required: true
-  cache-dependency-path:
-    description: Lockfile path used by the pnpm cache.
-    default: pnpm-lock.yaml
+  install-dependencies:
+    description: Run scripts/ci-install-dependencies.mjs --frozen-lockfile and verify the Electron install.
+    default: 'true'
   wasm:
     description: Restore or build the browser WASM files in public/wasm.
     default: 'false'
@@ -16,22 +16,32 @@ runs:
   using: composite
   steps:
     - name: Setup pnpm
+      if: inputs.install-dependencies == 'true'
       uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
     - name: Setup Node.js
       uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
       with:
         node-version: ${{ inputs.node-version }}
-        cache: pnpm
-        cache-dependency-path: ${{ inputs.cache-dependency-path }}
+        cache: ${{ inputs.install-dependencies == 'true' && 'pnpm' || '' }}
+        cache-dependency-path: ${{ inputs.install-dependencies == 'true' && 'pnpm-lock.yaml' || '' }}
+
+    # Windows: pnpm postinstall uses Unix commands (mkdir -p, cp) that
+    # require bash. Configure pnpm to use Git Bash for lifecycle scripts.
+    - name: Configure pnpm script shell (Windows)
+      if: runner.os == 'Windows' && inputs.install-dependencies == 'true'
+      shell: pwsh
+      run: pnpm config set script-shell "C:\Program Files\Git\bin\bash.exe"
 
     - name: Cache runtime binary archives
+      if: inputs.install-dependencies == 'true'
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: .cache/runtime-binaries
         key: runtime-binaries-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/runtimeBinaryManifest.ts') }}
 
     - name: Install dependencies
+      if: inputs.install-dependencies == 'true'
       shell: bash
       run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
 

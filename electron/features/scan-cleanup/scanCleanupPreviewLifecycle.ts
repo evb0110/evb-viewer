@@ -37,6 +37,7 @@ import {
     getWorkingCopyBackingEntry,
     isWorkingCopyDocumentPath,
 } from '@electron/file-access/documentStore';
+import {resolveDesktopQpdfPath} from '@electron/native-tools/qpdfWasmWorkerClient';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {detectSourceDpiDetails} from '@electron/pdf/sourceDpiDetection';
 import {resolveNativePdfImageCombinePath} from '@electron/image/tryCreatePdfWithNativeImageCombiner';
@@ -112,7 +113,6 @@ export const defaultDependencies: IScanCleanupPreviewDependencies = {
     runSidecar: runScanCleanupSidecar,
     resolveBinary: resolveScanCleanupPreviewPath,
     resolvePageOpsBinary: resolveNativePageOpsPath,
-    resolveQpdfBinary: () => getPdfNativeToolPaths().qpdf,
     getTempDir: getAppTempDir,
     getPdftoppmBinary: () => getPdfNativeToolPaths().pdftoppm,
     detectSourceDpi: async (sourcePdfPath, pageNumber, signal) => {
@@ -154,7 +154,7 @@ export const defaultDependencies: IScanCleanupPreviewDependencies = {
                     foregroundOutputPath: `${backgroundOutputPath}.foreground.jp2`,
                 }],
                 pdfimagesBinary: paths.pdfimages,
-                qpdfBinary: paths.qpdf,
+                qpdfBinary: resolveDesktopQpdfPath(),
                 pdfImageCombineBinary,
                 pdftoppmBinary: paths.pdftoppm,
                 runCommand,

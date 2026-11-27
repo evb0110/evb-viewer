@@ -1033,6 +1033,7 @@ interface IParsedCliArgs {
     append: boolean;
     appendInPlace: boolean;
     metadataOnly: boolean;
+    strict: boolean;
     withEvbOcrText: boolean;
     viewMode?: string;
     orientation?: string;
@@ -1071,6 +1072,7 @@ function parseDesktopPageOpsCliArgs(args: readonly string[]): IParsedCliArgs {
     let append = false;
     let appendInPlace = false;
     let metadataOnly = false;
+    let strict = false;
     let withEvbOcrText = false;
     let viewMode: string | undefined;
     let orientation: string | undefined;
@@ -1193,6 +1195,9 @@ function parseDesktopPageOpsCliArgs(args: readonly string[]): IParsedCliArgs {
             case '--metadata-only':
                 metadataOnly = true;
                 break;
+            case '--strict':
+                strict = true;
+                break;
             case '--view-mode':
                 viewMode = nextValue(arg, i);
                 i += 1;
@@ -1208,6 +1213,9 @@ function parseDesktopPageOpsCliArgs(args: readonly string[]): IParsedCliArgs {
 
     if (metadataOnly && command !== 'page-sizes') {
         throw new PdfPageOpsNativeError('invalid-request', '--metadata-only is only valid for page-sizes');
+    }
+    if (strict && command !== 'pdf-conformance' && command !== 'conformance') {
+        throw new PdfPageOpsNativeError('invalid-request', '--strict is only valid for pdf-conformance');
     }
     if (appendInPlace && (!append || command !== 'save-mutations')) {
         throw new PdfPageOpsNativeError('invalid-request', '--append-in-place requires --append on save-mutations');
@@ -1244,6 +1252,7 @@ function parseDesktopPageOpsCliArgs(args: readonly string[]): IParsedCliArgs {
         append,
         appendInPlace,
         metadataOnly,
+        strict,
         withEvbOcrText,
         ...(viewMode === undefined ? {} : {viewMode}),
         ...(orientation === undefined ? {} : {orientation}),
@@ -1873,6 +1882,7 @@ export function executeDesktopPageOpsCommand(
                 return withHostFiles({sourcePaths: [parsed.inputPath]}, io => {
                     const request = encodeFileRequest({
                         operation: OPERATION_CODES.conformance,
+                        afterPage: parsed.strict ? 1 : 0,
                         sourceCount: 1,
                     });
                     return {

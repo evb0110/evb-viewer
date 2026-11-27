@@ -1,7 +1,9 @@
 import { basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isPdfPageOpsWasmPath } from '@node-runtime/pdfPageOpsWasmRunner';
+import { isQpdfWasmPath } from '@node-runtime/qpdfWasmRunner';
 import { runDesktopPageOpsWasm } from '@electron/native-tools/pdfPageOpsWorkerClient';
+import { runDesktopQpdfWasm } from '@electron/native-tools/qpdfWasmWorkerClient';
 import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
 import { withDefinedCommandOptions } from '@electron/native-tools/withDefinedCommandOptions';
 import type { IProcessResult } from '@electron/native-tools/processResult';
@@ -81,6 +83,29 @@ export async function runNativeToolCommand(
                 ...(options.cancelGroup === undefined ? {} : {cancelGroup: options.cancelGroup}),
                 ...(options.commandLabel === undefined ? {} : {commandLabel: options.commandLabel}),
                 ...(options.maxStdoutBytes === undefined ? {} : {maxStdoutBytes: options.maxStdoutBytes}),
+                ...(options.rejectOnStdoutTruncation === undefined
+                    ? {}
+                    : {rejectOnStdoutTruncation: options.rejectOnStdoutTruncation}),
+                ...(options.onTerminationProof === undefined
+                    ? {}
+                    : {onTerminationProof: options.onTerminationProof}),
+            });
+        } finally {
+            options.onClose?.();
+        }
+    }
+    if (isQpdfWasmPath(command)) {
+        try {
+            return await runDesktopQpdfWasm(args, {
+                wasmPath: command,
+                ...(options.allowedExitCodes === undefined ? {} : {allowedExitCodes: options.allowedExitCodes}),
+                ...(options.cwd === undefined ? {} : {cwd: options.cwd}),
+                ...(options.signal === undefined ? {} : {signal: options.signal}),
+                ...(options.timeoutMs === undefined ? {} : {timeoutMs: options.timeoutMs}),
+                ...(options.cancelGroup === undefined ? {} : {cancelGroup: options.cancelGroup}),
+                ...(options.commandLabel === undefined ? {} : {commandLabel: options.commandLabel}),
+                ...(options.maxStdoutBytes === undefined ? {} : {maxStdoutBytes: options.maxStdoutBytes}),
+                ...(options.maxStderrBytes === undefined ? {} : {maxStderrBytes: options.maxStderrBytes}),
                 ...(options.rejectOnStdoutTruncation === undefined
                     ? {}
                     : {rejectOnStdoutTruncation: options.rejectOnStdoutTruncation}),

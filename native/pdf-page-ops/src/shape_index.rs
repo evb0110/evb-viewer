@@ -1701,14 +1701,11 @@ mod tests {
                     "/tmp/input.pdf".to_string(),
                     "--output".to_string(),
                     "/tmp/index.jsonl".to_string(),
-                    "--qpdf-path".to_string(),
-                    "/opt/qpdf".to_string(),
                 ]
                 .into_iter(),
             )
             .unwrap();
             assert!(matches!(config.operation, Operation::EmbeddedShapeIndex));
-            assert_eq!(config.qpdf_path, Some(PathBuf::from("/opt/qpdf")));
         }
     }
 
@@ -1728,7 +1725,6 @@ mod tests {
             operation: Operation::EmbeddedShapeIndex,
             input_path: input.clone(),
             output_path: Some(output.clone()),
-            qpdf_path: None,
         })
         .unwrap();
 
@@ -1750,7 +1746,6 @@ mod tests {
             operation: Operation::EmbeddedShapeIndex,
             input_path: input.clone(),
             output_path: Some(input.clone()),
-            qpdf_path: None,
         })
         .unwrap_err();
         assert!(error.to_string().contains("must not alias the PDF input"));

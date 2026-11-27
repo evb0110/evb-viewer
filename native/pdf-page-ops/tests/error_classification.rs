@@ -99,28 +99,12 @@ fn run_crop(input: &Path, output: &Path, pages: &Path) -> Output {
     )
 }
 
-fn run_pdf_conformance(input: &Path, qpdf: &Path) -> Output {
+fn run_pdf_conformance(input: &Path) -> Output {
     run_command(
         Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
             .args(["pdf-conformance", "--input"])
-            .arg(input)
-            .arg("--qpdf")
-            .arg(qpdf),
+            .arg(input),
     )
-}
-
-// A POSIX shell script stands in for qpdf, so its tests run on Unix; the
-// output parsing they cover is platform-independent.
-#[cfg(unix)]
-fn write_fake_qpdf(qpdf: &Path, status: i32, structure: &str) {
-    use std::os::unix::fs::PermissionsExt;
-
-    let _guard = FIXTURE_PROCESS_LOCK.lock().unwrap();
-    let script = format!("#!/bin/sh\nprintf '%s' '{structure}'\nexit {status}\n");
-    write(qpdf, script).unwrap();
-    let mut permissions = qpdf.metadata().unwrap().permissions();
-    permissions.set_mode(0o700);
-    std::fs::set_permissions(qpdf, permissions).unwrap();
 }
 
 fn error_code(output: &Output) -> String {
@@ -129,86 +113,6 @@ fn error_code(output: &Output) -> String {
     let envelope: Value = serde_json::from_str(stderr.trim())
         .unwrap_or_else(|error| panic!("invalid native error envelope ({error}): {stderr}"));
     envelope["code"].as_str().unwrap().to_string()
-}
-
-#[cfg(unix)]
-#[test]
-fn pdf_conformance_accepts_only_valid_qpdf_warning_output() {
-    const VALID_STRUCTURE: &str = r#"{"qpdf":[{"jsonversion":2,"pdfversion":"1.4","maxobjectid":1},{"trailer":{"value":{"/Root":"1 0 R"}},"obj:1 0 R":{"value":{"/Type":"/Catalog"}}}]}"#;
-    const TRUNCATED_STRUCTURE: &str =
-        r#"{"qpdf":[{"jsonversion":2,"pdfversion":"1.4","maxobjectid":1},{"trailer":{"value":{"#;
-    let input = path("qpdf-status-input", "pdf");
-    let mut document = Document::with_version("1.4");
-    let catalog_id = document.add_object(dictionary! { "Type" => "Catalog" });
-    document.trailer.set("Root", catalog_id);
-    document.save(&input).unwrap();
-
-    let warning_qpdf = path("qpdf-warning", "sh");
-    write_fake_qpdf(&warning_qpdf, 3, VALID_STRUCTURE);
-    let warning_result = run_pdf_conformance(&input, &warning_qpdf);
-    assert!(
-        warning_result.status.success(),
-        "valid warning-only qpdf output failed: {}",
-        String::from_utf8_lossy(&warning_result.stderr)
-    );
-    let facts: Value = serde_json::from_slice(&warning_result.stdout).unwrap();
-    assert_eq!(facts["isSigned"], false);
-
-    let truncated_qpdf = path("qpdf-truncated-warning", "sh");
-    write_fake_qpdf(&truncated_qpdf, 3, TRUNCATED_STRUCTURE);
-    assert_eq!(
-        error_code(&run_pdf_conformance(&input, &truncated_qpdf)),
-        "native-failure"
-    );
-
-    let error_qpdf = path("qpdf-error", "sh");
-    write_fake_qpdf(&error_qpdf, 2, VALID_STRUCTURE);
-    assert_eq!(
-        error_code(&run_pdf_conformance(&input, &error_qpdf)),
-        "corrupt-xref"
-    );
-
-    for candidate in [input, warning_qpdf, truncated_qpdf, error_qpdf] {
-        let _ = remove_file(candidate);
-    }
-}
-
-#[cfg(unix)]
-#[test]
-fn pdf_conformance_accepts_legacy_qpdf_json_and_rejects_invalid_trailer_sizes() {
-    const VALID_STRUCTURE: &str = r#"{"version":1,"objects":{"trailer":{"/Size":3,"/Root":"1 0 R"},"1 0 R":{"/Type":"/Catalog","/Title":"Legacy title"}}}"#;
-    const MISSING_SIZE: &str =
-        r#"{"version":1,"objects":{"trailer":{"/Root":"1 0 R"},"1 0 R":{"/Type":"/Catalog"}}}"#;
-    const NON_INTEGER_SIZE: &str = r#"{"version":1,"objects":{"trailer":{"/Size":"/three","/Root":"1 0 R"},"1 0 R":{"/Type":"/Catalog"}}}"#;
-    const UNDERSIZED: &str = r#"{"version":1,"objects":{"trailer":{"/Size":2,"/Root":"1 0 R"},"1 0 R":{"/Type":"/Catalog"},"2 0 R":null}}"#;
-    let input = path("qpdf-legacy-input", "pdf");
-    let qpdf = path("qpdf-legacy", "sh");
-    let mut document = Document::with_version("1.4");
-    let catalog_id = document.add_object(dictionary! { "Type" => "Catalog" });
-    document.trailer.set("Root", catalog_id);
-    document.save(&input).unwrap();
-
-    write_fake_qpdf(&qpdf, 0, VALID_STRUCTURE);
-    let result = run_pdf_conformance(&input, &qpdf);
-    assert!(
-        result.status.success(),
-        "legacy qpdf JSON was rejected: {}",
-        String::from_utf8_lossy(&result.stderr)
-    );
-    let facts: Value = serde_json::from_slice(&result.stdout).unwrap();
-    assert_eq!(facts["isSigned"], false);
-
-    for structure in [MISSING_SIZE, NON_INTEGER_SIZE, UNDERSIZED] {
-        write_fake_qpdf(&qpdf, 0, structure);
-        assert_eq!(
-            error_code(&run_pdf_conformance(&input, &qpdf)),
-            "native-failure"
-        );
-    }
-
-    for candidate in [input, qpdf] {
-        let _ = remove_file(candidate);
-    }
 }
 
 #[test]
@@ -320,14 +224,20 @@ fn bytes_after_eof_keep_conformance_readable_and_appends_unambiguous() {
         let input_bytes = [clean_bytes.as_slice(), trailer.as_slice()].concat();
         write(&input, &input_bytes).unwrap();
 
-        let conformance = run_pdf_conformance(&input, &qpdf);
-        assert!(
-            conformance.status.success(),
-            "{label}: {}",
-            String::from_utf8_lossy(&conformance.stderr)
-        );
-        let facts: Value = serde_json::from_slice(&conformance.stdout).unwrap();
-        assert_eq!(facts["isEncrypted"], false, "{label}");
+        let conformance = run_pdf_conformance(&input);
+        if label == "later-startxref" {
+            // Without an internal qpdf fallback, a trailing spoofed startxref is
+            // reported as `corrupt-xref` so the host runs `evb-qpdf.wasm` repair.
+            assert_eq!(error_code(&conformance), "corrupt-xref", "{label}");
+        } else {
+            assert!(
+                conformance.status.success(),
+                "{label}: {}",
+                String::from_utf8_lossy(&conformance.stderr)
+            );
+            let facts: Value = serde_json::from_slice(&conformance.stdout).unwrap();
+            assert_eq!(facts["isEncrypted"], false, "{label}");
+        }
 
         let crop = run_crop(&input, &output, &pages);
         if !appendable {

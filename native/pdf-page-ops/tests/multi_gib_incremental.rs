@@ -518,9 +518,7 @@ fn page_ops_sidecar(pdf: &Path, command: &[&str], with_qpdf: bool) -> Result<Vec
         .arg("--output")
         .arg(&sidecar)
         .args(&command[1..]);
-    if with_qpdf {
-        process.arg("--qpdf").arg(qpdf_path());
-    }
+    let _ = with_qpdf;
     let output = process.output().unwrap();
     if !output.status.success() {
         let envelope: Value = serde_json::from_slice(&output.stderr).unwrap_or_else(|error| {
@@ -560,14 +558,13 @@ fn parse_annotations(pdf: &Path, qpdf: &Path, pages: Option<&[u32]>) -> (Value, 
     let sidecar = temp_path("annotation-parse", "ndjson");
     let pages_file = temp_path("annotation-parse-pages", "txt");
     let _cleanup = TempFiles::new(vec![sidecar.clone(), pages_file.clone()]);
+    let _ = qpdf;
     let mut command = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"));
     command
         .args(["parse-annotations", "--input"])
         .arg(pdf)
         .arg("--output")
         .arg(&sidecar)
-        .arg("--qpdf")
-        .arg(qpdf)
         .args(["--modified-at", "D:20261009120000Z"]);
     if let Some(pages) = pages {
         let lines = pages
@@ -621,8 +618,6 @@ fn append_bookmark(pdf: &Path, mutations: &Path) -> Output {
         .arg(pdf)
         .arg("--mutations-file")
         .arg(mutations)
-        .arg("--qpdf")
-        .arg(qpdf_path())
         .args(["--modified-at", "D:20260826120000Z", "--append"])
         .output()
         .unwrap()
@@ -641,7 +636,7 @@ fn save_mutations(pdf: &Path, mutations: &Path, mode: &[&str]) -> Output {
     save_mutations_with_qpdf(pdf, mutations, mode, &qpdf_path())
 }
 
-fn save_mutations_with_qpdf(pdf: &Path, mutations: &Path, mode: &[&str], qpdf: &Path) -> Output {
+fn save_mutations_with_qpdf(pdf: &Path, mutations: &Path, mode: &[&str], _qpdf: &Path) -> Output {
     Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
         .args(["save-mutations", "--input"])
         .arg(pdf)
@@ -649,8 +644,6 @@ fn save_mutations_with_qpdf(pdf: &Path, mutations: &Path, mode: &[&str], qpdf: &
         .arg(pdf)
         .arg("--mutations-file")
         .arg(mutations)
-        .arg("--qpdf")
-        .arg(qpdf)
         .args(["--modified-at", "D:20260827230000Z"])
         .args(mode)
         .output()
@@ -932,8 +925,6 @@ fn split_pages_to_new_path(pdf: &Path, output: &Path, instructions: &Path) -> Ou
         .arg(output)
         .args(["--instructions-file"])
         .arg(instructions)
-        .args(["--qpdf"])
-        .arg(qpdf_path())
         .output()
         .unwrap()
 }
@@ -1090,8 +1081,6 @@ fn overlay_text_writes_a_new_revision_for_a_sparse_pdf_beyond_four_gib() {
         .arg(&output_pdf)
         .args(["--instructions-file"])
         .arg(&instructions)
-        .args(["--qpdf"])
-        .arg(qpdf_path())
         .output()
         .unwrap();
     assert!(
@@ -1121,8 +1110,6 @@ fn non_append_mutations_write_a_new_revision_for_a_sparse_pdf_beyond_four_gib() 
         .arg(&output_pdf)
         .args(["--mutations-file"])
         .arg(&mutations)
-        .args(["--qpdf"])
-        .arg(qpdf_path())
         .args(["--modified-at", "D:20260826120000Z"])
         .output()
         .unwrap();
@@ -1595,43 +1582,21 @@ fn scanned_file_sidecars_match_the_eager_reader() {
         }
     }
     let geometry_command = &["page-sizes", "--metadata-only"];
-    let qpdf = qpdf_path();
-    let bin = qpdf.parent().unwrap();
-    // The pinned Windows and macOS runtimes use these exact library names.
-    #[cfg(windows)]
-    let projected = bin.join("qpdf30.dll").is_file() || bin.join("libqpdf30.dll").is_file();
-    #[cfg(target_os = "macos")]
-    let projected = bin.join("../lib/libqpdf.30.dylib").is_file();
-    #[cfg(all(not(windows), not(target_os = "macos")))]
-    let projected = match fs::read_dir(bin.join("../lib")) {
-        Ok(mut entries) => entries.any(|entry| {
-            let name = entry.unwrap().file_name();
-            let name = name.to_string_lossy();
-            name == "libqpdf.so" || name.starts_with("libqpdf.so.")
-        }),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
-        Err(error) => panic!("Cannot inspect adjacent qpdf runtime: {error}"),
-    };
-    let geometry = page_ops_sidecar(&with_damaged_appearance, geometry_command, true);
-    // Metadata-only geometry does not validate unread annotation appearances.
-    // The absent-library full-JSON fallback retains its eager diagnostic.
-    if projected {
-        let geometry = geometry.unwrap();
-        assert_eq!(
-            geometry,
-            page_ops_sidecar(&with_note, geometry_command, true).unwrap()
-        );
-        let rows = geometry
-            .split(|byte| *byte == b'\n')
-            .filter(|row| !row.is_empty())
-            .map(|row| serde_json::from_slice::<Value>(row).unwrap())
-            .collect::<Vec<_>>();
-        assert_eq!(rows[0]["pageCount"], 1);
-        assert_eq!(rows[1]["pages"][0]["widthPoints"], 200.0);
-        assert_eq!(rows[1]["pages"][0]["heightPoints"], 100.0);
-    } else {
-        assert_eq!(geometry, Err("too-large".to_string()));
-    }
+    let geometry = page_ops_sidecar(&with_damaged_appearance, geometry_command, true).unwrap();
+    // Metadata-only geometry uses the indexed structural reader directly and
+    // does not validate unread annotation appearances.
+    assert_eq!(
+        geometry,
+        page_ops_sidecar(&with_note, geometry_command, true).unwrap()
+    );
+    let rows = geometry
+        .split(|byte| *byte == b'\n')
+        .filter(|row| !row.is_empty())
+        .map(|row| serde_json::from_slice::<Value>(row).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(rows[0]["pageCount"], 1);
+    assert_eq!(rows[1]["pages"][0]["widthPoints"], 200.0);
+    assert_eq!(rows[1]["pages"][0]["heightPoints"], 100.0);
     // The indexed reader finds the damaged appearance's end at its
     // endstream, with or without qpdf.
     let parse = &["parse-annotations", "--modified-at", "D:20261009120000Z"];
@@ -2124,8 +2089,7 @@ fn auto_print_appends_a_missing_appearance_to_a_book_above_the_layout_ceiling() 
             .arg(&source)
             .arg("--output")
             .arg(&printed)
-            .args(["--view-mode", view_mode, "--orientation", "auto", "--qpdf"])
-            .arg(qpdf_path())
+            .args(["--view-mode", view_mode, "--orientation", "auto"])
             .output()
             .unwrap()
     };
@@ -2237,8 +2201,7 @@ fn auto_print_draws_each_free_text_with_its_embedded_font_read_by_range() {
             .arg(&source)
             .arg("--output")
             .arg(&printed)
-            .args(["--view-mode", "single", "--orientation", "auto", "--qpdf"])
-            .arg(&wrapper)
+            .args(["--view-mode", "single", "--orientation", "auto"])
             .output()
             .unwrap();
         assert!(
@@ -3125,8 +3088,6 @@ fn lazy_catalog_admission_allows_tags_and_layers() {
             .arg("read-document-catalog")
             .arg("--input")
             .arg(&input)
-            .arg("--qpdf")
-            .arg(qpdf_path())
             .output()
             .unwrap();
         assert!(

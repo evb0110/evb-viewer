@@ -257,8 +257,19 @@ vi.mock('@electron/native-tools/runNativeToolCommand', () => ({async runNativeTo
 vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({
     pdfinfo: '/fake/pdfinfo',
     pdftotext: '/fake/pdftotext',
-    qpdf: '/fake/qpdf',
 })}));
+vi.mock('@electron/native-tools/qpdfWasmWorkerClient', () => ({
+    runDesktopQpdfWasm: async (args: string[]) => {
+        if (args[0] === '--show-npages') {
+            return {
+                stdout: `${fake.pageTexts.size}\n`,
+                stderr: '',
+                exitCode: 0,
+            };
+        }
+        throw new Error(`Unexpected qpdf command in search test: ${args.join(' ')}`);
+    },
+}));
 vi.mock('@electron/file-access/documentStore', async importOriginal => ({
     ...await importOriginal<Record<string, unknown>>(),
     assertWorkingCopyRevisionCurrent: async () => undefined,

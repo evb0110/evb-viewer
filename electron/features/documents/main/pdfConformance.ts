@@ -13,8 +13,8 @@ import {
     QPDF_VALIDATE_MAX_TIMEOUT_MS,
     QPDF_STRUCTURAL_VALIDATE_TIMEOUT_MS,
 } from '@pdf-core/qpdfCommands';
-import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
-import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
+import {hasNativeErrorCode} from '@contracts/nativeErrors';
+import { runDesktopQpdfWasm } from '@electron/native-tools/qpdfWasmWorkerClient';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
@@ -106,8 +106,8 @@ function throwIfValidationMustRefuse(error: unknown, signal?: AbortSignal) {
 
 async function validatePdfFileWithStructuralFallback(
     filePath: string,
-    timeoutError: unknown,
-    validationTimeoutMs: number,
+    primaryError: unknown,
+    reasonLabel: string,
     options: IPdfConformancePathAnalysisOptions = {},
 ): Promise<IPdfValidationResult> {
     try {
@@ -116,22 +116,22 @@ async function validatePdfFileWithStructuralFallback(
             timeoutMs: QPDF_VALIDATE_MAX_TIMEOUT_MS,
         });
         logger.warn(
-            `qpdf validation timed out for ${filePath}; fallback PDF structure validation succeeded: ${
-                getErrorMessage(timeoutError)
+            `qpdf validation ${reasonLabel} for ${filePath}; fallback PDF structure validation succeeded: ${
+                getErrorMessage(primaryError)
             }`,
         );
         return {
             isValid: true,
             tool: 'qpdf',
             errors: [],
-            warnings: [`qpdf validation timed out after ${validationTimeoutMs}ms; fallback PDF structure validation succeeded.`],
+            warnings: [`qpdf validation ${reasonLabel}; fallback PDF structure validation succeeded.`],
         };
     } catch (fallbackError) {
         throwIfValidationMustRefuse(fallbackError, options.signal);
         return {
             isValid: false,
             tool: 'qpdf',
-            errors: [`${getErrorMessage(timeoutError)}; fallback PDF structure validation failed: ${
+            errors: [`${getErrorMessage(primaryError)}; fallback PDF structure validation failed: ${
                 getErrorMessage(fallbackError)
             }`],
             warnings: [],
@@ -146,8 +146,7 @@ export async function validatePdfFile(
     const fileStat = await tryStatPdfFile(filePath);
     const validationTimeoutMs = resolveQpdfValidationTimeoutMs(fileStat?.size);
     try {
-        const qpdf = getPdfNativeToolPaths().qpdf;
-        const result = await runNativeToolCommand(qpdf, getQpdfCheckArgs(filePath), {
+        const result = await runDesktopQpdfWasm(getQpdfCheckArgs(filePath), {
             timeoutMs: validationTimeoutMs,
             allowedExitCodes: QPDF_SUCCESS_EXIT_CODES,
             commandLabel: QPDF_VALIDATE_COMMAND_LABEL,
@@ -166,11 +165,22 @@ export async function validatePdfFile(
         };
     } catch (error) {
         throwIfValidationMustRefuse(error, options.signal);
+        if (hasNativeErrorCode(error) && error.code === 'too-large') {
+            return validatePdfFileWithStructuralFallback(
+                filePath,
+                error,
+                'exceeded qpdf WebAssembly limits',
+                {
+                    ...options,
+                    strict: true,
+                },
+            );
+        }
         if (error instanceof Error && QPDF_VALIDATE_TIMEOUT_PATTERN.test(getErrorMessage(error))) {
             return validatePdfFileWithStructuralFallback(
                 filePath,
                 error,
-                validationTimeoutMs,
+                `timed out after ${validationTimeoutMs}ms`,
                 options,
             );
         }
@@ -189,8 +199,7 @@ async function validatePdfFileWithPageCount(
     options: IPdfConformancePathAnalysisOptions = {},
 ): Promise<IPdfValidationResult> {
     try {
-        const qpdf = getPdfNativeToolPaths().qpdf;
-        const result = await runNativeToolCommand(qpdf, getQpdfPageCountArgs(filePath), {
+        const result = await runDesktopQpdfWasm(getQpdfPageCountArgs(filePath), {
             timeoutMs: QPDF_STRUCTURAL_VALIDATE_TIMEOUT_MS,
             allowedExitCodes: QPDF_SUCCESS_EXIT_CODES,
             commandLabel,
@@ -213,6 +222,17 @@ async function validatePdfFileWithPageCount(
         };
     } catch (error) {
         throwIfValidationMustRefuse(error, options.signal);
+        if (hasNativeErrorCode(error) && error.code === 'too-large') {
+            return validatePdfFileWithStructuralFallback(
+                filePath,
+                error,
+                'exceeded qpdf WebAssembly limits',
+                {
+                    ...options,
+                    strict: true,
+                },
+            );
+        }
         return {
             isValid: false,
             tool: 'qpdf',

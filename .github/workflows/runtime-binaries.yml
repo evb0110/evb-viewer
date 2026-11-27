@@ -71,7 +71,7 @@ jobs:
         run: |
           export TMPDIR="$PWD/.devkit/tmp"
           node --import tsx scripts/fetchRuntimeBinaries.ts --target win32-x64 \
-            --family poppler --family qpdf
+            --family poppler
 
       - name: Build Linux runtime tools in the pinned Ubuntu image
         if: startsWith(matrix.target, 'linux-')
@@ -113,7 +113,7 @@ jobs:
           export TMPDIR="$PWD/.devkit/tmp"
           EVB_RUNTIME_BINARY_ARCHIVE_DIR="$PWD/.devkit/tmp/runtime-archives" \
             bash scripts/packRuntimeBinaryArchives.sh "${{ matrix.target }}"
-          for family in poppler qpdf; do
+          for family in poppler; do
             archive="$(find .devkit/tmp/runtime-archives -maxdepth 1 -type f -name "$family-${{ matrix.target }}*.tar.gz" -print -quit)"
             test -n "$archive"
             tar -tzf "$archive" | awk -v root="$family/${{ matrix.target }}/" 'index($0, root) == 1 { found = 1 } END { exit !found }'
@@ -132,7 +132,7 @@ jobs:
             const target = process.argv[1];
             const archiveDirectory = join(process.cwd(), ".devkit/tmp/runtime-archives");
             const entries = RUNTIME_BINARY_MANIFEST.entries.filter(entry => entry.target.platformArch === target);
-            if (entries.length !== 2) process.exit(42);
+            if (entries.length !== 1) process.exit(42);
             for (const entry of entries) {
               const name = new URL(entry.archiveUrl).pathname.split("/").at(-1);
               const archivePath = join(archiveDirectory, name);
@@ -155,7 +155,7 @@ jobs:
             fi
             EVB_RUNTIME_BINARY_ARCHIVE_BASE_URL="$archive_base" \
               node --import tsx scripts/fetchRuntimeBinaries.ts --target "${{ matrix.target }}" \
-                --family poppler --family qpdf
+                --family poppler
           fi
 
       - name: Summarize archive digests

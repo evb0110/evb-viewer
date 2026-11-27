@@ -3,7 +3,6 @@ import {
 } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 
 interface IPdfAnnotationObjectRef {
     objectNumber: number;
@@ -56,7 +55,6 @@ export async function readPdfAnnotationIndex(filePath: string): Promise<IPdfAnno
     const {resolveNativePageOpsPath} = await import('@electron/features/page-ops/public/nativePageOpsPath');
     const {runNativeToolCommand} = await import('@electron/native-tools/runNativeToolCommand');
     const pageOps = resolveNativePageOpsPath();
-    const qpdf = getPdfNativeToolPaths().qpdf;
     if (!pageOps) {
         throw new Error('pdf-page-ops is required to read a PDF annotation index');
     }
@@ -69,8 +67,6 @@ export async function readPdfAnnotationIndex(filePath: string): Promise<IPdfAnno
             filePath,
             '--output',
             outputPath,
-            '--qpdf',
-            qpdf,
         ], {commandLabel: 'pdf-page-ops E2E annotation index'});
         const [
             header,

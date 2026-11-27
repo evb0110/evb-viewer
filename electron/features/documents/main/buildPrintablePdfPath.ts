@@ -1,5 +1,4 @@
 import type { IPdfPathPrintOptions } from '@contracts/electronApiDocuments';
-import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { resolveNativePageOpsPath } from '@electron/features/page-ops/public/nativePageOpsPath';
 
@@ -31,8 +30,6 @@ export async function buildPrintablePdfPath(options: {
         options.printOptions.viewMode,
         '--orientation',
         options.printOptions.orientation,
-        '--qpdf',
-        getPdfNativeToolPaths().qpdf,
     ], {
         timeoutMs: PDF_PRINT_LAYOUT_TIMEOUT_MS,
         commandLabel: 'evb-pdf-page-ops(print-layout)',

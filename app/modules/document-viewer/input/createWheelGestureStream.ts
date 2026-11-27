@@ -15,6 +15,15 @@ export interface IWheelGesturePacket {
     readonly deltaY: number;
     readonly cancelable: boolean;
     readonly defaultPrevented?: boolean;
+    readonly hostSequenceOpen?: boolean | undefined;
+}
+
+export interface IWheelGestureStreamOptions {
+    /**
+     * Returns true while the host still has `sequenceId` open, keeping a
+     * cancelable tail packet inside that sequence across a delivery gap.
+     */
+    readonly isSequenceOpen?: ((sequenceId: number) => boolean) | undefined;
 }
 
 export interface IWheelGestureObservation {
@@ -70,7 +79,7 @@ export interface IWheelGestureObservation {
  * its sequence. A reversal is a packet pointing against the previous one; a
  * diagonal tail whose larger axis alternates is still travelling the same way.
  */
-export function createWheelGestureStream() {
+export function createWheelGestureStream(options: IWheelGestureStreamOptions = {}) {
     let gestureId = 0;
     let sequenceId = 0;
     let lastPacket: IWheelGesturePacket | null = null;
@@ -90,14 +99,14 @@ export function createWheelGestureStream() {
         return sinceLastPacketMs >= 0 && sinceLastPacketMs < WHEEL_GESTURE_IDLE_MS;
     }
 
-    function continuesSequence(packet: IWheelGesturePacket) {
+    function continuesSequence(packet: IWheelGesturePacket, hostSequenceOpen: boolean) {
         if (lastPacket === null) {
             return false;
         }
         if (!packet.cancelable) {
             return cancelableSeen || isWithinIdleGap(packet.timeStamp);
         }
-        return lastPacket.cancelable && isWithinIdleGap(packet.timeStamp);
+        return lastPacket.cancelable && (hostSequenceOpen || isWithinIdleGap(packet.timeStamp));
     }
 
     return {
@@ -108,8 +117,10 @@ export function createWheelGestureStream() {
         getSequenceId: () => sequenceId,
         observe(packet: IWheelGesturePacket): IWheelGestureObservation {
             const hasDelta = packet.deltaX !== 0 || packet.deltaY !== 0;
-            const startsSequence = !continuesSequence(packet);
-            const joinedByTiming = !startsSequence && packet.cancelable;
+            const hostSequenceOpen = lastPacket !== null
+                && (packet.hostSequenceOpen === true || (options.isSequenceOpen?.(sequenceId) ?? false));
+            const startsSequence = !continuesSequence(packet, hostSequenceOpen);
+            const joinedByTiming = !startsSequence && packet.cancelable && !hostSequenceOpen;
             const reverses = !startsSequence
                 && hasDelta
                 && lastDelta !== null

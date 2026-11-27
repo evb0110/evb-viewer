@@ -2150,7 +2150,6 @@ fn refuses_foreign_freetext_targets_before_rewrite_or_append() {
                         },
                         input_path: paths.0[0].clone(),
                         output_path: Some(paths.0[1].clone()),
-                        qpdf_path: None,
                     });
                     match result {
                         Ok(_) => accepted.push((
@@ -3063,7 +3062,6 @@ fn reports_an_unreadable_append_payload_as_an_invalid_request() {
         },
         input_path: pdf_path.clone(),
         output_path: Some(pdf_path.clone()),
-        qpdf_path: None,
     })
     .unwrap_err();
     assert_eq!(
