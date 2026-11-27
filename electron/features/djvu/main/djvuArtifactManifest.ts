@@ -386,6 +386,28 @@ async function writeManifest(path: string, manifest: IDjvuArtifactManifest) {
     }
 }
 
+async function reconcileCachedArtifactRange(range: IDjvuArtifactRange, signal?: AbortSignal) {
+    if (range.status === 'running') {
+        range.status = 'pending';
+        return;
+    }
+    if (range.status !== 'verified') {
+        return;
+    }
+    const artifact = await stat(range.outputPath).catch(() => null);
+    const hasExpectedSize = artifact !== null && artifact.size > 0 && artifact.size === range.size;
+    const digest = hasExpectedSize && range.sha256
+        ? await hashFileSha256(range.outputPath, signal).catch(() => null)
+        : null;
+    if (hasExpectedSize && digest === range.sha256) {
+        return;
+    }
+    range.status = 'pending';
+    delete range.size;
+    delete range.sha256;
+    delete range.accountedSize;
+}
+
 export async function openDjvuArtifactJob(
     sourcePath: string,
     pageRanges: ReadonlyArray<{
@@ -443,61 +465,51 @@ export async function openDjvuArtifactJob(
             availableBytes - DJVU_ARTIFACT_FREE_SPACE_RESERVE_BYTES,
             options.maxTotalBytesForTests ?? Number.POSITIVE_INFINITY,
         );
-        let manifest = await readFile(manifestPath, 'utf8')
+        const rangeOutputPath = (range: {
+            startPage: number;
+            endPage: number;
+        }) => join(directory, `pages-${range.startPage}-${range.endPage}${outputExtension}`);
+        const existingManifest = await readFile(manifestPath, 'utf8')
             .then(value => {
                 const parsed = v.safeParse(djvuArtifactManifestSchema, JSON.parse(value), {abortEarly: true});
                 return parsed.success ? parsed.output : null;
             })
             .catch(() => null);
-        if (!manifest
-            || manifest.fingerprint !== fingerprint
-            || manifest.sourcePath !== sourcePath
-            || manifest.sourceSha256 !== sourceSha256
-            || manifest.ranges.length !== pageRanges.length
-            || !manifest.ranges.every((range, index) => {
+        const reusableManifest = existingManifest
+            && existingManifest.fingerprint === fingerprint
+            && existingManifest.sourcePath === sourcePath
+            && existingManifest.sourceSha256 === sourceSha256
+            && existingManifest.ranges.length === pageRanges.length
+            && existingManifest.ranges.every((range, index) => {
                 const requested = pageRanges[index];
                 return requested
                     && range.startPage === requested.startPage
                     && range.endPage === requested.endPage
-                    && range.outputPath === join(
-                        directory,
-                        `pages-${requested.startPage}-${requested.endPage}${outputExtension}`,
-                    );
-            })) {
-            const now = Date.now();
-            manifest = {
-                version: 2,
-                fingerprint,
-                sourcePath,
-                sourceSha256,
-                createdAtMs: now,
-                updatedAtMs: now,
-                ranges: pageRanges.map(range => ({
-                    ...range,
-                    outputPath: join(directory, `pages-${range.startPage}-${range.endPage}${outputExtension}`),
-                    status: 'pending',
-                })),
-            };
-            await writeManifest(manifestPath, manifest);
-        } else {
+                    && range.outputPath === rangeOutputPath(requested);
+            })
+            ? existingManifest
+            : null;
+        const now = Date.now();
+        const manifest: IDjvuArtifactManifest = reusableManifest ?? {
+            version: 2,
+            fingerprint,
+            sourcePath,
+            sourceSha256,
+            createdAtMs: now,
+            updatedAtMs: now,
+            ranges: pageRanges.map(range => ({
+                ...range,
+                outputPath: rangeOutputPath(range),
+                status: 'pending',
+            })),
+        };
+        if (reusableManifest) {
             for (const range of manifest.ranges) {
-                if (range.status === 'running') range.status = 'pending';
-                if (range.status === 'verified') {
-                    const artifact = await stat(range.outputPath).catch(() => null);
-                    const digest = artifact && artifact.size > 0 && artifact.size === range.size && range.sha256
-                        ? await hashFileSha256(range.outputPath, options.signal).catch(() => null)
-                        : null;
-                    if (!artifact || artifact.size !== range.size || artifact.size <= 0 || digest !== range.sha256) {
-                        range.status = 'pending';
-                        delete range.size;
-                        delete range.sha256;
-                        delete range.accountedSize;
-                    }
-                }
+                await reconcileCachedArtifactRange(range, options.signal);
             }
             manifest.updatedAtMs = Date.now();
-            await writeManifest(manifestPath, manifest);
         }
+        await writeManifest(manifestPath, manifest);
         let writeChain = Promise.resolve();
         let closed = false;
         const close = async () => {

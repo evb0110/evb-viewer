@@ -461,39 +461,32 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         resetInternalDragState();
         clickSkip = true;
 
-        if (insertAt !== null) {
-            if (reorderContext?.compactMove) {
-                const move = createPageMoveRanges(
-                    reorderContext.total,
-                    reorderContext.compactMove.ranges,
-                    insertAt,
-                );
-                if (!isPageMoveRangesNoOp(move)) {
-                    let operation: TPageMoveOperation = move;
-                    if (move.ranges.length === 1) {
-                        const firstRange = move.ranges[0];
-                        if (!firstRange) {
-                            return;
-                        }
-                        operation = createPageMoveRange(
-                            move.pageCount,
-                            firstRange.startPage,
-                            firstRange.endPage,
-                            move.insertAt,
-                        );
-                    }
-                    if (onMove) onMove(operation);
-                    else onReorder(
-                        'ranges' in operation
-                            ? buildPageMoveRangesOrder(operation)
-                            : buildPageMoveOrder(operation),
-                    );
-                }
-                return;
-            }
+        if (insertAt === null) return;
+        if (!reorderContext?.compactMove) {
             const order = buildNewOrder(insertAt, reorderContext);
             if (order) onReorder(order);
+            return;
         }
+        const move = createPageMoveRanges(
+            reorderContext.total,
+            reorderContext.compactMove.ranges,
+            insertAt,
+        );
+        if (isPageMoveRangesNoOp(move)) return;
+
+        const [
+            onlyRange,
+            secondRange,
+        ] = move.ranges;
+        const operation: TPageMoveOperation = onlyRange && !secondRange
+            ? createPageMoveRange(move.pageCount, onlyRange.startPage, onlyRange.endPage, move.insertAt)
+            : move;
+        if (onMove) onMove(operation);
+        else onReorder(
+            'ranges' in operation
+                ? buildPageMoveRangesOrder(operation)
+                : buildPageMoveOrder(operation),
+        );
     }
 
     function handleMouseDown(e: MouseEvent, page: number) {
