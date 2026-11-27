@@ -19,11 +19,26 @@ const BROWSER_ORIGIN_ENV = 'EVB_BROWSER_INTEGRATION_ORIGIN';
 const BROWSER_SERVER_OUTPUT_PATH_ENV = 'EVB_BROWSER_INTEGRATION_SERVER_OUTPUT_PATH';
 
 /** @type {readonly NodeJS.Signals[]} */
-const SHUTDOWN_SIGNALS = [
-    'SIGINT',
-    'SIGTERM',
-    'SIGHUP',
-];
+const SHUTDOWN_SIGNALS = process.platform === 'win32'
+    ? [
+        'SIGINT',
+        'SIGTERM',
+        'SIGHUP',
+    ]
+    : [
+        'SIGINT',
+        'SIGTERM',
+        'SIGHUP',
+        'SIGQUIT',
+    ];
+
+/** @type {readonly NodeJS.Signals[]} */
+const DIRECT_SHUTDOWN_SIGNALS = process.platform === 'win32'
+    ? ['SIGHUP']
+    : [
+        'SIGHUP',
+        'SIGQUIT',
+    ];
 
 /**
  * @typedef {{
@@ -36,8 +51,27 @@ const SHUTDOWN_SIGNALS = [
  */
 
 /** @param {number} pgid */
+function isProcessGroupPresentUnix(pgid) {
+    if (process.platform === 'win32' || !Number.isFinite(pgid) || pgid <= 0 || pgid === process.pid) return false;
+    try {
+        process.kill(-pgid, 0);
+        return true;
+    } catch (error) {
+        return /** @type {NodeJS.ErrnoException} */ (error).code === 'EPERM';
+    }
+}
+
+/**
+ * @param {number} pgid
+ * @returns {{ ok: boolean, pids: number[] }}
+ */
 function collectLiveProcessGroupPidsUnix(pgid) {
-    if (process.platform === 'win32' || !Number.isFinite(pgid) || pgid <= 0) return [];
+    if (process.platform === 'win32' || !Number.isFinite(pgid) || pgid <= 0) {
+        return {
+            ok: true,
+            pids: [],
+        };
+    }
     try {
         const output = execFileSync('ps', [
             '-eo',
@@ -62,10 +96,50 @@ function collectLiveProcessGroupPidsUnix(pgid) {
             if (stat.startsWith('Z') || stat.startsWith('X')) continue;
             pids.push(pid);
         }
-        return pids;
+        return {
+            ok: true,
+            pids,
+        };
     } catch {
-        return [];
+        return {
+            ok: false,
+            pids: [],
+        };
     }
+}
+
+/**
+ * @param {number} pgid
+ * @returns {{ alive: boolean, verified: boolean, pids: number[] }}
+ */
+function inspectProcessGroupUnix(pgid) {
+    if (process.platform === 'win32' || !Number.isFinite(pgid) || pgid <= 0 || pgid === process.pid) {
+        return {
+            alive: false,
+            verified: true,
+            pids: [],
+        };
+    }
+    if (!isProcessGroupPresentUnix(pgid)) {
+        return {
+            alive: false,
+            verified: true,
+            pids: [],
+        };
+    }
+    const scan = collectLiveProcessGroupPidsUnix(pgid);
+    if (!scan.ok) {
+        return {
+            alive: true,
+            verified: false,
+            pids: [],
+        };
+    }
+    return {
+        alive: scan.pids.length > 0,
+        verified: true,
+        pids: scan.pids,
+    };
 }
 
 /**
@@ -92,7 +166,8 @@ function recordProcessTreePids(pid, processTree, knownPids, hasDedicatedGroup) {
         knownPids.add(descendant);
     }
     if (hasDedicatedGroup) {
-        for (const member of collectLiveProcessGroupPidsUnix(pid)) {
+        const scan = collectLiveProcessGroupPidsUnix(pid);
+        for (const member of scan.pids) {
             knownPids.add(member);
         }
     }
@@ -108,7 +183,8 @@ function forceKillTargetsSync(pids, processGroups, processTree) {
     const expanded = new Set([...pids].filter(pid => Number.isFinite(pid) && pid > 0));
     if (process.platform !== 'win32') {
         for (const pgid of groupSet) {
-            for (const member of collectLiveProcessGroupPidsUnix(pgid)) {
+            const scan = collectLiveProcessGroupPidsUnix(pgid);
+            for (const member of scan.pids) {
                 expanded.add(member);
             }
             killProcessGroupUnix(pgid, 'SIGKILL');
@@ -146,36 +222,51 @@ async function terminateTrackedProcessTree(pid, label, processTree, knownPids, {
     recordProcessTreePids(pid, processTree, knownPids, hasDedicatedGroup);
     const rootWasAlive = processTree.isProcessAlive(pid);
     const terminated = rootWasAlive ? await processTree.killProcessTree(pid) : true;
-    const collectSurvivors = () => {
+    const checkRemaining = () => {
         const current = new Set(knownPids);
-        if (hasDedicatedGroup) {
-            for (const member of collectLiveProcessGroupPidsUnix(pid)) {
-                knownPids.add(member);
-                current.add(member);
-            }
+        const group = hasDedicatedGroup && process.platform !== 'win32'
+            ? inspectProcessGroupUnix(pid)
+            : {
+                alive: false,
+                verified: true,
+                pids: [],
+            };
+        for (const member of group.pids) {
+            knownPids.add(member);
+            current.add(member);
         }
-        return [...current].filter(targetPid => processTree.isProcessAlive(targetPid));
+        const survivors = [...current].filter(targetPid => processTree.isProcessAlive(targetPid));
+        return {
+            group,
+            survivors,
+            hasRemaining: survivors.length > 0 || group.alive || !group.verified,
+        };
     };
 
-    if (hasDedicatedGroup && process.platform !== 'win32' && collectLiveProcessGroupPidsUnix(pid).length > 0) {
-        killProcessGroupUnix(pid, 'SIGTERM');
-        const graceDeadline = Date.now() + 1_500;
-        while (Date.now() < graceDeadline && collectLiveProcessGroupPidsUnix(pid).length > 0) {
-            await new Promise(resolveWait => setTimeout(resolveWait, 80));
+    if (hasDedicatedGroup && process.platform !== 'win32' && isProcessGroupPresentUnix(pid)) {
+        const initialGroup = inspectProcessGroupUnix(pid);
+        if (initialGroup.alive || !initialGroup.verified) {
+            killProcessGroupUnix(pid, 'SIGTERM');
+            const graceDeadline = Date.now() + 1_500;
+            while (Date.now() < graceDeadline) {
+                const groupState = inspectProcessGroupUnix(pid);
+                if (!groupState.alive && groupState.verified) break;
+                await new Promise(resolveWait => setTimeout(resolveWait, 80));
+            }
         }
     }
 
-    const survivors = collectSurvivors();
-    if (survivors.length > 0) {
-        forceKillTargetsSync(survivors, hasDedicatedGroup ? [pid] : [], processTree);
+    const afterGrace = checkRemaining();
+    if (afterGrace.hasRemaining) {
+        forceKillTargetsSync(afterGrace.survivors, hasDedicatedGroup ? [pid] : [], processTree);
         const forceDeadline = Date.now() + 2_000;
-        while (Date.now() < forceDeadline && collectSurvivors().length > 0) {
+        while (Date.now() < forceDeadline && checkRemaining().hasRemaining) {
             await new Promise(resolveWait => setTimeout(resolveWait, 80));
         }
     }
 
-    const remainingSurvivors = collectSurvivors();
-    if ((rootWasAlive && !terminated) || remainingSurvivors.length > 0) {
+    const finalState = checkRemaining();
+    if ((rootWasAlive && !terminated) || finalState.hasRemaining) {
         throw new Error(`The ${label} process tree did not exit`);
     }
 }
@@ -578,15 +669,17 @@ export async function setup(project) {
 
     // Direct Vitest invocations (e.g. Nightly Firefox/WebKit or single-spec runs)
     // do not launch a shared Chromium server; ordinary Chromium specs fall back to
-    // local `chromium.launch()`. Install a SIGHUP handler before startup because
-    // Vitest only traps SIGINT/SIGTERM and default SIGHUP bypasses Node's `exit` hook.
+    // local `chromium.launch()`. Install SIGHUP/SIGQUIT handlers before startup
+    // because Vitest only traps SIGINT/SIGTERM and default SIGHUP/SIGQUIT bypass
+    // Node's `exit` hook while leaving the detached Nuxt process group alive.
     const abortController = new AbortController();
     /** @type {Promise<Awaited<ReturnType<typeof startBrowserIntegrationHarness>>> | null} */
     let harnessPromise = null;
     /** @type {Awaited<ReturnType<typeof startBrowserIntegrationHarness>> | null} */
     let harness = null;
-    let sighupReceived = false;
-    let sighupReraised = false;
+    /** @type {NodeJS.Signals | null} */
+    let receivedDirectSignal = null;
+    let directSignalReraised = false;
     /** @type {Promise<void> | null} */
     let stopDirectPromise = null;
 
@@ -606,22 +699,33 @@ export async function setup(project) {
         return stopDirectPromise;
     };
 
-    const finalizeSighup = () => {
-        if (!sighupReceived || sighupReraised) return false;
-        sighupReraised = true;
-        process.off('SIGHUP', handleSighup);
-        reraiseSignal('SIGHUP');
+    const removeDirectSignalHandlers = () => {
+        for (const signal of DIRECT_SHUTDOWN_SIGNALS) {
+            process.off(signal, handleDirectSignal);
+        }
+    };
+
+    const finalizeDirectSignal = () => {
+        if (!receivedDirectSignal || directSignalReraised) return false;
+        directSignalReraised = true;
+        removeDirectSignalHandlers();
+        reraiseSignal(receivedDirectSignal);
         return true;
     };
 
-    const handleSighup = () => {
-        sighupReceived = true;
-        abortController.abort();
+    /** @param {NodeJS.Signals} signal */
+    const handleDirectSignal = (signal) => {
+        if (!receivedDirectSignal) {
+            receivedDirectSignal = signal;
+            abortController.abort();
+        }
         void stopDirect().catch(() => {}).finally(() => {
-            finalizeSighup();
+            finalizeDirectSignal();
         });
     };
-    process.on('SIGHUP', handleSighup);
+    for (const signal of DIRECT_SHUTDOWN_SIGNALS) {
+        process.on(signal, handleDirectSignal);
+    }
 
     try {
         harnessPromise = startBrowserIntegrationHarness({
@@ -629,9 +733,9 @@ export async function setup(project) {
             launchChromiumServer: false,
         });
         harness = await harnessPromise;
-        if (sighupReceived) {
+        if (receivedDirectSignal) {
             await stopDirect().catch(() => {});
-            finalizeSighup();
+            finalizeDirectSignal();
             return () => {};
         }
         project.provide('browserIntegrationOrigin', harness.origin);
@@ -640,18 +744,18 @@ export async function setup(project) {
             try {
                 await stopDirect();
             } finally {
-                if (!finalizeSighup()) {
-                    process.off('SIGHUP', handleSighup);
+                if (!finalizeDirectSignal()) {
+                    removeDirectSignalHandlers();
                 }
             }
         };
     } catch (error) {
-        if (sighupReceived) {
+        if (receivedDirectSignal) {
             await stopDirect().catch(() => {});
-            finalizeSighup();
+            finalizeDirectSignal();
             return () => {};
         }
-        process.off('SIGHUP', handleSighup);
+        removeDirectSignalHandlers();
         throw error;
     }
 }
