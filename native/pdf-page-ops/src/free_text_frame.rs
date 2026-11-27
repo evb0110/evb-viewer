@@ -257,8 +257,9 @@ pub(crate) fn free_text_frame(
         .filter(|v| matches!(v.len(), 1 | 3 | 4) && v.iter().all(|n| (0.0..=1.0).contains(n)));
     let hex = |colour: &Vec<f64>| pdf_color_to_hex(Some(colour), "#000000");
     // A box EVB saved, which carries its private geometry, may hold /C in the
-    // text colour EVB once wrote there. A producer's /C is its fill where its
-    // own appearance paints one, or where it drew none (review-b8f).
+    // text colour EVB once wrote there. For another producer's box, drop /C
+    // when its own normal appearance parses and draws no fill (keeping /C when
+    // the appearance paints a fill, or is absent/unread).
     let stale_fill = background.is_some()
         && match crate::text_box_font::editor_geometry(annotation) {
             Some(_) => background.as_ref().map(hex) == da.fill.as_ref().map(hex),

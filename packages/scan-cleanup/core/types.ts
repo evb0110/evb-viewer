@@ -480,7 +480,11 @@ export interface IScanCleanupWorkerPaths {
     scanCleanupBinary: string;
     pdfImageCombineBinary: string;
     pdfPageOpsBinary?: string;
-    /** Whether the selected assembler accepts the Wave 1a JSON envelope. */
+    /**
+     * Whether the selected assembler accepts provenance stamps in its manifest
+     * envelope. When `false`, the pipeline falls back to the legacy manifest
+     * format without provenance stamps.
+     */
     provenanceStampSupport?: boolean;
     assemblyBackend?: TScanCleanupAssemblerBackend;
     transportMode?: TScanCleanupTransportMode;

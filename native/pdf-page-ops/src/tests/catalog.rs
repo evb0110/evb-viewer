@@ -1713,7 +1713,7 @@ fn saved_bookmark_preserves_original_destination_before_lookup() {
     }
 }
 
-/// The review-b6zk projection fixture: explicit kinds, a name, and remote,
+/// Outline projection fixture covering explicit kinds, a name, and remote,
 /// launch and URI actions, one of them behind a reference. A local name
 /// `remote-chapter` must not capture the GoToR destination of the same name.
 fn create_source_intent_outline() -> (Document, ObjectId) {

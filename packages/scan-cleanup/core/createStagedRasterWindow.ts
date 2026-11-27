@@ -313,7 +313,6 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
             notifySlotWaiters();
             prefetchNext();
         },
-        /** Ask the producer to fill every free slot ahead of the reader. */
         prefetchNext() {
             prefetchNext();
         },
@@ -358,7 +357,6 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
         residentPages() {
             return [...held.keys()];
         },
-        /** Highest number of rasters this window ever held at once. */
         peakResidentPages() {
             return peakResident;
         },

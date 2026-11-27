@@ -237,9 +237,10 @@ pub(crate) fn load_pdf_bytes_bounded(bytes: &[u8], password: Option<&str>) -> Re
     load_pdf_bytes_with_policy_and_password(bytes, PDF_LOAD_POLICY, password)
 }
 
-/// The browser engine has no structural route for large files: each request
-/// loads its input eagerly from one request buffer. Admit what that buffer can
-/// carry, and the pages desktop admits through its path loads.
+/// Policy for the eager byte-buffer WASM route, where each request supplies
+/// the full PDF in one request buffer (large browser/WASM files instead stream
+/// by range through `HostSource`). Admit what that buffer can carry, and the
+/// pages desktop admits through its path loads.
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 pub(crate) const BROWSER_PDF_LOAD_POLICY: PdfLoadPolicy = PdfLoadPolicy {
     max_encoded_bytes: PAGE_OP_WASM_MAX_BUFFER_BYTES,
@@ -251,15 +252,6 @@ pub(crate) fn load_pdf_bytes(bytes: &[u8]) -> Result<Document> {
     load_pdf_bytes_with_policy(bytes, BROWSER_PDF_LOAD_POLICY)
 }
 
-/// Loads raw PDF bytes with an optional decryption password for encrypted inputs.
-///
-/// lopdf skips `LoadOptions.filter` on the encrypted-load path (reader.rs keeps
-/// the raw-object loader), so the ObjStm admission filter below does not run for
-/// an encrypted input. `max_decompressed_size` still bounds every stream the
-/// encrypted loader inflates, `preflight_pdf_structure` still runs before the
-/// load, and `validate_loaded_document` still runs after it. Callers that admit
-/// an encrypted base must therefore re-check `assert_plaintext_base` before
-/// writing anything onto it.
 /// Native annotation history contains a small PDF object graph without a
 /// page tree. Apply the same lexer and structural admission as document loads.
 pub(crate) fn preflight_pdf_object_graph(
@@ -282,6 +274,15 @@ pub(crate) fn preflight_pdf_object_graph(
     )
 }
 
+/// Loads raw PDF bytes with an optional decryption password for encrypted inputs.
+///
+/// lopdf skips `LoadOptions.filter` on the encrypted-load path (reader.rs keeps
+/// the raw-object loader), so the ObjStm admission filter below does not run for
+/// an encrypted input. `max_decompressed_size` still bounds every stream the
+/// encrypted loader inflates, `preflight_pdf_structure` still runs before the
+/// load, and `validate_loaded_document` still runs after it. Callers that admit
+/// an encrypted base must therefore re-check `assert_plaintext_base` before
+/// writing anything onto it.
 pub(crate) fn load_pdf_bytes_with_policy_and_password(
     bytes: &[u8],
     policy: PdfLoadPolicy,

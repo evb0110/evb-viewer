@@ -1384,8 +1384,9 @@ pub(crate) fn is_free_text_note_marker_candidate(
 }
 
 /// Return true only for the legacy FreeText note representation. The parser
-/// and the later marker-rewrite writer share this predicate so the 0.02-point
-/// compatibility rule cannot drift between read and edit paths.
+/// and the later marker-rewrite writer share this predicate so the 0.02
+/// normalized page-side threshold (plus floating-point rounding tolerance)
+/// cannot drift between read and edit paths.
 pub(crate) fn is_free_text_note_marker(
     document: &impl PdfObjectSource,
     dict: &Dictionary,

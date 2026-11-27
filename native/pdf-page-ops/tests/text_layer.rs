@@ -5499,8 +5499,8 @@ fn overlay_text_refused_retained_destination_leaves_existing_output_bytes() {
         let _ = remove_file(file);
     }
 }
-/// The note shapes that review34 found losing their replies in the qpdf
-/// interleave: identical bodies, indirect /M, /Contents and /NM, an /AP stream.
+/// Note shapes that previously lost their replies in the qpdf interleave:
+/// identical bodies, indirect /M, /Contents and /NM, and an /AP stream.
 #[derive(Clone, Copy)]
 enum NoteShape {
     Single,

@@ -831,7 +831,6 @@ impl OutputPlanes {
     }
 }
 
-/// What a published plane carries.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PlaneRole {
     Composite,
@@ -849,7 +848,6 @@ pub(crate) enum PlanePixels<'a> {
     Bilevel(&'a BinaryImage),
 }
 
-/// The file format a plane is published in.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PlaneFile {
     Png,
@@ -861,7 +859,6 @@ pub(crate) enum PlaneFile {
     Pgm,
 }
 
-/// One plane of a finished output, as it is published.
 pub(crate) struct OutputPlane<'a> {
     pub(crate) role: PlaneRole,
     pub(crate) pixels: PlanePixels<'a>,
@@ -869,7 +866,6 @@ pub(crate) struct OutputPlane<'a> {
 }
 
 impl OutputPlane<'_> {
-    /// The bytes [`Self::write_atomic`] publishes.
     #[cfg(any(test, all(target_family = "wasm", feature = "wasm-exports")))]
     pub(crate) fn encode(&self) -> Result<Vec<u8>, String> {
         match (&self.pixels, self.file) {
