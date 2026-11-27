@@ -401,6 +401,16 @@ describe('scan cleanup activity', () => {
         const finishedClean = runActivity('rendering', 4, 4, 84, {rasterizedUnits: 4});
         expect(finishedClean.fraction).toBe(1);
 
+        // Lossless classification after rasterizing keeps the full buffer and stays determinate.
+        const classifyingAfterRaster = runActivity('classifying', 0, 20, 35, {rasterizedUnits: 20});
+        expect(classifyingAfterRaster.fraction).toBe(0);
+        expect(classifyingAfterRaster.bufferFraction).toBe(1);
+
+        // Even if a clean frame omits rasterizedUnits once pages have completed, buffer never trails fill.
+        const completedWithoutBufferField = runActivity('rendering', 5, 20, 50);
+        expect(completedWithoutBufferField.fraction).toBeCloseTo(0.25);
+        expect(completedWithoutBufferField.bufferFraction).toBeCloseTo(0.25);
+
         // Finish segment progresses monotonically across assembling, handoff, and commit.
         const mergeStart = runActivity('assembling', 0, 2, 86);
         const overlayStart = runActivity('assembling', 1, 2, 92);

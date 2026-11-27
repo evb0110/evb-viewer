@@ -568,12 +568,33 @@ pub(crate) fn overlay_text_bytes(
     })
 }
 
+/// Appends `revision` at `offset` in `sink` and returns the bytes read back
+/// from `offset`. An empty slice still calls `Write::write(&[])` (unlike
+/// `Write::write_all`, which is a no-op on empty slices) so a lazy-cloning host
+/// sink materializes its base file before the first read.
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+pub(crate) fn write_append_revision_to_sink<S: Write + ByteSource>(
+    sink: &mut S,
+    offset: u64,
+    revision: &[u8],
+) -> Result<Vec<u8>> {
+    if revision.is_empty() {
+        sink.write(&[]).map_err(io_domain_error)?;
+        return Ok(Vec::new());
+    }
+    sink.write_all(revision).map_err(io_domain_error)?;
+    let mut written = vec![0; revision.len()];
+    sink.read_at(offset, &mut written)
+        .map_err(io_domain_error)?;
+    Ok(written)
+}
+
 /// Adapter whose `copy_range` reads through `read_at` in chunks into any
 /// `Write` (e.g. an in-memory `Vec<u8>`) instead of targeting `HostSink`.
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 struct BufferedByteSource<S>(S);
 
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 impl<S: ByteSource> ByteSource for BufferedByteSource<S> {
     fn read_at(&self, offset: u64, buffer: &mut [u8]) -> std::io::Result<()> {
         self.0.read_at(offset, buffer)
@@ -596,13 +617,13 @@ impl<S: ByteSource> ByteSource for BufferedByteSource<S> {
 
 /// Bounded in-memory sink so extracting a huge source batch fails fast with
 /// `TooLarge` instead of allocating unbounded memory before `load_pdf_bytes`.
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 struct BoundedVecWriter {
     buf: Vec<u8>,
     limit: usize,
 }
 
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 impl Write for BoundedVecWriter {
     fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
         if self.buf.len().saturating_add(data.len()) > self.limit {
@@ -619,7 +640,7 @@ impl Write for BoundedVecWriter {
     }
 }
 
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 #[allow(clippy::too_many_arguments)]
 fn write_overlay_source_batch_to_sink_with_split<S: ByteSource, K: ByteSource>(
     source_pdf: &SourcePdf<BufferedByteSource<S>>,
@@ -780,7 +801,33 @@ pub(crate) fn overlay_text_to_sink<S: ByteSource, K: ByteSource, W: Write>(
     sink_source: impl Fn() -> K,
     instructions: &[u8],
     sink: &mut W,
+    append_at: impl FnMut(u64, &[u8]) -> Result<Vec<u8>>,
+) -> Result<(u32, Vec<u8>)> {
+    overlay_text_to_sink_with_limit(
+        target_source,
+        target_len,
+        orig_source,
+        orig_len,
+        sink_source,
+        instructions,
+        sink,
+        append_at,
+        MAX_ENCODED_PDF_BYTES as u64,
+    )
+}
+
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+#[allow(clippy::too_many_arguments)]
+fn overlay_text_to_sink_with_limit<S: ByteSource, K: ByteSource, W: Write>(
+    target_source: impl Fn() -> S,
+    target_len: u64,
+    orig_source: impl Fn() -> S,
+    orig_len: u64,
+    sink_source: impl Fn() -> K,
+    instructions: &[u8],
+    sink: &mut W,
     mut append_at: impl FnMut(u64, &[u8]) -> Result<Vec<u8>>,
+    max_in_memory_bytes: u64,
 ) -> Result<(u32, Vec<u8>)> {
     let read_all = |src: &S, len: u64| -> Result<Vec<u8>> {
         let len_usize = usize::try_from(len)?;
@@ -795,7 +842,7 @@ pub(crate) fn overlay_text_to_sink<S: ByteSource, K: ByteSource, W: Write>(
         src.read_at(0, &mut buf).map_err(io_domain_error)?;
         Ok(buf)
     };
-    if target_len <= MAX_ENCODED_PDF_BYTES as u64 && orig_len <= MAX_ENCODED_PDF_BYTES as u64 {
+    if target_len <= max_in_memory_bytes && orig_len <= max_in_memory_bytes {
         let data = read_all(&target_source(), target_len)?;
         let source_data = read_all(&orig_source(), orig_len)?;
         let reported = overlay_text_bytes(&data, &source_data, instructions)?;
@@ -814,7 +861,7 @@ pub(crate) fn overlay_text_to_sink<S: ByteSource, K: ByteSource, W: Write>(
     let mut omitted = Vec::new();
     let pages_out;
 
-    if orig_len <= MAX_ENCODED_PDF_BYTES as u64 {
+    if orig_len <= max_in_memory_bytes {
         let mut target_pdf = SourcePdf::open_append_base(target_source(), target_len)?;
         let mut incremental = target_pdf.take_append_base()?;
         pages_out = page_count(incremental.get_prev_documents());
@@ -1012,4 +1059,262 @@ fn write_overlay_text_layer_copies(
         Ok(())
     })?;
     Ok(omitted)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lopdf::{dictionary, Document, Object, Stream};
+    use std::{cell::RefCell, rc::Rc};
+
+    #[derive(Clone)]
+    struct LazyHostSink {
+        inner: Rc<RefCell<LazyHostSinkState>>,
+    }
+
+    struct LazyHostSinkState {
+        base: Vec<u8>,
+        staged: Option<Vec<u8>>,
+        cursor: u64,
+        write_calls: usize,
+    }
+
+    impl LazyHostSink {
+        fn new(base: Vec<u8>) -> Self {
+            Self {
+                inner: Rc::new(RefCell::new(LazyHostSinkState {
+                    base,
+                    staged: None,
+                    cursor: 0,
+                    write_calls: 0,
+                })),
+            }
+        }
+
+        fn set_cursor(&self, offset: u64) {
+            self.inner.borrow_mut().cursor = offset;
+        }
+
+        fn write_calls(&self) -> usize {
+            self.inner.borrow().write_calls
+        }
+
+        fn staged_bytes(&self) -> Option<Vec<u8>> {
+            self.inner.borrow().staged.clone()
+        }
+    }
+
+    impl Write for LazyHostSink {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            let mut state = self.inner.borrow_mut();
+            state.write_calls += 1;
+            let offset = usize::try_from(state.cursor)
+                .map_err(|_| std::io::Error::other("sink offset overflow"))?;
+            if state.staged.is_none() && offset >= state.base.len() {
+                state.staged = Some(state.base.clone());
+            }
+            let staged = state.staged.get_or_insert_with(Vec::new);
+            if offset > staged.len() {
+                staged.resize(offset, 0);
+            }
+            let end = offset + buf.len();
+            if end > staged.len() {
+                staged.resize(end, 0);
+            }
+            if !buf.is_empty() {
+                staged[offset..end].copy_from_slice(buf);
+            }
+            state.cursor += buf.len() as u64;
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl ByteSource for LazyHostSink {
+        fn read_at(&self, offset: u64, buffer: &mut [u8]) -> std::io::Result<()> {
+            let state = self.inner.borrow();
+            let staged = state.staged.as_ref().ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "lazy host sink has not been materialized yet",
+                )
+            })?;
+            let start = usize::try_from(offset)
+                .map_err(|_| std::io::Error::other("sink read offset overflow"))?;
+            let end = start
+                .checked_add(buffer.len())
+                .filter(|&end| end <= staged.len())
+                .ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof,
+                        "sink read past materialized length",
+                    )
+                })?;
+            buffer.copy_from_slice(&staged[start..end]);
+            Ok(())
+        }
+
+        fn copy_range(
+            &self,
+            _offset: u64,
+            _len: u64,
+            _output: &mut impl Write,
+        ) -> std::io::Result<()> {
+            Err(std::io::Error::other("lazy host sink cannot be copied"))
+        }
+    }
+
+    fn build_single_page_pdf(text: Option<&str>) -> Vec<u8> {
+        let mut doc = Document::with_version("1.5");
+        let pages_id = doc.new_object_id();
+        let page_id = doc.new_object_id();
+        let mut resources = lopdf::Dictionary::new();
+        let content_bytes = if let Some(text) = text {
+            let font_id = doc.add_object(dictionary! {
+                "Type" => "Font",
+                "Subtype" => "Type1",
+                "BaseFont" => "Helvetica",
+                "Encoding" => "WinAnsiEncoding",
+            });
+            resources.set("Font", dictionary! { "F1" => font_id });
+            format!("BT /F1 12 Tf 20 60 Td ({text}) Tj ET").into_bytes()
+        } else {
+            Vec::new()
+        };
+        let contents_id = doc.add_object(Stream::new(dictionary! {}, content_bytes));
+        doc.objects.insert(
+            page_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Page",
+                "Parent" => pages_id,
+                "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+                "Resources" => resources,
+                "Contents" => contents_id,
+            }),
+        );
+        doc.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![page_id.into()],
+                "Count" => 1,
+            }),
+        );
+        let catalog_id = doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        doc.trailer.set("Root", catalog_id);
+        let mut bytes = Vec::new();
+        doc.save_to(&mut bytes).unwrap();
+        bytes
+    }
+
+    #[test]
+    fn empty_append_to_sink_materializes_lazy_host_before_first_read() {
+        let base = b"%PDF-1.5\n%lazy-seed-check\n%%EOF\n".to_vec();
+        let mut sink = LazyHostSink::new(base.clone());
+        let len = base.len() as u64;
+        sink.set_cursor(len);
+
+        let written = write_append_revision_to_sink(&mut sink, len, &[]).unwrap();
+        assert!(written.is_empty());
+        assert_eq!(sink.write_calls(), 1);
+
+        let mut read_back = vec![0u8; base.len()];
+        sink.read_at(0, &mut read_back).unwrap();
+        assert_eq!(read_back, base);
+    }
+
+    #[test]
+    fn batched_overlay_text_to_sink_seeds_lazy_host_before_reading_and_copies_text() {
+        let target = build_single_page_pdf(None);
+        let source = build_single_page_pdf(Some("Batched overlay sentinel"));
+        let instructions = serde_json::json!({
+            "pages": [{
+                "sourcePageIndex": 0,
+                "outputPageIndex": 0,
+                "matrix": [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            }]
+        })
+        .to_string();
+
+        let sink = LazyHostSink::new(target.clone());
+        let mut direct_sink = sink.clone();
+        let append_sink = sink.clone();
+        let (pages_out, _report) = overlay_text_to_sink_with_limit(
+            || target.as_slice(),
+            target.len() as u64,
+            || source.as_slice(),
+            source.len() as u64,
+            || sink.clone(),
+            instructions.as_bytes(),
+            &mut direct_sink,
+            |offset, revision| {
+                let mut writer = append_sink.clone();
+                writer.set_cursor(offset);
+                write_append_revision_to_sink(&mut writer, offset, revision)
+            },
+            1,
+        )
+        .unwrap();
+
+        assert_eq!(pages_out, 1);
+        let output = sink
+            .staged_bytes()
+            .expect("lazy host sink must be materialized");
+        assert!(output.len() > target.len());
+        let loaded = Document::load_mem(&output).unwrap();
+        assert_eq!(loaded.get_pages().len(), 1);
+        let extracted = loaded.extract_text(&[1]).unwrap();
+        assert!(
+            extracted.contains("Batched overlay sentinel"),
+            "expected overlaid text in output PDF, got: {extracted:?}"
+        );
+    }
+
+    #[test]
+    fn batched_overlay_text_to_sink_link_only_still_seeds_lazy_host() {
+        let target = build_single_page_pdf(None);
+        let source = build_single_page_pdf(Some("Ignored link-only text"));
+        let instructions = serde_json::json!({
+            "pages": [{
+                "sourcePageIndex": 0,
+                "outputPageIndex": 0,
+                "matrix": [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                "linkOnly": true,
+            }]
+        })
+        .to_string();
+
+        let sink = LazyHostSink::new(target.clone());
+        let mut direct_sink = sink.clone();
+        let append_sink = sink.clone();
+        let (pages_out, _report) = overlay_text_to_sink_with_limit(
+            || target.as_slice(),
+            target.len() as u64,
+            || source.as_slice(),
+            source.len() as u64,
+            || sink.clone(),
+            instructions.as_bytes(),
+            &mut direct_sink,
+            |offset, revision| {
+                let mut writer = append_sink.clone();
+                writer.set_cursor(offset);
+                write_append_revision_to_sink(&mut writer, offset, revision)
+            },
+            1,
+        )
+        .unwrap();
+
+        assert_eq!(pages_out, 1);
+        let output = sink
+            .staged_bytes()
+            .expect("lazy host sink must be materialized");
+        let loaded = Document::load_mem(&output).unwrap();
+        assert_eq!(loaded.get_pages().len(), 1);
+    }
 }

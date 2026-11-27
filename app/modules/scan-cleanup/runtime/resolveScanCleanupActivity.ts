@@ -265,9 +265,12 @@ function resolveRun(run: IScanCleanupRunActivityInput): IScanCleanupActivity {
             bufferFraction = completed / total;
             fraction = completed === 0 ? null : 0;
         } else {
-            const rasterized = progress.rasterizedUnits === undefined
-                ? 0
-                : clampUnits(progress.rasterizedUnits, total);
+            const rasterized = Math.max(
+                completed,
+                progress.rasterizedUnits === undefined
+                    ? 0
+                    : clampUnits(progress.rasterizedUnits, total),
+            );
             bufferFraction = rasterized / total;
             fraction = completed === 0 && rasterized === 0 ? null : completed / total;
         }

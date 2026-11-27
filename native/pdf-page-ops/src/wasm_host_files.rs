@@ -644,14 +644,7 @@ fn ocr_text_layer(after_page: u32, payload: &[u8], source_count: u32) -> Result<
 /// the file then holds there.
 fn append_to_source_file(len: u64, revision: &[u8]) -> Result<Vec<u8>> {
     SINK_LEN.set(len);
-    HostSink.write_all(revision).map_err(io_domain_error)?;
-    let mut written = vec![0; revision.len()];
-    if !revision.is_empty() {
-        HostSink
-            .read_at(len, &mut written)
-            .map_err(io_domain_error)?;
-    }
-    Ok(written)
+    write_append_revision_to_sink(&mut HostSink, len, revision)
 }
 
 fn host_source_len(index: u32) -> Result<u64> {
