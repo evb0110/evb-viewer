@@ -140,9 +140,9 @@ export async function hasClaudeSessionTranscript(env: NodeJS.ProcessEnv, session
     return false;
 }
 
-class ClaudePromptQueue implements AsyncIterable<SDKUserMessage> {
+class ClaudePromptQueue implements AsyncIterable<SDKUserMessage, undefined> {
     private readonly items: SDKUserMessage[] = [];
-    private readonly resolvers: Array<(value: IteratorResult<SDKUserMessage>) => void> = [];
+    private readonly resolvers: Array<(value: IteratorResult<SDKUserMessage, undefined>) => void> = [];
     private closed = false;
 
     push(message: SDKUserMessage) {
@@ -166,13 +166,13 @@ class ClaudePromptQueue implements AsyncIterable<SDKUserMessage> {
         this.closed = true;
         for (const resolver of this.resolvers.splice(0)) {
             resolver({
-                value: undefined as never,
+                value: undefined,
                 done: true,
             });
         }
     }
 
-    [Symbol.asyncIterator](): AsyncIterator<SDKUserMessage> {
+    [Symbol.asyncIterator](): AsyncIterator<SDKUserMessage, undefined> {
         return {next: () => {
             const nextItem = this.items.shift();
             if (nextItem) {
@@ -183,11 +183,11 @@ class ClaudePromptQueue implements AsyncIterable<SDKUserMessage> {
             }
             if (this.closed) {
                 return Promise.resolve({
-                    value: undefined as never,
+                    value: undefined,
                     done: true,
                 });
             }
-            return new Promise<IteratorResult<SDKUserMessage>>(resolve => this.resolvers.push(resolve));
+            return new Promise<IteratorResult<SDKUserMessage, undefined>>(resolve => this.resolvers.push(resolve));
         }};
     }
 }

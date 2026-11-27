@@ -5,6 +5,7 @@ import {
     vi,
 } from 'vitest';
 import { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
+import { decodeOcrLanguages } from '@contracts/ocrLanguages';
 import * as v from 'valibot';
 import { parseDocumentRevisionToken } from '@contracts/documentRevision';
 import { createPlatformFeaturePreloadClient } from '@electron/preload/ipcClient';
@@ -140,7 +141,7 @@ describe('OCR platform feature', () => {
         })).toBe(true);
     });
 
-    it('parses OCR languages in the feature codec while preload forwards trusted main results', async () => {
+    it('forwards trusted main OCR language results in preload while decodeOcrLanguages validates wire payloads', async () => {
         let result: unknown = [
             {
                 code: 'eng',
@@ -160,9 +161,8 @@ describe('OCR platform feature', () => {
             ipcRenderer as IpcRenderer,
             OCR_PLATFORM_FEATURE,
         );
-        const codec = OCR_PLATFORM_FEATURE.ipcCodecs[channels.getLanguages];
 
-        expect(codec.decodeResult(result)).toEqual(result);
+        expect(decodeOcrLanguages(result)).toEqual(result);
         await expect(client.getLanguages()).resolves.toEqual(result);
 
         for (result of [
@@ -189,7 +189,7 @@ describe('OCR platform feature', () => {
                 },
             ],
         ]) {
-            expect(() => codec.decodeResult(result)).toThrow();
+            expect(decodeOcrLanguages(result)).toBeNull();
             await expect(client.getLanguages()).resolves.toEqual(result);
         }
     });

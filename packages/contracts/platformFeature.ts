@@ -6,6 +6,28 @@ import type {
 import * as v from 'valibot';
 
 export type TPlatformFeatureSchema<TOutput = unknown> = v.GenericSchema<unknown, TOutput>;
+/**
+ * Type-only carrier for trusted main-process IPC results that do not need a
+ * runtime Valibot result schema. Preload forwards trusted main responses
+ * without adding a second validation pass.
+ */
+export interface IPlatformResultType<TOutput = unknown> {
+    readonly kind: 'type-only-result';
+    readonly '~types'?: {readonly output: TOutput};
+}
+export type TPlatformResultSpec<TOutput = unknown> =
+    | TPlatformFeatureSchema<TOutput>
+    | IPlatformResultType<TOutput>;
+type TInferPlatformResult<TResult extends TPlatformResultSpec> =
+    TResult extends IPlatformResultType<infer TOutput>
+        ? TOutput
+        : TResult extends TPlatformFeatureSchema
+            ? v.InferOutput<TResult>
+            : never;
+
+export function platformResultType<TOutput>(): IPlatformResultType<TOutput> {
+    return {kind: 'type-only-result'};
+}
 /** contextBridge proxies callbacks, but cannot transfer an AbortSignal. */
 export type TPlatformIpcAbortSubscription = (onAbort: () => void) => (() => void);
 type TSchemaValue = ReturnType<JSON['parse']>;
@@ -49,11 +71,18 @@ function parseFeatureSchema<T>(schema: TPlatformFeatureSchema<T>, value: unknown
     return v.parse(schema, value, {abortEarly: true});
 }
 
+function parseFeatureResult(spec: TPlatformResultSpec, value: unknown): unknown {
+    if ('kind' in spec && spec.kind === 'type-only-result') {
+        return value;
+    }
+    return parseFeatureSchema(spec, value);
+}
+
 type TForwardedPlatformMethod<
     TName extends string,
     TChannel extends string,
     TArgs extends TPlatformFeatureSchema<unknown[]>,
-    TResult extends TPlatformFeatureSchema,
+    TResult extends TPlatformResultSpec,
     TMain extends string,
     TOptional extends boolean | undefined,
 > = {
@@ -75,7 +104,7 @@ interface IForwardedPlatformMethodDefinition {
     name: string;
     channel: string;
     args: TPlatformFeatureSchema<unknown[]>;
-    result: TPlatformFeatureSchema;
+    result: TPlatformResultSpec;
     main: string;
     optionalWhenImplemented?: boolean;
 }
@@ -85,7 +114,7 @@ interface IWideForwardedPlatformMethod {
     channel: string;
     ipc: {
         args: TPlatformFeatureSchema<unknown[]>;
-        result: TPlatformFeatureSchema;
+        result: TPlatformResultSpec;
     };
     main: {
         method: string;
@@ -100,7 +129,7 @@ export function defineForwardedPlatformMethod<
     const TName extends string,
     const TChannel extends string,
     const TArgs extends TPlatformFeatureSchema<unknown[]>,
-    const TResult extends TPlatformFeatureSchema,
+    const TResult extends TPlatformResultSpec,
     const TMain extends string,
     const TOptional extends boolean | undefined = undefined,
 >(definition: {
@@ -159,7 +188,7 @@ type TPlatformIpcClientArgs<TArgs extends TPlatformFeatureSchema<unknown[]>> =
 
 export interface IPlatformIpcMethodSpec<
     TArgs extends TPlatformFeatureSchema<unknown[]> = TPlatformFeatureSchema<unknown[]>,
-    TResult extends TPlatformFeatureSchema = TPlatformFeatureSchema,
+    TResult extends TPlatformResultSpec = TPlatformResultSpec,
 > {
     kind: 'async' | 'void';
     channel: string;
@@ -181,7 +210,7 @@ export interface IPlatformIpcMethodSpec<
 
 export interface IPlatformSyncMethodSpec<
     TArgs extends TPlatformFeatureSchema<unknown[]> = TPlatformFeatureSchema<unknown[]>,
-    TResult extends TPlatformFeatureSchema = TPlatformFeatureSchema,
+    TResult extends TPlatformResultSpec = TPlatformResultSpec,
 > {
     kind: 'sync';
     args: TArgs;
@@ -194,7 +223,7 @@ export interface IPlatformSyncMethodSpec<
 
 export interface IPlatformLocalMethodSpec<
     TArgs extends TPlatformFeatureSchema<unknown[]> = TPlatformFeatureSchema<unknown[]>,
-    TResult extends TPlatformFeatureSchema = TPlatformFeatureSchema,
+    TResult extends TPlatformResultSpec = TPlatformResultSpec,
 > {
     kind: 'async' | 'void';
     local: {
@@ -267,17 +296,17 @@ type TPublicIpcMethodArgs<TSpec extends IPlatformIpcMethodSpec> =
 
 type TPublicMethod<TSpec extends TPlatformMethodSpec> =
     TSpec extends IPlatformSyncMethodSpec<infer TArgs, infer TResult>
-        ? (...args: v.InferOutput<TArgs>) => v.InferOutput<TResult>
+        ? (...args: v.InferOutput<TArgs>) => TInferPlatformResult<TResult>
         : TSpec extends IPlatformLocalMethodSpec<infer TArgs, infer TResult>
             ? (...args: v.InferOutput<TArgs>) => TSpec['kind'] extends 'async'
-                ? Promise<v.InferOutput<TResult>>
-                : v.InferOutput<TResult>
+                ? Promise<TInferPlatformResult<TResult>>
+                : TInferPlatformResult<TResult>
             : TSpec extends IPlatformIpcMethodSpec
                 ? (
                     ...args: TPublicIpcMethodArgs<TSpec>
                 ) => TSpec['kind'] extends 'async'
-                    ? Promise<v.InferOutput<TSpec['ipc']['result']>>
-                    : v.InferOutput<TSpec['ipc']['result']>
+                    ? Promise<TInferPlatformResult<TSpec['ipc']['result']>>
+                    : TInferPlatformResult<TSpec['ipc']['result']>
                 : never;
 
 type TRequiredCapabilityMethods<TMethodMap extends TMethods> = {
@@ -317,8 +346,23 @@ type TMethodInvokeMap<M extends TMethods> = {
         ? M[K]['channel']
         : never]: M[K] extends IPlatformIpcMethodSpec ? {
         args: Extract<v.InferOutput<M[K]['ipc']['args']>, unknown[]>;
-        result: v.InferOutput<M[K]['ipc']['result']>;
+        result: TInferPlatformResult<M[K]['ipc']['result']>;
     } : never
+};
+
+type TDecodedPlatformResult<TResult extends TPlatformResultSpec> =
+    TResult extends IPlatformResultType
+        ? unknown
+        : TResult extends TPlatformFeatureSchema
+            ? v.InferOutput<TResult>
+            : never;
+
+type TDecodedMethodResultMap<M extends TMethods> = {
+    [K in keyof M as M[K] extends IPlatformIpcMethodSpec
+        ? M[K]['channel']
+        : never]: M[K] extends IPlatformIpcMethodSpec
+        ? TDecodedPlatformResult<M[K]['ipc']['result']>
+        : never
 };
 
 type TSubscriptionInvokeMap<E extends TEvents> = {
@@ -335,7 +379,15 @@ type TFeatureCodecMap<M extends TMethods, E extends TEvents> = {
     } ? {
             encodeArgs: (value: readonly unknown[]) => TArgs;
             decodeArgs: (value: readonly unknown[]) => TArgs;
-            decodeResult: (value: unknown) => TResult;
+            /**
+             * Contract-test-only result decoder. Production preload and renderer
+             * trust main-process responses without re-decoding them. Returns
+             * `unknown` for `platformResultType` entries that carry no runtime
+             * result schema.
+             */
+            decodeResult: (value: unknown) => TChannel extends keyof TDecodedMethodResultMap<M>
+                ? TDecodedMethodResultMap<M>[TChannel]
+                : TResult;
         }
         : never;
 };
@@ -360,7 +412,7 @@ type TMainMethod<TSpec extends IPlatformIpcMethodSpec, TEvent> = (
     ...args: TSpec['main']['context'] extends 'sender'
         ? [TSender<TEvent>, ...Extract<v.InferOutput<TSpec['ipc']['args']>, unknown[]>]
         : Extract<v.InferOutput<TSpec['ipc']['args']>, unknown[]>
-) => v.InferOutput<TSpec['ipc']['result']> | Promise<v.InferOutput<TSpec['ipc']['result']>>;
+) => TInferPlatformResult<TSpec['ipc']['result']> | Promise<TInferPlatformResult<TSpec['ipc']['result']>>;
 
 export type TFeatureMainBindings<T, TEvent> = T extends {
     methods: infer M extends TMethods;
@@ -403,6 +455,7 @@ type TFeatureEventChannels<E extends TEvents> = {readonly [K in keyof E]: E[K]['
 interface IPlatformFeatureCodec {
     encodeArgs: (value: readonly unknown[]) => unknown[];
     decodeArgs: (value: readonly unknown[]) => unknown[];
+    /** Contract-test-only; production preload forwards trusted main responses directly. */
     decodeResult: (value: unknown) => unknown;
 }
 
@@ -502,7 +555,7 @@ export function definePlatformFeature(
         ipcCodecs[spec.channel] = {
             encodeArgs: value => parseFeatureSchema(spec.ipc.args, value),
             decodeArgs: value => parseFeatureSchema(spec.ipc.args, value),
-            decodeResult: value => parseFeatureSchema(spec.ipc.result, value),
+            decodeResult: value => parseFeatureResult(spec.ipc.result, value),
         };
         addDescriptor(name, spec, {
             ...definition.required,

@@ -1,9 +1,16 @@
 import type { IpcRenderer } from 'electron';
 import type {IPdfValidationResult} from '@contracts/pdfConformance';
 import type {
-    IPdfSerializedCommitCallbacks, IPdfCommittedSaveAsResult, 
+    IPdfSerializedCommitCallbacks,
+    IPdfCommittedSaveAsResult,
+    IPdfSerializedSaveOptions,
 } from '@contracts/electronApiDocuments';
-import {requireSessionId} from '@contracts/shared';
+import type { TDocumentRef } from '@contracts/documentRef';
+import type { IIpcInvokeSpec } from '@contracts/ipcMain';
+import {
+    requireSessionId,
+    type TSessionId,
+} from '@contracts/shared';
 import {
     DOCX_EXPORT_STREAM_CHANNELS,
     DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES,
@@ -29,9 +36,41 @@ import {
 import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 import type { IBeginSerializedPdfPersistenceResult } from '@electron/features/documents/serializedPdfPersistenceContract';
-import { invokeWithChannelContext } from '@electron/preload/ipcClient';
+import { createIpcInvoker } from '@electron/preload/ipcClient';
 import assertPdfSerializedSaveOptions from '@electron/features/documents/assertPdfSerializedSaveOptions';
 import {assertAbsolutePath} from '@contracts/ipcAssertions';
+
+export interface IRendererFileOpenRequest {
+    filePath: string;
+    token: string;
+}
+
+/**
+ * Shared channel-indexed invoke map for direct document and DOCX stream IPC
+ * channels that live outside `definePlatformFeature` specs.
+ */
+export interface IDocumentsDirectInvokeMap {
+    [DOCX_EXPORT_STREAM_CHANNELS.begin]: IIpcInvokeSpec<[filePath: string], IDocxExportStreamBeginResult>;
+    [DOCX_EXPORT_STREAM_CHANNELS.writeChunk]: IIpcInvokeSpec<[sessionId: TSessionId, chunk: Uint8Array], boolean>;
+    [DOCX_EXPORT_STREAM_CHANNELS.commit]: IIpcInvokeSpec<[sessionId: TSessionId], boolean>;
+    [DOCX_EXPORT_STREAM_CHANNELS.cancel]: IIpcInvokeSpec<[sessionId: TSessionId], boolean>;
+    [DOCUMENTS_CHANNELS.fileSavePdfDataBegin]: IIpcInvokeSpec<
+        [workingPath: TDocumentRef, totalBytes: number, options?: IPdfSerializedSaveOptions],
+        IBeginSerializedPdfPersistenceResult
+    >;
+    [DOCUMENTS_CHANNELS.fileCommitStagedSerializedPdf]: IIpcInvokeSpec<
+        [sessionId: TSessionId, stagedOutput: ITypedStagedArtifact],
+        IPdfCommittedSaveAsResult
+    >;
+    [DOCUMENTS_CHANNELS.fileCancelStagedSerializedPdf]: IIpcInvokeSpec<
+        [sessionId: TSessionId, stagedOutput: ITypedStagedArtifact],
+        boolean
+    >;
+    [DOCUMENTS_CHANNELS.registerRendererFileOpenToken]: IIpcInvokeSpec<[token: string], boolean>;
+    [DOCUMENTS_CHANNELS.registerRendererFileOpenTokens]: IIpcInvokeSpec<[tokens: string[]], boolean>;
+    [DOCUMENTS_CHANNELS.allowRendererFileOpen]: IIpcInvokeSpec<[request: IRendererFileOpenRequest], boolean>;
+    [DOCUMENTS_CHANNELS.allowRendererFileOpenBatch]: IIpcInvokeSpec<[requests: IRendererFileOpenRequest[]], boolean>;
+}
 
 // The documents methods that are not plain invokes: savePdfData streams bytes
 // over a MessagePort and runs renderer callbacks before its commit, and DOCX
@@ -136,8 +175,12 @@ function assertPersistenceData(value: unknown, fieldName: string) {
 function createDocxExportFileCapability(
     ipcRenderer: Pick<IpcRenderer, 'invoke'>,
 ): IDocxExportFileCapability {
-    const invoke = async <TResult>(channel: string, ...args: unknown[]) => await ipcRenderer.invoke(channel, ...args) as TResult;
-    const beginDocxFileStream = (path: Parameters<IDocxExportFileCapability['beginDocxFileStream']>[0]) => invoke<IDocxExportStreamBeginResult>(DOCX_EXPORT_STREAM_CHANNELS.begin, assertAbsolutePath(path, 'beginDocxFileStream.path'));
+    const invoke = async <TChannel extends Extract<keyof IDocumentsDirectInvokeMap, string>>(
+        channel: TChannel,
+        ...args: IDocumentsDirectInvokeMap[TChannel]['args']
+    ) => await ipcRenderer.invoke(channel, ...args) as IDocumentsDirectInvokeMap[TChannel]['result'];
+    const beginDocxFileStream = (path: Parameters<IDocxExportFileCapability['beginDocxFileStream']>[0]) =>
+        invoke(DOCX_EXPORT_STREAM_CHANNELS.begin, assertAbsolutePath(path, 'beginDocxFileStream.path'));
     const writeDocxFileStreamChunk = (sessionId: Parameters<IDocxExportFileCapability['writeDocxFileStreamChunk']>[0], chunk: Parameters<IDocxExportFileCapability['writeDocxFileStreamChunk']>[1]) => {
         const checkedSessionId = requireSessionId(sessionId);
         if (!(chunk instanceof Uint8Array) || chunk.byteLength === 0) {
@@ -146,10 +189,12 @@ function createDocxExportFileCapability(
         if (chunk.byteLength > DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES) {
             throw new Error(`writeDocxFileStreamChunk chunk exceeds maximum size (${DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES} bytes)`);
         }
-        return invoke<boolean>(DOCX_EXPORT_STREAM_CHANNELS.writeChunk, checkedSessionId, Uint8Array.from(chunk));
+        return invoke(DOCX_EXPORT_STREAM_CHANNELS.writeChunk, checkedSessionId, Uint8Array.from(chunk));
     };
-    const commitDocxFileStream = (sessionId: Parameters<IDocxExportFileCapability['commitDocxFileStream']>[0]) => invoke<boolean>(DOCX_EXPORT_STREAM_CHANNELS.commit, requireSessionId(sessionId));
-    const cancelDocxFileStream = (sessionId: Parameters<IDocxExportFileCapability['cancelDocxFileStream']>[0]) => invoke<boolean>(DOCX_EXPORT_STREAM_CHANNELS.cancel, requireSessionId(sessionId));
+    const commitDocxFileStream = (sessionId: Parameters<IDocxExportFileCapability['commitDocxFileStream']>[0]) =>
+        invoke(DOCX_EXPORT_STREAM_CHANNELS.commit, requireSessionId(sessionId));
+    const cancelDocxFileStream = (sessionId: Parameters<IDocxExportFileCapability['cancelDocxFileStream']>[0]) =>
+        invoke(DOCX_EXPORT_STREAM_CHANNELS.cancel, requireSessionId(sessionId));
     return {
         beginDocxFileStream,
         writeDocxFileStreamChunk,
@@ -470,10 +515,8 @@ async function streamPdfBytesToPersistencePort(
 export function createDocumentsPreloadStreams(
     ipcRenderer: Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>,
 ) {
-    const invoke = <TResult>(channel: string, ...args: unknown[]) => invokeWithChannelContext<TResult>(
+    const invoke = createIpcInvoker<IDocumentsDirectInvokeMap>(
         ipcRenderer,
-        channel,
-        args,
         {invokeTimeoutMsByChannel: {[DOCUMENTS_CHANNELS.fileCommitStagedSerializedPdf]: LONG_NATIVE_IPC_TIMEOUT_MS}},
     );
     const commitStagedPersistence = async (
@@ -490,7 +533,7 @@ export function createDocumentsPreloadStreams(
                 staged.stagedOutput.size,
             );
             await callbacks?.assertBeforeCommit?.();
-            return await invoke<IPdfCommittedSaveAsResult>(
+            return await invoke(
                 DOCUMENTS_CHANNELS.fileCommitStagedSerializedPdf,
                 requireSessionId(staged.sessionId),
                 staged.stagedOutput,
@@ -519,7 +562,7 @@ export function createDocumentsPreloadStreams(
                 commitCallbacks,
                 'savePdfData.commitCallbacks',
             );
-            const beginResult = await invoke<IBeginSerializedPdfPersistenceResult>(
+            const beginResult = await invoke(
                 DOCUMENTS_CHANNELS.fileSavePdfDataBegin,
                 checkedPath,
                 checkedData.byteLength,

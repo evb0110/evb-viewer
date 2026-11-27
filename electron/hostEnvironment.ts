@@ -23,7 +23,10 @@ import {
     type THostResourceTier,
 } from '@contracts/hostResourceProfile';
 import { writeHostBugReportBundle } from '@electron/writeHostBugReportBundle';
-import type { TFeatureMainBindings } from '@contracts/platformFeature';
+import type {
+    TFeatureEventMap,
+    TFeatureMainBindings,
+} from '@contracts/platformFeature';
 import { tryGetHostResourceProfileSnapshot } from '@electron/resources/hostResourceProfile';
 import {
     getAllRegisteredAppWindows,
@@ -33,6 +36,16 @@ import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('host-env');
+
+type THostEventMap = TFeatureEventMap<typeof HOST_PLATFORM_FEATURE>;
+
+function sendHostEvent<TChannel extends Extract<keyof THostEventMap, string>>(
+    webContents: Pick<BrowserWindow['webContents'], 'send'>,
+    channel: TChannel,
+    payload: THostEventMap[TChannel],
+) {
+    webContents.send(channel, payload);
+}
 
 const ZEN_EXIT_SETTLE_MS = 140;
 const WINDOW_STATE_EVENT_TIMEOUT_MS = 220;
@@ -96,7 +109,7 @@ function sendHostRasterBudgetToWindow(
         return;
     }
     try {
-        webContents.send(HOST_PLATFORM_FEATURE.eventChannels.onRasterBudgetChange, snapshot);
+        sendHostEvent(webContents, HOST_PLATFORM_FEATURE.eventChannels.onRasterBudgetChange, snapshot);
         lastSentRasterBudgetByWindow.set(window, snapshot);
     } catch (error) {
         logger.warn(`Failed to send host raster budget update: ${getErrorMessage(error)}`);
@@ -453,7 +466,7 @@ function broadcastHostEnvironmentForWindow(window: BrowserWindow) {
         return;
     }
     try {
-        window.webContents.send(HOST_PLATFORM_FEATURE.eventChannels.onEnvironmentChange, snapshot);
+        sendHostEvent(window.webContents, HOST_PLATFORM_FEATURE.eventChannels.onEnvironmentChange, snapshot);
         state.lastSentSnapshot = snapshot;
     } catch (error) {
         logger.warn(`Failed to send host environment update: ${getErrorMessage(error)}`);
@@ -504,7 +517,7 @@ function broadcastHostZenModeForWindow(
     }
 
     try {
-        window.webContents.send(HOST_PLATFORM_FEATURE.eventChannels.onZenModeChange, snapshot);
+        sendHostEvent(window.webContents, HOST_PLATFORM_FEATURE.eventChannels.onZenModeChange, snapshot);
     } catch (error) {
         logger.warn(`Failed to send host zen mode update: ${getErrorMessage(error)}`);
     }
@@ -598,7 +611,7 @@ export function attachHostEnvironmentToWindow(window: BrowserWindow) {
                 ? 'end'
                 : null;
         if (boundary !== null && !webContents.isDestroyed()) {
-            webContents.send(HOST_PLATFORM_FEATURE.eventChannels.onWheelScrollSequenceChange, boundary);
+            sendHostEvent(webContents, HOST_PLATFORM_FEATURE.eventChannels.onWheelScrollSequenceChange, boundary);
         }
     };
 
