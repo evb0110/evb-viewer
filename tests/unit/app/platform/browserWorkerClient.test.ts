@@ -582,6 +582,165 @@ describe('BrowserWorkerRequestOwner admission by worker key', () => {
         expect(followB).toBe(workerB);
         expect(followA).toBe(workerA);
     });
+
+    it('rejects a hard-canceled pre-post request immediately, unblocks waiting siblings, and prevents late posts', async () => {
+        const posted: Array<{id: number; label: string}> = [];
+        class RecordingWorker extends FakeWorker {
+            public override postMessage(message: unknown) {
+                posted.push(message as {id: number; label: string});
+            }
+        }
+        const owner = new BrowserWorkerRequestOwner(() => new BrowserWorkerClient<IPendingTestRequest>({
+            idleTtlMs: 60_000,
+            createWorker: () => new RecordingWorker(),
+            createError: event => new Error(event.message),
+            handleMessage: () => {},
+        }), 1);
+
+        const heldYield = Promise.withResolvers<void>();
+        let aEntered = false;
+        let aAdmittedAfterYield: boolean | null = null;
+        const requestA = owner.run(1, async (client, isAdmitted) => {
+            aEntered = true;
+            await heldYield.promise;
+            aAdmittedAfterYield = isAdmitted();
+            if (!aAdmittedAfterYield) return 'stale-a';
+            const worker = client.getWorker();
+            client.registerPendingRequest(1, {reject: () => {}}, () => new Error('timeout'));
+            worker.postMessage({id: 1, label: 'A'});
+            return 'posted-a';
+        });
+
+        let bStarted = false;
+        const requestB = owner.run(2, async (client) => {
+            bStarted = true;
+            const worker = client.getWorker();
+            worker.postMessage({id: 2, label: 'B'});
+            return 'sibling-ok';
+        });
+
+        expect(aEntered).toBe(true);
+        expect(bStarted).toBe(false);
+
+        owner.cancel(1, new Error('hard canceled during yield'));
+        await expect(requestA).rejects.toThrow('hard canceled during yield');
+        await expect(requestB).resolves.toBe('sibling-ok');
+        expect(bStarted).toBe(true);
+        expect(posted).toEqual([{id: 2, label: 'B'}]);
+
+        heldYield.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(aAdmittedAfterYield).toBe(false);
+        expect(posted).toEqual([{id: 2, label: 'B'}]);
+    });
+
+    it('schedules idle termination when hard-canceled after getWorker but before pending registration', async () => {
+        vi.useFakeTimers();
+        try {
+            const owner = new BrowserWorkerRequestOwner(() => new BrowserWorkerClient<IPendingTestRequest>({
+                idleTtlMs: 1_000,
+                createWorker: () => new FakeWorker(),
+                createError: event => new Error(event.message),
+                handleMessage: () => {},
+            }), 1);
+
+            const heldYield = Promise.withResolvers<void>();
+            const requestA = owner.run(1, async (client, isAdmitted) => {
+                client.getWorker();
+                await heldYield.promise;
+                if (!isAdmitted()) return 'stale-a';
+                return 'done-a';
+            });
+
+            owner.cancel(1, new Error('canceled before post'));
+            await expect(requestA).rejects.toThrow('canceled before post');
+            expect(FakeWorker.terminateCount).toBe(0);
+
+            await vi.advanceTimersByTimeAsync(1_000);
+            expect(FakeWorker.terminateCount).toBe(1);
+
+            heldYield.resolve();
+            await vi.advanceTimersByTimeAsync(0);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('terminates the worker on hard cancel of an already-posted request and unblocks waiting siblings', async () => {
+        const started: FakeWorker[] = [];
+        const owner = new BrowserWorkerRequestOwner(() => new BrowserWorkerClient<IPendingTestRequest>({
+            idleTtlMs: 60_000,
+            createWorker: () => {
+                const worker = new FakeWorker();
+                started.push(worker);
+                return worker;
+            },
+            createError: event => new Error(event.message),
+            handleMessage: () => {},
+        }), 1);
+
+        const requestA = owner.run(1, (client) => {
+            client.getWorker();
+            return new Promise<string>((_resolve, reject) => {
+                client.registerPendingRequest(1, {reject}, () => new Error('timeout'));
+            });
+        });
+
+        let bWorker: FakeWorker | null = null;
+        const requestB = owner.run(2, async (client) => {
+            bWorker = client.getWorker() as FakeWorker;
+            return 'b-ok';
+        });
+
+        expect(started).toHaveLength(1);
+        owner.cancel(1, new Error('hard cancel in-flight'));
+        await expect(requestA).rejects.toThrow('hard cancel in-flight');
+        await expect(requestB).resolves.toBe('b-ok');
+        expect(FakeWorker.terminateCount).toBe(1);
+        expect(started).toHaveLength(2);
+        expect(bWorker).toBe(started[1]);
+    });
+
+    it('still terminates the worker and rejects the request if a pending reject callback throws on hard cancel', async () => {
+        const started: FakeWorker[] = [];
+        const owner = new BrowserWorkerRequestOwner(() => new BrowserWorkerClient<IPendingTestRequest>({
+            idleTtlMs: 60_000,
+            createWorker: () => {
+                const worker = new FakeWorker();
+                started.push(worker);
+                return worker;
+            },
+            createError: event => new Error(event.message),
+            handleMessage: () => {},
+        }), 1);
+
+        const requestA = owner.run(1, (client) => {
+            client.getWorker();
+            return new Promise<string>((_resolve, reject) => {
+                client.registerPendingRequest(1, {
+                    reject: (error) => {
+                        Object.defineProperty(error, 'failure', {value: 'diagnostics'});
+                        reject(error);
+                    },
+                }, () => new Error('timeout'));
+            });
+        });
+
+        let bWorker: FakeWorker | null = null;
+        const requestB = owner.run(2, async (client) => {
+            bWorker = client.getWorker() as FakeWorker;
+            return 'fresh-worker-ok';
+        });
+
+        const frozenError = Object.freeze(new Error('frozen abort'));
+        owner.cancel(1, frozenError);
+        await expect(requestA).rejects.toBe(frozenError);
+        await expect(requestB).resolves.toBe('fresh-worker-ok');
+        expect(FakeWorker.terminateCount).toBe(1);
+        expect(started).toHaveLength(2);
+        expect(bWorker).toBe(started[1]);
+    });
 });
 
 describe('BrowserWorkerBudget across pools', () => {

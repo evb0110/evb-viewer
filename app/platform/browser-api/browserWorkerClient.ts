@@ -325,7 +325,7 @@ export class BrowserWorkerClient<
         options: {
             resetWorker?: boolean;
             keepWarm?: boolean;
-            drainTimeoutMs?: number;
+            drainTimeoutMs?: number | undefined;
             resetError?: Error;
         } = {},
     ) {
@@ -600,13 +600,8 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
             this.admitWaitingRequests();
         });
         return promise.finally(() => {
-            if (request.client && request.client.leasedBy === requestId) {
-                request.client.leasedBy = null;
-                if (request.client.idle && this.budget?.retired(request.client.workerKey)) request.client.resetWorker();
-            }
-            if (this.requests.get(requestId) === request) {
-                this.requests.delete(requestId);
-            }
+            this.releaseClient(request, requestId);
+            if (this.requests.get(requestId) === request) this.requests.delete(requestId);
             if (this.requests.size === 0) this.lifecycle.clear();
             this.admitWaitingRequests();
             this.budget?.wake();
@@ -616,32 +611,35 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
     public cancel(requestId: number, error: Error) {
         const request = this.requests.get(requestId);
         if (!request) return;
-        if (request.client) {
-            if (request.admission.keepWarmOnCancel) {
-                const client = request.client;
-                const canceledPending = client.cancelPendingRequest(requestId, error, {
-                    keepWarm: true,
-                    ...(request.admission.drainTimeoutMs === undefined
-                        ? {}
-                        : {drainTimeoutMs: request.admission.drainTimeoutMs}),
-                });
-                if (client.leasedBy === requestId) {
-                    client.leasedBy = null;
-                }
-                request.client = null;
-                this.requests.delete(requestId);
-                if (!canceledPending) {
-                    request.reject(error);
-                }
-                return;
+        const client = request.client;
+        this.requests.delete(requestId);
+        let canceledPending = false;
+        if (client) {
+            try {
+                canceledPending = client.cancelPendingRequest(
+                    requestId,
+                    error,
+                    request.admission.keepWarmOnCancel
+                        ? {keepWarm: true, drainTimeoutMs: request.admission.drainTimeoutMs}
+                        : {resetWorker: true},
+                );
+            } catch {
+                if (!request.admission.keepWarmOnCancel) client.resetWorker(new BrowserWorkerResetError());
+            } finally {
+                this.releaseClient(request, requestId);
             }
-            // Releasing admission also stops the engine. A canceled request
-            // cannot keep consuming CPU while a waiting request starts.
-            request.client.cancelPendingRequest(requestId, error, {resetWorker: true});
-        } else {
-            this.requests.delete(requestId);
-            request.reject(error);
         }
+        if (!canceledPending) request.reject(error);
+    }
+
+    private releaseClient(request: IOwnedRequest<TPendingRequest>, requestId: number) {
+        const client = request.client;
+        request.client = null;
+        if (!client || client.leasedBy !== requestId) return;
+        client.leasedBy = null;
+        if (!client.idle) return;
+        if (this.budget?.retired(client.workerKey)) client.resetWorker();
+        else client.scheduleIdleWorkerTermination();
     }
 
     /** Sends a control message to every currently live worker in the pool without spawning new ones. */
@@ -699,23 +697,22 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
     }
 
     private admitWaitingRequestsPass() {
-        const admitted = [...this.requests.values()].flatMap(entry => entry.client ? [entry.client] : []);
         for (const request of this.requests.values()) {
             if (request.client) continue;
             const workerKey = request.admission.workerKey?.();
             if (request.admission.terminateDrainingSameKey && workerKey !== undefined) {
                 for (const candidate of this.clients) {
-                    if (!admitted.includes(candidate) && candidate.draining && candidate.workerKey === workerKey) {
+                    if (candidate.leasedBy === null && candidate.draining && candidate.workerKey === workerKey) {
                         candidate.resetWorker();
                     }
                 }
             }
-            let free = this.clients.filter(candidate => !admitted.includes(candidate) && !candidate.draining);
+            let free = this.clients.filter(candidate => candidate.leasedBy === null && !candidate.draining);
             if (free.length === 0 && request.admission.terminateDrainingWhenFull) {
-                const draining = this.clients.find(candidate => !admitted.includes(candidate) && candidate.draining);
+                const draining = this.clients.find(candidate => candidate.leasedBy === null && candidate.draining);
                 if (draining) {
                     draining.resetWorker();
-                    free = this.clients.filter(candidate => !admitted.includes(candidate) && !candidate.draining);
+                    free = [draining];
                 }
             }
             if (free.length === 0) continue;
@@ -729,7 +726,6 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
             // A request waiting for a budget place or draining same-key worker lets later independent ones start.
             if (!client) continue;
             request.start(client, workerKey);
-            admitted.push(client);
         }
     }
 
