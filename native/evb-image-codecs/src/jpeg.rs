@@ -350,91 +350,160 @@ pub fn resize_pixels(
         .checked_mul(nh)
         .and_then(|value| value.checked_mul(ch))
         .ok_or("Resized pixel payload size overflow")?;
-    let mut output = vec![0u8; output_len];
-    let x_taps = AxisTaps::new(sw, nw);
-    let y_taps = AxisTaps::new(sh, nh);
-    let source_row_len = sw * ch;
-    let mut row_accum = vec![0.0f64; source_row_len];
+    const TILE_X: usize = 256;
 
-    for y in 0..nh {
-        row_accum.fill(0.0);
-        let (sy_first, y_weights, span_y) = y_taps.get(y);
-        for (offset, &wy) in y_weights.iter().enumerate() {
-            let row_start = (sy_first + offset) * source_row_len;
-            let src_row = &pixels[row_start..row_start + source_row_len];
-            for (acc, &px) in row_accum.iter_mut().zip(src_row) {
-                *acc += f64::from(px) * wy;
-            }
+    #[derive(Clone, Copy, Default)]
+    struct XSpan {
+        sx_start: usize,
+        sx_end: usize,
+        first_ox: f64,
+        last_ox: f64,
+        span_x: f64,
+    }
+
+    let mut output = vec![0u8; output_len];
+    let scale_x = sw as f64 / nw as f64;
+    let scale_y = sh as f64 / nh as f64;
+    let source_row_len = sw * ch;
+
+    let mut x_spans = [XSpan::default(); TILE_X];
+    let mut gray_sums = [0.0f64; TILE_X];
+    let mut rgb_sums = [[0.0f64; 3]; TILE_X];
+
+    for x_tile in (0..nw).step_by(TILE_X) {
+        let tile_len = (nw - x_tile).min(TILE_X);
+        for (slot, span) in x_spans[..tile_len].iter_mut().enumerate() {
+            let x = x_tile + slot;
+            let x0 = x as f64 * scale_x;
+            let x1 = (x + 1) as f64 * scale_x;
+            let sx_start = x0.floor() as usize;
+            let sx_end = x1.ceil().min(sw as f64) as usize;
+            let first_ox = if sx_start < sx_end {
+                ((sx_start + 1) as f64).min(x1) - (sx_start as f64).max(x0)
+            } else {
+                0.0
+            };
+            let last_ox = if sx_end > sx_start + 1 {
+                let last = sx_end - 1;
+                ((last + 1) as f64).min(x1) - (last as f64).max(x0)
+            } else {
+                0.0
+            };
+            *span = XSpan {
+                sx_start,
+                sx_end,
+                first_ox,
+                last_ox,
+                span_x: x1 - x0,
+            };
         }
-        let out_row = &mut output[y * nw * ch..(y + 1) * nw * ch];
-        if ch == 1 {
-            for (x, target) in out_row.iter_mut().enumerate() {
-                let (sx_first, x_weights, span_x) = x_taps.get(x);
-                let mut sum = 0.0f64;
-                for (offset, &wx) in x_weights.iter().enumerate() {
-                    sum += row_accum[sx_first + offset] * wx;
+
+        for y in 0..nh {
+            let y0 = y as f64 * scale_y;
+            let y1 = (y + 1) as f64 * scale_y;
+            let sy_start = y0.floor() as usize;
+            let sy_end = y1.ceil().min(sh as f64) as usize;
+            let span_y = y1 - y0;
+
+            if ch == 1 {
+                gray_sums[..tile_len].fill(0.0);
+                for sy in sy_start..sy_end {
+                    let overlap_y = ((sy + 1) as f64).min(y1) - (sy as f64).max(y0);
+                    if overlap_y <= 0.0 {
+                        continue;
+                    }
+                    let src_row = &pixels[sy * source_row_len..(sy + 1) * source_row_len];
+                    for (sum, span) in gray_sums[..tile_len].iter_mut().zip(&x_spans[..tile_len]) {
+                        if span.sx_start >= span.sx_end {
+                            continue;
+                        }
+                        if span.first_ox > 0.0 {
+                            *sum += f64::from(src_row[span.sx_start]) * span.first_ox * overlap_y;
+                        }
+                        let interior_end = span.sx_end.saturating_sub(1);
+                        if span.sx_start + 1 < interior_end {
+                            if overlap_y == 1.0 {
+                                for &px in &src_row[span.sx_start + 1..interior_end] {
+                                    *sum += f64::from(px);
+                                }
+                            } else {
+                                for &px in &src_row[span.sx_start + 1..interior_end] {
+                                    *sum += f64::from(px) * overlap_y;
+                                }
+                            }
+                        }
+                        if span.sx_end > span.sx_start + 1 && span.last_ox > 0.0 {
+                            *sum += f64::from(src_row[span.sx_end - 1]) * span.last_ox * overlap_y;
+                        }
+                    }
                 }
-                *target = (sum / (span_x * span_y)).round().clamp(0.0, 255.0) as u8;
-            }
-        } else {
-            for (x, target) in out_row.chunks_exact_mut(3).enumerate() {
-                let (sx_first, x_weights, span_x) = x_taps.get(x);
-                let mut sums = [0.0f64; 3];
-                for (offset, &wx) in x_weights.iter().enumerate() {
-                    let base = (sx_first + offset) * 3;
-                    sums[0] += row_accum[base] * wx;
-                    sums[1] += row_accum[base + 1] * wx;
-                    sums[2] += row_accum[base + 2] * wx;
+                let out_slice = &mut output[y * nw + x_tile..y * nw + x_tile + tile_len];
+                for ((target, &sum), span) in out_slice
+                    .iter_mut()
+                    .zip(&gray_sums[..tile_len])
+                    .zip(&x_spans[..tile_len])
+                {
+                    *target = (sum / (span.span_x * span_y)).round().clamp(0.0, 255.0) as u8;
                 }
-                let area = span_x * span_y;
-                target[0] = (sums[0] / area).round().clamp(0.0, 255.0) as u8;
-                target[1] = (sums[1] / area).round().clamp(0.0, 255.0) as u8;
-                target[2] = (sums[2] / area).round().clamp(0.0, 255.0) as u8;
+            } else {
+                rgb_sums[..tile_len].fill([0.0; 3]);
+                for sy in sy_start..sy_end {
+                    let overlap_y = ((sy + 1) as f64).min(y1) - (sy as f64).max(y0);
+                    if overlap_y <= 0.0 {
+                        continue;
+                    }
+                    let src_row = &pixels[sy * source_row_len..(sy + 1) * source_row_len];
+                    for (sums, span) in rgb_sums[..tile_len].iter_mut().zip(&x_spans[..tile_len]) {
+                        if span.sx_start >= span.sx_end {
+                            continue;
+                        }
+                        if span.first_ox > 0.0 {
+                            let base = span.sx_start * 3;
+                            sums[0] += f64::from(src_row[base]) * span.first_ox * overlap_y;
+                            sums[1] += f64::from(src_row[base + 1]) * span.first_ox * overlap_y;
+                            sums[2] += f64::from(src_row[base + 2]) * span.first_ox * overlap_y;
+                        }
+                        let interior_end = span.sx_end.saturating_sub(1);
+                        if span.sx_start + 1 < interior_end {
+                            let interior = &src_row[(span.sx_start + 1) * 3..interior_end * 3];
+                            if overlap_y == 1.0 {
+                                for px in interior.chunks_exact(3) {
+                                    sums[0] += f64::from(px[0]);
+                                    sums[1] += f64::from(px[1]);
+                                    sums[2] += f64::from(px[2]);
+                                }
+                            } else {
+                                for px in interior.chunks_exact(3) {
+                                    sums[0] += f64::from(px[0]) * overlap_y;
+                                    sums[1] += f64::from(px[1]) * overlap_y;
+                                    sums[2] += f64::from(px[2]) * overlap_y;
+                                }
+                            }
+                        }
+                        if span.sx_end > span.sx_start + 1 && span.last_ox > 0.0 {
+                            let base = (span.sx_end - 1) * 3;
+                            sums[0] += f64::from(src_row[base]) * span.last_ox * overlap_y;
+                            sums[1] += f64::from(src_row[base + 1]) * span.last_ox * overlap_y;
+                            sums[2] += f64::from(src_row[base + 2]) * span.last_ox * overlap_y;
+                        }
+                    }
+                }
+                let out_slice =
+                    &mut output[(y * nw + x_tile) * 3..(y * nw + x_tile + tile_len) * 3];
+                for ((target, sums), span) in out_slice
+                    .chunks_exact_mut(3)
+                    .zip(&rgb_sums[..tile_len])
+                    .zip(&x_spans[..tile_len])
+                {
+                    let area = span.span_x * span_y;
+                    target[0] = (sums[0] / area).round().clamp(0.0, 255.0) as u8;
+                    target[1] = (sums[1] / area).round().clamp(0.0, 255.0) as u8;
+                    target[2] = (sums[2] / area).round().clamp(0.0, 255.0) as u8;
+                }
             }
         }
     }
     Ok(output)
-}
-
-struct AxisTaps {
-    entries: Vec<(usize, usize, usize, f64)>,
-    weights: Vec<f64>,
-}
-
-impl AxisTaps {
-    fn new(source_len: usize, out_len: usize) -> Self {
-        let scale = source_len as f64 / out_len as f64;
-        let mut entries = Vec::with_capacity(out_len);
-        let mut weights = Vec::with_capacity(source_len.saturating_add(out_len));
-        for index in 0..out_len {
-            let p0 = index as f64 * scale;
-            let p1 = (index + 1) as f64 * scale;
-            let start_idx = p0.floor() as usize;
-            let end_idx = p1.ceil().min(source_len as f64) as usize;
-            let weight_start = weights.len();
-            let mut first_src = start_idx;
-            let mut started = false;
-            for src in start_idx..end_idx {
-                let overlap = ((src + 1) as f64).min(p1) - (src as f64).max(p0);
-                if overlap <= 0.0 {
-                    continue;
-                }
-                if !started {
-                    first_src = src;
-                    started = true;
-                }
-                weights.push(overlap);
-            }
-            entries.push((first_src, weight_start, weights.len(), p1 - p0));
-        }
-        Self { entries, weights }
-    }
-
-    #[inline]
-    fn get(&self, index: usize) -> (usize, &[f64], f64) {
-        let (first, start, end, span) = self.entries[index];
-        (first, &self.weights[start..end], span)
-    }
 }
 
 /// Decodes an 8-bit gray or RGB JPEG, shrinks it to `width` x `height` by
@@ -782,6 +851,17 @@ mod tests {
             resize_pixels(&boundary, 4, 1, 1, 3, 1, 1_000_000).unwrap(),
             vec![0, 1, 0]
         );
+
+        // Exact two-axis legacy FP multiplication-order fixture: 4x4 with
+        // pixel (1, 1) = 100 resized to 3x3 must preserve (1, 0) = 12 and
+        // (0, 1) = 13.
+        let mut two_axis = vec![0u8; 16];
+        two_axis[5] = 100;
+        let expected_two_axis = ref_2d(&two_axis, 4, 4, 1, 3, 3);
+        let actual_two_axis = resize_pixels(&two_axis, 4, 4, 1, 3, 3, 1_000_000).unwrap();
+        assert_eq!(actual_two_axis, expected_two_axis);
+        assert_eq!(actual_two_axis[1], 12);
+        assert_eq!(actual_two_axis[3], 13);
 
         let mut state = 0x4a50_4547_5253_5a31_u64;
         for (sw, sh, nw, nh, ch) in [

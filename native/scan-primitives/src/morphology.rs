@@ -705,6 +705,9 @@ pub fn reconstruct_gray_by_erosion(marker: &GrayImage, mask: &GrayImage) -> Gray
 fn reconstruct_gray_in_place<const EROSION: bool>(output: &mut GrayImage, mask: &GrayImage) {
     let width = output.width();
     let height = output.height();
+    if width == 0 || height == 0 {
+        return;
+    }
     let clamp = |value: u8, bound: u8| {
         if EROSION {
             value.max(bound)
@@ -725,9 +728,6 @@ fn reconstruct_gray_in_place<const EROSION: bool>(output: &mut GrayImage, mask: 
         for (target, &mask_val) in output.row_mut(y).iter_mut().zip(mask.row(y)) {
             *target = clamp(*target, mask_val);
         }
-    }
-    if width == 0 || height == 0 {
-        return;
     }
 
     // Vincent's raster and anti-raster passes propagate values along the two
