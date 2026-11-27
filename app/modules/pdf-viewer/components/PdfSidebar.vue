@@ -3,7 +3,7 @@
         v-show="isOpen"
         class="pdf-sidebar"
         data-testid="document-sidebar"
-        :style="sidebarStyle"
+        :width-px="sidebarWidth"
         :model-value="activeTab ?? ''"
         :tabs="localizedTabs"
         :outer-scroll="false"
@@ -33,7 +33,7 @@
             <DocumentSidebarPagesPanel
                 v-show="activeTab === 'thumbnails'"
                 class="pdf-sidebar-pages"
-                rail-class="pdf-sidebar-pages-thumbnails"
+                accepts-external-pdf-drop
             >
                 <template #header>
                 <PdfPageSelectionBar
@@ -509,13 +509,5 @@ function handleShellTabUpdate(value: string) {
     emit('update:activeTab', value as TPdfSidebarTab);
 }
 
-const sidebarStyle = computed(() => {
-    const sidebarWidth = width ?? SIDEBAR.DEFAULT_WIDTH;
-
-    return {
-        width: `${sidebarWidth}px`,
-        maxWidth: '100%',
-        minWidth: '0',
-    };
-});
+const sidebarWidth = computed(() => width ?? SIDEBAR.DEFAULT_WIDTH);
 </script>

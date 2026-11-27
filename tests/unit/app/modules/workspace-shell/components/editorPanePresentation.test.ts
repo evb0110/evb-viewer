@@ -43,8 +43,15 @@ vi.mock('@app/modules/workspace-shell/components/DocumentWorkspaceTab.vue', () =
 
 vi.mock('@app/modules/workspace-shell/components/layout/TabBar.vue', () => ({default: defineComponent({
     name: 'TabBarStub',
-    setup() {
-        return () => h('div', {class: 'tab-bar-stub'});
+    props: {panePresentation: {
+        type: String,
+        default: 'single',
+    }},
+    setup(props) {
+        return () => h('div', {
+            class: 'tab-bar-stub',
+            'data-pane-presentation': props.panePresentation,
+        });
     },
 })}));
 
@@ -79,13 +86,19 @@ function createReleasedHostLifecycle(tabId: string): ITabLifecycleState {
 }
 
 async function mountEditorPane({
+    activePaneId = 'pane-1',
     activeTabId,
+    inPlace = false,
+    paneCount = 1,
     tabIds,
     tabLifecycleById = {},
     zenActiveTabId = null,
     zenMode = false,
 }: {
+    activePaneId?: string | null;
     activeTabId: string | null;
+    inPlace?: boolean;
+    paneCount?: number;
     tabIds: string[];
     tabLifecycleById?: Record<string, ITabLifecycleState>;
     zenActiveTabId?: string | null;
@@ -114,9 +127,10 @@ async function mountEditorPane({
     const app = createApp(defineComponent({setup() {
         return () => h(EditorPaneView, {
             pane,
-            paneCount: 1,
+            paneCount,
+            inPlace,
             tabs: tabIds.map(createTab),
-            activePaneId: 'pane-1',
+            activePaneId,
             isTabTransitionBusy: false,
             tabContextAvailability: null,
             startSectionByTabId: {},
@@ -195,6 +209,104 @@ describe('editor pane presentation', () => {
         expect(zen.host.querySelector('[data-host-tab-id="tab-new"]')).not.toBeNull();
         // Zen mode presents the document alone, without the tab strip.
         expect(zen.host.querySelector('.tab-bar-stub')).toBeNull();
+    });
+
+    it.each([
+        {
+            activePaneId: 'pane-1',
+            expected: 'single',
+            inPlace: true,
+            paneCount: 1,
+        },
+        {
+            activePaneId: 'pane-1',
+            expected: 'split-active',
+            inPlace: false,
+            paneCount: 2,
+        },
+        {
+            activePaneId: 'pane-2',
+            expected: 'split-inactive',
+            inPlace: false,
+            paneCount: 2,
+        },
+    ])('derives $expected tab bar presentation and in-place state', async ({
+        activePaneId,
+        expected,
+        inPlace,
+        paneCount,
+    }) => {
+        const {host} = await mountEditorPane({
+            activePaneId,
+            activeTabId: 'tab-1',
+            inPlace,
+            paneCount,
+            tabIds: ['tab-1'],
+        });
+
+        const pane = host.querySelector<HTMLElement>('.editor-pane');
+        const tabBar = host.querySelector<HTMLElement>('.tab-bar-stub');
+        expect(pane?.classList.contains('is-in-place')).toBe(inPlace);
+        expect(tabBar?.dataset.panePresentation).toBe(expected);
+    });
+
+    it('applies split pane classes on TabBar root from panePresentation', async () => {
+        const {default: TabBar} = await vi.importActual<typeof import('@app/modules/workspace-shell/components/layout/TabBar.vue')>('@app/modules/workspace-shell/components/layout/TabBar.vue');
+        const slot = defineComponent({inheritAttrs: false, setup: (_props, {slots}) => () => slots.default?.()});
+        vi.stubGlobal('useToast', () => ({add: vi.fn()}));
+
+        try {
+            for (const [
+                panePresentation,
+                isSplit,
+                isSplitActive,
+            ] of [
+                [
+                    'single',
+                    false,
+                    false,
+                ],
+                [
+                    'split-inactive',
+                    true,
+                    false,
+                ],
+                [
+                    'split-active',
+                    true,
+                    true,
+                ],
+            ] as const) {
+                const app = createApp({render: () => h(TabBar, {
+                    tabs: [{
+                        id: 'tab-1',
+                        fileName: 'a.pdf',
+                        originalPath: null,
+                        isDirty: false,
+                        isDjvu: false,
+                    }],
+                    activeTabId: 'tab-1',
+                    panePresentation,
+                })});
+                app.component('AppTooltip', slot);
+                app.component('UDropdownMenu', slot);
+                app.component('Icon', slot);
+                const host = document.createElement('div');
+                document.body.append(host);
+                app.mount(host);
+                try {
+                    const root = host.querySelector<HTMLElement>('.tab-bar');
+                    expect(root?.dataset.panePresentation).toBe(panePresentation);
+                    expect(root?.classList.contains('is-split-pane')).toBe(isSplit);
+                    expect(root?.classList.contains('is-split-active-pane')).toBe(isSplitActive);
+                } finally {
+                    app.unmount();
+                    host.remove();
+                }
+            }
+        } finally {
+            vi.unstubAllGlobals();
+        }
     });
 });
 

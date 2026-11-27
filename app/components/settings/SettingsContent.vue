@@ -693,10 +693,6 @@ onBeforeUnmount(() => {
     background: var(--app-start-card-bg);
 }
 
-.settings-card :deep(.settings-section) {
-    min-inline-size: 0;
-}
-
 .settings-card :deep([aria-haspopup='listbox']) {
     max-width: 100%;
 }

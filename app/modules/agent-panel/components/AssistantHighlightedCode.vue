@@ -15,3 +15,26 @@ const props = defineProps<{
 }>();
 const tokens = computed(() => highlightAssistantCode(props.code, props.language));
 </script>
+
+<style scoped>
+code {
+    font-family: var(--app-font-mono);
+    font-size: var(--app-text-size-body-sm);
+}
+
+.is-keyword {
+    color: var(--ui-primary);
+}
+
+.is-string {
+    color: var(--ui-success);
+}
+
+.is-number {
+    color: var(--ui-warning);
+}
+
+.is-comment {
+    color: var(--ui-text-dimmed);
+}
+</style>

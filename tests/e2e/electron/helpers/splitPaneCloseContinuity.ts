@@ -61,7 +61,7 @@ async function prepareThumbnailRail(
     }) => {
         const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const root = payload.documentKind === 'pdf'
-            ? host?.querySelector<HTMLElement>('.pdf-sidebar-pages-thumbnails .pdf-thumbnails') ?? null
+            ? host?.querySelector<HTMLElement>('[data-pdf-thumbnail-drop-target] .pdf-thumbnails') ?? null
             : host?.querySelector<HTMLElement>('[data-testid="document-thumbnail-list"]') ?? null;
         if (!root || root.clientHeight <= 0) {
             return false;
@@ -294,7 +294,7 @@ async function installContinuityProbe(
             ? sourceHost?.querySelector<HTMLElement>('#pdf-viewer') ?? null
             : sourceHost?.querySelector<HTMLElement>('[data-testid="document-page-source-viewer"]') ?? null;
         const sourceThumbnailSurface = payload.documentKind === 'pdf'
-            ? sourceHost?.querySelector<HTMLElement>('.pdf-sidebar-pages-thumbnails .pdf-thumbnails') ?? null
+            ? sourceHost?.querySelector<HTMLElement>('[data-pdf-thumbnail-drop-target] .pdf-thumbnails') ?? null
             : sourceHost?.querySelector<HTMLElement>('[data-testid="document-thumbnail-list"]') ?? null;
         const sourcePaneId = sourcePane?.dataset.editorPaneId ?? '';
         const sourceTabId = sourceTab?.dataset.tabId ?? '';
@@ -465,7 +465,7 @@ async function installContinuityProbe(
                 ? currentHost?.querySelector<HTMLElement>('#pdf-viewer') ?? null
                 : currentHost?.querySelector<HTMLElement>('[data-testid="document-page-source-viewer"]') ?? null;
             const currentThumbnailSurface = payload.documentKind === 'pdf'
-                ? currentHost?.querySelector<HTMLElement>('.pdf-sidebar-pages-thumbnails .pdf-thumbnails') ?? null
+                ? currentHost?.querySelector<HTMLElement>('[data-pdf-thumbnail-drop-target] .pdf-thumbnails') ?? null
                 : currentHost?.querySelector<HTMLElement>('[data-testid="document-thumbnail-list"]') ?? null;
             const anchor = readAnchor();
             const thumbnailAnchor = readThumbnailAnchor();

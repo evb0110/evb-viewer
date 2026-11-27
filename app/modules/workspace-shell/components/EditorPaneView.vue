@@ -4,6 +4,7 @@
         :class="{
             'is-active': pane.paneId === activePaneId,
             'has-multiple-panes': paneCount > 1,
+            'is-in-place': inPlace,
         }"
         :data-editor-pane-id="pane.paneId"
         @pointerdown="emit('activate-pane', pane.paneId)"
@@ -13,6 +14,7 @@
             :tabs="visibleTabs"
             :active-tab-id="pane.activeTabId"
             :context-availability="tabContextAvailability"
+            :pane-presentation="tabBarPanePresentation"
             @activate="emit('activate-tab', pane.paneId, $event)"
             @close="emit('close-tab', pane.paneId, $event)"
             @new-tab="emit('new-tab', pane.paneId)"
@@ -69,8 +71,11 @@ import DocumentWorkspaceTab from '@app/modules/workspace-shell/components/Docume
 import TabBar from '@app/modules/workspace-shell/components/layout/TabBar.vue';
 
 const {
+    activePaneId,
     documentSessionsByTabId,
+    inPlace = false,
     pane,
+    paneCount,
     tabLifecycleById,
     tabs,
     zenActiveTabId,
@@ -78,6 +83,7 @@ const {
 } = defineProps<{
     pane: IEditorPaneState;
     paneCount: number;
+    inPlace?: boolean | undefined;
     tabs: ITab[];
     activePaneId: string | null;
     isTabTransitionBusy: boolean;
@@ -123,6 +129,13 @@ const visibleTabs = computed<TTabView[]>(() => pane.tabIds.flatMap((tabId) => {
     }];
 }));
 
+const tabBarPanePresentation = computed<'single' | 'split-active' | 'split-inactive'>(() => {
+    if (paneCount <= 1) {
+        return 'single';
+    }
+    return pane.paneId === activePaneId ? 'split-active' : 'split-inactive';
+});
+
 function shouldMountHost(tabId: string) {
     return tabLifecycleById[tabId]?.shouldMountHost !== false;
 }
@@ -145,17 +158,11 @@ function shouldMountHost(tabId: string) {
     position: relative;
 }
 
-.editor-pane.has-multiple-panes :deep(.tab-bar) {
-    transition: background-color 0.12s ease, border-bottom-color 0.12s ease, box-shadow 0.12s ease;
-}
-
-.editor-pane.has-multiple-panes.is-active :deep(.tab-bar) {
-    background: var(--app-editor-pane-active-tabbar-bg);
-    border-bottom-color: var(--app-editor-pane-active-tabbar-divider);
-    box-shadow: inset 0 1px 0 var(--app-editor-pane-active-tabbar-glow);
-
-    --app-tab-divider: var(--app-editor-pane-active-tabbar-divider);
-    --app-tab-hover-bg: color-mix(in oklab, var(--app-editor-pane-active-tabbar-bg) 55%, var(--ui-bg) 45%);
+/* A pane rendered in place, before its slot exists, covers the host as the
+   single slot of the initial layout will. */
+.editor-pane.is-in-place {
+    position: absolute;
+    inset: 0;
 }
 
 .editor-pane-content {
