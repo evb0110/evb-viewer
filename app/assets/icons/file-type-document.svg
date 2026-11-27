@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 36" fill="none">
+    <g fill="none">
+        <path
+            d="M5 2.4A2 2 0 0 1 7 .4h13.5L29 8.9V32a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V2.4Z"
+            fill="var(--app-file-icon-doc-fill)"
+            stroke="var(--app-file-icon-doc-stroke)"
+            stroke-width="0.8"
+        />
+        <path
+            d="M20.5.4 29 8.9h-6.5a2 2 0 0 1-2-2V.4Z"
+            fill="var(--app-file-icon-doc-fold)"
+        />
+        <path
+            d="M9 17h14"
+            stroke="var(--app-file-icon-doc-line)"
+            stroke-width="1.4"
+            stroke-linecap="round"
+        />
+        <path
+            d="M9 21h14"
+            stroke="var(--app-file-icon-doc-line)"
+            stroke-width="1.4"
+            stroke-linecap="round"
+        />
+        <path
+            d="M9 25h9"
+            stroke="var(--app-file-icon-doc-line)"
+            stroke-width="1.4"
+            stroke-linecap="round"
+        />
+    </g>
+</svg>

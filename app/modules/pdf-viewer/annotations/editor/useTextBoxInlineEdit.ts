@@ -1,4 +1,5 @@
 import type { IAnnotationTextEditPoint } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
+import { useEventListener } from '@vueuse/core';
 import type {
     ComputedRef,
     Ref,
@@ -7,7 +8,6 @@ import {
     normalizeAnnotationText,
     type ITextBoxEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import {TEXT_EDIT_MENU_CLASS} from '@app/constants/textEditMenuClass';
 
 interface ITextBoxInlineEditOptions {
     entity: ComputedRef<ITextBoxEntity>;
@@ -90,13 +90,12 @@ export const useTextBoxInlineEdit = (
         }
     }
 
-    watch(options.editing, (editing) => {
-        if (typeof document !== 'undefined') {
-            if (editing) document.addEventListener('focusout', handleContextFocusOut);
-            else document.removeEventListener('focusout', handleContextFocusOut);
-        }
+    watch(options.editing, (editing, _previous, onCleanup) => {
         if (!editing) {
             return;
+        }
+        if (typeof document !== 'undefined') {
+            onCleanup(useEventListener(document, 'focusout', handleContextFocusOut));
         }
         completion = null;
         draftText.value = options.recoveredDraftText?.value ?? options.entity.value.text;
@@ -155,7 +154,7 @@ export const useTextBoxInlineEdit = (
     function isEditingContextTarget(target: EventTarget | null | undefined) {
         return typeof HTMLElement !== 'undefined'
             && target instanceof HTMLElement
-            && Boolean(target.closest(`[data-annotation-inspector], .${TEXT_EDIT_MENU_CLASS}`));
+            && Boolean(target.closest('[data-annotation-inspector], [data-text-edit-menu]'));
     }
 
     function handleContextFocusOut(event: FocusEvent) {
@@ -169,10 +168,6 @@ export const useTextBoxInlineEdit = (
     function handleBlur(event?: Pick<FocusEvent, 'relatedTarget'>) {
         if (!isEditingContextTarget(event?.relatedTarget)) void commit();
     }
-
-    onScopeDispose(() => {
-        if (typeof document !== 'undefined') document.removeEventListener('focusout', handleContextFocusOut);
-    });
 
     return {
         editorRef,

@@ -112,7 +112,7 @@ function setTool(toolId: TAnnotationTool) {
 
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .annotation-toolbar {
     display: block;
 }
@@ -136,10 +136,8 @@ function setTool(toolId: TAnnotationTool) {
     width: 100%;
     height: var(--app-control-height-md);
     cursor: pointer;
-    transition:
-        background-color 0.12s ease,
-        border-color 0.12s ease,
-        color 0.12s ease;
+
+    @include transition-properties($ease-quick, background-color, border-color, color);
 }
 
 .tool-button:focus-visible {

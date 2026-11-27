@@ -681,11 +681,9 @@ function openComment(comment: IAnnotationCommentSummary) {
     padding: var(--app-sidebar-row-padding-block) var(--app-sidebar-row-padding-inline);
     gap: var(--app-sidebar-row-gap);
     cursor: pointer;
-    transition:
-        background-color 0.12s ease,
-        border-color 0.12s ease,
-        box-shadow 0.12s ease;
     width: 100%;
+
+    @include transition-properties($ease-quick, background-color, border-color, box-shadow);
 
     /*
      * Height and bottom margin are applied inline from the virtualization
@@ -748,9 +746,9 @@ function openComment(comment: IAnnotationCommentSummary) {
 
 .note-item-type {
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
     color: var(--ui-text-muted);
+
+    @include app.truncate-single-line;
 }
 
 .note-item-delete {
@@ -828,12 +826,11 @@ function openComment(comment: IAnnotationCommentSummary) {
 
 .note-item-shape-style-text {
     min-width: 0;
-    overflow: hidden;
     color: var(--ui-text-highlighted);
     font-size: var(--app-sidebar-row-font-size);
     line-height: 1.35;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+
+    @include app.truncate-single-line;
 }
 
 .note-item-shape-fill {
@@ -905,8 +902,8 @@ function openComment(comment: IAnnotationCommentSummary) {
 
 .note-item-meta > span {
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
+
+    @include app.truncate-single-line;
 }
 
 .note-item-meta > span:first-child {

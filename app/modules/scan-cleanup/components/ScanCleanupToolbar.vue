@@ -189,7 +189,7 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
     : 'scanCleanup.detectAll.cancelDetection'));
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .scan-cleanup-toolbar {
     display: grid;
 
@@ -243,12 +243,11 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
     width: 0;
     min-width: 0;
     flex-grow: 1;
-    overflow: hidden;
     color: var(--ui-text-highlighted);
     font-size: var(--app-text-size-body);
     font-weight: var(--app-font-weight-heading);
-    text-overflow: ellipsis;
-    white-space: nowrap;
+
+    @include app.truncate-single-line;
 }
 
 .scan-cleanup-toolbar-main-slot {
@@ -327,10 +326,9 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
 .scan-cleanup-toolbar-error,
 .scan-cleanup-toolbar-status-placeholder {
     min-width: 0;
-    overflow: hidden;
     font-size: var(--app-text-size-body-sm);
-    text-overflow: ellipsis;
-    white-space: nowrap;
+
+    @include app.truncate-single-line;
 }
 
 .scan-cleanup-toolbar-estimate,

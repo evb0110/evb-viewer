@@ -40,7 +40,10 @@ import AssistantModelPickerContent from '@app/modules/agent-panel/components/Ass
 import AssistantModelEffortColumn from '@app/modules/agent-panel/components/AssistantModelEffortColumn.vue';
 import { useTypedI18n } from '@app/composables/useTypedI18n';
 
-const props = defineProps<{
+const {
+    instances,
+    selection,
+} = defineProps<{
     instances: IAssistantInstanceStatus[];
     selection: IAssistantSelection | null;
 }>();
@@ -49,11 +52,11 @@ const { t } = useTypedI18n();
 const open = ref(false);
 const content = ref<InstanceType<typeof AssistantModelPickerContent> | null>(null);
 const effortColumn = ref<InstanceType<typeof AssistantModelEffortColumn> | null>(null);
-const selectedInstance = computed(() => props.instances.find(instance => instance.id === props.selection?.instanceId));
-const selectedModel = computed(() => selectedInstance.value?.models.find(model => model.id === props.selection?.model));
+const selectedInstance = computed(() => instances.find(instance => instance.id === selection?.instanceId));
+const selectedModel = computed(() => selectedInstance.value?.models.find(model => model.id === selection?.model));
 const supportsFast = computed(() => selectedModel.value?.serviceTiers?.some(tier => tier.id === 'fast' || tier.id === 'priority') === true);
-const isFast = computed(() => supportsFast.value && props.selection?.speedMode === 'fast');
-const effortLabel = computed(() => selectedModel.value?.reasoningEfforts?.find(option => option.id === props.selection?.effort)?.label ?? '');
+const isFast = computed(() => supportsFast.value && selection?.speedMode === 'fast');
+const effortLabel = computed(() => selectedModel.value?.reasoningEfforts?.find(option => option.id === selection?.effort)?.label ?? '');
 const speeds = [
     {
         id: 'standard',
@@ -67,33 +70,33 @@ const speeds = [
 // The tooltip and screen readers name what the trigger abbreviates: instance, full model, effort and speed.
 const triggerDetail = computed(() => [
     selectedInstance.value?.label ?? t('assistant.selectInstance'),
-    selectedModel.value?.label ?? props.selection?.model,
+    selectedModel.value?.label ?? selection?.model,
     effortLabel.value,
     supportsFast.value ? t(isFast.value ? 'assistant.speedFast' : 'assistant.speedStandard') : '',
 ].filter(Boolean).join(' · '));
 
 // Picking a model keeps the picker open and moves to its levels, as in T3 Code's docked picker.
 function pickModel(instanceId: string, model: string) {
-    const selection = resolveAssistantSelection({
+    const nextSelection = resolveAssistantSelection({
         instanceId,
         model,
-        effort: props.selection?.effort ?? '',
-        speedMode: props.selection?.speedMode ?? 'standard',
-    }, props.instances, null);
-    if (!selection) return;
-    emit('select', selection);
+        effort: selection?.effort ?? '',
+        speedMode: selection?.speedMode ?? 'standard',
+    }, instances, null);
+    if (!nextSelection) return;
+    emit('select', nextSelection);
     requestAnimationFrame(() => effortColumn.value?.focusLevel());
 }
 
 function pickEffort(effort: string) {
-    if (props.selection) emit('select', {
-        ...props.selection,
+    if (selection) emit('select', {
+        ...selection,
         effort,
     });
 }
 
 const speedControl = ref<HTMLElement | null>(null);
-const currentSpeed = computed(() => props.selection?.speedMode ?? 'standard');
+const currentSpeed = computed(() => selection?.speedMode ?? 'standard');
 
 // One tab stop; the arrow keys move between and select the speeds.
 function handleSpeedKeydown(event: KeyboardEvent) {
@@ -108,15 +111,15 @@ function handleSpeedKeydown(event: KeyboardEvent) {
 }
 
 function pickSpeed(speedMode: IAssistantSelection['speedMode']) {
-    if (props.selection) emit('select', {
-        ...props.selection,
+    if (selection) emit('select', {
+        ...selection,
         speedMode,
     });
 }
 defineExpose({ open: () => { open.value = true; } });
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .picker-trigger {
     display: flex;
     min-width: 0;
@@ -143,9 +146,8 @@ defineExpose({ open: () => { open.value = true; } });
 
 .trigger-model {
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+
+    @include app.truncate-single-line;
 }
 
 .trigger-traits {

@@ -2,7 +2,10 @@
     <div
         ref="noteWindowRef"
         class="note-window"
-        :class="{'is-pane-sized': isPaneSizedPresentation}"
+        :class="{
+            'is-pane-sized': isPaneSizedPresentation,
+            'is-page-offscreen': isPageOffscreen,
+        }"
         :style="windowStyle"
         :data-annotation-id="annotationId"
         :data-page-number="pageNumber"
@@ -195,7 +198,7 @@ const timestampText = computed(() => {
 });
 
 const windowStyle = computed<CSSProperties>(() => ({
-    '--annotation-note-color': color ?? 'var(--ui-warning)',
+    ...(color ? {'--annotation-note-color': color} : {}),
     left: `${offsetX.value}px`,
     top: `${offsetY.value}px`,
     width: `${width.value}px`,
@@ -204,8 +207,6 @@ const windowStyle = computed<CSSProperties>(() => ({
     minHeight: `${Math.min(NOTE_WINDOW.MIN_HEIGHT, height.value)}px`,
     zIndex: String(zIndex),
     clipPath: clipPath.value,
-    visibility: isPageOffscreen.value ? 'hidden' : undefined,
-    pointerEvents: isPageOffscreen.value ? 'none' : undefined,
 }));
 const isPaneSizedPresentation = computed(() => (
     width.value < NOTE_WINDOW.MIN_WIDTH
@@ -548,12 +549,13 @@ watch(
 );
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .note-window {
+    --note-accent-color: var(--annotation-note-color, var(--ui-warning));
     --note-bg: var(--app-pdf-note-bg);
-    --note-border: color-mix(in srgb, var(--annotation-note-color) 62%, var(--ui-border));
-    --note-title-bg: color-mix(in srgb, var(--annotation-note-color) 18%, var(--ui-bg));
-    --note-title-border: color-mix(in srgb, var(--annotation-note-color) 42%, var(--ui-border));
+    --note-border: color-mix(in srgb, var(--note-accent-color) 62%, var(--ui-border));
+    --note-title-bg: color-mix(in srgb, var(--note-accent-color) 18%, var(--ui-bg));
+    --note-title-border: color-mix(in srgb, var(--note-accent-color) 42%, var(--ui-border));
     --note-text: var(--app-pdf-note-text);
     --note-text-heading: var(--app-pdf-note-text-heading);
     --note-text-secondary: var(--app-pdf-note-text-secondary);
@@ -578,6 +580,11 @@ watch(
     grid-template-rows: auto 1fr auto auto;
     resize: both;
     overflow: hidden;
+}
+
+.note-window.is-page-offscreen {
+    visibility: hidden;
+    pointer-events: none;
 }
 
 .note-window.is-pane-sized {
@@ -616,9 +623,8 @@ watch(
 .note-window__meta {
     font-size: var(--app-pdf-note-meta-font-size);
     color: var(--note-text-secondary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+
+    @include app.truncate-single-line;
 }
 
 .note-window__title-side {

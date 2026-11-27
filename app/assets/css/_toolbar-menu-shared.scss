@@ -1,3 +1,5 @@
+@use './transitions' as *;
+
 .toolbar-menu-panel {
     padding: var(--app-space-sm);
     background: var(--app-toolbar-menu-popover-bg);
@@ -38,7 +40,8 @@
     font-size: var(--app-text-size-body);
     text-align: left;
     cursor: pointer;
-    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+
+    @include transition-properties($ease-standard, background-color, border-color, color);
 }
 
 .toolbar-menu-item:disabled {

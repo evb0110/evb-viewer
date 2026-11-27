@@ -249,17 +249,14 @@ function openFile() {
     font-weight: var(--app-font-weight-medium);
     text-align: left;
     cursor: pointer;
-    transition:
-        background-color var(--app-transition-quick),
-        border-color var(--app-transition-quick),
-        color var(--app-transition-quick);
+
+    @include transition-properties($ease-quick, background-color, border-color, color);
 }
 
 .rail-item span:not(.rail-count) {
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+
+    @include app.truncate-single-line;
 }
 
 @media (hover: hover) {

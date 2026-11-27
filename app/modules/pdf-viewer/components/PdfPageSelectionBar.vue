@@ -139,7 +139,7 @@ function onDeselect() {
 }
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .page-selection-bar {
     display: flex;
     align-items: center;
@@ -156,10 +156,9 @@ function onDeselect() {
     font-size: var(--app-sidebar-caption-font-size);
     font-weight: var(--app-font-weight-semibold);
     color: var(--ui-text);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
     min-width: 0;
+
+    @include app.truncate-single-line;
 }
 
 .page-selection-bar-actions {

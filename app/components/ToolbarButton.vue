@@ -77,7 +77,7 @@ function handleClick() {
 }
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .toolbar-btn {
     display: flex;
     align-items: center;
@@ -90,11 +90,8 @@ function handleClick() {
     background: transparent;
     color: var(--app-toolbar-control-inactive-fg);
     cursor: pointer;
-    transition:
-        background-color var(--app-transition-fast),
-        border-color var(--app-transition-fast),
-        color var(--app-transition-fast),
-        box-shadow var(--app-transition-fast);
+
+    @include transition-properties($ease-fast, background-color, border-color, color, box-shadow);
 }
 
 .toolbar-btn--segmented {
@@ -166,9 +163,8 @@ function handleClick() {
 
 .toolbar-tooltip-label {
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+
+    @include app.truncate-single-line;
 }
 
 .toolbar-tooltip-shortcut {

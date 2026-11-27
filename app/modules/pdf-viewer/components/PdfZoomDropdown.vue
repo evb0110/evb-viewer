@@ -323,7 +323,7 @@ function selectCustomZoomInput(event: FocusEvent) {
 }
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .zoom-controls {
     --zoom-control-side-width: var(--toolbar-control-height, var(--app-toolbar-control-size));
     --toolbar-segmented-button-width: var(--zoom-control-side-width);
@@ -366,7 +366,8 @@ function selectCustomZoomInput(event: FocusEvent) {
     border-radius: 0;
     cursor: pointer;
     color: var(--ui-text);
-    transition: background-color 0.1s ease, border-color 0.1s ease, box-shadow 0.1s ease;
+
+    @include transition-properties($ease-fast, background-color, border-color, box-shadow);
 }
 
 .zoom-controls-display:disabled {
@@ -391,14 +392,13 @@ function selectCustomZoomInput(event: FocusEvent) {
     align-items: center;
     justify-content: center;
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
     font-size: var(--app-text-size-body);
     line-height: 1;
     font-family: var(--app-font-mono);
     font-variant-numeric: tabular-nums;
     color: var(--ui-text);
+
+    @include app.truncate-single-line;
 }
 
 .zoom-dropdown {
@@ -435,7 +435,8 @@ function selectCustomZoomInput(event: FocusEvent) {
     font-size: var(--app-text-size-body-sm);
     font-variant-numeric: tabular-nums;
     cursor: pointer;
-    transition: background-color 100ms ease, border-color 100ms ease, color 100ms ease;
+
+    @include transition-properties($ease-fast, background-color, border-color, color);
 }
 
 .zoom-chip:hover,

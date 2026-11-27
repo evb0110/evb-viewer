@@ -45,7 +45,7 @@ const {
 }>();
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .document-thumbnail-item {
     --document-thumbnail-page-shadow: var(--app-document-page-shadow);
     --document-thumbnail-action-opacity: 0;
@@ -62,9 +62,8 @@ const {
     border-radius: var(--app-thumbnail-row-radius);
     cursor: pointer;
     contain: layout paint;
-    transition:
-        background-color 0.15s,
-        border-color 0.15s;
+
+    @include transition-properties($ease-standard, background-color, border-color);
 }
 
 .document-thumbnail-item:hover {

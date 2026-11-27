@@ -275,6 +275,9 @@ export interface IOcrPopupPresenterOptions {
     applyResult: (payload: IOcrPopupCompletePayload) => Promise<boolean>;
 }
 
+const OCR_COPY_LOGS_FEEDBACK_MS = 2500;
+const OCR_SUCCESS_FEEDBACK_MS = 3000;
+
 const ocrProgressStageKeys = {
     preparing: 'ocr.preparing',
     'model-prep': 'ocr.progressStage.modelPrep',
@@ -341,13 +344,13 @@ export const useOcrPopupPresenter = ({
         stop: stopCopyLogsStateReset,
     } = useTimeoutFn(() => {
         copyLogsState.value = 'idle';
-    }, 2500, { immediate: false });
+    }, OCR_COPY_LOGS_FEEDBACK_MS, { immediate: false });
     const {
         start: startSuccessStateReset,
         stop: stopSuccessStateReset,
     } = useTimeoutFn(() => {
         showSuccessState.value = false;
-    }, 3000, { immediate: false });
+    }, OCR_SUCCESS_FEEDBACK_MS, { immediate: false });
 
     const currentPage = computed(() => toValue(context.currentPage));
     const totalPages = computed(() => toValue(context.totalPages));
@@ -826,6 +829,35 @@ export const useOcrPopupPresenter = ({
         const effectiveError = computed(() => error.value ?? toValue(view.externalError) ?? null);
         const hasResultWarning = computed(() => hasResults.value && effectiveError.value !== null);
         return {
+            progress,
+            progressPercent,
+            showCustomRange,
+            isCopyingLogs,
+            copyLogsTooltip,
+            showSuccessState,
+            progressStatusText,
+            applyingStatusText,
+            triggerTooltip,
+            languageSearchQueryModel,
+            languagePickerItems,
+            languagePickerGroups,
+            languageInventoryState,
+            hasSavedMultipleLanguages,
+            hasSelectedLanguageDownload,
+            showLanguageSearch,
+            hasLanguageDownloadFailure,
+            pageRangeModel,
+            customRangeModel,
+            preprocessingModeModel,
+            supersessionChoiceModel,
+            replaceOnlyEvbModel,
+            selectedLanguageModel,
+            pageSegmentationModeSelectValue,
+            qualityProfileModel,
+            handleCopyLogs,
+            handleRunOcr,
+            handleCancel,
+            getExportLanguages,
             isOpen,
             effectiveError,
             hasResultWarning,
@@ -903,48 +935,12 @@ export const useOcrPopupPresenter = ({
     });
 
     return {
-        settings,
         progress,
-        results,
-        error,
-        hasResults,
-        progressPercent,
-        availableLanguages,
         createViewState,
-        showCustomRange,
-        isCopyingLogs,
-        copyLogsState,
-        copyLogsTooltip,
-        showSuccessState,
-        progressStatusText,
-        applyingStatusText,
-        triggerTooltip,
-        languageSearchQueryModel,
-        languagePickerItems,
-        languagePickerGroups,
-        languageInventoryState,
-        hasSavedMultipleLanguages,
-        hasSelectedLanguageDownload,
-        showLanguageSearch,
-        hasLanguageDownloadFailure,
-        pageRangeModel,
-        customRangeModel,
-        preprocessingModeModel,
-        supersessionChoiceModel,
-        replaceOnlyEvbModel,
-        selectedLanguageModel,
-        pageSegmentationModeSelectValue,
-        qualityProfileModel,
-        handleCopyLogs,
-        handleRunOcr,
         runOcrForAgent,
-        handleCancel,
         cancelOcrForAgent,
-        handleDialogOpened,
-        handleDialogClosed,
-        applyResult,
-        getExportLanguages,
         getAgentOcrSnapshot: createAgentOcrSnapshot,
+        applyResult,
     };
 };
 

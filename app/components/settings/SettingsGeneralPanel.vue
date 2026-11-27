@@ -122,10 +122,10 @@ const settingsControlUi = { label: 'settings-control-label' };
 const settingsRadioGroupUi = {
     fieldset: 'w-full',
     legend: 'settings-field-label',
-    item: 'flex-1 min-w-fit min-h-[var(--app-control-height-lg)] cursor-pointer items-center justify-center px-2 py-1.5',
-    wrapper: 'flex-row justify-center gap-2',
-    label: 'text-center text-xs font-medium',
-};
+    item: 'settings-radio-item',
+    wrapper: 'settings-radio-wrapper',
+    label: 'settings-radio-label',
+} as const;
 const localeSelectContent = [
     'settings-locale-select-content',
     'w-auto min-w-(--reka-combobox-trigger-width)',
@@ -181,6 +181,28 @@ function updateUiScale(value: TUiScalePreference) {
 </script>
 
 <style lang="scss" scoped>
+:deep(.settings-radio-item) {
+    flex: 1 1 0%;
+    min-width: fit-content;
+    min-height: var(--app-control-height-lg);
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    padding: var(--app-space-lg) var(--app-space-3xl);
+}
+
+:deep(.settings-radio-wrapper) {
+    flex-direction: row;
+    justify-content: center;
+    gap: var(--app-space-3xl);
+}
+
+:deep(.settings-radio-label) {
+    text-align: center;
+    font-size: var(--app-text-size-kicker);
+    font-weight: var(--app-font-weight-medium);
+}
+
 @container (max-width: 520px) {
     .settings-scale-options :deep([data-slot='item']) {
         flex-basis: calc(50% - var(--app-space-sm));

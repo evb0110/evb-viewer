@@ -19,6 +19,7 @@
             v-if="!zenMode || nodeContainsPane(splitNode.first, zenActivePaneId)"
             :id="`editor-split-primary-${splitNode.id}`"
             class="editor-split-pane editor-split-pane-first"
+            :class="{ 'is-zen-pane': zenMode }"
             :style="firstPaneStyle"
         >
             <EditorPanesGrid
@@ -100,6 +101,8 @@ const emit = defineEmits<{
 
 const {t} = useTypedI18n();
 
+const PANE_SPLIT_KEYBOARD_STEP_RATIO = 0.02;
+
 const splitContainerRef = ref<HTMLElement | null>(null);
 const splitAxisSize = ref(0);
 const leafNode = computed(() => (node.type === 'leaf' ? node : null));
@@ -124,11 +127,8 @@ const splitRatio = computed(() => clamp(
 ));
 
 const firstPaneStyle = computed(() => {
-    if (!splitNode.value) {
+    if (!splitNode.value || zenMode) {
         return undefined;
-    }
-    if (zenMode) {
-        return {flexBasis: '100%'};
     }
     return {flexBasis: `${String(splitRatio.value * 100)}%`};
 });
@@ -246,10 +246,10 @@ function handleSplitResizeKeyDown(event: KeyboardEvent) {
     let ratio: number;
     switch (event.key) {
         case decreaseKey:
-            ratio = splitRatio.value - 0.02;
+            ratio = splitRatio.value - PANE_SPLIT_KEYBOARD_STEP_RATIO;
             break;
         case increaseKey:
-            ratio = splitRatio.value + 0.02;
+            ratio = splitRatio.value + PANE_SPLIT_KEYBOARD_STEP_RATIO;
             break;
         case 'Home':
             ratio = splitRatioBounds.value.minRatio;
@@ -288,7 +288,7 @@ useEventListener(resizeWindowTarget, 'pointercancel', (event: PointerEvent) => {
 onUnmounted(clearResizeListeners);
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .editor-pane-slot {
     display: flex;
     flex: 1;
@@ -336,10 +336,14 @@ onUnmounted(clearResizeListeners);
     flex-shrink: 0;
 }
 
+.editor-split-pane-first.is-zen-pane {
+    flex-basis: 100%;
+}
+
 .editor-sash {
     flex-shrink: 0;
     background: var(--app-editor-sash-bg);
-    transition: background-color 0.12s ease;
+    transition: background-color $ease-quick;
 }
 
 .editor-sash:hover,

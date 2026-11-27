@@ -775,7 +775,8 @@ function shouldShowRelocatedCommand(command: TReaderCommandId) {
     border: 1px solid transparent;
     border-radius: var(--app-toolbar-button-radius);
     color: var(--app-toolbar-control-inactive-fg);
-    transition: background-color 0.1s ease, border-color 0.1s ease, color 0.1s ease, box-shadow 0.1s ease;
+
+    @include transition-properties($ease-fast, background-color, border-color, color, box-shadow);
 }
 
 .toolbar-icon-button:hover,

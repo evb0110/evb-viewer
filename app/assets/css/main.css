@@ -367,6 +367,11 @@
 
     /* Holds the settings and a dozen language rows; the list scrolls past that. */
     --app-ocr-dialog-height: 40rem;
+    --app-ocr-dialog-top: 4rem;
+    --app-ocr-dialog-gutter-x: 4rem;
+    --app-ocr-dialog-gutter-y: 5rem;
+    --app-fatal-runtime-card-max-width: 36rem;
+    --app-fatal-runtime-card-radius: 1rem;
     --app-sidebar-content-min-height: 5rem;
     --app-crop-dialog-input-width: 7.5rem;
     --app-zoom-menu-separator-height: var(--app-hairline-height);
@@ -838,39 +843,25 @@
     --app-scrollbar-thumb-hover: color-mix(in oklab, var(--ui-border) 20%, var(--ui-text-muted) 80%);
     --app-chrome: color-mix(in oklab, var(--ui-bg) 82%, var(--ui-bg-elevated) 18%);
     --app-chrome-hover: color-mix(in oklab, var(--ui-bg) 66%, var(--ui-border) 34%);
-    --app-tabbar-bg: color-mix(in oklab, var(--ui-bg) 65%, var(--ui-border) 35%);
     --app-toolbar-bg-top: color-mix(in oklab, var(--ui-bg) 88%, var(--ui-bg-elevated) 12%);
     --app-toolbar-bg-bottom: color-mix(in oklab, var(--ui-bg) 78%, var(--ui-bg-elevated) 22%);
     --app-toolbar-border: color-mix(in oklab, var(--ui-border) 78%, transparent);
     --app-toolbar-separator: color-mix(in oklab, var(--ui-border) 70%, transparent);
     --app-toolbar-control-hover-bg: color-mix(in oklab, var(--ui-bg) 72%, var(--ui-border) 28%);
-    --app-toolbar-control-hover-border: transparent;
     --app-toolbar-control-active-bg: color-mix(in oklab, var(--ui-bg) 60%, var(--ui-text) 8%);
     --app-toolbar-control-active-hover-bg: color-mix(in oklab, var(--ui-bg) 50%, var(--ui-text) 11%);
     --app-toolbar-control-active-border: color-mix(in oklab, var(--ui-border) 60%, var(--ui-text) 14%);
     --app-toolbar-control-active-hover-border: color-mix(in oklab, var(--ui-border) 45%, var(--ui-text) 22%);
-    --app-toolbar-control-active-shadow: none;
-    --app-control-active-bg: var(--app-toolbar-control-active-bg);
-    --app-control-active-hover-bg: var(--app-toolbar-control-active-hover-bg);
-    --app-control-active-border: var(--app-toolbar-control-active-border);
-    --app-control-active-hover-border: var(--app-toolbar-control-active-hover-border);
     --app-sidebar-bg: color-mix(in oklab, var(--ui-bg) 86%, var(--ui-bg-elevated) 14%);
     --app-sidebar-border: color-mix(in oklab, var(--ui-border) 68%, transparent);
     --app-sidebar-control-hover-bg: color-mix(in oklab, var(--app-sidebar-bg) 62%, var(--ui-text) 6%);
     --app-toolbar-control-inactive-fg: color-mix(in oklab, var(--ui-text) 72%, var(--ui-text-muted) 28%);
-    --app-toolbar-control-hover-fg: var(--ui-text);
     --app-toolbar-control-disabled-fg: color-mix(in oklab, var(--ui-text-muted) 86%, var(--ui-border) 14%);
     --app-toolbar-control-disabled-opacity: 0.38;
     --app-toolbar-group-bg: color-mix(in oklab, var(--ui-bg) 72%, var(--ui-bg-elevated) 28%);
     --app-toolbar-group-border: color-mix(in oklab, var(--ui-border) 72%, transparent);
     --app-toolbar-focus-ring: color-mix(in oklab, var(--ui-border) 58%, var(--ui-text) 42%);
-    --app-toolbar-menu-trigger-fg: color-mix(in oklab, var(--ui-text) 88%, var(--ui-text-muted) 12%);
-    --app-toolbar-menu-popover-bg: var(--ui-bg);
     --app-toolbar-menu-item-hover-bg: color-mix(in oklab, var(--ui-bg) 68%, var(--ui-border) 32%);
-    --app-toolbar-menu-item-active-bg: var(--app-toolbar-control-active-bg);
-    --app-toolbar-menu-item-active-hover-bg: var(--app-toolbar-control-active-hover-bg);
-    --app-toolbar-menu-item-active-border: var(--app-toolbar-control-active-border);
-    --app-toolbar-menu-item-active-hover-border: var(--app-toolbar-control-active-hover-border);
     --app-nav-bg-hover: color-mix(in oklab, var(--ui-bg) 70%, var(--ui-text) 5%);
     --app-nav-bg-active: color-mix(in oklab, var(--ui-bg) 70%, var(--ui-text) 5%);
     --app-nav-bg-active-hover: color-mix(in oklab, var(--ui-bg) 60%, var(--ui-text) 8%);
@@ -882,7 +873,6 @@
     --app-tab-active-bg: color-mix(in oklab, var(--ui-bg) 86%, var(--ui-text) 14%);
     --app-editor-pane-active-tabbar-bg: color-mix(in oklab, var(--app-tabbar-bg) 80%, var(--ui-text-muted) 20%);
     --app-editor-pane-active-tabbar-divider: color-mix(in oklab, var(--ui-border) 50%, var(--ui-text-muted) 50%);
-    --app-editor-pane-active-tabbar-glow: transparent;
     --app-editor-sash-bg: color-mix(in oklab, var(--ui-border) 80%, transparent);
     --app-editor-sash-bg-hover: color-mix(in oklab, var(--ui-primary) 58%, var(--ui-border) 42%);
     --app-status-bar-bg: color-mix(in oklab, var(--ui-bg) 86%, var(--ui-bg-elevated) 14%);
@@ -900,28 +890,15 @@
     --app-status-save-dot-failed-bg: oklch(65% 0.19 27);
     --app-status-save-dot-failed-ring: oklch(48% 0.12 27);
     --app-document-viewer-bg: color-mix(in oklab, var(--ui-bg-muted) 88%, var(--ui-text) 12%);
-    --app-document-page-bg: var(--ui-bg);
-    --app-document-thumbnails-background: var(--ui-bg-muted);
     --app-document-page-shadow: 0 1px 5px color-mix(in srgb, #000 44%, transparent);
 
     /* Start / landing screen — dark */
     --app-start-bg: color-mix(in oklab, var(--ui-bg) 92%, black 8%);
-    --app-start-rail-item-active-bg: var(--app-nav-bg-active);
-    --app-start-rail-item-active-fg: var(--ui-text);
-    --app-start-rail-item-active-border: var(--app-nav-border-active);
-    --app-start-rail-item-active-hover-bg: var(--app-nav-bg-active-hover);
-    --app-start-rail-item-hover-bg: var(--app-nav-bg-hover);
-    --app-start-rail-item-fg: color-mix(in oklab, var(--ui-text) 78%, var(--ui-text-muted) 22%);
-    --app-start-card-bg: var(--ui-bg);
-    --app-start-card-border: color-mix(in oklab, var(--ui-border) 88%, transparent);
     --app-start-dropzone-border: color-mix(in oklab, var(--ui-border) 70%, var(--ui-primary) 30%);
     --app-start-dropzone-bg: color-mix(in oklab, var(--ui-bg-elevated) 78%, var(--ui-primary) 8%);
-    --app-start-row-divider: color-mix(in oklab, var(--ui-border) 60%, transparent);
     --app-start-row-hover-bg: color-mix(in oklab, var(--ui-bg) 88%, var(--ui-text) 12%);
     --app-start-row-action-hover-bg: color-mix(in oklab, var(--ui-bg) 80%, var(--ui-text) 20%);
     --app-start-row-remove-hover-bg: color-mix(in oklab, var(--ui-bg) 70%, var(--ui-text) 30%);
-    --app-start-row-remove-fg: var(--ui-text-dimmed);
-    --app-start-row-remove-hover-fg: var(--ui-text);
 
     /* File-type badge palette — dark */
     --app-file-icon-pdf-fill: oklch(28% 0.012 30);
@@ -944,7 +921,6 @@
     --app-snip-flash-fill: color-mix(in oklab, var(--ui-bg-elevated) 45%, var(--ui-primary) 55%);
     --app-snip-flash-glow: color-mix(in oklab, var(--ui-primary) 44%, transparent);
     --app-snip-badge-bg: color-mix(in oklab, var(--ui-bg-elevated) 74%, var(--ui-primary) 26%);
-    --app-snip-badge-fg: var(--ui-text-highlighted);
     --app-snip-badge-border: color-mix(in oklab, var(--ui-primary) 52%, var(--ui-border) 48%);
     --app-snip-hint-bg: color-mix(in oklab, var(--ui-bg-elevated) 86%, var(--ui-border) 14%);
     --app-snip-hint-fg: var(--ui-text);
@@ -967,18 +943,13 @@
     --app-pdf-note-delete-bg: rgb(0 0 0 / 22%);
     --app-pdf-note-delete-fg: #f08080;
     --app-pdf-note-shadow: 0 14px 28px rgb(0 0 0 / 40%), 0 4px 10px rgb(0 0 0 / 25%);
-    --app-pdf-comment-tooltip-shadow: var(--shadow-popup);
     --app-pdf-comment-arrow-shadow: rgb(0 0 0 / 45%);
     --app-pdf-comment-arrow-shadow-light: rgb(0 0 0 / 35%);
     --app-pdf-color-swatch-border: color-mix(in srgb, var(--ui-border) 74%, var(--ui-text) 26%);
-    --app-pdf-page-selection-bar-bg: var(--app-sidebar-bg);
     --app-search-highlight-bg: rgb(255 200 0 / 35%);
     --app-search-highlight-current-bg: rgb(255 170 0 / 46%);
     --app-search-highlight-current-outline: rgb(255 130 0 / 74%);
-    --app-document-search-result-highlight-bg: var(--app-search-highlight-bg);
-    --app-document-search-result-highlight-current-bg: var(--app-search-highlight-current-bg);
     --app-document-search-result-focus-ring: color-mix(in oklab, var(--ui-primary) 66%, transparent);
-    --app-pdf-search-result-highlight-bg: var(--app-document-search-result-highlight-bg);
     --app-pdf-context-menu-item-hover-bg: color-mix(in oklab, var(--ui-bg-elevated) 84%, var(--ui-primary) 16%);
     --app-pdf-context-menu-danger-fg: color-mix(in oklab, var(--ui-error) 78%, var(--ui-text) 22%);
     --app-pdf-context-menu-danger-hover-bg: color-mix(in oklab, var(--ui-bg-elevated) 84%, var(--ui-error) 16%);
@@ -990,7 +961,6 @@
     --app-image-placement-shadow: rgb(0 0 0 / 0.5);
     --app-pdf-text-selection-bg: rgb(255 200 0 / 0.35);
     --app-pdf-link-hover-bg: rgb(255 255 0 / 0.25);
-    --app-pdf-link-bg: rgb(255 255 0 / 0);
 }
 
 .document-viewer-viewport {

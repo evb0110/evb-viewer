@@ -277,7 +277,7 @@ onClickOutside(pageControlsRef, () => {
 }, { capture: true });
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .page-controls {
     display: flex;
     align-items: center;
@@ -316,7 +316,8 @@ onClickOutside(pageControlsRef, () => {
     border-radius: 0;
     cursor: pointer;
     box-sizing: border-box;
-    transition: background-color 0.1s ease, border-color 0.1s ease, box-shadow 0.1s ease;
+
+    @include transition-properties($ease-fast, background-color, border-color, box-shadow);
 }
 
 .page-controls-display:disabled {
@@ -359,8 +360,8 @@ onClickOutside(pageControlsRef, () => {
 .page-controls-current-primary {
     color: var(--ui-text);
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
+
+    @include app.truncate-single-line;
 }
 
 .page-controls-current-secondary {

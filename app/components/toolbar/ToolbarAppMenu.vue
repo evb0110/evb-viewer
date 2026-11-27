@@ -1,15 +1,20 @@
 <template>
     <nav v-if="isBrowserRuntime" class="app-menu-bar" :aria-label="t('toolbar.appMenu')">
+        <Teleport v-if="isPortalMounted" to="body">
+            <div :data-text-edit-menu="menuPortalId" />
+        </Teleport>
         <UDropdownMenu
             v-model:open="menuOpen"
             :modal="false"
             :items="appMenuItems"
             :content="menuContentOptions"
+            :portal="isPortalMounted ? menuPortalSelector : 'body'"
             :ui="appMenuUi"
         >
             <button
                 type="button"
-                :class="['app-menu-trigger', TEXT_EDIT_MENU_CLASS, { 'is-open': menuOpen }]"
+                data-text-edit-menu
+                :class="['app-menu-trigger', { 'is-open': menuOpen }]"
                 :aria-label="t('toolbar.appMenu')"
                 aria-haspopup="menu"
                 :aria-expanded="menuOpen"
@@ -58,7 +63,6 @@ import {
     keepMenuFocusWhenItemsChange,
     keepMovedFocus,
 } from '@app/utils/menuFocus';
-import {TEXT_EDIT_MENU_CLASS} from '@app/constants/textEditMenuClass';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
 import {
     dispatchBrowserMenuEvent,
@@ -200,7 +204,14 @@ const menuContentOptions = {
 // Cut, Copy, Paste and Select All act on what had input before the menu opened,
 // borrowed for this opening only, in an active workspace. The menu is not modal,
 // as a focus trap would take back the focus they restore; its trigger takes none.
-const inTextEditMenu = (node: EventTarget | null) => node instanceof Element && node.closest(`.${TEXT_EDIT_MENU_CLASS}`) !== null;
+const isPortalMounted = ref(false);
+const menuPortalId = useId().replace(/[^a-zA-Z0-9_-]/g, '');
+const menuPortalSelector = `[data-text-edit-menu="${menuPortalId}"]`;
+const inTextEditMenu = (node: EventTarget | null) => node instanceof Element && node.closest('[data-text-edit-menu]') !== null;
+
+onMounted(() => {
+    isPortalMounted.value = true;
+});
 interface ITextEditSource {
     element: HTMLElement;
     /** The element had focus, so restoring it must regain focus. */
@@ -390,7 +401,7 @@ function selectAllText() {
     dispatchBrowserMenuEvent('onMenuSelectAll');
 }
 const appMenuUi = {
-    content: `app-menu toolbar-menu-panel ${TEXT_EDIT_MENU_CLASS}`,
+    content: 'app-menu toolbar-menu-panel',
     viewport: 'divide-y-0 p-1',
     group: 'app-menu-section toolbar-menu-section p-0',
     label: 'app-menu-section-header toolbar-menu-section-header',
@@ -733,6 +744,7 @@ function getMenuShortcut(item: unknown) {
 @use '@app/assets/css/toolbar-menu-shared';
 
 .app-menu {
+    z-index: var(--app-z-menu);
     min-width: min(var(--app-toolbar-app-menu-min-width), var(--app-floating-panel-viewport-width));
 }
 
@@ -768,14 +780,14 @@ function getMenuShortcut(item: unknown) {
     font-size: var(--app-text-size-body);
     font-weight: var(--app-font-weight-medium);
     cursor: pointer;
-    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
+
+    @include transition-properties($ease-standard, background-color, border-color, color, box-shadow);
 }
 
 .app-menu-trigger-label {
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+
+    @include app.truncate-single-line;
 }
 
 .app-menu-trigger-icon {
@@ -809,7 +821,7 @@ function getMenuShortcut(item: unknown) {
     height: var(--app-icon-size-xs);
     flex-shrink: 0;
     color: var(--ui-text-muted);
-    transition: transform 150ms ease;
+    transition: transform $ease-standard;
 }
 
 .app-menu-trigger.is-open .app-menu-trigger-chevron {

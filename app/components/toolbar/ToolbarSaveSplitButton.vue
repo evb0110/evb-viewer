@@ -160,9 +160,8 @@ function getMenuShortcut(item: unknown) {
     align-items: center;
     height: var(--toolbar-control-height, var(--app-toolbar-control-size));
     border-radius: var(--app-toolbar-button-radius);
-    transition:
-        background-color var(--app-transition-fast),
-        box-shadow var(--app-transition-fast);
+
+    @include transition-properties($ease-fast, background-color, box-shadow);
 }
 
 .save-split-primary,
@@ -175,9 +174,8 @@ function getMenuShortcut(item: unknown) {
     background: transparent;
     color: var(--app-toolbar-control-inactive-fg);
     cursor: pointer;
-    transition:
-        background-color var(--app-transition-fast),
-        color var(--app-transition-fast);
+
+    @include transition-properties($ease-fast, background-color, color);
 }
 
 .save-split-primary {
@@ -257,7 +255,7 @@ function getMenuShortcut(item: unknown) {
 .save-split-chevron {
     width: var(--app-toolbar-save-chevron-size);
     height: var(--app-toolbar-save-chevron-size);
-    transition: transform var(--app-transition-standard);
+    transition: transform $ease-standard;
 }
 
 .save-split.is-open .save-split-chevron {
@@ -266,9 +264,8 @@ function getMenuShortcut(item: unknown) {
 
 .toolbar-tooltip-label {
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+
+    @include app.truncate-single-line;
 }
 
 .toolbar-tooltip-shortcut {

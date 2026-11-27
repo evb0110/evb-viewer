@@ -69,12 +69,14 @@ const displayTabs = computed(() => tabs.map(item => ({
     label: item.label,
 })));
 const tabsUi = computed(() => ({
-    root: 'gap-0',
-    list: 'gap-1 px-[var(--app-sidebar-content-padding)] py-[var(--app-sidebar-row-padding-block)] mb-0 rounded-none bg-transparent border-b border-[var(--app-sidebar-border)]',
+    root: 'app-sidebar-shell__tabs',
+    list: 'app-sidebar-shell__tabs-list',
     indicator: 'hidden',
-    trigger: `${isCompact.value ? 'flex-1 min-w-0' : 'flex-initial min-w-fit'} justify-center gap-[var(--app-sidebar-row-gap)] h-[var(--app-sidebar-action-size)] px-[var(--app-sidebar-row-padding-inline)] py-0 rounded-md border border-transparent text-[var(--app-sidebar-tab-font-size)] font-semibold whitespace-nowrap data-[state=active]:bg-[var(--app-control-active-bg)] data-[state=active]:border-[var(--app-control-active-border)] data-[state=active]:text-default data-[state=inactive]:text-muted data-[state=inactive]:hover:bg-[var(--app-sidebar-control-hover-bg)] data-[state=inactive]:hover:text-default`,
-    label: isCompact.value ? 'sr-only' : 'overflow-visible whitespace-nowrap',
-    leadingIcon: 'size-[var(--app-icon-size-xs)] shrink-0',
+    trigger: isCompact.value
+        ? 'app-sidebar-shell__tabs-trigger is-compact'
+        : 'app-sidebar-shell__tabs-trigger',
+    label: isCompact.value ? 'sr-only' : 'app-sidebar-shell__tabs-label',
+    leadingIcon: 'app-sidebar-shell__tabs-icon',
 }));
 
 function updateTabFitMode() {
@@ -98,7 +100,7 @@ watch(() => tabs, async () => {
 }, {immediate: true});
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .app-sidebar-shell {
     position: relative;
     display: flex;
@@ -109,6 +111,64 @@ watch(() => tabs, async () => {
     flex-direction: column;
     overflow: hidden;
     background: var(--app-sidebar-bg);
+}
+
+:deep(.app-sidebar-shell__tabs) {
+    gap: 0;
+}
+
+:deep(.app-sidebar-shell__tabs-list) {
+    gap: var(--app-space-sm);
+    padding: var(--app-sidebar-row-padding-block) var(--app-sidebar-content-padding);
+    margin-bottom: 0;
+    border-radius: 0;
+    background: transparent;
+    border-bottom: var(--app-hairline-height) solid var(--app-sidebar-border);
+}
+
+:deep(.app-sidebar-shell__tabs-trigger) {
+    flex: 0 1 auto;
+    min-width: fit-content;
+    justify-content: center;
+    gap: var(--app-sidebar-row-gap);
+    height: var(--app-sidebar-action-size);
+    padding: 0 var(--app-sidebar-row-padding-inline);
+    border: 1px solid transparent;
+    border-radius: var(--app-radius-md);
+    font-size: var(--app-sidebar-tab-font-size);
+    font-weight: var(--app-font-weight-semibold);
+    white-space: nowrap;
+}
+
+:deep(.app-sidebar-shell__tabs-trigger.is-compact) {
+    flex: 1 1 0%;
+    min-width: 0;
+}
+
+:deep(.app-sidebar-shell__tabs-trigger[data-state='active']) {
+    background: var(--app-control-active-bg);
+    border-color: var(--app-control-active-border);
+    color: var(--ui-text);
+}
+
+:deep(.app-sidebar-shell__tabs-trigger[data-state='inactive']) {
+    color: var(--ui-text-muted);
+}
+
+:deep(.app-sidebar-shell__tabs-trigger[data-state='inactive']:hover) {
+    background: var(--app-sidebar-control-hover-bg);
+    color: var(--ui-text);
+}
+
+:deep(.app-sidebar-shell__tabs-label) {
+    overflow: visible;
+    white-space: nowrap;
+}
+
+:deep(.app-sidebar-shell__tabs-icon) {
+    width: var(--app-icon-size-xs);
+    height: var(--app-icon-size-xs);
+    flex-shrink: 0;
 }
 
 .app-sidebar-shell__content {

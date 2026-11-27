@@ -1,17 +1,21 @@
+@use 'sass:list';
+
 // Transition timing constants
 $ease-fast: var(--app-transition-fast);
 $ease-quick: var(--app-transition-quick);
 $ease-standard: var(--app-transition-standard);
 
+@mixin transition-properties($timing, $properties...) {
+    $declarations: ();
+
+    @each $property in $properties {
+        $declarations: list.append($declarations, $property $timing, $separator: comma);
+    }
+
+    transition: $declarations;
+}
+
 // Semantic transition mixins
 @mixin reveal-transition {
-    transition: opacity $ease-quick, transform $ease-quick;
-}
-
-@mixin hover-transition {
-    transition: background-color $ease-fast, color $ease-fast;
-}
-
-@mixin state-transition {
-    transition: background-color $ease-standard, border-color $ease-standard, transform $ease-standard, opacity $ease-standard;
+    @include transition-properties($ease-quick, opacity, transform);
 }

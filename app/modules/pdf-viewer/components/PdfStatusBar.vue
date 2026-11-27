@@ -79,7 +79,7 @@ function onSave() {
 }
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .status-bar {
     height: var(--app-statusbar-height);
     min-height: var(--app-statusbar-height);
@@ -93,20 +93,17 @@ function onSave() {
     color: var(--ui-text-dimmed);
     font-size: var(--app-statusbar-font-size);
     line-height: var(--app-line-height-snug);
-    transition:
-        background-color var(--app-transition-standard),
-        border-color var(--app-transition-standard),
-        color var(--app-transition-standard);
+
+    @include transition-properties($ease-standard, background-color, border-color, color);
 }
 
 .status-bar-path {
     flex: 0 1 auto;
     min-width: 0;
     max-width: var(--app-statusbar-path-max-width);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
     letter-spacing: 0.01em;
+
+    @include app.truncate-single-line;
 }
 
 .status-bar-file {
@@ -180,10 +177,8 @@ function onSave() {
     padding: 0;
     border-radius: var(--app-statusbar-folder-radius);
     cursor: default;
-    transition:
-        color var(--app-transition-standard),
-        background-color var(--app-transition-standard),
-        border-color var(--app-transition-standard);
+
+    @include transition-properties($ease-standard, color, background-color, border-color);
 }
 
 .status-folder-icon {
@@ -211,10 +206,8 @@ function onSave() {
     border-radius: var(--app-radius-full);
     background: var(--app-status-save-dot-idle-bg);
     box-shadow: 0 0 0 1px var(--app-status-save-dot-idle-ring);
-    transition:
-        transform var(--app-transition-standard),
-        background-color var(--app-transition-standard),
-        box-shadow var(--app-transition-standard);
+
+    @include transition-properties($ease-standard, transform, background-color, box-shadow);
 }
 
 .status-save-dot-button.is-dirty .status-save-dot {

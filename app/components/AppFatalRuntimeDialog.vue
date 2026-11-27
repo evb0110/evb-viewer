@@ -13,11 +13,11 @@
         aria-modal="true"
         aria-labelledby="fatal-runtime-title"
         :aria-describedby="dialogDescriptionIds"
-        class="fatal-runtime-dialog fixed inset-0 z-50 m-0 flex h-dvh max-h-none w-screen max-w-none items-center justify-center border-0 bg-[color:var(--app-window-bg)]/96 p-6 backdrop-blur-sm"
+        class="fatal-runtime-dialog"
         @cancel.prevent
         @keydown="handleDialogKeydown"
     >
-        <div class="app-scrollbar app-scroll-region--balanced max-h-[calc(100dvh-3rem)] w-full max-w-xl overflow-y-auto rounded-2xl border border-default bg-default p-6 shadow-[var(--shadow-popup)]">
+        <div class="fatal-runtime-card app-scrollbar app-scroll-region--balanced">
             <UAlert
                 color="error"
                 variant="soft"
@@ -88,7 +88,18 @@ import {
 } from '@app/composables/useFailureToast';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 
-const props = defineProps<{
+const {
+    copied,
+    copyLabel,
+    description,
+    detail,
+    detailLabel,
+    errorIdLabel,
+    failure = null,
+    open,
+    reloadLabel,
+    title,
+} = defineProps<{
     copied: boolean;
     copyLabel: string;
     description: string;
@@ -109,33 +120,33 @@ const emit = defineEmits<{
 const dialogElement = ref<HTMLDialogElement | null>(null);
 const headingElement = ref<HTMLHeadingElement | null>(null);
 const alertTitleSlot = 'title';
-const shortFailureId = computed(() => props.failure
-    ? getFailureErrorId(props.failure)
+const shortFailureId = computed(() => failure
+    ? getFailureErrorId(failure)
     : null);
 const dialogDescriptionIds = computed(() => [
     'fatal-runtime-description',
     shortFailureId.value ? 'fatal-runtime-error-id' : null,
-    props.detail ? 'fatal-runtime-detail' : null,
+    detail ? 'fatal-runtime-detail' : null,
 ].filter((id): id is string => Boolean(id)).join(' '));
 
 function getLocalDetails() {
     return [
-        props.description,
-        props.detail,
+        description,
+        detail,
     ]
         .filter((value): value is string => Boolean(value?.trim()))
         .join('\n') || undefined;
 }
 
 function handleCopy() {
-    const description = getLocalDetails();
-    const text = props.failure
+    const localDetails = getLocalDetails();
+    const text = failure
         ? formatFailurePresentationCopy({
-            failure: props.failure,
-            title: props.title,
-            ...(description ? {description} : {}),
+            failure,
+            title,
+            ...(localDetails ? {description: localDetails} : {}),
         })
-        : props.detail ?? undefined;
+        : detail ?? undefined;
     emit('copy', text);
 }
 
@@ -175,7 +186,7 @@ function handleDialogKeydown(event: KeyboardEvent) {
 function containDocumentFocus(event: FocusEvent) {
     const target = event.target;
     if (
-        props.open
+        open
         && target instanceof Node
         && !dialogElement.value?.contains(target)
     ) {
@@ -197,15 +208,15 @@ function closeNativeDialog() {
 }
 
 watch(
-    () => props.open,
-    (open) => {
-        if (!open) {
+    () => open,
+    (isOpen) => {
+        if (!isOpen) {
             removeDocumentFocusGuard();
             closeNativeDialog();
             return;
         }
         void nextTick(() => {
-            if (!props.open || typeof document === 'undefined') {
+            if (!open || typeof document === 'undefined') {
                 return;
             }
             const dialog = dialogElement.value;
@@ -226,7 +237,37 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.fatal-runtime-dialog {
+    position: fixed;
+    inset: 0;
+    z-index: var(--app-z-progress);
+    margin: 0;
+    display: flex;
+    height: 100dvh;
+    max-height: none;
+    width: 100vw;
+    max-width: none;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    background: color-mix(in oklab, var(--app-window-bg) 96%, transparent);
+    padding: var(--app-space-16xl);
+    backdrop-filter: blur(var(--app-backdrop-blur-sm));
+}
+
 .fatal-runtime-dialog::backdrop {
     background: transparent;
+}
+
+.fatal-runtime-card {
+    max-height: calc(100dvh - var(--app-space-16xl) * 2);
+    width: 100%;
+    max-width: var(--app-fatal-runtime-card-max-width);
+    overflow-y: auto;
+    border-radius: var(--app-fatal-runtime-card-radius);
+    border: 1px solid var(--ui-border);
+    background: var(--ui-bg);
+    padding: var(--app-space-16xl);
+    box-shadow: var(--shadow-popup);
 }
 </style>

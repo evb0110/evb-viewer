@@ -290,4 +290,101 @@ describe('useTextBoxInlineEdit', () => {
         expect(commit).toHaveBeenCalledOnce();
     });
 
+    it('keeps editing open when moving into data-text-edit-menu or inspector and commits when focus leaves them', async () => {
+        const { Window } = await import('happy-dom');
+        const dom = new Window();
+        const prevDoc = globalThis.document;
+        const prevWin = globalThis.window;
+        const prevHTMLElement = globalThis.HTMLElement;
+        const prevNode = globalThis.Node;
+        const prevFocusEvent = globalThis.FocusEvent;
+        Object.assign(globalThis, {
+            document: dom.document,
+            window: dom.window,
+            HTMLElement: dom.HTMLElement,
+            Node: dom.Node,
+            FocusEvent: dom.FocusEvent,
+        });
+
+        try {
+            const editing = ref(false);
+            const commit = vi.fn();
+            const scope = effectScope();
+            scopes.add(scope);
+            const editor = scope.run(() => useTextBoxInlineEdit({
+                entity: computed(() => entity.value),
+                editing,
+                onCommit: commit,
+                onCancel: vi.fn(),
+            }))!;
+
+            const editorEl = dom.document.createElement('div');
+            const menu = dom.document.createElement('div');
+            menu.setAttribute('data-text-edit-menu', '');
+            const menuButton = dom.document.createElement('button');
+            menu.append(menuButton);
+            const inspector = dom.document.createElement('div');
+            inspector.setAttribute('data-annotation-inspector', '');
+            const inspectorInput = dom.document.createElement('input');
+            inspector.append(inspectorInput);
+            const outside = dom.document.createElement('button');
+            dom.document.body.append(editorEl, menu, inspector, outside);
+            editor.editorRef.value = editorEl as unknown as HTMLElement;
+
+            // Outside editing mode, focus leaving the menu does not commit
+            menuButton.dispatchEvent(new dom.FocusEvent('focusout', {
+                bubbles: true,
+                relatedTarget: outside,
+            }));
+            await Promise.resolve();
+            expect(commit).not.toHaveBeenCalled();
+
+            editing.value = true;
+            await Promise.resolve();
+
+            // Moving focus into the text-edit menu or inspector keeps the draft open
+            editor.handleBlur({ relatedTarget: menuButton as unknown as EventTarget });
+            editor.handleBlur({ relatedTarget: inspectorInput as unknown as EventTarget });
+            expect(commit).not.toHaveBeenCalled();
+
+            // Returning focus from menu back into editor or inspector keeps the draft open
+            menuButton.dispatchEvent(new dom.FocusEvent('focusout', {
+                bubbles: true,
+                relatedTarget: editorEl,
+            }));
+            menuButton.dispatchEvent(new dom.FocusEvent('focusout', {
+                bubbles: true,
+                relatedTarget: inspectorInput,
+            }));
+            expect(commit).not.toHaveBeenCalled();
+
+            // Leaving the text-edit menu to an unrelated control commits
+            menuButton.dispatchEvent(new dom.FocusEvent('focusout', {
+                bubbles: true,
+                relatedTarget: outside,
+            }));
+            await Promise.resolve();
+            expect(commit).toHaveBeenCalledOnce();
+
+            // After leaving editing mode, focusout events no longer trigger commits
+            editing.value = false;
+            await Promise.resolve();
+            menuButton.dispatchEvent(new dom.FocusEvent('focusout', {
+                bubbles: true,
+                relatedTarget: outside,
+            }));
+            await Promise.resolve();
+            expect(commit).toHaveBeenCalledOnce();
+        } finally {
+            Object.assign(globalThis, {
+                document: prevDoc,
+                window: prevWin,
+                HTMLElement: prevHTMLElement,
+                Node: prevNode,
+                FocusEvent: prevFocusEvent,
+            });
+            await dom.happyDOM.close();
+        }
+    });
+
 });

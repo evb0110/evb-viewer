@@ -33,17 +33,17 @@ import {
     ASSISTANT_WORK_ICONS, describeAssistantWorkItem, summarizeAssistantWork,
 } from '@app/modules/agent-panel/utils/assistantWorkPresentation';
 import { useTypedI18n } from '@app/composables/useTypedI18n';
-const props = defineProps<{ items: IAssistantItem[] }>();
+const { items } = defineProps<{ items: IAssistantItem[] }>();
 const emit = defineEmits<{ copy: [id: string, text: string] }>();
 const { t } = useTypedI18n();
-const summary = computed(() => summarizeAssistantWork(props.items));
-const entries = computed(() => props.items.map(item => ({
+const summary = computed(() => summarizeAssistantWork(items));
+const entries = computed(() => items.map(item => ({
     item,
     ...describeAssistantWorkItem(item),
 })));
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .work-group {
     min-width: 0;
     padding-bottom: var(--app-space-3xl);
@@ -89,9 +89,8 @@ const entries = computed(() => props.items.map(item => ({
 
 .work-label {
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+
+    @include app.truncate-single-line;
 }
 
 .work-status,
@@ -103,7 +102,7 @@ const entries = computed(() => props.items.map(item => ({
 .work-caret {
     flex: 0 0 auto;
     color: var(--ui-text-dimmed);
-    transition: transform 0.15s ease;
+    transition: transform $ease-standard;
 }
 
 .work-group[open] > .work-summary .work-caret {

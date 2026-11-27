@@ -515,8 +515,8 @@ watch(
 .document-search-results-header-summary {
     flex: 1 1 auto;
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
+
+    @include app.truncate-single-line;
 }
 
 .document-search-results-header-spinner {
@@ -600,9 +600,8 @@ watch(
 .document-search-results-group-label {
     flex: 1 1 auto;
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+
+    @include app.truncate-single-line;
 }
 
 @keyframes document-search-spin {

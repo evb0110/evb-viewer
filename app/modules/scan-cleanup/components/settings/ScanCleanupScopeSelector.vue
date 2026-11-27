@@ -34,7 +34,13 @@
 <script setup lang="ts">
 import type {TScanCleanupSettingsScope} from '@app/modules/scan-cleanup/composables/useScanCleanupSelection';
 
-const props = defineProps<{
+const {
+    customizedCounts,
+    highlightedScope,
+    modelValue,
+    pageNumber,
+    selectedCount,
+} = defineProps<{
     customizedCounts: Record<TScanCleanupSettingsScope, number>;
     highlightedScope: TScanCleanupSettingsScope | null;
     modelValue: TScanCleanupSettingsScope;
@@ -51,16 +57,16 @@ const scopeItems = computed(() => [
     },
     {
         value: 'page' as const,
-        label: t('scanCleanup.settings.scope.page', {page: props.pageNumber}),
+        label: t('scanCleanup.settings.scope.page', {page: pageNumber}),
     },
-    ...(props.selectedCount >= 2 ? [{
+    ...(selectedCount >= 2 ? [{
         value: 'selected' as const,
-        label: t('scanCleanup.settings.scope.selected', {count: props.selectedCount}),
+        label: t('scanCleanup.settings.scope.selected', {count: selectedCount}),
     }] : []),
 ]);
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .scan-cleanup-scope-selector {
     display: grid;
     grid-auto-columns: minmax(0, 1fr);
@@ -86,10 +92,8 @@ const scopeItems = computed(() => [
     cursor: pointer;
     font-size: var(--app-text-size-body-sm);
     font-weight: var(--app-font-weight-semibold);
-    transition:
-        background-color var(--app-transition-fast),
-        box-shadow var(--app-transition-fast),
-        color var(--app-transition-fast);
+
+    @include transition-properties($ease-fast, background-color, box-shadow, color);
 }
 
 .scan-cleanup-scope-row:hover {
@@ -117,9 +121,8 @@ const scopeItems = computed(() => [
 
 .scan-cleanup-scope-label {
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+
+    @include app.truncate-single-line;
 }
 
 .scan-cleanup-scope-page-customized {

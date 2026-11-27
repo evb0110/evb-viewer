@@ -1,3 +1,5 @@
+@use './transitions' as *;
+
 /* ── Page Container & Canvas ───────────────────────────────────────── */
 
 .page_container {
@@ -232,7 +234,7 @@
 
     .linkAnnotation > a {
         background: var(--app-pdf-link-bg);
-        transition: background 150ms ease;
+        transition: background $ease-standard;
 
         &:hover {
             background: var(--app-pdf-link-hover-bg);
@@ -467,11 +469,8 @@
     opacity: 0.82;
     transform: translate(-50%, -50%);
     touch-action: none;
-    transition:
-        background-color var(--app-transition-standard),
-        border-color var(--app-transition-standard),
-        transform var(--app-transition-standard),
-        opacity var(--app-transition-standard);
+
+    @include transition-properties($ease-standard, background-color, border-color, transform, opacity);
 }
 
 .pdfViewer .pdf-annotation-editor-note:hover {

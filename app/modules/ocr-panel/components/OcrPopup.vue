@@ -4,7 +4,7 @@
         v-model:open="isOpen"
         :title="t('ocr.runTitle')"
         :dismissible="!progress.isRunning && !isExporting"
-        :ui="{ content: '@container/ocr-dialog w-[calc(100vw-4rem)] max-w-[var(--app-ocr-dialog-max-width)] h-[min(var(--app-ocr-dialog-height),calc(100dvh-5rem))] top-16 translate-y-0', body: 'min-h-0 flex flex-col @min-[60rem]/ocr-dialog:overflow-y-hidden', footer: 'justify-end gap-2' }"
+        :ui="ocrModalUi"
     >
         <template #description>
             <span class="sr-only">
@@ -501,6 +501,11 @@ const ocrPageSegmentationOptions = [
     labelKey: TOcrPageSegmentationLabelKey;
     helpKey: TOcrPageSegmentationHelpKey;
 }>;
+const ocrModalUi = {
+    content: 'ocr-dialog-content',
+    body: 'ocr-dialog-body',
+    footer: 'ocr-dialog-footer',
+} as const;
 const formFieldUi = { label: 'label ocr-setting-legend' } as const;
 const listRadioGroupUi = {
     fieldset: 'gap-y-2',
@@ -554,6 +559,8 @@ const emit = defineEmits<{
 }>();
 
 const isExporting = computed(() => isExportingDocx);
+// The run, its progress and its results are the document's. Whether this
+// view's dialog is open, and what only this view knows, stay here.
 const {
     progress,
     progressPercent,
@@ -584,18 +591,13 @@ const {
     handleRunOcr,
     handleCancel,
     getExportLanguages,
-    createViewState,
-} = presenter;
-// The run, its progress and its results are the document's. Whether this
-// view's dialog is open, and what only this view knows, stay here.
-const {
     viewState,
     effectiveError,
     canRunOcr,
     hasResultWarning,
     resultStatusText,
     isOpen,
-} = createViewState({
+} = presenter.createViewState({
     disabled: () => disabled,
     externalError: () => externalError,
     open: () => open,
@@ -749,7 +751,35 @@ function getLanguageModelStateIcon(state: string) {
 
 </script>
 
-<style scoped>
+<style lang="scss">
+.ocr-dialog-content {
+    container: ocr-dialog / inline-size;
+    width: calc(100vw - var(--app-ocr-dialog-gutter-x));
+    max-width: var(--app-ocr-dialog-max-width);
+    height: min(var(--app-ocr-dialog-height), calc(100dvh - var(--app-ocr-dialog-gutter-y)));
+    top: var(--app-ocr-dialog-top);
+    translate: -50% 0;
+}
+
+.ocr-dialog-body {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+@container ocr-dialog (min-width: 60rem) {
+    .ocr-dialog-body {
+        overflow-y: hidden;
+    }
+}
+
+.ocr-dialog-footer {
+    justify-content: flex-end;
+    gap: var(--app-space-3xl);
+}
+</style>
+
+<style lang="scss" scoped>
 .hidden-trigger {
     display: none;
 }
@@ -929,9 +959,8 @@ function getLanguageModelStateIcon(state: string) {
     border-radius: var(--app-radius-full);
     background: var(--ui-bg);
     cursor: pointer;
-    transition:
-        border-color 0.12s ease,
-        background-color 0.12s ease;
+
+    @include transition-properties($ease-quick, border-color, background-color);
 }
 
 :deep(.language-chip:hover) {

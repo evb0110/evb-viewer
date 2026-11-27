@@ -17,6 +17,17 @@ function isIconifyCollection(value: unknown): value is TIconifyCollection {
         && typeof Reflect.get(value, 'icons') === 'object';
 }
 
+const EVB_CUSTOM_ICON_NAMES = [
+    'evb:file-type-djvu',
+    'evb:file-type-document',
+    'evb:file-type-image',
+    'evb:file-type-pdf',
+    'evb:print-current-page',
+    'evb:provider-claude',
+    'evb:provider-openai',
+    'evb:scan-cleanup-scissors',
+] as const;
+
 // Nuxt Icon inlines whole Iconify collections into the Nitro server bundle (`ph` alone is
 // ~4.5 MB of JSON), so the server bundle is narrowed to the same allowlist the client ships.
 // An icon rendered without being listed here would resolve from neither bundle, hence the throw.
@@ -50,8 +61,18 @@ function buildIconBundles(iconNames: string[]) {
     });
 
     return {
+        customCollections: [{
+            prefix: 'evb',
+            dir: './app/assets/icons',
+        }],
         serverBundle: {collections},
-        clientBundle: {icons: iconNames},
+        clientBundle: {
+            icons: [
+                ...iconNames,
+                ...EVB_CUSTOM_ICON_NAMES,
+            ],
+            includeCustomCollections: true,
+        },
     };
 }
 
@@ -622,7 +643,7 @@ export default defineNuxtConfig({
         css: {
             preprocessorOptions: {
                 scss: {
-                    additionalData: '@use "~/assets/css/transitions" as *;\n',
+                    additionalData: '@use "~/assets/css/transitions" as *;\n@use "~/assets/css/mixins" as app;\n',
                 },
             },
         },
