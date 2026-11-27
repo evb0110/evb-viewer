@@ -219,7 +219,7 @@ describe('runOcrJob', () => {
 
     it('unlinks failed raster files on normal errors and preserves partial results, revision token, hash, and cleanup ack', async () => {
         const renderedPaths: string[] = [];
-        let rastersMissingAtMerge: boolean[] = [];
+        let rasterStatCodesAtMerge: Array<string | undefined> = [];
         const pageDiagnostic: IOcrDiagnostic = {
             code: 'OCR_PREPROCESSING_FAILED',
             severity: 'warning',
@@ -246,8 +246,11 @@ describe('runOcrJob', () => {
             };
         });
         onMergeStart = async () => {
-            rastersMissingAtMerge = await Promise.all(
-                renderedPaths.map(path => stat(path).then(() => false, () => true)),
+            rasterStatCodesAtMerge = await Promise.all(
+                renderedPaths.map(path => stat(path).then(
+                    () => 'EXISTS',
+                    (error: NodeJS.ErrnoException) => error.code,
+                )),
             );
         };
 
@@ -262,7 +265,7 @@ describe('runOcrJob', () => {
         expect(result.errors).toEqual(['Page 1: raster cleanup crashed']);
         expect(result.diagnostics).toEqual([pageDiagnostic]);
         expect(renderedPaths).toHaveLength(2);
-        expect(rastersMissingAtMerge).toEqual([true, true]);
+        expect(rasterStatCodesAtMerge).toEqual(['ENOENT', 'ENOENT']);
         await expect(stat(result.pdfPath)).resolves.toBeDefined();
         expect(pageSizeClose).toHaveBeenCalledOnce();
     });
