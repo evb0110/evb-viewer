@@ -62,7 +62,12 @@ const DOCS_PATTERNS = Object.freeze([
     '.husky/**',
 ]);
 
-const LANDING_PATTERNS = Object.freeze(['landing/**']);
+const LANDING_PATTERNS = Object.freeze([
+    'landing/**',
+    'packages/contracts/**',
+    'packages/i18n-core/**',
+    'packages/release-selection/**',
+]);
 
 const PRODUCT_PATTERNS = Object.freeze([
     'app/**',
@@ -86,6 +91,8 @@ const NATIVE_PATTERNS = Object.freeze([
     '.cargo/**',
     'rust-toolchain.toml',
     'packages/contracts/**',
+    'public/fonts/annotation/**',
+    'public/pdf/standard_fonts/**',
 ]);
 
 const SCAN_CLEANUP_PATTERNS = Object.freeze([
@@ -95,6 +102,10 @@ const SCAN_CLEANUP_PATTERNS = Object.freeze([
     'scripts/scan-cleanup-*',
     'scripts/scanCleanup*.ts',
     'scripts/diagnostics/**',
+    'tests/unit/scripts/scanCleanup*.test.ts',
+    'tests/unit/electron/scanCleanup*.test.ts',
+    'tests/fixtures/release/scan-cleanup-*',
+    'tests/fixtures/electron/test-scanned.pdf',
 ]);
 
 const SCOPED_UNIT_AND_NIGHTLY_PATTERNS = Object.freeze([

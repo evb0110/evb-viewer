@@ -190,7 +190,7 @@ describe('changed-area classifier', () => {
         }
     });
 
-    it('selects landing and browser_integration for landing changes', () => {
+    it('selects landing and browser_integration for landing and shared landing package changes', () => {
         const selection = classifyChangedFiles(['landing/app/pages/index.vue'], {event: 'pull_request'});
         expect(selection.selected).toEqual([
             'publication_policy',
@@ -201,6 +201,15 @@ describe('changed-area classifier', () => {
             'landing',
         ]);
         expect(selection.lanes).toEqual([]);
+
+        for (const file of [
+            'packages/i18n-core/index.ts',
+            'packages/release-selection/index.ts',
+        ]) {
+            const sharedSelection = classifyChangedFiles([file], {event: 'pull_request'});
+            expect(sharedSelection.selected, file).toContain('landing');
+            expect(sharedSelection.selected, file).toContain('electron_e2e');
+        }
     });
 
     it('selects the product suite and all Electron lanes for product paths', () => {
@@ -209,7 +218,7 @@ describe('changed-area classifier', () => {
             'electron/main.ts',
             'packages/pdf-core/index.ts',
             'server/api/releases.get.ts',
-            'public/fonts/annotation/DejaVuSans.ttf',
+            'public/pdfjs/pdf.worker.min.mjs',
             'vendor/pdfjs/pdf.mjs',
             'resources/tesseract/tessdata/eng.traineddata',
             'build/icons/icon.png',
@@ -237,13 +246,14 @@ describe('changed-area classifier', () => {
         }
     });
 
-    it('selects rust, product jobs, and scan_cleanup_oracles for native and contract paths', () => {
+    it('selects rust, product jobs, and scan_cleanup_oracles for native, contract, and embedded-font paths', () => {
         for (const file of [
             'native/pdf-page-ops/src/incremental.rs',
             'native/pdf-search/src/lib.rs',
             '.cargo/config.toml',
             'rust-toolchain.toml',
-            'packages/contracts/electronApiDocuments.ts',
+            'public/fonts/annotation/DejaVuSans.ttf',
+            'public/pdf/standard_fonts/LiberationSans-Regular.ttf',
         ]) {
             const selection = classifyChangedFiles([file], {event: 'pull_request'});
             expect(selection.selected, file).toEqual([
@@ -261,6 +271,12 @@ describe('changed-area classifier', () => {
             ]);
             expect(selection.lanes, file).toEqual(ALL_LANES);
         }
+
+        const contractsSelection = classifyChangedFiles(['packages/contracts/electronApiDocuments.ts'], {event: 'pull_request'});
+        expect(contractsSelection.selected).toContain('rust');
+        expect(contractsSelection.selected).toContain('landing');
+        expect(contractsSelection.selected).toContain('scan_cleanup_oracles');
+        expect(contractsSelection.lanes).toEqual(ALL_LANES);
     });
 
     it('adds scan_cleanup_oracles additively and includes strict_build and build_wasm dependencies', () => {
@@ -268,6 +284,8 @@ describe('changed-area classifier', () => {
             'app/modules/scan-cleanup/geometry/placement.ts',
             'packages/scan-cleanup/core/detection.ts',
             'electron/features/scan-cleanup/handler.ts',
+            'tests/fixtures/electron/test-scanned.pdf',
+            'tests/fixtures/release/scan-cleanup-four-page-grayscale.pdf',
         ]) {
             const selection = classifyChangedFiles([file], {event: 'pull_request'});
             expect(selection.selected, file).toContain('scan_cleanup_oracles');
@@ -281,6 +299,9 @@ describe('changed-area classifier', () => {
             'scripts/scan-cleanup-convert.ts',
             'scripts/scanCleanupCliAdapters.ts',
             'scripts/diagnostics/stroke-weight-oracle/stroke_weight_oracle.py',
+            'tests/unit/electron/scanCleanupPipeline.test.ts',
+            'tests/unit/scripts/scanCleanupStagedWindowEndToEnd.test.ts',
+            'tests/unit/scripts/scanCleanupDiagnosticsManifestRoots.test.ts',
         ]) {
             const selection = classifyChangedFiles([file], {event: 'pull_request'});
             expect(selection.selected, file).toEqual([
@@ -654,10 +675,18 @@ describe('changed-area classifier', () => {
                 writeFileSync(fakeGh, `#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\\n' "$*" >> "${ghLog}"
-if printf '%s' "$*" | grep -q 'event=push'; then
-    printf '%s\\n' "\${FAKE_PUSH_SHAS:-}"
-elif printf '%s' "$*" | grep -q "head_sha=${prHead}"; then
-    printf '%s\\n' "\${FAKE_PR_COUNT:-0}"
+jq_filter=""
+while [ "$#" -gt 0 ]; do
+    if [ "$1" = "--jq" ]; then
+        shift
+        jq_filter="$1"
+    fi
+    shift
+done
+if grep -q 'event=push' <<< "$(tail -n 1 "${ghLog}")"; then
+    printf '%s\\n' "\${FAKE_PUSH_RUNS_JSON}" | jq -r "$jq_filter"
+elif grep -q "head_sha=${prHead}" <<< "$(tail -n 1 "${ghLog}")"; then
+    printf '%s\\n' "\${FAKE_PR_RUNS_JSON}" | jq -r "$jq_filter"
 else
     exit 1
 fi
@@ -670,38 +699,96 @@ fi
                     PATH: `${fakeBin}${delimiter}${process.env.PATH ?? ''}`,
                 };
 
-                // Case 1: `inFlightBefore` is not in completed passing push runs;
+                const pushRuns = (runs: Array<{
+                    conclusion: string | null;
+                    head_sha: string;
+                    status: string;
+                }>) => JSON.stringify({workflow_runs: runs});
+
+                const prRuns = (runs: Array<{
+                    conclusion: string | null;
+                    event: string;
+                    pull_requests?: Array<{base: {ref: string}}>;
+                    status: string;
+                }>) => JSON.stringify({workflow_runs: runs});
+
+                const provedBeforePushRuns = pushRuns([
+                    {
+                        conclusion: 'success',
+                        head_sha: inFlightBefore,
+                        status: 'completed',
+                    },
+                    {
+                        conclusion: 'success',
+                        head_sha: provedOld,
+                        status: 'completed',
+                    },
+                ]);
+
+                const passingMainPrRuns = prRuns([{
+                    conclusion: 'success',
+                    event: 'pull_request',
+                    pull_requests: [{base: {ref: 'main'}}],
+                    status: 'completed',
+                }]);
+
+                // Case 1: `inFlightBefore` is in_progress (not completed success);
                 // walks back to `provedOld` in ONE query and does NOT prove the merge tree.
                 writeFileSync(ghLog, '', 'utf8');
                 const baseWhenInFlight = runPushDiffBase(root, inFlightBefore, mergeHead, {
                     ...baseEnv,
-                    FAKE_PR_COUNT: '1',
-                    FAKE_PUSH_SHAS: provedOld,
+                    FAKE_PR_RUNS_JSON: passingMainPrRuns,
+                    FAKE_PUSH_RUNS_JSON: pushRuns([
+                        {
+                            conclusion: null,
+                            head_sha: inFlightBefore,
+                            status: 'in_progress',
+                        },
+                        {
+                            conclusion: 'success',
+                            head_sha: provedOld,
+                            status: 'completed',
+                        },
+                    ]),
                 });
                 expect(baseWhenInFlight).toBe(provedOld);
                 expect(readFileSync(ghLog, 'utf8').trim().split('\n')).toHaveLength(1);
 
-                // Case 2: `inFlightBefore` IS proved and PR head passed with identical tree ->
+                // Case 2: `inFlightBefore` IS proved and PR head passed against `main` with identical tree ->
                 // returns `mergeHead` (verified tree) using 2 queries total (1 push + 1 pr head).
                 writeFileSync(ghLog, '', 'utf8');
                 const baseWhenProved = runPushDiffBase(root, inFlightBefore, mergeHead, {
                     ...baseEnv,
-                    FAKE_PR_COUNT: '1',
-                    FAKE_PUSH_SHAS: `${inFlightBefore}\n${provedOld}`,
+                    FAKE_PR_RUNS_JSON: passingMainPrRuns,
+                    FAKE_PUSH_RUNS_JSON: provedBeforePushRuns,
                 });
                 expect(baseWhenProved).toBe(mergeHead);
                 expect(readFileSync(ghLog, 'utf8').trim().split('\n')).toHaveLength(2);
 
-                // Case 3: `inFlightBefore` IS proved but PR head has no passing run ->
+                // Case 3: `inFlightBefore` IS proved, but PR head only passed against a DIFFERENT target branch ->
+                // falls back to `inFlightBefore`, NOT `mergeHead`.
+                const baseWhenPrTargetedOtherBranch = runPushDiffBase(root, inFlightBefore, mergeHead, {
+                    ...baseEnv,
+                    FAKE_PR_RUNS_JSON: prRuns([{
+                        conclusion: 'success',
+                        event: 'pull_request',
+                        pull_requests: [{base: {ref: 'other-branch'}}],
+                        status: 'completed',
+                    }]),
+                    FAKE_PUSH_RUNS_JSON: provedBeforePushRuns,
+                });
+                expect(baseWhenPrTargetedOtherBranch).toBe(inFlightBefore);
+
+                // Case 4: `inFlightBefore` IS proved but PR head has no passing run ->
                 // falls back to `inFlightBefore`, NOT `mergeHead`.
                 const baseWhenPrUnproved = runPushDiffBase(root, inFlightBefore, mergeHead, {
                     ...baseEnv,
-                    FAKE_PR_COUNT: '0',
-                    FAKE_PUSH_SHAS: `${inFlightBefore}\n${provedOld}`,
+                    FAKE_PR_RUNS_JSON: prRuns([]),
+                    FAKE_PUSH_RUNS_JSON: provedBeforePushRuns,
                 });
                 expect(baseWhenPrUnproved).toBe(inFlightBefore);
 
-                // Case 4: `inFlightBefore` IS proved and PR head passed, but the merge commit
+                // Case 5: `inFlightBefore` IS proved and PR head passed, but the merge commit
                 // modified the tree (evil merge) -> falls back to `inFlightBefore`.
                 writeFileSync(filePath, '<template>evil-merge</template>\n', 'utf8');
                 runGit(root, [
@@ -720,12 +807,12 @@ fi
                 ]);
                 const baseWhenTreeDiffers = runPushDiffBase(root, inFlightBefore, evilMergeHead, {
                     ...baseEnv,
-                    FAKE_PR_COUNT: '1',
-                    FAKE_PUSH_SHAS: `${inFlightBefore}\n${provedOld}`,
+                    FAKE_PR_RUNS_JSON: passingMainPrRuns,
+                    FAKE_PUSH_RUNS_JSON: provedBeforePushRuns,
                 });
                 expect(baseWhenTreeDiffers).toBe(inFlightBefore);
 
-                // Case 5: force-push where `before` is not an ancestor of `head` ->
+                // Case 6: force-push where `before` is not an ancestor of `head` ->
                 // returns `unavailable-push-base` instead of accepting a non-ancestor SHA.
                 runGit(root, [
                     'checkout',
@@ -737,8 +824,8 @@ fi
                 const rewrittenHead = commitAll(root, 'rewritten history');
                 const baseOnForcePush = runPushDiffBase(root, inFlightBefore, rewrittenHead, {
                     ...baseEnv,
-                    FAKE_PR_COUNT: '1',
-                    FAKE_PUSH_SHAS: `${inFlightBefore}\n${provedOld}`,
+                    FAKE_PR_RUNS_JSON: passingMainPrRuns,
+                    FAKE_PUSH_RUNS_JSON: provedBeforePushRuns,
                 });
                 expect(baseOnForcePush).toBe('unavailable-push-base');
             } finally {

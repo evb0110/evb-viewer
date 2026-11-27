@@ -149,10 +149,10 @@ and the classifier selects only `publication_policy`, `build_wasm`,
 | Area or test scope | Paths | Extra jobs selected (beyond `lint`, `unit`, and `build_wasm` for consumers) |
 | --- | --- | --- |
 | `docs` | `docs/**`, `**/*.md`, `.husky/**`, workflows other than `ci.yml` | None |
-| `landing` | `landing/**` | `landing`, `browser_integration` |
+| `landing` | `landing/**`, `packages/contracts/**`, `packages/i18n-core/**`, `packages/release-selection/**` | `landing`, `browser_integration` |
 | `product` | `app/**`, `electron/**`, `packages/**`, `server/**`, `public/**`, `vendor/**`, `resources/**`, `build/**`, `types/**`, `nuxt.config.ts`, `electron-builder.yml`, `tests/fixtures/**`, `tests/helpers/**`, `tests/setup*.ts` | `build_wasm`, `strict_build`, all `electron_e2e` lanes, `native_pdf_integration`, `windows_atomic_pdf_replacement`, `browser_integration` |
-| `native` | `native/**`, `.cargo/**`, `rust-toolchain.toml`, `packages/contracts/**` | `rust`, all `product` jobs, `scan_cleanup_oracles` |
-| `scan_cleanup` (additive) | `app/modules/scan-cleanup/**`, `packages/scan-cleanup/**`, `electron/features/scan-cleanup/**`, `scripts/scan-cleanup-*`, `scripts/scanCleanup*.ts`, `scripts/diagnostics/**` | `scan_cleanup_oracles` (plus `strict_build` and `build_wasm`) |
+| `native` | `native/**`, `.cargo/**`, `rust-toolchain.toml`, `packages/contracts/**`, `public/fonts/annotation/**`, `public/pdf/standard_fonts/**` | `rust`, all `product` jobs, `scan_cleanup_oracles` |
+| `scan_cleanup` (additive) | `app/modules/scan-cleanup/**`, `packages/scan-cleanup/**`, `electron/features/scan-cleanup/**`, `scripts/scan-cleanup-*`, `scripts/scanCleanup*.ts`, `scripts/diagnostics/**`, `tests/unit/{scripts,electron}/scanCleanup*.test.ts`, `tests/fixtures/release/scan-cleanup-*`, `tests/fixtures/electron/test-scanned.pdf` | `scan_cleanup_oracles` (plus `strict_build` and `build_wasm`) |
 | Electron lane tests | `tests/e2e/electron/<lane>/**` | `strict_build`, `electron_e2e` for `<lane>` only |
 | Unit / nightly tests | `tests/unit/**`, `tests/e2e/electron/nightly/**` | None |
 | Browser integration tests | `tests/integration/browser/**` | `build_wasm`, `browser_integration` |

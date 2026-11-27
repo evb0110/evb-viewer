@@ -43,6 +43,11 @@ const ADDED_CHECK_FILE_PATTERNS = [
 ];
 
 const TEST_FILE_PATTERN = /^tests\/.*\.(?:test|spec|e2e)\.[cm]?[jt]sx?$/u;
+const ELECTRON_E2E_LANE_PATH_PATTERN = /^tests\/e2e\/electron\/([^/]+)\//u;
+const NON_LANE_ELECTRON_E2E_DIRS = new Set([
+    'helpers',
+    'nightly',
+]);
 const VITEST_CONFIG_PATTERN = /^vitest[A-Za-z.-]*\.config\.[cm]?[jt]s$/u;
 const WORKFLOW_PATTERN = /^\.github\/workflows\/.*\.ya?ml$/u;
 
@@ -234,13 +239,53 @@ function addedLinesOf(lines) {
         .filter(line => !removedKeys.has(JSON_KEY_PATTERN.exec(line)?.[1] ?? '\0'));
 }
 
+/** @param {string} escaped @returns {string} */
+function unquoteGitPath(escaped) {
+    /** @type {number[]} */
+    const bytes = [];
+    /** @type {Record<string, number>} */
+    const simpleEscapes = {
+        '"': 0x22,
+        '\\': 0x5c,
+        a: 0x07,
+        b: 0x08,
+        f: 0x0c,
+        n: 0x0a,
+        r: 0x0d,
+        t: 0x09,
+        v: 0x0b,
+    };
+    for (let index = 0; index < escaped.length; index += 1) {
+        const char = escaped[index];
+        if (char !== '\\' || index + 1 >= escaped.length) {
+            bytes.push(...Buffer.from(char ?? '', 'utf8'));
+            continue;
+        }
+        const next = escaped[index + 1] ?? '';
+        const mapped = simpleEscapes[next];
+        if (mapped !== undefined) {
+            bytes.push(mapped);
+            index += 1;
+            continue;
+        }
+        const octal = escaped.slice(index + 1, index + 4);
+        if (/^[0-7]{3}$/u.test(octal)) {
+            bytes.push(Number.parseInt(octal, 8));
+            index += 3;
+            continue;
+        }
+        bytes.push(...Buffer.from(next, 'utf8'));
+        index += 1;
+    }
+    return Buffer.from(bytes).toString('utf8');
+}
+
 /** @param {string} rawHeader @returns {string} */
 function parseDiffDestinationPath(rawHeader) {
     const trimmed = rawHeader.replace(/\t$/u, '');
-    if (trimmed.startsWith('"b/') && trimmed.endsWith('"')) {
-        return trimmed
-            .slice(3, -1)
-            .replace(/\\([\\"])/gu, '$1');
+    if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+        const unquoted = unquoteGitPath(trimmed.slice(1, -1));
+        return unquoted.startsWith('b/') ? unquoted.slice(2) : unquoted;
     }
     return trimmed.startsWith('b/') ? trimmed.slice(2) : trimmed;
 }
@@ -374,6 +419,46 @@ export function readCommitMetadata(commits, cwd) {
     return metadata;
 }
 
+/** @param {INameStatusEntry[]} entries @param {string | null} baseRevision @param {string} cwd @returns {string[]} */
+function findNewElectronE2ELanes(entries, baseRevision, cwd) {
+    /** @type {Set<string>} */
+    const candidateLanes = new Set();
+    for (const {
+        path,
+        status,
+    } of entries) {
+        if (status !== 'A') {
+            continue;
+        }
+        const match = ELECTRON_E2E_LANE_PATH_PATTERN.exec(path);
+        const lane = match?.[1];
+        if (lane && !NON_LANE_ELECTRON_E2E_DIRS.has(lane)) {
+            candidateLanes.add(lane);
+        }
+    }
+    if (candidateLanes.size === 0) {
+        return [];
+    }
+    /** @type {string[]} */
+    const found = [];
+    for (const lane of [...candidateLanes].sort()) {
+        const laneDir = `tests/e2e/electron/${lane}`;
+        const existing = baseRevision === null
+            ? ''
+            : (git([
+                'ls-tree',
+                '--name-only',
+                baseRevision,
+                '--',
+                laneDir,
+            ], cwd) ?? '').trim();
+        if (existing.length === 0) {
+            found.push(`new Electron E2E lane: ${laneDir}`);
+        }
+    }
+    return found;
+}
+
 /** @param {string} cwd @param {string[]} base @returns {string[]} */
 function findStagedAddedChecksAgainst(cwd, base) {
     const names = git([
@@ -388,6 +473,13 @@ function findStagedAddedChecksAgainst(cwd, base) {
         return [];
     }
     const entries = parseNameStatus(names);
+    const baseRef = base[0] ?? 'HEAD';
+    const hasBaseRevision = git([
+        'rev-parse',
+        '-q',
+        '--verify',
+        `${baseRef}^{tree}`,
+    ], cwd) !== null;
     const lineRulePaths = selectLineRulePaths(entries);
     const addedByPath = lineRulePaths.length === 0
         ? new Map()
@@ -408,7 +500,10 @@ function findStagedAddedChecksAgainst(cwd, base) {
             '--',
             ...lineRulePaths,
         ], cwd));
-    return findAddedChecks(entries, path => addedByPath.get(path) ?? []);
+    return [
+        ...findNewElectronE2ELanes(entries, hasBaseRevision ? baseRef : null, cwd),
+        ...findAddedChecks(entries, path => addedByPath.get(path) ?? []),
+    ];
 }
 
 // A merge commit only adds what neither parent already had, so a check that
@@ -428,8 +523,8 @@ export function findStagedAddedChecks(cwd) {
     return againstHead.filter(check => againstMergeHead.has(check));
 }
 
-/** @param {string} commit @param {string} cwd @returns {string[]} */
-function findCommitAddedChecks(commit, cwd) {
+/** @param {string} commit @param {string | null} parent @param {string} cwd @returns {string[]} */
+function findCommitAddedChecks(commit, parent, cwd) {
     const names = gitOrThrow([
         'diff-tree',
         '--no-commit-id',
@@ -464,7 +559,10 @@ function findCommitAddedChecks(commit, cwd) {
             '--',
             ...lineRulePaths,
         ], cwd));
-    return findAddedChecks(entries, path => addedByPath.get(path) ?? []);
+    return [
+        ...findNewElectronE2ELanes(entries, parent, cwd),
+        ...findAddedChecks(entries, path => addedByPath.get(path) ?? []),
+    ];
 }
 
 /** @param {string[]} commits @param {string} cwd @param {Map<string, ICommitMetadata>} [commitMetadata] @returns {{matches: string[], subject: string}[]} */
@@ -481,7 +579,7 @@ export function findAddedCheckViolations(commits, cwd, commitMetadata = readComm
         if (readAddsChecksTrailer(metadata.body) !== null) {
             return [];
         }
-        const added = findCommitAddedChecks(commit, cwd);
+        const added = findCommitAddedChecks(commit, metadata.parents[0] ?? null, cwd);
         return added.length > 0 ? [{
             matches: describeMissingTrailer(added),
             subject: commit,

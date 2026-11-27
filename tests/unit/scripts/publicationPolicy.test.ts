@@ -520,12 +520,19 @@ describe('added check and flake tolerance detection', () => {
             }], () => lines)).toEqual([expected]);
         });
 
-        it('enforces infrastructure and flake-tolerance rules through committed history and batched metadata', async () => {
+        it('enforces infrastructure, new Electron E2E lanes, quoted paths, and flake-tolerance rules through committed history', async () => {
             const repository = createRepository('evb-added-checks-history-');
             try {
-                const base = await commit(repository, 'Clean base', {'app/index.ts': 'export const app = true;\n'});
-                const cleanTest = await commit(repository, 'Add regression test', {
+                const base = await commit(repository, 'Clean base', {
+                    'app/index.ts': 'export const app = true;\n',
+                    'tests/e2e/electron/smoke/existing.e2e.test.ts': 'export const existing = true;\n',
+                });
+                const cleanTest = await commit(repository, 'Add regression test in existing lane', {
                     'tests/unit/regression.test.ts': 'export const ok = true;\n',
+                    'tests/e2e/electron/smoke/regression.e2e.test.ts': 'export const smokeOk = true;\n',
+                });
+                const newLane = await commit(repository, 'Create a brand new Electron lane', {
+                    'tests/e2e/electron/brand-new/first.e2e.test.ts': 'export const lane = true;\n',
                 });
                 const flakyTest = await commit(repository, 'Add flaky test', {
                     'tests/unit/flaky.test.ts': 'await new Promise(resolve => setTimeout(resolve, 500));\n',
@@ -541,17 +548,36 @@ describe('added check and flake tolerance detection', () => {
 
                 const commits = checker.collectPushedRangeCommits(base, authorizedCiScript, repository);
                 const metadata = addedChecks.readCommitMetadata(commits, repository);
-                expect(metadata.size).toBe(4);
+                expect(metadata.size).toBe(5);
                 expect(metadata.get(cleanTest)?.parents).toEqual([base]);
                 expect(metadata.get(authorizedCiScript)?.body).toContain('Adds-Checks: owner asked for this helper');
 
                 const violations = checker.findPushPolicyViolations(commits, repository);
                 expect(violationSubjects(violations)).toEqual([
+                    newLane,
                     flakyTest,
                     newCiScript,
                 ]);
-                expect(violations[0]?.matches.join('\n')).toContain('wall-clock sleep in a test: tests/unit/flaky.test.ts');
-                expect(violations[1]?.matches.join('\n')).toContain('new CI script: scripts/ci/helper.sh');
+                expect(violations[0]?.matches.join('\n')).toContain('new Electron E2E lane: tests/e2e/electron/brand-new');
+                expect(violations[1]?.matches.join('\n')).toContain('wall-clock sleep in a test: tests/unit/flaky.test.ts');
+                expect(violations[2]?.matches.join('\n')).toContain('new CI script: scripts/ci/helper.sh');
+            } finally {
+                await removeRepository(repository);
+            }
+        });
+
+        it.skipIf(process.platform === 'win32')('detects flake tolerance in C-quoted test filenames containing tabs', async () => {
+            const repository = createRepository('evb-added-checks-tab-');
+            try {
+                const base = await commit(repository, 'Clean base', {'app/index.ts': 'export const app = true;\n'});
+                const quotedFlaky = await commit(repository, 'Add flaky test with tab in filename', {
+                    'tests/unit/tab\tname.test.ts': 'await sleep(250);\n',
+                });
+
+                const commits = checker.collectPushedRangeCommits(base, quotedFlaky, repository);
+                const violations = checker.findPushPolicyViolations(commits, repository);
+                expect(violationSubjects(violations)).toEqual([quotedFlaky]);
+                expect(violations[0]?.matches.join('\n')).toContain('wall-clock sleep in a test: tests/unit/tab\tname.test.ts');
             } finally {
                 await removeRepository(repository);
             }

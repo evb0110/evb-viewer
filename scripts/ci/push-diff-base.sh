@@ -78,7 +78,7 @@ merged_tree_passed() {
         "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_file}/runs" \
         -f head_sha="$pr_head_sha" \
         -f per_page=20 \
-        --jq '[.workflow_runs[] | select(.status == "completed" and .conclusion == "success")] | length' 2>/dev/null)" || return 1
+        --jq '[.workflow_runs[] | select(.status == "completed" and .conclusion == "success" and (.event == "push" or (.event == "pull_request" and any(.pull_requests[]?; .base.ref == env.GITHUB_REF_NAME))))] | length' 2>/dev/null)" || return 1
     [ "${passing_runs:-0}" -gt 0 ]
 }
 

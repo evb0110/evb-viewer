@@ -79,7 +79,7 @@ jobs:
         run: '"$RUNNER_TEMP/cargo-deny-bin/cargo-deny" --log-level warn --manifest-path native/Cargo.toml --all-features check advisories'
 
       - name: Report through the dependency-audit issue
-        if: ${{ always() && !cancelled() && steps.setup.outcome == 'success' }}
+        if: ${{ always() && !cancelled() && steps.setup.outcome == 'success' && steps.cargo_deny_setup.outcome == 'success' }}
         env:
           GH_TOKEN: ${{ github.token }}
           FULL_OUTCOME: ${{ steps.full_audit.outcome }}
