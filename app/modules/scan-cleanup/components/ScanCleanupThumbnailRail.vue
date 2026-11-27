@@ -530,6 +530,8 @@ function handleKeydown(event: KeyboardEvent) {
 }
 
 .scan-thumbnail-list {
+    --document-thumbnail-disabled-action-opacity: var(--app-scan-disabled-opacity);
+
     min-height: 0;
     flex: 1;
 }
@@ -579,20 +581,14 @@ function handleKeydown(event: KeyboardEvent) {
 .scan-thumbnail-exclude-toggle {
     position: relative;
     flex: none;
-    opacity: 0;
+    opacity: var(--document-thumbnail-action-opacity, 0);
     pointer-events: auto;
     transition: opacity var(--app-transition-fast);
 }
 
-.scan-thumbnail-exclude-toggle.is-excluded,
-.scan-thumbnail-list :deep([data-document-thumbnail-item]:hover) .scan-thumbnail-exclude-toggle,
-.scan-thumbnail-list :deep([data-document-thumbnail-item].is-selected) .scan-thumbnail-exclude-toggle,
+.scan-thumbnail-exclude-toggle[aria-checked='false'],
 .scan-thumbnail-exclude-toggle:focus-visible {
-    opacity: 1;
-}
-
-.scan-thumbnail-list :deep([data-document-thumbnail-item].is-disabled:hover) .scan-thumbnail-exclude-toggle {
-    opacity: var(--app-scan-disabled-opacity);
+    opacity: var(--document-thumbnail-action-active-opacity, 1);
 }
 
 .scan-thumbnail-markers {

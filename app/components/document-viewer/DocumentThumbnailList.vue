@@ -1,9 +1,9 @@
 <template>
     <DocumentThumbnailRail
         :set-root="setScrollRoot"
+        :scroll-suppressed="userScrollSuppressed"
         class="document-thumbnail-list"
         data-testid="document-thumbnail-list"
-        :style="{overflow: userScrollSuppressed ? 'hidden' : undefined}"
         @scroll.passive="handleScroll"
         @wheel="handleWheel"
         @pointerdown="handlePointerDown"
@@ -34,8 +34,7 @@
                 :tabindex="itemTag === 'div'
                     ? (disabled ? -1 : item.pageNumber === tabStopPage ? 0 : -1)
                     : undefined"
-                frame-class="document-thumbnail-list__frame"
-                :frame-style="{aspectRatio: item.aspectRatio}"
+                :aspect-ratio="item.aspectRatio"
                 :style="{height: `${String(item.height)}px`, transform: `translateY(${String(item.top)}px)`}"
                 :aria-label="showsRenderError(item.pageNumber)
                     ? t('documentSourceSidebar.goToPageRenderFailed', {page: labelPage(item.pageNumber)})
@@ -51,6 +50,7 @@
                 </template>
                 <img
                     v-if="typeof surfaceState(item.pageNumber)?.surface === 'string'"
+                    class="document-thumbnail-list__image"
                     :src="surfaceState(item.pageNumber)?.surface as string"
                     :style="surfaceStyle(item.pageNumber)"
                     alt=""
@@ -211,6 +211,28 @@ function handleItemClick(pageNumber: number, event: MouseEvent) {
     width: 100%;
     height: 100%;
     background: var(--ui-bg-accented);
+}
+
+.document-thumbnail-list__canvas-host {
+    display: grid;
+    grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+    width: 100%;
+    height: 100%;
+    place-items: center;
+}
+
+/* The page itself carries the edge, so any page shape keeps a tight outline
+   inside the fixed slot. box-shadow stays untransitioned: animating
+   it repaints every frame. */
+.document-thumbnail-list__image,
+.document-thumbnail-list__canvas-host > :deep(canvas) {
+    display: block;
+    width: auto;
+    max-width: 100%;
+    height: auto;
+    max-height: 100%;
+    border-radius: var(--app-document-page-radius);
+    box-shadow: var(--document-thumbnail-page-shadow, var(--app-document-page-shadow));
 }
 
 /* A row's surface is replaced when its raster lands. Keeping the row itself

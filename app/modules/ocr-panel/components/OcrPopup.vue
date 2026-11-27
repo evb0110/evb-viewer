@@ -82,7 +82,7 @@
                             class="section"
                         >
                             <URadioGroup
-                                v-model="settings.pageRange"
+                                v-model="pageRangeModel"
                                 name="pageRange"
                                 :legend="t('ocr.pages')"
                                 :items="pageRangeOptions"
@@ -98,7 +98,7 @@
                             >
                                 <div class="custom-range-reveal-inner">
                                     <UInput
-                                        v-model="settings.customRange"
+                                        v-model="customRangeModel"
                                         :placeholder="t('ocr.customRangePlaceholder')"
                                         size="sm"
                                         class="custom-input"
@@ -188,7 +188,7 @@
                         <div class="section-row">
                             <div class="section">
                                 <URadioGroup
-                                    v-model="settings.preprocessingMode"
+                                    v-model="preprocessingModeModel"
                                     name="ocrPreprocessingMode"
                                     :legend="t('ocr.preprocessing.label')"
                                     :items="preprocessingModeItems"
@@ -238,7 +238,7 @@
                             <span class="label">{{ t('ocr.languages') }}</span>
                             <AppSearchInput
                                 v-if="showLanguageSearch"
-                                v-model="languageSearchQuery"
+                                v-model="languageSearchQueryModel"
                                 icon="i-ph-magnifying-glass"
                                 :placeholder="t('ocr.languagePicker.searchPlaceholder')"
                                 :aria-label="t('ocr.languagePicker.searchPlaceholder')"
@@ -296,7 +296,10 @@
                                     >
                                         <template #label="{ item }">
                                             <span class="chip-name">{{ item.label }}</span>
-                                            <span class="chip-code">{{ item.value }}</span>
+                                            <span
+                                                class="chip-code"
+                                                :class="{ 'is-selected': selectedLanguageModel === item.value }"
+                                            >{{ item.value }}</span>
                                             <span
                                                 v-if="item.modelState !== 'ready'"
                                                 class="chip-state"
@@ -556,7 +559,6 @@ const emit = defineEmits<{
 
 const isExporting = computed(() => isExportingDocx);
 const {
-    settings,
     progress,
     progressPercent,
     showCustomRange,
@@ -566,7 +568,7 @@ const {
     progressStatusText,
     applyingStatusText,
     triggerTooltip,
-    languageSearchQuery,
+    languageSearchQueryModel,
     languagePickerItems,
     languagePickerGroups,
     languageInventoryState,
@@ -574,6 +576,9 @@ const {
     hasSelectedLanguageDownload,
     showLanguageSearch,
     hasLanguageDownloadFailure,
+    pageRangeModel,
+    customRangeModel,
+    preprocessingModeModel,
     supersessionChoiceModel,
     replaceOnlyEvbModel,
     selectedLanguageModel,
@@ -934,11 +939,6 @@ function getLanguageModelStateIcon(state: string) {
     color: var(--ui-text-highlighted);
 }
 
-:deep(.language-chip:has([data-state="checked"]) .chip-code) {
-    border-color: var(--app-choice-selected-border);
-    color: var(--ui-text-muted);
-}
-
 :deep(.language-chip-label) {
     display: inline-flex;
     align-items: center;
@@ -953,6 +953,11 @@ function getLanguageModelStateIcon(state: string) {
     font-size: var(--app-text-size-tiny);
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.04em;
+}
+
+.chip-code.is-selected {
+    border-color: var(--app-choice-selected-border);
+    color: var(--ui-text-muted);
 }
 
 .chip-state {

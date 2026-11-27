@@ -67,11 +67,4 @@ const totalPages = computed(() => (controller.file.value.isDjvu
     min-width: 0;
     min-height: 0;
 }
-
-.scan-cleanup-workspace-boundary :deep(.scan-cleanup-loading-surface),
-.scan-cleanup-workspace-boundary :deep(.scan-cleanup-surface) {
-    min-width: 0;
-    min-height: 0;
-    grid-area: 1 / 1;
-}
 </style>

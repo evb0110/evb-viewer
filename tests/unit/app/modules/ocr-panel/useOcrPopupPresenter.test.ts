@@ -881,4 +881,38 @@ describe('useOcrPopupPresenter', () => {
             stopHarness(harness.scope);
         }
     });
+
+    it('updates page range, custom range, preprocessing, and language search through presenter setters without mutating settings in place', () => {
+        const harness = createPresenterHarness();
+
+        try {
+            const initialSettings = harness.ocr.settings.value;
+
+            harness.presenter.pageRangeModel.value = 'custom';
+            const afterPageRange = harness.ocr.settings.value;
+            expect(afterPageRange).not.toBe(initialSettings);
+            expect(initialSettings.pageRange).toBe('current');
+            expect(afterPageRange.pageRange).toBe('custom');
+            expect(harness.presenter.showCustomRange.value).toBe(true);
+
+            harness.presenter.customRangeModel.value = '1-3, 5';
+            const afterCustomRange = harness.ocr.settings.value;
+            expect(afterCustomRange).not.toBe(afterPageRange);
+            expect(afterPageRange.customRange).toBe('');
+            expect(afterCustomRange.customRange).toBe('1-3, 5');
+
+            harness.presenter.preprocessingModeModel.value = 'clean';
+            const afterPreprocessing = harness.ocr.settings.value;
+            expect(afterPreprocessing).not.toBe(afterCustomRange);
+            expect(afterCustomRange.preprocessingMode).toBe('off');
+            expect(afterPreprocessing.preprocessingMode).toBe('clean');
+
+            harness.presenter.languageSearchQueryModel.value = 'rus';
+            expect(harness.presenter.languageSearchQueryModel.value).toBe('rus');
+            expect(harness.presenter.languagePickerItems.value.map(item => item.value)).toEqual(['rus']);
+            expect('languageSearchQuery' in harness.presenter).toBe(false);
+        } finally {
+            stopHarness(harness.scope);
+        }
+    });
 });

@@ -1,7 +1,10 @@
 <template>
     <div
         class="pdf-annotation-editor-entity pdf-annotation-editor-stamp"
-        :class="{'is-selected': selected}"
+        :class="{
+            'is-selected': selected,
+            'is-original-appearance': originalAppearance,
+        }"
         :style="rectStyle"
         :data-annotation-id="entity.identity.id"
         data-annotation-kind="placed-image"
@@ -14,7 +17,7 @@
             alt=""
             draggable="false"
         />
-        <UIcon v-else name="i-ph-image" />
+        <UIcon v-else name="i-ph-image" class="pdf-annotation-editor-stamp__fallback" />
     </div>
 </template>
 
@@ -27,6 +30,7 @@ import type { IAnnotationMarkerRect } from '@app/types/annotations';
 const props = defineProps<{
     entity: IPlacedImageEntity;
     selected: boolean;
+    originalAppearance?: boolean;
     displayRect?: IAnnotationMarkerRect | undefined;
 }>();
 const { t } = useTypedI18n();
@@ -67,3 +71,10 @@ const rectStyle = computed(() => ({
     transform: `rotate(${props.entity.rotation}deg)`,
 }));
 </script>
+
+<style scoped>
+.pdf-annotation-editor-stamp.is-original-appearance .pdf-annotation-editor-stamp__image,
+.pdf-annotation-editor-stamp.is-original-appearance .pdf-annotation-editor-stamp__fallback {
+    visibility: hidden;
+}
+</style>

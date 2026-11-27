@@ -24,6 +24,10 @@
                     v-else
                     :ref="element => runtime.setPageElement(pageNumber, element)"
                     class="document-source-viewer__page"
+                    :class="{
+                        'document-source-viewer__page--hidden': pagePaintMode === 'hidden',
+                        'document-source-viewer__page--shell-owned': pagePaintMode === 'shell-owned',
+                    }"
                     :style="runtime.getPageStyle(pageNumber)"
                     :data-page-number="pageNumber"
                     :data-document-page-number="pageNumber"
@@ -49,6 +53,7 @@ import type {
     IDocumentPageSourceFeaturePackProps,
 } from '@app/modules/document-viewer/page-source-renderer/documentPageSourceFeaturePackState';
 import { useDocumentPageSourceRuntime } from '@app/modules/document-viewer/page-source-renderer/useDocumentPageSourceRuntime';
+import { isDocumentOpenEmptySurfaceTransition } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import { injectDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
 
 defineOptions({inheritAttrs: false});
@@ -81,6 +86,16 @@ const runtime = reactive(useDocumentPageSourceRuntime({
     readZoom: () => zoom,
 }));
 const viewerRuntime = injectDocumentViewerRuntime();
+const pagePaintMode = computed<'normal' | 'hidden' | 'shell-owned'>(() => {
+    const snapshot = viewerRuntime?.openSurface.snapshot.value;
+    if (!snapshot) {
+        return 'normal';
+    }
+    if (isDocumentOpenEmptySurfaceTransition(snapshot) && snapshot.presentation === 'idle') {
+        return 'hidden';
+    }
+    return snapshot.presentation === 'page-shell' ? 'shell-owned' : 'normal';
+});
 function shouldDeferSkeleton(pageNumber: number) {
     const visual = viewerRuntime?.openSurface.viewportSession.value.visual;
     return visual?.kind === 'page'

@@ -1,13 +1,13 @@
 <template>
     <div class="zoom-controls">
-        <div class="zoom-controls-item" data-collapse-at="4">
+        <div class="zoom-controls-item zoom-controls-item--step">
             <ToolbarButton
                 icon="ph:minus"
                 :tooltip="t('zoom.zoomOut')"
                 :shortcut="shortcutLabels.zoomOut"
                 :disabled="disabled || normalizedEffectiveZoom <= ZOOM.MIN"
                 grouped
-                icon-class="size-[var(--app-toolbar-icon-size)]"
+                variant="segmented"
                 @click="handleZoomOut"
             />
         </div>
@@ -115,14 +115,14 @@
             </UPopover>
         </div>
 
-        <div class="zoom-controls-item" data-collapse-at="4">
+        <div class="zoom-controls-item zoom-controls-item--step">
             <ToolbarButton
                 icon="ph:plus"
                 :tooltip="t('zoom.zoomIn')"
                 :shortcut="shortcutLabels.zoomIn"
                 :disabled="disabled || normalizedEffectiveZoom >= ZOOM.MAX"
                 grouped
-                icon-class="size-[var(--app-toolbar-icon-size)]"
+                variant="segmented"
                 @click="handleZoomIn"
             />
         </div>
@@ -319,8 +319,9 @@ function selectCustomZoomInput(event: FocusEvent) {
 
 <style scoped>
 .zoom-controls {
-    --zoom-control-side-width: var(--toolbar-control-height, 2.25rem);
-    --zoom-control-display-width: 6.5rem;
+    --zoom-control-side-width: var(--toolbar-control-height, var(--app-toolbar-control-size));
+    --toolbar-segmented-button-width: var(--zoom-control-side-width);
+    --zoom-control-display-width: var(--pdf-toolbar-zoom-display-width, 6.5rem);
 
     display: flex;
     align-items: center;
@@ -337,12 +338,8 @@ function selectCustomZoomInput(event: FocusEvent) {
     align-items: stretch;
 }
 
-.zoom-controls-item :deep(.toolbar-btn) {
-    width: var(--zoom-control-side-width);
-    min-width: var(--zoom-control-side-width);
-    max-width: var(--zoom-control-side-width);
-    height: var(--toolbar-control-height, 2.25rem);
-    border-radius: 0;
+.zoom-controls-item--step {
+    display: var(--pdf-toolbar-zoom-step-display, flex);
 }
 
 .zoom-controls-item--display {

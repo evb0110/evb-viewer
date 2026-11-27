@@ -63,6 +63,7 @@ const {t} = useTypedI18n();
 
 <style scoped>
 .scan-cleanup-loading-surface {
+    grid-area: 1 / 1;
     display: grid;
     min-width: 0;
     min-height: 0;

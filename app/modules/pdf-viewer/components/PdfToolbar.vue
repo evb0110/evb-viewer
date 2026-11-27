@@ -595,13 +595,14 @@ $toolbar-collapse-thresholds: (
                 --toolbar-collapse-tier: #{$tier};
             }
 
-            .toolbar[data-toolbar-layout='#{$layout}'] :deep([data-collapse-at='#{$tier}']) {
+            .toolbar[data-toolbar-layout='#{$layout}'] [data-collapse-at='#{$tier}'] {
                 display: none;
             }
 
             @if $tier == 4 {
-                .toolbar[data-toolbar-layout='#{$layout}'] :deep(.zoom-controls) {
-                    --zoom-control-display-width: 4.5rem;
+                .toolbar[data-toolbar-layout='#{$layout}'] .toolbar-center {
+                    --pdf-toolbar-zoom-step-display: none;
+                    --pdf-toolbar-zoom-display-width: 4.5rem;
                 }
             }
 
