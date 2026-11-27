@@ -1,16 +1,14 @@
 <template>
     <nav v-if="isBrowserRuntime" class="app-menu-bar" :aria-label="t('toolbar.appMenu')">
-        <ClientOnly>
-            <Teleport to="body">
-                <div :data-text-edit-menu="menuPortalId" />
-            </Teleport>
-        </ClientOnly>
+        <Teleport v-if="isPortalMounted" to="body">
+            <div :data-text-edit-menu="menuPortalId" />
+        </Teleport>
         <UDropdownMenu
             v-model:open="menuOpen"
             :modal="false"
             :items="appMenuItems"
             :content="menuContentOptions"
-            :portal="menuPortalSelector"
+            :portal="isPortalMounted ? menuPortalSelector : 'body'"
             :ui="appMenuUi"
         >
             <button
@@ -206,9 +204,14 @@ const menuContentOptions = {
 // Cut, Copy, Paste and Select All act on what had input before the menu opened,
 // borrowed for this opening only, in an active workspace. The menu is not modal,
 // as a focus trap would take back the focus they restore; its trigger takes none.
+const isPortalMounted = ref(false);
 const menuPortalId = useId().replace(/[^a-zA-Z0-9_-]/g, '');
 const menuPortalSelector = `[data-text-edit-menu="${menuPortalId}"]`;
 const inTextEditMenu = (node: EventTarget | null) => node instanceof Element && node.closest('[data-text-edit-menu]') !== null;
+
+onMounted(() => {
+    isPortalMounted.value = true;
+});
 interface ITextEditSource {
     element: HTMLElement;
     /** The element had focus, so restoring it must regain focus. */
