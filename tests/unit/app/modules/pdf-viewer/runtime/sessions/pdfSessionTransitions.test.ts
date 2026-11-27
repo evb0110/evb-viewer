@@ -6,7 +6,7 @@ import {
     vi,
 } from 'vitest';
 import {
-    computed, ref, shallowRef, watch,
+    computed, nextTick, ref, shallowRef, watch,
 } from 'vue';
 import { requireDocumentRef } from '@contracts/documentRef';
 import {
@@ -20,6 +20,7 @@ import type {
 } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import {
     createPdfSourceJob,
+    settlePdfSourceJob,
     type TPdfSourceJobIntent,
 } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot';
 
@@ -1296,5 +1297,338 @@ describe('PdfDocumentSession residency across views', () => {
         cancellation.resolve(undefined);
         await vi.waitFor(() => expect(document.cleanup).toHaveBeenCalled());
         await session.dispose();
+    });
+
+    it('keeps A intact and presents B to no view when a queued adoption is released while ready holds the barrier', async () => {
+        const docA = createDocumentProxy('doc-a');
+        const docB = createDocumentProxy('doc-b');
+        let loadIndex = 0;
+        pdfjsState.getDocument.mockImplementation(() => ({
+            promise: Promise.resolve(loadIndex++ === 0 ? docA : docB),
+            destroy: vi.fn(),
+        }));
+        const sourceA = new Blob(['a'], {type: 'application/pdf'});
+        const sourceB = new Blob(['b'], {type: 'application/pdf'});
+        const source = shallowRef<Blob | null>(sourceA);
+        const session = createPdfDocumentSession({src: computed(() => source.value as never)});
+        const firstShown: unknown[] = [];
+        const first = session.attachView({emitDocument: document => firstShown.push(document)});
+        const readyStarted = Promise.withResolvers<void>();
+        const holdReadyA = Promise.withResolvers<void>();
+        first.subscribe((transition) => {
+            if (transition.phase !== 'ready') return;
+            readyStarted.resolve();
+            return holdReadyA.promise;
+        });
+
+        try {
+            const loadA = session.loadPublishedSource()?.finished;
+            await readyStarted.promise;
+
+            // Queue adoption B behind A's deferred ready transition.
+            source.value = sourceB;
+            const jobB = createPdfSourceJob('adopt', {src: shallowRef(sourceB as never)});
+            session.admit(jobB);
+
+            // A late split view mounting while B is still queued must not enter beginLoad before admission.
+            const splitBeforeShown: unknown[] = [];
+            const splitBeforePhases: string[] = [];
+            const splitBefore = session.attachView({emitDocument: document => splitBeforeShown.push(document)});
+            splitBefore.subscribe(transition => {
+                splitBeforePhases.push(transition.phase);
+            });
+            splitBefore.present();
+            expect(splitBefore.isViewLoading.value).toBe(false);
+            expect(splitBeforePhases).toEqual([]);
+
+            // Close / window close releases queued adoption B before the barrier drains.
+            settlePdfSourceJob(jobB, {status: 'released'});
+            await expect(jobB.finished).resolves.toEqual({status: 'released'});
+
+            // A late split view mounting after B is released presents intact A, never B.
+            const splitAfterShown: unknown[] = [];
+            const splitAfter = session.attachView({emitDocument: document => splitAfterShown.push(document)});
+            splitAfter.present();
+
+            holdReadyA.resolve();
+            await loadA;
+            await nextTick();
+            await new Promise<void>(resolve => setImmediate(resolve));
+
+            expect(pdfjsState.getDocument).toHaveBeenCalledTimes(1);
+            expect(session.document.value).toBe(docA);
+            expect(docA.loadingTask.destroy).not.toHaveBeenCalled();
+            expect(firstShown).not.toContain(docB);
+            expect(firstShown.at(-1)).toBe(docA);
+            expect(splitBeforeShown).not.toContain(docB);
+            expect(splitBeforeShown.at(-1)).toBe(docA);
+            expect(splitBefore.isViewLoading.value).toBe(false);
+            expect(splitBeforePhases).toEqual([
+                'loading',
+                'ready',
+                'settled',
+            ]);
+            expect(splitAfterShown).not.toContain(docB);
+            expect(splitAfterShown.at(-1)).toBe(docA);
+        } finally {
+            holdReadyA.resolve();
+            await session.dispose();
+        }
+    });
+
+    it('does not emit a selective reload replacement after its job is released during ready', async () => {
+        const previousRevision = requireDocumentRevisionToken('drt1:before-selective-release');
+        const nextRevision = requireDocumentRevisionToken('drt1:after-selective-release');
+        const documentRevisionToken = ref(previousRevision);
+        const {
+            surface, chassisAuthority,
+        } = createRevisionSwapAuthority(previousRevision);
+        const docA = createMetricDocumentProxy('doc-a', 3);
+        const docB = createMetricDocumentProxy('doc-b', 3, 2);
+        let loadIndex = 0;
+        pdfjsState.getDocument.mockImplementation(() => ({
+            promise: Promise.resolve(loadIndex++ === 0 ? docA : docB),
+            destroy: vi.fn(),
+        }));
+        const source = shallowRef<Blob | null>(new Blob(['a'], {type: 'application/pdf'}));
+        const session = createPdfDocumentSession({
+            src: computed(() => source.value as never),
+            documentRevisionToken: computed(() => documentRevisionToken.value),
+        });
+        const shown: unknown[] = [];
+        const view = session.attachView({
+            chassisAuthority,
+            emitDocument: document => shown.push(document),
+        });
+        const selectiveReadyStarted = Promise.withResolvers<void>();
+        const holdSelectiveReady = Promise.withResolvers<void>();
+        const selectivePhases: string[] = [];
+        view.subscribe((transition) => {
+            if (!transition.plan.isSelectiveReload) return undefined;
+            selectivePhases.push(transition.phase);
+            if (transition.phase !== 'ready') return undefined;
+            selectiveReadyStarted.resolve();
+            return holdSelectiveReady.promise;
+        });
+
+        try {
+            await session.loadPublishedSource()?.finished;
+            expect(shown.at(-1)).toBe(docA);
+
+            expect(view.preparePageMutationRevisionSwap(String(nextRevision), [2], 2)).toBe(true);
+            documentRevisionToken.value = nextRevision;
+            source.value = new Blob(['b'], {type: 'application/pdf'});
+            const jobB = createPdfSourceJob('reload', {src: shallowRef(source.value as never)});
+            session.admit(jobB);
+            await selectiveReadyStarted.promise;
+
+            // Release B before the deferred selective publish runs, queue and release C, then unblock ready.
+            settlePdfSourceJob(jobB, {status: 'released'});
+            await expect(jobB.finished).resolves.toEqual({status: 'released'});
+            const sourceC = new Blob(['c'], {type: 'application/pdf'});
+            source.value = sourceC;
+            const jobC = createPdfSourceJob('adopt', {src: shallowRef(sourceC as never)});
+            session.admit(jobC);
+            settlePdfSourceJob(jobC, {status: 'released'});
+            await expect(jobC.finished).resolves.toEqual({status: 'released'});
+            const splitDuringReadyShown: unknown[] = [];
+            session.attachView({emitDocument: document => splitDuringReadyShown.push(document)}).present();
+            holdSelectiveReady.resolve();
+            await nextTick();
+            await new Promise<void>(resolve => setImmediate(resolve));
+
+            expect(shown).not.toContain(docB);
+            expect(splitDuringReadyShown).not.toContain(docB);
+            expect(session.document.value).toBeNull();
+            expect(docB.loadingTask.destroy).toHaveBeenCalledOnce();
+            expect(surface.completeRevisionSwap).not.toHaveBeenCalledWith(7, String(nextRevision));
+            expect(surface.cancelRevisionSwap).toHaveBeenCalledWith(7, String(nextRevision));
+            expect(selectivePhases).not.toContain('settled');
+
+            // A split mounted after release cannot standalone-present the released proxy B.
+            source.value = null;
+            const splitAfterShown: unknown[] = [];
+            session.attachView({emitDocument: document => splitAfterShown.push(document)}).present();
+            await nextTick();
+            await new Promise<void>(resolve => setImmediate(resolve));
+            expect(splitAfterShown).not.toContain(docB);
+        } finally {
+            holdSelectiveReady.resolve();
+            await session.dispose();
+        }
+    });
+
+    it('clears loading state and emitted proxy when a reload is released while a split holds loading', async () => {
+        const docA = createDocumentProxy('doc-a', 2);
+        const docB = createDocumentProxy('doc-b', 4);
+        let loadIndex = 0;
+        pdfjsState.getDocument.mockImplementation(() => ({
+            promise: Promise.resolve(loadIndex++ === 0 ? docA : docB),
+            destroy: vi.fn(),
+        }));
+        const source = shallowRef<Blob | null>(new Blob(['a'], {type: 'application/pdf'}));
+        const session = createPdfDocumentSession({src: computed(() => source.value as never)});
+        const firstShown: unknown[] = [];
+        const firstTotalPages: number[] = [];
+        const first = session.attachView({
+            emitDocument: document => firstShown.push(document),
+            emitTotalPages: total => firstTotalPages.push(total),
+        });
+        const split = session.attachView();
+        const firstReadyStarted = Promise.withResolvers<void>();
+        const holdFirstReady = Promise.withResolvers<void>();
+        const holdSplitLoading = Promise.withResolvers<void>();
+        let adoptStarted = false;
+        first.subscribe((transition) => {
+            if (!adoptStarted || transition.phase !== 'ready') return undefined;
+            firstReadyStarted.resolve();
+            return holdFirstReady.promise;
+        });
+        split.subscribe((transition) => {
+            if (!adoptStarted || transition.phase !== 'loading') return undefined;
+            return holdSplitLoading.promise;
+        });
+
+        try {
+            await session.loadPublishedSource()?.finished;
+            adoptStarted = true;
+            source.value = new Blob(['b'], {type: 'application/pdf'});
+            const jobB = createPdfSourceJob('adopt', {src: shallowRef(source.value as never)});
+            session.admit(jobB);
+            await firstReadyStarted.promise;
+            expect(split.isViewLoading.value).toBe(true);
+
+            settlePdfSourceJob(jobB, {status: 'released'});
+            await expect(jobB.finished).resolves.toEqual({status: 'released'});
+            holdSplitLoading.resolve();
+            holdFirstReady.resolve();
+            await nextTick();
+            await new Promise<void>(resolve => setImmediate(resolve));
+
+            expect(split.isViewLoading.value).toBe(false);
+            expect(first.isViewLoading.value).toBe(false);
+            expect(session.document.value).toBeNull();
+            expect(firstShown.at(-1)).toBeNull();
+            expect(firstTotalPages.at(-1)).toBe(0);
+        } finally {
+            holdSplitLoading.resolve();
+            holdFirstReady.resolve();
+            await session.dispose();
+        }
+    });
+
+    it('presents a queued adoption to a late split view once the queue admits it', async () => {
+        const docA = createDocumentProxy('doc-a');
+        const docB = createDocumentProxy('doc-b');
+        let loadIndex = 0;
+        pdfjsState.getDocument.mockImplementation(() => ({
+            promise: Promise.resolve(loadIndex++ === 0 ? docA : docB),
+            destroy: vi.fn(),
+        }));
+        const sourceA = new Blob(['a'], {type: 'application/pdf'});
+        const sourceB = new Blob(['b'], {type: 'application/pdf'});
+        const source = shallowRef<Blob | null>(sourceA);
+        const session = createPdfDocumentSession({src: computed(() => source.value as never)});
+        const firstShown: unknown[] = [];
+        const first = session.attachView({emitDocument: document => firstShown.push(document)});
+        const readyStarted = Promise.withResolvers<void>();
+        const holdReadyA = Promise.withResolvers<void>();
+        let heldFirstReady = false;
+        first.subscribe((transition) => {
+            if (transition.phase !== 'ready' || heldFirstReady) return;
+            heldFirstReady = true;
+            readyStarted.resolve();
+            return holdReadyA.promise;
+        });
+
+        try {
+            void session.loadPublishedSource()?.finished;
+            await readyStarted.promise;
+
+            source.value = sourceB;
+            const jobB = createPdfSourceJob('adopt', {src: shallowRef(sourceB as never)});
+            session.admit(jobB);
+
+            const splitShown: unknown[] = [];
+            const splitPhases: string[] = [];
+            const split = session.attachView({emitDocument: document => splitShown.push(document)});
+            split.subscribe(transition => {
+                splitPhases.push(transition.phase);
+            });
+            split.present();
+            expect(split.isViewLoading.value).toBe(false);
+            expect(splitPhases).toEqual([]);
+
+            holdReadyA.resolve();
+            await expect(jobB.finished).resolves.toEqual({status: 'presented'});
+            expect(firstShown.at(-1)).toBe(docB);
+            expect(splitShown.at(-1)).toBe(docB);
+            expect(splitPhases).toEqual([
+                'loading',
+                'ready',
+                'settled',
+            ]);
+        } finally {
+            holdReadyA.resolve();
+            await session.dispose();
+        }
+    });
+
+    it('does not invalidate an active view when hide and re-show occur while earlier ready holds the barrier', async () => {
+        const docA = createDocumentProxy('doc-a');
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve(docA),
+            destroy: vi.fn(),
+        });
+        const active = ref(true);
+        const session = createPdfDocumentSession({src: computed(() => new Blob(['a'], {type: 'application/pdf'}) as never)});
+        const view = session.attachView({isActive: computed(() => active.value)});
+        const readyStarted = Promise.withResolvers<void>();
+        const holdReadyA = Promise.withResolvers<void>();
+        const phases: string[] = [];
+        let readyFence: IPdfDocumentTransition['fence'] | null = null;
+        let visiblePageSurvived = false;
+        view.subscribe((transition) => {
+            phases.push(transition.phase);
+            if (transition.phase === 'ready') {
+                readyFence = transition.fence;
+                visiblePageSurvived = true;
+                readyStarted.resolve();
+                return holdReadyA.promise;
+            }
+            if (transition.phase === 'invalidated' && !transition.isSameDocumentRewrite) {
+                visiblePageSurvived = false;
+            }
+            return undefined;
+        });
+
+        try {
+            const loadA = session.loadPublishedSource()?.finished;
+            await readyStarted.promise;
+
+            // Hide and rapidly re-show the view before ready releases the barrier.
+            active.value = false;
+            await nextTick();
+            active.value = true;
+            await nextTick();
+
+            holdReadyA.resolve();
+            await expect(loadA).resolves.toEqual({status: 'presented'});
+            await nextTick();
+            await new Promise<void>(resolve => setImmediate(resolve));
+
+            expect(phases).toEqual([
+                'loading',
+                'ready',
+                'settled',
+            ]);
+            expect(visiblePageSurvived).toBe(true);
+            expect(readyFence).not.toBeNull();
+            expect(view.isCurrent(readyFence!)).toBe(true);
+            expect(docA.cleanup).not.toHaveBeenCalled();
+        } finally {
+            holdReadyA.resolve();
+            await session.dispose();
+        }
     });
 });
