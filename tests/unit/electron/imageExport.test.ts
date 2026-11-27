@@ -255,7 +255,9 @@ vi.mock('@electron/utils/workerTask', async () => {
     return {
         ...actual,
         resolveUnpackedWorkerPath: (...args: Parameters<typeof actual.resolveUnpackedWorkerPath>) =>
-            mocks.tiffWorkerPath ?? actual.resolveUnpackedWorkerPath(...args),
+            args[1] === 'image-export-tiff-worker.js' && mocks.tiffWorkerPath !== null
+                ? mocks.tiffWorkerPath
+                : actual.resolveUnpackedWorkerPath(...args),
         runResultWorkerTask: async (options: {
             signal?: AbortSignal;
             workerData: unknown;
@@ -383,8 +385,11 @@ const realPdfToolVersionFlags = {
     pdfinfo: '-v',
     pdftoppm: '-v',
 } as const;
-await Promise.allSettled((Object.keys(realPdfToolVersionFlags) as Array<keyof typeof realPdfToolVersionFlags>)
-    .map(async tool => runFile(resolveRealPdfToolPaths()[tool], [realPdfToolVersionFlags[tool]])));
+await Promise.allSettled([
+    ...(Object.keys(realPdfToolVersionFlags) as Array<keyof typeof realPdfToolVersionFlags>)
+        .map(async tool => runFile(resolveRealPdfToolPaths()[tool], [realPdfToolVersionFlags[tool]])),
+    realQpdfWasm.runDesktopQpdfWasm(['--version']),
+]);
 
 function computePdftoppmRasterSize(args: string[]): IRenderedRasterSize {
     const scaleToIndex = args.indexOf('-scale-to');
