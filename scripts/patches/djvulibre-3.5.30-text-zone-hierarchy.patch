@@ -1,0 +1,12 @@
+--- a/libdjvu/DjVuText.cpp
++++ b/libdjvu/DjVuText.cpp
+@@ -247,7 +247,8 @@ DjVuTXT::Zone::decode(const GP<ByteStream> &gbs, int maxtext,
+   ByteStream &bs=*gbs;
+   // Decode type
+   ztype = (ZoneType) bs.read8();
+-  if ( ztype<PAGE || ztype>CHARACTER )
++  if ( ztype < PAGE || ztype > CHARACTER ||
++       (parent && ztype <= parent->ztype) )
+     G_THROW( ERR_MSG("DjVuText.corrupt_text") );
+ 
+   // Decode coordinates
