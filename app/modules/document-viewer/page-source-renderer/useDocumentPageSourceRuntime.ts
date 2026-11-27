@@ -7,7 +7,11 @@ import {
 } from '@app/modules/document-viewer/layout/pdfPageLayoutMetrics';
 import { useWindowDevicePixelRatio } from '@app/composables/useWindowDevicePixelRatio';
 import {useTypedI18n} from '@app/composables/useTypedI18n';
-import { useResizeObserver } from '@vueuse/core';
+import {
+    useResizeObserver,
+    useTimeoutFn,
+} from '@vueuse/core';
+import { DOCUMENT_SOURCE_INACTIVE_LEASE_GRACE_MS } from '@app/constants/timeouts';
 import { clamp } from 'es-toolkit/math';
 import { isAbortError } from '@contracts/isAbortError';
 import type { IPdfSemanticAnchor } from '@contracts/recentReadingView';
@@ -91,7 +95,7 @@ const DOCUMENT_SOURCE_CONTINUOUS_MAX_RESIDENT_PAGES = DOCUMENT_SOURCE_MAX_MOUNTE
 const DOCUMENT_SOURCE_RENDER_CONCURRENCY = 2;
 const DOCUMENT_SOURCE_LAYOUT_CHUNK_SIZE = 256;
 const DOCUMENT_SOURCE_LAYOUT_MAX_CACHED_CHUNKS = 32;
-export const DOCUMENT_SOURCE_INACTIVE_LEASE_GRACE_MS = 1_500;
+export { DOCUMENT_SOURCE_INACTIVE_LEASE_GRACE_MS };
 
 type TDocumentPageSourceCollection<T> = T[] | ILazyIndexedCollection<T>;
 
@@ -344,7 +348,6 @@ export const useDocumentPageSourceRuntime = (options: {
     });
     let openJob: TDocumentPageSourceOpenJob | null = null;
     let releaseViewportFeature: (() => void) | null = null;
-    let inactiveLeaseReleaseTimer: ReturnType<typeof setTimeout> | null = null;
     let lastProjectedNavigationSignal: AbortSignal | null = null;
     function measureViewport() {
         const container = viewerContainer.value;
@@ -1055,11 +1058,20 @@ export const useDocumentPageSourceRuntime = (options: {
             immediate: true,
         },
     );
+    const {
+        start: scheduleInactiveLeaseRelease,
+        stop: cancelInactiveLeaseRelease,
+    } = useTimeoutFn(
+        (retainedPageNumber: number, retainedLease: unknown) => {
+            if (!props.value.isActive && presentation.pageStates.get(retainedPageNumber)?.lease === retainedLease) {
+                presentation.releasePage(retainedPageNumber);
+            }
+        },
+        DOCUMENT_SOURCE_INACTIVE_LEASE_GRACE_MS,
+        {immediate: false},
+    );
     function releaseInactivePageStates() {
-        if (inactiveLeaseReleaseTimer !== null) {
-            clearTimeout(inactiveLeaseReleaseTimer);
-            inactiveLeaseReleaseTimer = null;
-        }
+        cancelInactiveLeaseRelease();
         const retainCurrentPage = shouldRetainInactiveDocumentPageSourceLease(
             resolveOpenPathSecondaryPerformancePolicy(rasterBufferProfile)
                 .inactiveDjvuLeasePolicy === 'warm-grace',
@@ -1079,12 +1091,7 @@ export const useDocumentPageSourceRuntime = (options: {
         }
         retainedLease.setPriority?.('prefetch');
         retainedState.priority = 'prefetch';
-        inactiveLeaseReleaseTimer = setTimeout(() => {
-            inactiveLeaseReleaseTimer = null;
-            if (!props.value.isActive && presentation.pageStates.get(retainedPageNumber)?.lease === retainedLease) {
-                presentation.releasePage(retainedPageNumber);
-            }
-        }, DOCUMENT_SOURCE_INACTIVE_LEASE_GRACE_MS);
+        scheduleInactiveLeaseRelease(retainedPageNumber, retainedLease);
     }
     function seedOpeningPageMetrics() {
         const geometry = chassisAuthority?.openSurface.snapshot.value.openingPageGeometry;
@@ -1191,10 +1198,7 @@ export const useDocumentPageSourceRuntime = (options: {
         releaseInactivePageStates();
     }
     function applyRestoreTransition(transition: IDocumentPageSourceTransition) {
-        if (inactiveLeaseReleaseTimer !== null) {
-            clearTimeout(inactiveLeaseReleaseTimer);
-            inactiveLeaseReleaseTimer = null;
-        }
+        cancelInactiveLeaseRelease();
         const retainedState = presentation.pageStates.get(currentPage.value);
         retainedState?.lease?.setPriority?.('navigation');
         if (retainedState?.lease) {
@@ -1257,9 +1261,7 @@ export const useDocumentPageSourceRuntime = (options: {
     });
     onBeforeUnmount(() => {
         transitions.dispose();
-        if (inactiveLeaseReleaseTimer !== null) {
-            clearTimeout(inactiveLeaseReleaseTimer);
-        }
+        cancelInactiveLeaseRelease();
         releaseViewportFeature?.();
         scheduleRender.cancel();
         metricPublication.clear();

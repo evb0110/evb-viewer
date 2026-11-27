@@ -5,6 +5,13 @@ import {
 } from '@contracts/isAbortError';
 import {isBrowserLegacyDocumentRef} from '@contracts/documentRef';
 import type { Ref } from 'vue';
+import { useTimeoutFn } from '@vueuse/core';
+import {
+    BROWSER_PRINT_CLEANUP_TIMEOUT_MS,
+    BROWSER_PRINT_LOAD_SETTLE_DELAY_MS,
+    BROWSER_PRINT_LOAD_TIMEOUT_MS,
+    PRINT_PREPARING_TOAST_DELAY_MS,
+} from '@app/constants/timeouts';
 import {
     getFailureReceipt,
     type ExpectedOutcome,
@@ -52,10 +59,6 @@ import type {
     IWorkspaceDriverPrintRequest,
 } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 
-const BROWSER_PRINT_CLEANUP_TIMEOUT_MS = 60000;
-const BROWSER_PRINT_LOAD_TIMEOUT_MS = 30000;
-const BROWSER_PRINT_LOAD_SETTLE_DELAY_MS = 300;
-const PRINT_PREPARING_TOAST_DELAY_MS = 600;
 const BROWSER_PRINT_FRAME_MIN_WIDTH_PX = 1280;
 const BROWSER_PRINT_FRAME_MIN_HEIGHT_PX = 1600;
 const NATIVE_PRINT_REQUIRED_REASON = 'requires-native-backend' as const;
@@ -187,8 +190,17 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     let nextPrintRunId = 0;
     let printScopeDisposed = false;
     let closeDialogForSystemPrint = false;
-    let preparingPrintToastTimer: number | null = null;
     let preparingPrintToastId: string | number | null = null;
+    const {
+        isPending: isPreparingPrintToastScheduled,
+        start: startPreparingPrintToastDelay,
+        stop: stopPreparingPrintToastDelay,
+    } = useTimeoutFn(() => {
+        if (!isPreparingPrint.value) {
+            return;
+        }
+        showPreparingPrintToast();
+    }, PRINT_PREPARING_TOAST_DELAY_MS, {immediate: false});
 
     const supportsAdvancedPrintOptions = computed(() => {
         const sourcePdf = deps.sourcePdf.value;
@@ -241,10 +253,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     }
 
     function clearPreparingPrintToast() {
-        if (typeof window !== 'undefined' && preparingPrintToastTimer !== null) {
-            window.clearTimeout(preparingPrintToastTimer);
-        }
-        preparingPrintToastTimer = null;
+        stopPreparingPrintToastDelay();
 
         if (preparingPrintToastId !== null) {
             toast.remove(preparingPrintToastId);
@@ -256,10 +265,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         if (preparingPrintToastId !== null || !isPreparingPrint.value) {
             return;
         }
-        if (typeof window !== 'undefined' && preparingPrintToastTimer !== null) {
-            window.clearTimeout(preparingPrintToastTimer);
-            preparingPrintToastTimer = null;
-        }
+        stopPreparingPrintToastDelay();
         const preparingToast = toast.add({
             close: false,
             color: 'neutral',
@@ -272,17 +278,11 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     }
 
     function schedulePreparingPrintToast() {
-        if (typeof window === 'undefined' || preparingPrintToastTimer !== null || preparingPrintToastId !== null) {
+        if (typeof window === 'undefined' || isPreparingPrintToastScheduled.value || preparingPrintToastId !== null) {
             return;
         }
 
-        preparingPrintToastTimer = window.setTimeout(() => {
-            preparingPrintToastTimer = null;
-            if (!isPreparingPrint.value) {
-                return;
-            }
-            showPreparingPrintToast();
-        }, PRINT_PREPARING_TOAST_DELAY_MS);
+        startPreparingPrintToastDelay();
     }
 
     function cancelActivePrintPreparation() {

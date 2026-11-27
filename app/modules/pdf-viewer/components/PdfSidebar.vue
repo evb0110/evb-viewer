@@ -109,6 +109,7 @@
 </template>
 
 <script setup lang="ts">
+import { whenever } from '@vueuse/core';
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 
 
@@ -342,10 +343,8 @@ const isBookmarksTabActive = computed(() => isOpen && activeTab === 'bookmarks')
  * boundary.
  */
 const hasActivatedBookmarksTab = ref(false);
-watch(isBookmarksTabActive, (isActive) => {
-    if (isActive) {
-        hasActivatedBookmarksTab.value = true;
-    }
+whenever(isBookmarksTabActive, () => {
+    hasActivatedBookmarksTab.value = true;
 }, {immediate: true});
 
 function handleSelectedPagesUpdate(pages: number[]) {

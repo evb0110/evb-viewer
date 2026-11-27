@@ -35,7 +35,11 @@ import type { INoteEntity } from '@app/modules/pdf-viewer/engine/annotations/dom
 
 const { t } = useTypedI18n();
 
-const props = defineProps<{
+const {
+    entity,
+    selected,
+    displayRect,
+} = defineProps<{
     entity: INoteEntity;
     selected: boolean;
     displayRect?: INoteEntity['position'] | undefined;
@@ -45,9 +49,9 @@ const emit = defineEmits<{
     activate: [];
 }>();
 
-const notePosition = computed(() => props.displayRect ?? props.entity.position);
+const notePosition = computed(() => displayRect ?? entity.position);
 const tooltipText = computed(() => {
-    const text = props.entity.contents.trim();
+    const text = entity.contents.trim();
     if (!text) {
         return t('annotations.emptyNote');
     }
@@ -61,7 +65,7 @@ const controlledTooltipOpen = computed(() =>
     shouldSuppressTooltip.value ? false : isTooltipOpen.value,
 );
 const noteStyle = computed(() => ({
-    '--annotation-note-color': props.entity.color ?? 'var(--ui-warning)',
+    '--annotation-note-color': entity.color ?? 'var(--ui-warning)',
     left: `${(notePosition.value.left + notePosition.value.width / 2) * 100}%`,
     top: `${(notePosition.value.top + notePosition.value.height / 2) * 100}%`,
 }));
@@ -97,8 +101,8 @@ function handlePointerLeave() {
     releaseTooltipAfterPointerLeave();
 }
 
-watch(() => props.selected, selected => {
-    if (selected && isPointerOver.value) {
+watch(() => selected, isSelected => {
+    if (isSelected && isPointerOver.value) {
         suppressTooltipUntilPointerExit();
     }
     else if (!isPointerOver.value) {

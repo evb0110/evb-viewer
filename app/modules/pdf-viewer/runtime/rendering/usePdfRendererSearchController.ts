@@ -18,7 +18,7 @@ interface IUsePdfRendererSearchControllerOptions extends IPdfRendererSearchNavig
     isActive: MaybeRefOrGetter<boolean>;
     isLoading: Ref<boolean>;
     numPages: Ref<number>;
-    textLayerRenderer: ReturnType<typeof usePdfTextLayerRenderer>;
+    textLayerRenderer: Pick<ReturnType<typeof usePdfTextLayerRenderer>, 'applyAllSearchHighlights'>;
     searchPageMatches: MaybeRefOrGetter<Map<number, IPdfPageMatches>>;
     currentSearchMatch: MaybeRefOrGetter<IPdfSearchMatch | null>;
     currentSearchMatchNavigationId: MaybeRefOrGetter<number>;

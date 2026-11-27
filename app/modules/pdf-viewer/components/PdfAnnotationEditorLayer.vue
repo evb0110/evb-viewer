@@ -176,7 +176,7 @@ import type {
 import {isShapeTool} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isShapeTool';
 import {BrowserLogger} from '@app/utils/browserLogger';
 
-const props = defineProps<{pageIndex: number;}>();
+const { pageIndex } = defineProps<{pageIndex: number;}>();
 
 const injectedSurface = inject<IAnnotationEditorSurface>(annotationEditorSurfaceKey);
 if (!injectedSurface) {
@@ -187,7 +187,7 @@ const layerRef = ref<HTMLElement | null>(null);
 const highlightFillPlaneId = useId();
 const editorReady = ref(false);
 const editingId = surface.editingId;
-const pageGeometry = computed(() => surface.getPageGeometry(props.pageIndex));
+const pageGeometry = computed(() => surface.getPageGeometry(pageIndex));
 const pageRotation = computed(() => pageGeometry.value?.rotation ?? 0);
 const pageDimensions = computed(() => annotationPageDimensions(
     pageGeometry.value?.pageView,
@@ -225,7 +225,7 @@ let unregisterPageInteraction: (() => void) | null = null;
 
 onMounted(() => {
     editorReady.value = true;
-    unregisterPageInteraction = surface.registerPageInteraction(props.pageIndex, {
+    unregisterPageInteraction = surface.registerPageInteraction(pageIndex, {
         commitTextDraft: commitActiveTextBoxDraftForSave,
         get pendingTextCompletion() { return editingId.value === null ? null : textBoxRefs.get(editingId.value)?.pendingCompletion ?? null; },
         cancelTextDraft: () => { if (editingId.value !== null) void commitTextBox(editingId.value).catch(error => BrowserLogger.debug('annotations', 'Text draft cancellation refused', error)); },
@@ -248,7 +248,7 @@ onMounted(() => {
 
 const pointerGesture = useAnnotationPointerGesture({
     surface,
-    pageIndex: props.pageIndex,
+    pageIndex: pageIndex,
 });
 const isCreating = computed(() => pointerGesture.isActive.value && pointerGesture.mode.value === 'create');
 const draggedAnnotationId = computed(() => pointerGesture.entity?.identity.id ?? null);
@@ -256,8 +256,8 @@ watch(viewRotation, cancelPointerGesture);
 const creationTools = useAnnotationCreationTools({surface});
 const keyboardCommands = useAnnotationKeyboardCommands({
     surface,
-    pageView: () => surface.getPageGeometry(props.pageIndex)?.pageView ?? null,
-    pageRotation: () => surface.getPageGeometry(props.pageIndex)?.rotation ?? 0,
+    pageView: () => surface.getPageGeometry(pageIndex)?.pageView ?? null,
+    pageRotation: () => surface.getPageGeometry(pageIndex)?.rotation ?? 0,
     placeTextBox: event => {
         if (event.target !== layerRef.value
             || surface.activeTool.value !== 'text'
@@ -273,7 +273,7 @@ const keyboardCommands = useAnnotationKeyboardCommands({
         const rect = textPlacementRect(point, point, false);
         const created = creationTools.create(
             'text',
-            props.pageIndex,
+            pageIndex,
             rect,
             undefined,
             (360 - viewRotation.value) % 360 as ITextBoxEntity['rotation'],
@@ -295,7 +295,7 @@ const isInteractive = computed(() => (
     || isShapeTool(surface.activeTool.value)
     || pointerGesture.isActive.value
 ));
-const entities = computed(() => surface.getEntitiesForPage(props.pageIndex));
+const entities = computed(() => surface.getEntitiesForPage(pageIndex));
 const selectedEntity = computed(() => {
     const selectedId = [...surface.selectedIds.value][0];
     return entities.value.find(entity => entity.identity.id === selectedId) ?? null;
@@ -600,7 +600,7 @@ function displayFontSizeFor(entity: ITextBoxEntity) {
 }
 
 function textPlacementRect(start: IAnnotationEditorPoint, current: IAnnotationEditorPoint, hasMoved: boolean) {
-    const pageGeometry = surface.getPageGeometry(props.pageIndex);
+    const pageGeometry = surface.getPageGeometry(pageIndex);
     const displayedStart = rotateAnnotationPoint(start, viewRotation.value);
     const defaultRect = createDefaultTextBoxRect(displayedStart, {
         pageView: pageGeometry?.pageView,
@@ -714,7 +714,7 @@ function handleEntityPointerDown(entity: ITextBoxEntity | INoteEntity, event: Po
         return;
     }
     if (pointerGesture.beginMove(entity.identity.id, point, event)) {
-        surface.beginPointerInteraction(props.pageIndex);
+        surface.beginPointerInteraction(pageIndex);
         event.preventDefault();
         capturePointer(event);
     }
@@ -759,7 +759,7 @@ function handleResizeStart(handle: TAnnotationResizeHandle, event: PointerEvent)
         return;
     }
     if (pointerGesture.beginResize(entity.identity.id, handle, point, event)) {
-        surface.beginPointerInteraction(props.pageIndex);
+        surface.beginPointerInteraction(pageIndex);
         surface.select([entity.identity.id]);
         event.preventDefault();
         capturePointer(event);
@@ -804,7 +804,7 @@ function handleSurfacePointerDown(event: PointerEvent) {
         if (!event.shiftKey) {
             const point = pointFromEvent(event);
             if (point && pointerGesture.beginMove(id, point, event)) {
-                surface.beginPointerInteraction(props.pageIndex);
+                surface.beginPointerInteraction(pageIndex);
                 event.preventDefault();
                 capturePointer(event);
             }
@@ -824,12 +824,12 @@ function handleSurfacePointerDown(event: PointerEvent) {
     }
     const point = pointFromEvent(event);
     const draft = point && isShapeTool(tool)
-        ? creationTools.beginShape(props.pageIndex, tool, point)
+        ? creationTools.beginShape(pageIndex, tool, point)
         : null;
     if (!point || (isShapeTool(tool) && !draft) || !pointerGesture.beginCreate(point, event)) {
         return;
     }
-    surface.beginPointerInteraction(props.pageIndex);
+    surface.beginPointerInteraction(pageIndex);
     creatingTool.value = tool;
     shapeDraft.value = draft;
     event.preventDefault();
@@ -892,7 +892,7 @@ async function handlePointerUp(event: PointerEvent) {
     if (pending) focusLayer();
     const completion = point ? pointerGesture.finish(point, event) : null;
     releasePointer(event);
-    surface.endPointerInteraction(props.pageIndex);
+    surface.endPointerInteraction(pageIndex);
     const draft = shapeDraft.value;
     shapeDraft.value = null;
     const tool = creatingTool.value;
@@ -985,7 +985,7 @@ function cancelPointerGesture() {
     }
     capturedPointerId = null;
     pointerGesture.cancel();
-    surface.endPointerInteraction(props.pageIndex);
+    surface.endPointerInteraction(pageIndex);
     creatingTool.value = null;
     shapeDraft.value = null;
 }

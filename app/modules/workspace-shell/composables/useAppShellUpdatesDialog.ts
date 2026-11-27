@@ -2,6 +2,7 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
+import { whenever } from '@vueuse/core';
 import type { IAppUpdateStatus } from '@contracts/updatesPlatformFeature';
 import { useFailureToast } from '@app/composables/useFailureToast';
 import type { IUpdateDialogState } from '@app/composables/useAppUpdates';
@@ -127,10 +128,7 @@ export const useAppShellUpdatesDialog = (options: IUseAppShellUpdatesDialogOptio
 
     // A check the user asked for that fails ends the dialog and is told the
     // way every failure is.
-    watch(() => options.updatesDialog.value.open && options.updatesDialog.value.phase === 'error', (failed) => {
-        if (!failed) {
-            return;
-        }
+    whenever(() => options.updatesDialog.value.open && options.updatesDialog.value.phase === 'error', () => {
         const failure = options.updatesDialog.value.failure;
         const report = {
             title: updatesDialogTitle.value,

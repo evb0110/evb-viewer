@@ -41,6 +41,7 @@
 </template>
 
 <script setup lang="ts">
+import { whenever } from '@vueuse/core';
 import type { TDirtyCloseDialogMode } from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
 
 const {
@@ -68,10 +69,8 @@ const dialogDescription = computed(() => mode === 'window'
     ? t('tabs.confirmCloseWindowDirtyDescription')
     : t('tabs.confirmCloseDirtyDescription', {name: targetName}));
 
-watch(() => open, (isOpen) => {
-    if (isOpen) {
-        isResolving.value = false;
-    }
+whenever(() => open, () => {
+    isResolving.value = false;
 });
 
 function handleOpenUpdate(open: boolean) {

@@ -22,7 +22,7 @@
         :data-viewport-visual-page="chassisAuthority.openSurface.viewportSession.value.visual.kind === 'page' ? chassisAuthority.openSurface.viewportSession.value.visual.pageNumber : ''"
         :data-viewport-visual-presentation="chassisAuthority.openSurface.viewportSession.value.visual.kind === 'page' ? chassisAuthority.openSurface.viewportSession.value.visual.presentation : ''"
         :data-chassis-current-page="chassisAuthority.currentPage.value"
-        :data-chassis-resizing="props.isResizing === true"
+        :data-chassis-resizing="isResizing === true"
         :aria-busy="isOpening ? 'true' : undefined"
         :class="{'document-viewer-chassis--fling-backdrop': hasViewportFlingBackdrop}"
     >
@@ -51,8 +51,8 @@
                 :is="activeFeaturePack"
                 ref="activeFeaturePackRef"
                 v-bind="attrs"
-                :mount-presentation="props.mountPresentation"
-                :is-resizing="props.isResizing"
+                :mount-presentation="mountPresentation"
+                :is-resizing="isResizing"
                 @update:total-pages="handleTotalPagesUpdate"
             />
         </DocumentViewportHost>
@@ -61,6 +61,7 @@
 
 <script setup lang="ts">
 import type { Component } from 'vue';
+import { useResizeObserver } from '@vueuse/core';
 import {
     DETACHED_ZOOM_ACCESS,
     getZoomMode,
@@ -92,13 +93,18 @@ defineOptions({ inheritAttrs: false });
 
 type TDocumentViewerRendererKind = 'pdfjs' | 'page-source';
 
-const props = defineProps<{
+const {
+    sourceKind,
+    rendererKind = 'pdfjs',
+    mountPresentation,
+    isResizing,
+} = defineProps<{
     sourceKind: TDocumentPageSourceKind;
     rendererKind?: TDocumentViewerRendererKind;
     mountPresentation?: boolean;
     isResizing?: boolean;
 }>();
-const sourceKind = toRef(props, 'sourceKind');
+const sourceKindRef = computed(() => sourceKind);
 const attrs = useAttrs();
 
 const PdfFeaturePack = defineAsyncComponent(
@@ -118,18 +124,14 @@ const viewportIds: Record<TDocumentViewerRendererKind, string | undefined> = {
     'page-source': undefined,
 };
 const activeFeaturePackRef = shallowRef<Record<PropertyKey, unknown> | null>(null);
-const rendererKind = computed<TDocumentViewerRendererKind>(() => (
-    props.rendererKind ?? 'pdfjs'
-));
-const viewportId = computed(() => viewportIds[rendererKind.value]);
-const activeFeaturePack = computed(() => featurePacks[rendererKind.value]);
+const viewportId = computed(() => viewportIds[rendererKind]);
+const activeFeaturePack = computed(() => featurePacks[rendererKind]);
 const openingFrameLayoutRevision = ref(0);
-let openingFrameResizeObserver: ResizeObserver | null = null;
 const documentOpenSurface = injectDocumentOpenSurfaceSession();
 if (!documentOpenSurface) {
     throw new Error('DocumentViewerChassis requires the host-owned document open surface session');
 }
-const chassisAuthority = createDocumentViewerRuntime(sourceKind, documentOpenSurface);
+const chassisAuthority = createDocumentViewerRuntime(sourceKindRef, documentOpenSurface);
 function handleViewportWheel(interaction: IDocumentWheelInteraction) {
     // Physical scrolling must fence pending authored restores before the
     // browser mutates scrollTop. The inertial tail of a gesture that a newer
@@ -203,22 +205,25 @@ const openingPageFrameAuthority = createDocumentOpeningPageFrame({
     readViewport: () => chassisAuthority.viewportElement.value,
     readZoom,
 });
+const openingFrameResizeTargets = computed(() => {
+    const viewport = chassisAuthority.viewportElement.value;
+    if (!viewport) {
+        return [];
+    }
+    const layoutHost = viewport.closest<HTMLElement>('.workspace-viewer-host');
+    return layoutHost ? [
+        viewport,
+        layoutHost,
+    ] : [viewport];
+});
+useResizeObserver(openingFrameResizeTargets, () => {
+    openingFrameLayoutRevision.value += 1;
+});
 watch(
     () => chassisAuthority.viewportElement.value,
     (viewport) => {
-        openingFrameResizeObserver?.disconnect();
-        openingFrameResizeObserver = null;
         if (!viewport || typeof ResizeObserver === 'undefined') {
             openingFrameLayoutRevision.value += 1;
-            return;
-        }
-        openingFrameResizeObserver = new ResizeObserver(() => {
-            openingFrameLayoutRevision.value += 1;
-        });
-        openingFrameResizeObserver.observe(viewport);
-        const layoutHost = viewport.closest<HTMLElement>('.workspace-viewer-host');
-        if (layoutHost) {
-            openingFrameResizeObserver.observe(layoutHost);
         }
     },
     {
@@ -235,8 +240,6 @@ onBeforeUnmount(() => {
     // The view is gone. A pane relocation moves it under Teleport instead.
     chassisAuthority.viewportWritePort.retire();
     unsubscribeWheelScrollSequenceChange();
-    openingFrameResizeObserver?.disconnect();
-    openingFrameResizeObserver = null;
 });
 const isOpening = computed(() => isDocumentOpenEmptySurfaceTransition(chassisAuthority.openSurface.snapshot.value));
 
@@ -251,7 +254,7 @@ watch(
         () => attrs.viewMode,
         () => attrs.viewRotation,
         () => attrs.continuousScroll,
-        () => rendererKind.value,
+        () => rendererKind,
         // Frame preparation needs a measurable viewport. When geometry is already
         // known before this chassis lays out, the first attempt has nothing to
         // measure, so the layout revision is the retry signal that lands the frame.

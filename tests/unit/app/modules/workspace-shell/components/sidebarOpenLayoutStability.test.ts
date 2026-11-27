@@ -116,8 +116,9 @@ describe('sidebar open layout stability', () => {
         onTestFinished(view.dispose);
         await nextTick();
 
-        expect(view.wrapper()?.style.width).toBe('0px');
-        expect(view.content()?.style.width).toBe('0px');
+        expect(view.wrapper()?.classList.contains('is-closed')).toBe(true);
+        expect(view.wrapper()?.style.width).toBe('');
+        expect(view.content()?.style.width).toBe('');
         expect(view.content()?.querySelector('.panel')).not.toBeNull();
 
         view.showSidebar.value = true;
@@ -126,8 +127,11 @@ describe('sidebar open layout stability', () => {
         // The wrapper animates its width open. The panel jumps straight to the
         // final width so the thumbnail rail measures one width instead of
         // relaying out and re-rasterizing on every frame of the animation.
-        expect(view.wrapper()?.style.width).toBe(`${String(SIDEBAR.DEFAULT_WIDTH + SIDEBAR.RESIZER_WIDTH)}px`);
-        expect(view.content()?.style.width).toBe(`${String(SIDEBAR.DEFAULT_WIDTH)}px`);
+        expect(view.wrapper()?.classList.contains('is-closed')).toBe(false);
+        expect(view.wrapper()?.style.width)
+            .toBe(`${String(SIDEBAR.DEFAULT_WIDTH + SIDEBAR.RESIZER_WIDTH)}px`);
+        expect(view.content()?.style.width)
+            .toBe(`${String(SIDEBAR.DEFAULT_WIDTH)}px`);
     });
 
     it('collapses the panel back to zero so a closed sidebar cannot measure as visible', async () => {
@@ -138,7 +142,8 @@ describe('sidebar open layout stability', () => {
         view.showSidebar.value = false;
         await nextTick();
 
-        expect(view.content()?.style.width).toBe('0px');
+        expect(view.wrapper()?.style.width).toBe('');
+        expect(view.content()?.style.width).toBe('');
         expect(view.wrapper()?.classList.contains('is-closed')).toBe(true);
     });
 

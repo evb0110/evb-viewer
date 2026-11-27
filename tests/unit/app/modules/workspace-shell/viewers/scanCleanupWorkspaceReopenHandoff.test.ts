@@ -60,13 +60,25 @@ function createDocument(identity: Record<string, string>, views: Record<string, 
             view,
         ] as const;
     })));
-    return cast<IWorkspaceDocumentController>({
+    const snapshot = ref({identity: {...identity}});
+    const controller = cast<IWorkspaceDocumentController>({
         views: records,
         getView: (tabId: string) => records.value.get(tabId) ?? null,
         attachWorkspace: (tabId: string, workspace: IWorkspaceExpose) => records.value.get(tabId)?.mount(workspace),
         removeView: (tabId: string) => records.value.get(tabId)?.retire(),
-        snapshot: ref({identity}),
+        snapshot,
     });
+    return {
+        controller,
+        updateIdentity(patch: Record<string, string>) {
+            snapshot.value = {
+                identity: {
+                    ...snapshot.value.identity,
+                    ...patch,
+                },
+            };
+        },
+    };
 }
 
 function progress(processedCount = 0, totalPages = 1) {
@@ -248,7 +260,7 @@ describe('scan-cleanup workspace reopen handoff', () => {
             }}),
         };
         const cold = scenario === 'cold-output' || scenario === 'removed-before-mount';
-        const output = createDocument({
+        const outputFixture = createDocument({
             documentInstanceId: 'completed-document',
             originalPath: outputPath,
             workingCopyPath: '/working/output.pdf',
@@ -257,12 +269,13 @@ describe('scan-cleanup workspace reopen handoff', () => {
             output: cold ? null : workspaces.output!,
             ...(scenario === 'removed-before-mount' ? {'output-linked': workspaces.linked!} : {}),
         });
+        const output = outputFixture.controller;
         const other = createDocument({
             documentInstanceId: 'other-document',
             originalPath: '/other.pdf',
             workingCopyPath: '/working/other.pdf',
             documentRef: '/working/other.pdf',
-        }, {other: workspaces.other!});
+        }, {other: workspaces.other!}).controller;
         const sessions = shallowRef<Record<string, IWorkspaceDocumentController>>({
             output,
             other,
@@ -288,15 +301,19 @@ describe('scan-cleanup workspace reopen handoff', () => {
             cast<TTranslateFn>((key: string) => key),
         );
         if (scenario === 'save-as-renamed') {
-            output.snapshot.value.identity.originalPath = requireDocumentRef('/saved/new-name.pdf');
-            output.snapshot.value.identity.workingCopyPath = requireDocumentRef('/working/new-name.pdf');
-            output.snapshot.value.identity.documentRef = requireDocumentRef('/working/new-name.pdf');
+            outputFixture.updateIdentity({
+                originalPath: requireDocumentRef('/saved/new-name.pdf'),
+                workingCopyPath: requireDocumentRef('/working/new-name.pdf'),
+                documentRef: requireDocumentRef('/working/new-name.pdf'),
+            });
         }
         if (scenario === 'reloaded') {
-            output.snapshot.value.identity.workingCopyPath = requireDocumentRef('/working/reloaded.pdf');
-            output.snapshot.value.identity.documentRef = requireDocumentRef('/working/reloaded.pdf');
+            outputFixture.updateIdentity({
+                workingCopyPath: requireDocumentRef('/working/reloaded.pdf'),
+                documentRef: requireDocumentRef('/working/reloaded.pdf'),
+            });
         }
-        if (scenario === 'title-renamed') output.snapshot.value.identity.fileName = 'Renamed title';
+        if (scenario === 'title-renamed') outputFixture.updateIdentity({fileName: 'Renamed title'});
         if (scenario === 'reopen-same-path') {
             sessions.value.output = cast<IWorkspaceDocumentController>({
                 views: output.views,

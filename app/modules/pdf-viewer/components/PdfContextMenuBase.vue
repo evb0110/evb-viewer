@@ -19,7 +19,10 @@
 </template>
 
 <script setup lang="ts">
-import { useEventListener } from '@vueuse/core';
+import {
+    useEventListener,
+    useTimeoutFn,
+} from '@vueuse/core';
 
 type TVariant = 'grid' | 'panel';
 
@@ -59,8 +62,13 @@ const documentTarget = typeof document === 'undefined' ? undefined : document;
 const menuElement = ref<HTMLElement | null>(null);
 let previouslyFocusedElement: HTMLElement | null = null;
 let pointerFocusPending = false;
-let pointerFocusResetTimer: ReturnType<typeof setTimeout> | null = null;
 let lastInputWasKeyboard = false;
+const {
+    start: startPointerFocusReset,
+    stop: stopPointerFocusReset,
+} = useTimeoutFn(() => {
+    pointerFocusPending = false;
+}, 0, { immediate: false });
 
 function getMenuItems() {
     return Array.from(
@@ -142,13 +150,7 @@ function markKeyboardInput() {
 
 function markPointerFocus() {
     pointerFocusPending = true;
-    if (pointerFocusResetTimer !== null) {
-        clearTimeout(pointerFocusResetTimer);
-    }
-    pointerFocusResetTimer = setTimeout(() => {
-        pointerFocusPending = false;
-        pointerFocusResetTimer = null;
-    }, 0);
+    startPointerFocusReset();
 }
 
 useEventListener(documentTarget, 'keydown', markKeyboardInput, { capture: true });
@@ -162,10 +164,7 @@ function removeFocusListeners() {
         document.removeEventListener('pointerdown', markPointerFocus, true);
     }
     pointerFocusPending = false;
-    if (pointerFocusResetTimer !== null) {
-        clearTimeout(pointerFocusResetTimer);
-        pointerFocusResetTimer = null;
-    }
+    stopPointerFocusReset();
 }
 
 function restoreFocus() {

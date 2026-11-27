@@ -31,7 +31,12 @@
 import type { IAssistantInstanceStatus } from '@contracts/assistant';
 import { useTypedI18n } from '@app/composables/useTypedI18n';
 
-const props = defineProps<{
+const {
+    instance,
+    busy = false,
+    deviceCode,
+    verificationUrl,
+} = defineProps<{
     instance: IAssistantInstanceStatus | null;
     busy?: boolean;
     deviceCode?: string;
@@ -45,8 +50,8 @@ const emit = defineEmits<{
 const { t } = useTypedI18n();
 // A dismissed status stays hidden until the instance reports something new.
 const dismissedKey = ref<string | null>(null);
-const statusKey = computed(() => props.instance
-    ? `${props.instance.id}:${props.instance.state}:${props.instance.message ?? ''}:${props.instance.loginPending}:${props.deviceCode ?? ''}:${props.verificationUrl ?? ''}`
+const statusKey = computed(() => instance
+    ? `${instance.id}:${instance.state}:${instance.message ?? ''}:${instance.loginPending}:${deviceCode ?? ''}:${verificationUrl ?? ''}`
     : null);
 </script>
 

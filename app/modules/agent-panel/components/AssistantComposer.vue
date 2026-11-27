@@ -38,7 +38,17 @@ import {
 } from '@app/modules/agent-panel/utils/assistantImageAttachments';
 import AssistantProviderModelPicker from '@app/modules/agent-panel/components/AssistantProviderModelPicker.vue';
 import { useTypedI18n } from '@app/composables/useTypedI18n';
-const props = defineProps<{
+const {
+    modelValue,
+    images,
+    instances,
+    selection,
+    sendDisabledReason,
+    running,
+    interrupting,
+    hasDocument,
+    error,
+} = defineProps<{
     modelValue: string;
     images: TAssistantComposerImage[];
     instances: IAssistantInstanceStatus[];
@@ -62,27 +72,27 @@ const { t } = useTypedI18n();
 // The prompt grows with its text and scrolls only once it reaches its maximum height.
 const scrollable = ref(false);
 const { textarea: input } = useTextareaAutosize({
-    input: computed(() => props.modelValue),
+    input: computed(() => modelValue),
     onResize: () => {
         scrollable.value = Boolean(input.value && input.value.scrollHeight > input.value.clientHeight);
     },
 });
-const showStop = computed(() => props.running && !props.modelValue.trim() && !props.images.length);
-const inputPlaceholder = computed(() => t(props.hasDocument ? 'assistant.documentPlaceholder' : 'assistant.workspacePlaceholder'));
+const showStop = computed(() => running && !modelValue.trim() && !images.length);
+const inputPlaceholder = computed(() => t(hasDocument ? 'assistant.documentPlaceholder' : 'assistant.workspacePlaceholder'));
 const primaryAction = computed(() => (
     showStop.value
         ? {
             label: t('assistant.stop'),
             icon: 'i-ph-stop',
             color: 'error' as const,
-            disabled: props.interrupting,
-            loading: props.interrupting,
+            disabled: interrupting,
+            loading: interrupting,
         }
         : {
-            label: props.sendDisabledReason || t(props.running ? 'assistant.sendSteer' : 'assistant.send'),
+            label: sendDisabledReason || t(running ? 'assistant.sendSteer' : 'assistant.send'),
             icon: 'i-ph-arrow-up',
             color: 'primary' as const,
-            disabled: Boolean(props.sendDisabledReason),
+            disabled: Boolean(sendDisabledReason),
             loading: false,
         }
 ));
@@ -101,15 +111,15 @@ function handleKeydown(event: KeyboardEvent) {
     const legacyCode: unknown = Reflect.get(event, 'keyCode');
     if (event.key !== 'Enter' || event.shiftKey || event.altKey || event.isComposing || legacyCode === 229 || event.repeat) return;
     event.preventDefault();
-    if (!props.sendDisabledReason) emit('submit');
+    if (!sendDisabledReason) emit('submit');
 }
 function focus() { input.value?.focus({ preventScroll: true }); }
 const picker = ref<{ open: () => void } | null>(null);
-onMounted(() => { if (props.hasDocument) focus(); });
+onMounted(() => { if (hasDocument) focus(); });
 watch(
     () => [
-        props.hasDocument,
-        props.images.length,
+        hasDocument,
+        images.length,
     ] as const,
     async ([
         available,

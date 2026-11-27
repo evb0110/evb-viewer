@@ -136,7 +136,14 @@ interface ITrackedZone {
 
 type TZoneDrag = IDrawingZoneDrag | IMovingZoneDrag | IResizingZoneDrag;
 
-const props = defineProps<{
+const {
+    disabled = false,
+    frame,
+    manualZones,
+    rotationDegrees,
+    selected,
+    zoneKind,
+} = defineProps<{
     disabled?: boolean;
     frame: IScanCleanupZonePreviewFrame;
     manualZones?: IScanCleanupManualZones | undefined;
@@ -158,12 +165,12 @@ const handles: readonly TScanCleanupZoneCorner[] = [
     'sw',
 ];
 const frameStyle = computed<CSSProperties>(() => ({
-    height: `${props.frame.height}px`,
-    left: `${props.frame.left}px`,
-    top: `${props.frame.top}px`,
-    width: `${props.frame.width}px`,
+    height: `${frame.height}px`,
+    left: `${frame.left}px`,
+    top: `${frame.top}px`,
+    width: `${frame.width}px`,
 }));
-const zones = computed<IScanCleanupManualZones>(() => props.manualZones ?? {
+const zones = computed<IScanCleanupManualZones>(() => manualZones ?? {
     picture: [],
     fill: [],
 });
@@ -283,7 +290,7 @@ const renderedZones = computed<IRenderedZone[]>(() => {
     ];
 });
 const selectedPolygon = computed(() => {
-    if (!props.selected) {
+    if (!selected) {
         return null;
     }
     return renderedZones.value.find(zone => isSelected(zone.selection))?.polygon ?? null;
@@ -301,7 +308,7 @@ function sameSelection(left: IScanCleanupZoneSelection, right: IScanCleanupZoneS
 }
 
 function isSelected(selection: IScanCleanupZoneSelection) {
-    return props.selected !== null && sameSelection(selection, props.selected);
+    return selected !== null && sameSelection(selection, selected);
 }
 
 function draftPolygon(selection: IScanCleanupZoneSelection) {
@@ -328,7 +335,7 @@ function pointFromEvent(event: PointerEvent) {
         left: rect.left,
         top: rect.top,
         width: rect.width,
-    } : props.frame);
+    } : frame);
 }
 
 function capturePointer(event: PointerEvent) {
@@ -374,7 +381,7 @@ function startMoving(
 }
 
 function startResizing(event: PointerEvent, corner: TScanCleanupZoneCorner) {
-    if (!props.selected || !selectedPolygon.value || !capturePointer(event)) {
+    if (!selected || !selectedPolygon.value || !capturePointer(event)) {
         return;
     }
     draft.value = {
@@ -383,7 +390,7 @@ function startResizing(event: PointerEvent, corner: TScanCleanupZoneCorner) {
         original: cloneScanCleanupZonePolygon(selectedPolygon.value),
         pointerId: event.pointerId,
         polygon: cloneScanCleanupZonePolygon(selectedPolygon.value),
-        selection: props.selected,
+        selection: selected,
     };
 }
 
@@ -397,7 +404,7 @@ function updateDrag(event: PointerEvent) {
         current.polygon = createScanCleanupRectangleZone(
             current.start,
             point,
-            props.rotationDegrees,
+            rotationDegrees,
             0,
         );
     } else if (current.kind === 'moving') {
@@ -482,7 +489,7 @@ function resizeByKey(event: KeyboardEvent, corner: TScanCleanupZoneCorner) {
             1,
         ],
     }[event.key] ?? [];
-    if (props.disabled || !props.selected || !polygon || !bounds || dx === undefined || dy === undefined) {
+    if (disabled || !selected || !polygon || !bounds || dx === undefined || dy === undefined) {
         return;
     }
     event.preventDefault();
@@ -496,7 +503,7 @@ function resizeByKey(event: KeyboardEvent, corner: TScanCleanupZoneCorner) {
         return;
     }
     const next = cloneZones();
-    replaceZone(next, props.selected, resized);
+    replaceZone(next, selected, resized);
     pendingDeletedZone = null;
     emit('update:manualZones', next);
 }
@@ -510,11 +517,11 @@ function finishDrag(event: PointerEvent) {
         const polygon = createScanCleanupRectangleZone(
             current.start,
             pointFromEvent(event),
-            props.rotationDegrees,
+            rotationDegrees,
         );
         if (polygon) {
             const next = cloneZones();
-            const selection: IScanCleanupZoneSelection = props.zoneKind === 'picture'
+            const selection: IScanCleanupZoneSelection = zoneKind === 'picture'
                 ? {
                     kind: 'picture',
                     index: next.picture.length,
@@ -564,16 +571,16 @@ function cancelDrag() {
 }
 
 function deleteSelectedZone() {
-    if (!props.selected) {
+    if (!selected) {
         return;
     }
     const next = cloneZones();
-    if (props.selected.kind === 'picture') {
-        next.picture.splice(props.selected.index, 1);
+    if (selected.kind === 'picture') {
+        next.picture.splice(selected.index, 1);
     } else {
-        next.fill.splice(props.selected.index, 1);
+        next.fill.splice(selected.index, 1);
     }
-    pendingDeletedZone = { ...props.selected };
+    pendingDeletedZone = { ...selected };
     emit('update:manualZones', next);
     emit('update:selected', null);
 }
@@ -591,15 +598,15 @@ function handleStyle(corner: TScanCleanupZoneCorner): CSSProperties {
 
 watch(
     [
-        () => props.rotationDegrees,
-        () => props.disabled,
+        () => rotationDegrees,
+        () => disabled,
     ],
     ([
-        rotationDegrees,
-        disabled,
+        nextRotationDegrees,
+        isDisabled,
     ], [previousRotationDegrees]) => {
-        const rotationChanged = rotationDegrees !== previousRotationDegrees;
-        if (rotationChanged || disabled) {
+        const rotationChanged = nextRotationDegrees !== previousRotationDegrees;
+        if (rotationChanged || isDisabled) {
             cancelDrag();
         }
         if (rotationChanged) {

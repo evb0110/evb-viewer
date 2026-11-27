@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import { useTimeoutFn } from '@vueuse/core';
 import type {
     IDocumentZoomAnchor,
     IDocumentZoomPageLayout,
@@ -64,9 +65,14 @@ export const useDocumentViewportLayoutLifecycle = (
     // The scheduled restore frame, settled once it ran or the view closed.
     let restoreFrame: PromiseWithResolvers<void> | null = null;
     let disposed = false;
-    let pointerAnchorReleaseTimer: ReturnType<typeof setTimeout> | null = null;
     let lastPointerAnchorPacketAt = 0;
     const isResizeTransitionActive = ref(false);
+    const {
+        start: schedulePointerAnchorRelease,
+        stop: cancelPointerAnchorRelease,
+    } = useTimeoutFn(() => {
+        releasePointerAnchor();
+    }, DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS, {immediate: false});
 
     const captureAnchor = (
         container: HTMLElement,
@@ -145,8 +151,7 @@ export const useDocumentViewportLayoutLifecycle = (
     const releasePointerAnchor = () => {
         activePointerAnchor = null;
         lastPointerAnchorPacketAt = 0;
-        if (pointerAnchorReleaseTimer !== null) clearTimeout(pointerAnchorReleaseTimer);
-        pointerAnchorReleaseTimer = null;
+        cancelPointerAnchorRelease();
     };
 
     const readQueuedRestore = (epoch: unknown) => (
@@ -256,10 +261,7 @@ export const useDocumentViewportLayoutLifecycle = (
             }
         }
         lastPointerAnchorPacketAt = packetAt;
-        if (pointerAnchorReleaseTimer !== null) clearTimeout(pointerAnchorReleaseTimer);
-        pointerAnchorReleaseTimer = setTimeout(() => {
-            releasePointerAnchor();
-        }, DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS);
+        schedulePointerAnchorRelease();
     };
 
     /**
@@ -388,7 +390,7 @@ export const useDocumentViewportLayoutLifecycle = (
         disposed = true;
         pendingRestore = null;
         restoreFrame?.resolve();
-        if (pointerAnchorReleaseTimer !== null) clearTimeout(pointerAnchorReleaseTimer);
+        cancelPointerAnchorRelease();
     });
 
     return {

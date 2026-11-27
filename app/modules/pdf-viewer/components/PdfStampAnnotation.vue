@@ -27,7 +27,12 @@ import { annotationEditorSurfaceKey } from '@app/modules/pdf-viewer/runtime/anno
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 
-const props = defineProps<{
+const {
+    entity,
+    selected,
+    originalAppearance,
+    displayRect,
+} = defineProps<{
     entity: IPlacedImageEntity;
     selected: boolean;
     originalAppearance?: boolean;
@@ -38,12 +43,12 @@ const annotationEditorSurface = inject(annotationEditorSurfaceKey, null);
 const imageUrl = shallowRef<string | null>(null);
 let imageLoadGeneration = 0;
 
-async function resolveImage(entity: IPlacedImageEntity) {
+async function resolveImage(targetEntity: IPlacedImageEntity) {
     const generation = ++imageLoadGeneration;
     imageUrl.value = null;
     let resolved: string | null = null;
     try {
-        resolved = await annotationEditorSurface?.resolveStampImage?.(entity) ?? null;
+        resolved = await annotationEditorSurface?.resolveStampImage?.(targetEntity) ?? null;
     } catch (error) {
         BrowserLogger.warn('pdf-annotations', 'Failed to resolve canonical stamp image', error);
     }
@@ -52,8 +57,8 @@ async function resolveImage(entity: IPlacedImageEntity) {
     }
 }
 
-watch(() => props.entity.image, () => {
-    void resolveImage(props.entity);
+watch(() => entity.image, () => {
+    void resolveImage(entity);
 }, {
     immediate: true,
     deep: true,
@@ -64,11 +69,11 @@ onBeforeUnmount(() => {
 });
 
 const rectStyle = computed(() => ({
-    left: `${(props.displayRect ?? props.entity.rect).left * 100}%`,
-    top: `${(props.displayRect ?? props.entity.rect).top * 100}%`,
-    width: `${(props.displayRect ?? props.entity.rect).width * 100}%`,
-    height: `${(props.displayRect ?? props.entity.rect).height * 100}%`,
-    transform: `rotate(${props.entity.rotation}deg)`,
+    left: `${(displayRect ?? entity.rect).left * 100}%`,
+    top: `${(displayRect ?? entity.rect).top * 100}%`,
+    width: `${(displayRect ?? entity.rect).width * 100}%`,
+    height: `${(displayRect ?? entity.rect).height * 100}%`,
+    transform: `rotate(${entity.rotation}deg)`,
 }));
 </script>
 

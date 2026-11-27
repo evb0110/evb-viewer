@@ -11,7 +11,7 @@ import type { VNodeChild } from 'vue';
 import AssistantHighlightedCode from '@app/modules/agent-panel/components/AssistantHighlightedCode.vue';
 import { useTypedI18n } from '@app/composables/useTypedI18n';
 
-const props = defineProps<{ text: string }>();
+const { text } = defineProps<{ text: string }>();
 const emit = defineEmits<{ copy: [id: string, text: string] }>();
 const { t } = useTypedI18n();
 const UButton = resolveComponent('UButton');
@@ -19,7 +19,7 @@ const UButton = resolveComponent('UButton');
 // literal text, links keep only safe schemes and images show their alt text instead of
 // loading. Semantic tables and recursive lists follow T3 Code's ChatMarkdown and
 // MarkdownTable (apps/web/src/components@0b6f482dc5, MIT, T3 Tools Inc.).
-const tokens = computed(() => Lexer.lex(props.text, {
+const tokens = computed(() => Lexer.lex(text, {
     gfm: true,
     breaks: true,
 }));

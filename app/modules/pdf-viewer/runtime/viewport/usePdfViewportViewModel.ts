@@ -5,6 +5,7 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
+import { useResizeObserver } from '@vueuse/core';
 import { getCurrentSpreadRenderedBoundsFromMetrics } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/getCurrentSpreadRenderedBoundsFromMetrics';
 import { resolveHorizontalScrollClampForActiveSpread as resolveActiveSpreadHorizontalScrollClamp } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolveHorizontalScrollClampForActiveSpread';
 import { HORIZONTAL_SCROLL_CLAMP_EPSILON_PX } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';
@@ -73,25 +74,9 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
         });
     };
 
-    watch(
-        () => options.viewerContainer.value,
-        (container, _previousContainer, onCleanup) => {
-            viewportDimensionVersion.value += 1;
-            if (typeof ResizeObserver === 'undefined' || !container) {
-                return;
-            }
-
-            const resizeObserver = new ResizeObserver(() => {
-                viewportDimensionVersion.value += 1;
-            });
-            resizeObserver.observe(container);
-            onCleanup(() => resizeObserver.disconnect());
-        },
-        {
-            immediate: true,
-            flush: 'post',
-        },
-    );
+    useResizeObserver(options.viewerContainer, () => {
+        viewportDimensionVersion.value += 1;
+    });
 
     const virtualization = usePdfViewerVirtualization({
         performancePolicy: options.performancePolicy,

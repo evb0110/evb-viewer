@@ -517,7 +517,39 @@ interface IScanCleanupOverrideCounts {
     rotation: number;
 }
 
-const props = defineProps<{
+const {
+    alignmentItems,
+    applyScopeItems,
+    blankPageCount,
+    changedSettings,
+    contentBoxes,
+    customizedCounts,
+    detectedSkewDegrees,
+    excluded,
+    hasScopeOverrides,
+    highlightedScope,
+    layout,
+    layoutItems,
+    manualSplit,
+    manualSkew,
+    margins,
+    marginsLinked,
+    outputItems,
+    outputModeOverride,
+    outputModeOverrideItems,
+    overrideCounts,
+    pageFacts,
+    pageNumber,
+    placementAlignment,
+    readingOrderItems,
+    rotation,
+    rotationItems,
+    scope,
+    selectedCount,
+    settings,
+    thicknessLabel,
+    totalPages,
+} = defineProps<{
     alignmentItems: Array<{
         value: TScanCleanupPageAlignment;
         icon: string;
@@ -588,48 +620,48 @@ const emit = defineEmits<{
 const {t} = useTypedI18n();
 const resetOpen = ref(false);
 const advancedOpen = ref(false);
-const lossless = computed(() => props.settings.preserveOriginalQuality === true);
-const changedSettingsTooltip = computed(() => t('scanCleanup.settings.changedFromDefaults', {settings: props.changedSettings.join(', ')}));
-const normalizedOutputItems = computed(() => props.outputItems.map(item => ({
+const lossless = computed(() => settings.preserveOriginalQuality === true);
+const changedSettingsTooltip = computed(() => t('scanCleanup.settings.changedFromDefaults', {settings: changedSettings.join(', ')}));
+const normalizedOutputItems = computed(() => outputItems.map(item => ({
     ...item,
     ariaLabel: item.fullLabel,
 })));
-const alignmentButtons = computed(() => props.alignmentItems.map(item => {
+const alignmentButtons = computed(() => alignmentItems.map(item => {
     const isInk = item.value === 'ink';
     return {
         ...item,
         isInk,
         labelProps: isInk ? {label: item.label} : {},
-        selected: !props.placementAlignment.mixed && props.placementAlignment.value === item.value,
+        selected: !placementAlignment.mixed && placementAlignment.value === item.value,
     };
 }));
 const marginSideFields = computed(() => SCAN_CLEANUP_MARGIN_SIDES.map(side => ({
     key: side.key,
     label: t(side.labelKey),
-    value: props.margins.mixed ? null : props.margins.value?.[side.key] ?? null,
+    value: margins.mixed ? null : margins.value?.[side.key] ?? null,
 })));
-const inclusionModelValue = computed(() => (props.excluded.mixed ? 'indeterminate' : props.excluded.value !== true));
-const binarizationModelValue = computed(() => props.settings.binarization ?? 'auto');
+const inclusionModelValue = computed(() => (excluded.mixed ? 'indeterminate' : excluded.value !== true));
+const binarizationModelValue = computed(() => settings.binarization ?? 'auto');
 const despeckleLevelModelValue = computed(() => (
-    props.settings.despeckleLevel ?? ((props.settings.despeckle ?? true) ? 'normal' : 'off')
+    settings.despeckleLevel ?? ((settings.despeckle ?? true) ? 'normal' : 'off')
 ));
-const normalizeIlluminationModelValue = computed(() => props.settings.normalizeIllumination ?? true);
-const autoDewarpModelValue = computed(() => props.settings.autoDewarp ?? false);
-const autoDewarpDepthModelValue = computed(() => props.settings.autoDewarpDepth ?? null);
+const normalizeIlluminationModelValue = computed(() => settings.normalizeIllumination ?? true);
+const autoDewarpModelValue = computed(() => settings.autoDewarp ?? false);
+const autoDewarpDepthModelValue = computed(() => settings.autoDewarpDepth ?? null);
 // Page and Selected scopes edit their own pages; All edits the defaults every
 // page starts from, so only the scoped views mark controls as overridden.
-const scoped = computed(() => props.scope !== 'all');
+const scoped = computed(() => scope !== 'all');
 const outputDescription = computed(() => lossless.value
     ? t('scanCleanup.output.losslessDisabledOptions')
-    : t(`scanCleanup.output.description.${props.settings.outputMode}`));
+    : t(`scanCleanup.output.description.${settings.outputMode}`));
 const scopeContext = computed(() => {
-    if (props.scope === 'page') {
-        return t('scanCleanup.settings.scope.pageContext', {page: props.pageNumber});
+    if (scope === 'page') {
+        return t('scanCleanup.settings.scope.pageContext', {page: pageNumber});
     }
-    if (props.scope === 'selected') {
-        return t('scanCleanup.settings.scope.selectedContext', {count: props.selectedCount});
+    if (scope === 'selected') {
+        return t('scanCleanup.settings.scope.selectedContext', {count: selectedCount});
     }
-    return props.hasScopeOverrides
+    return hasScopeOverrides
         ? t('scanCleanup.settings.scope.allContextCustomized')
         : t('scanCleanup.settings.scope.allContext');
 });
@@ -637,13 +669,13 @@ const scopeContext = computed(() => {
 // page, so `ink` has nothing to anchor to and every output falls back to the
 // top-centre position. Say so where the choice is made rather than letting the
 // preview quietly disagree with the setting.
-const placementHint = computed(() => !props.placementAlignment.mixed
-    && props.placementAlignment.value === 'ink'
-    && props.settings.autoDewarp === true
+const placementHint = computed(() => !placementAlignment.mixed
+    && placementAlignment.value === 'ink'
+    && settings.autoDewarp === true
     ? t('scanCleanup.settings.inkNeedsContentBoxes')
     : '');
-const outputModeHint = computed(() => props.scope === 'page' && props.pageFacts
-    ? scanCleanupPageOutputModeHint(t, props.pageFacts, props.settings.outputMode, lossless.value)
+const outputModeHint = computed(() => scope === 'page' && pageFacts
+    ? scanCleanupPageOutputModeHint(t, pageFacts, settings.outputMode, lossless.value)
     : '');
 const binarizationItems = computed(() => ([
     'auto',
@@ -664,23 +696,22 @@ const despeckleItems = computed(() => ([
     label: t(`scanCleanup.advanced.despeckle.${value}`),
 })));
 
-const layoutModelValue = computed(() => props.layout.mixed ? 'mixed' : props.layout.value ?? 'auto');
-const rotationModelValue = computed(() => props.rotation.mixed ? '' : String(props.rotation.value ?? 0));
-const rotationSegments = computed(() => props.rotationItems.filter(item => item.value !== 'mixed'));
-const outputModeOverrideModelValue = computed(() => props.outputModeOverride.mixed
+const layoutModelValue = computed(() => layout.mixed ? 'mixed' : layout.value ?? 'auto');
+const rotationModelValue = computed(() => rotation.mixed ? '' : String(rotation.value ?? 0));
+const rotationSegments = computed(() => rotationItems.filter(item => item.value !== 'mixed'));
+const outputModeOverrideModelValue = computed(() => outputModeOverride.mixed
     ? 'mixed-values'
-    : props.outputModeOverride.value ?? 'auto');
-const linkedMarginValue = computed(() => {
-    const margins = props.margins;
-    return margins.mixed || !margins.value || !scanCleanupMarginsUniform(margins.value)
+    : outputModeOverride.value ?? 'auto');
+const linkedMarginValue = computed(() => (
+    margins.mixed || !margins.value || !scanCleanupMarginsUniform(margins.value)
         ? null
-        : margins.value.topMm;
-});
-const hasContentBoxes = computed(() => props.contentBoxes.mixed
-    || Object.keys(props.contentBoxes.value ?? {}).length > 0);
-const manualSkewState = computed(() => props.manualSkew.mixed
+        : margins.value.topMm
+));
+const hasContentBoxes = computed(() => contentBoxes.mixed
+    || Object.keys(contentBoxes.value ?? {}).length > 0);
+const manualSkewState = computed(() => manualSkew.mixed
     ? 'mixed'
-    : props.manualSkew.value === undefined ? 'auto' : 'manual');
+    : manualSkew.value === undefined ? 'auto' : 'manual');
 const manualSkewLabel = computed(() => t('scanCleanup.settings.manualSkew'));
 const manualSkewRange = computed(() => t('scanCleanup.settings.manualSkewRange', {
     min: SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES,
@@ -689,26 +720,26 @@ const manualSkewRange = computed(() => t('scanCleanup.settings.manualSkewRange',
 // The stepper starts from the neutral 0° rather than from an empty field:
 // a null number field steps to its minimum, which made every first press jump
 // to -15° and put the positive half of the range out of reach.
-const manualSkewEntryValue = computed(() => props.manualSkew.mixed
+const manualSkewEntryValue = computed(() => manualSkew.mixed
     ? null
-    : props.manualSkew.value ?? 0);
+    : manualSkew.value ?? 0);
 const manualSkewValueText = computed(() => {
-    const value = props.manualSkew.value;
-    if (props.manualSkew.mixed || value === undefined) {
+    const value = manualSkew.value;
+    if (manualSkew.mixed || value === undefined) {
         return undefined;
     }
     return `${value > 0 ? '+' : ''}${value.toFixed(1)}°`;
 });
 // The allowed range fills the hint line until a detected angle takes it.
-const manualSkewHint = computed(() => !props.manualSkew.mixed
-    && props.manualSkew.value === undefined
-    && props.detectedSkewDegrees !== undefined
-    ? t('scanCleanup.settings.detectedSkew', {angle: props.detectedSkewDegrees.toFixed(1)})
+const manualSkewHint = computed(() => !manualSkew.mixed
+    && manualSkew.value === undefined
+    && detectedSkewDegrees !== undefined
+    ? t('scanCleanup.settings.detectedSkew', {angle: detectedSkewDegrees.toFixed(1)})
     : manualSkewRange.value);
-const manualSplitState = computed(() => props.manualSplit.mixed
+const manualSplitState = computed(() => manualSplit.mixed
     ? 'mixed'
-    : props.manualSplit.value === null ? 'auto' : 'manual');
-const contentBoxesState = computed(() => props.contentBoxes.mixed
+    : manualSplit.value === null ? 'auto' : 'manual');
+const contentBoxesState = computed(() => contentBoxes.mixed
     ? 'mixed'
     : hasContentBoxes.value ? 'manual' : 'auto');
 // Text thickness and speckle removal only affect black-and-white output, which
@@ -717,27 +748,27 @@ const contentBoxesState = computed(() => props.contentBoxes.mixed
 // their place and disable instead of unmounting: switching B&W/gray/colour
 // must not move the controls below them.
 const bilevelOutput = computed(() => !lossless.value && [
-    props.settings.pageOverrideDefaults ?? DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE,
-    ...Object.keys(props.settings.pageOverrides)
+    settings.pageOverrideDefaults ?? DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE,
+    ...Object.keys(settings.pageOverrides)
         .map(Number)
-        .filter(page => Number.isSafeInteger(page) && page >= 1 && page <= props.totalPages)
+        .filter(page => Number.isSafeInteger(page) && page >= 1 && page <= totalPages)
         .map(page => getScanCleanupPageOverride(
-            props.settings.pageOverrides,
+            settings.pageOverrides,
             requirePageNumber(page),
-            props.settings.pageOverrideDefaults,
-            props.settings.marginsMm,
+            settings.pageOverrideDefaults,
+            settings.marginsMm,
         )),
 ].some(override => !override.excluded
     && [
         'auto',
         'bw',
         'mixed',
-    ].includes(override.outputModeOverride ?? props.settings.outputMode)));
-const autoDewarpDepthState = computed(() => props.settings.autoDewarpDepth === undefined ? 'auto' : 'manual');
-const autoDewarpDepthDisabled = computed(() => lossless.value || !(props.settings.autoDewarp ?? false));
-const resetConfirmationBody = computed(() => t(`scanCleanup.settings.resetScope.${props.scope}Body`, {
-    count: props.scope === 'selected' ? props.selectedCount : props.totalPages,
-    page: props.pageNumber,
+    ].includes(override.outputModeOverride ?? settings.outputMode)));
+const autoDewarpDepthState = computed(() => settings.autoDewarpDepth === undefined ? 'auto' : 'manual');
+const autoDewarpDepthDisabled = computed(() => lossless.value || !(settings.autoDewarp ?? false));
+const resetConfirmationBody = computed(() => t(`scanCleanup.settings.resetScope.${scope}Body`, {
+    count: scope === 'selected' ? selectedCount : totalPages,
+    page: pageNumber,
 }));
 
 function confirmReset() {
@@ -766,7 +797,7 @@ function handleMarginChange(target: TScanCleanupMarginTarget, value: unknown) {
     ) {
         return;
     }
-    const current = target === 'all' ? linkedMarginValue.value : props.margins.value?.[target];
+    const current = target === 'all' ? linkedMarginValue.value : margins.value?.[target];
     if (nextValue !== current) {
         emitMargin(target, nextValue);
     }

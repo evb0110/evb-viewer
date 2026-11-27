@@ -38,7 +38,16 @@ import type { TAssistantComposerImage } from '@app/modules/agent-panel/utils/ass
 import AssistantMessage from '@app/modules/agent-panel/components/AssistantMessage.vue';
 import AssistantWorkGroup from '@app/modules/agent-panel/components/AssistantWorkGroup.vue';
 import { useTypedI18n } from '@app/composables/useTypedI18n';
-const props = defineProps<{
+const {
+    sessionKey,
+    items,
+    turn,
+    running,
+    hasDocument,
+    documentName,
+    copyIcon,
+    copyLabel,
+} = defineProps<{
     sessionKey: string | null;
     items: IAssistantItem[];
     turn: IAssistantTurn | null;
@@ -58,11 +67,11 @@ const { t } = useTypedI18n();
 const viewport = ref<HTMLElement | null>(null);
 const content = ref<HTMLElement | null>(null);
 const now = ref(Date.now());
-const elapsed = computed(() => Math.max(0, Math.floor((now.value - (props.turn?.startedAtMs ?? now.value)) / 1000)));
+const elapsed = computed(() => Math.max(0, Math.floor((now.value - (turn?.startedAtMs ?? now.value)) / 1000)));
 const {
     pause, resume,
 } = useIntervalFn(() => { now.value = Date.now(); }, 1000, { immediate: false });
-watch(() => props.running, running => { now.value = Date.now(); if (running) resume(); else pause(); }, { immediate: true });
+watch(() => running, isRunning => { now.value = Date.now(); if (isRunning) resume(); else pause(); }, { immediate: true });
 type TTimelineRow = {
     kind: 'work';
     id: string;
@@ -74,7 +83,7 @@ type TTimelineRow = {
 };
 const rows = computed(() => {
     const result: TTimelineRow[] = [];
-    for (const item of props.items) {
+    for (const item of items) {
         if (item.kind === 'tool' || item.kind === 'reasoning') {
             const previous = result.at(-1);
             if (previous?.kind === 'work' && previous.items[0]?.turnId === item.turnId) previous.items.push(item);
@@ -92,8 +101,8 @@ const rows = computed(() => {
     return result;
 });
 const activeTurnFirstRowId = computed(() => rows.value.find(row => row.kind === 'work'
-    ? row.items[0]?.turnId === props.turn?.id
-    : row.item.kind !== 'user' && row.item.turnId === props.turn?.id)?.id);
+    ? row.items[0]?.turnId === turn?.id
+    : row.item.kind !== 'user' && row.item.turnId === turn?.id)?.id);
 // A model or setup the provider cannot run is fixed in the picker, not by resending.
 function needsAnotherModel(item: IAssistantItem) {
     return item.errorEnvelope?.code === 'MODEL_UNAVAILABLE' || item.errorEnvelope?.code === 'INSTALL_MISSING';
@@ -147,9 +156,9 @@ async function layout() {
     await nextTick();
     if (follow.value === 'following') scrollToEnd();
 }
-const latestUser = computed(() => props.items.findLast(item => item.kind === 'user') ?? null);
+const latestUser = computed(() => items.findLast(item => item.kind === 'user') ?? null);
 watch(() => [
-    props.sessionKey,
+    sessionKey,
     latestUser.value?.id,
 ] as const, ([session, userId], [previousSession, previousUserId]) => {
     if (session !== previousSession) {
@@ -158,7 +167,7 @@ watch(() => [
     } else if (userId && userId !== previousUserId) {
         // Only a message that starts the newest turn anchors; loading history does not.
         const user = latestUser.value;
-        if (user && (user === props.items.at(-1) || (props.running && user.turnId === props.turn?.id))) {
+        if (user && (user === items.at(-1) || (running && user.turnId === turn?.id))) {
             anchorId.value = userId;
             follow.value = 'following';
         }

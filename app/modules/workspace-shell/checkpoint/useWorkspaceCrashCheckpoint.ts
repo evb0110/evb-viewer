@@ -1,4 +1,9 @@
 import type { Ref } from 'vue';
+import { useTimeoutFn } from '@vueuse/core';
+import {
+    WORKSPACE_CRASH_CHECKPOINT_DEBOUNCE_MS,
+    WORKSPACE_CRASH_CHECKPOINT_LOW_TIER_DEBOUNCE_MS,
+} from '@app/constants/timeouts';
 import type {
     IEditorPaneState,
     TEditorLayoutNode,
@@ -33,12 +38,17 @@ interface IUseWorkspaceCrashCheckpointOptions {
  * change. A document's unsaved work is not part of it: the document commits its drafts itself when an edit is accepted.
  */
 export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpointOptions) => {
-    let timer: ReturnType<typeof setTimeout> | null = null;
     let inFlight: Promise<void> | null = null;
     let pendingLatest: IWorkspaceCheckpoint | null = null;
     let disposed = false;
     const deviceTier = resolveDocumentSavePerformanceTier(getPerformanceProfile().tier);
-    const debounceMs = deviceTier === 'low' ? 1_500 : 500;
+    const debounceMs = deviceTier === 'low'
+        ? WORKSPACE_CRASH_CHECKPOINT_LOW_TIER_DEBOUNCE_MS
+        : WORKSPACE_CRASH_CHECKPOINT_DEBOUNCE_MS;
+    const {
+        start: scheduleCheckpoint,
+        stop: cancelScheduledCheckpoint,
+    } = useTimeoutFn(persistInBackground, debounceMs, {immediate: false});
 
     // One write at a time; a checkpoint built meanwhile replaces any other waiting one.
     function persistCheckpoint(checkpoint: IWorkspaceCheckpoint): Promise<void> {
@@ -73,10 +83,7 @@ export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpoin
         if (!options.enabled.value || disposed || options.isStartupOpenClaimPending.value) return;
         await nextTick();
         if (!options.enabled.value || disposed || options.isStartupOpenClaimPending.value) return;
-        if (timer) {
-            clearTimeout(timer);
-            timer = null;
-        }
+        cancelScheduledCheckpoint();
         await persistCheckpoint(buildWorkspaceCheckpoint(options));
     }
 
@@ -86,16 +93,6 @@ export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpoin
             scope: 'workspace-checkpoint',
             message: 'Failed to capture crash recovery checkpoint',
         });
-    }
-
-    function scheduleCheckpoint() {
-        if (timer) {
-            clearTimeout(timer);
-        }
-        timer = setTimeout(() => {
-            timer = null;
-            persistInBackground();
-        }, debounceMs);
     }
 
     // Watch a cheap change signature instead of the serialized checkpoint:
@@ -119,10 +116,7 @@ export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpoin
         disposed = true;
         pendingLatest = null;
         stop();
-        if (timer) {
-            clearTimeout(timer);
-            timer = null;
-        }
+        cancelScheduledCheckpoint();
     });
 
     /** Resolves once every document's drafts and the window's layout are written. */

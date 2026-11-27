@@ -1,4 +1,5 @@
 import type { PDFDataRangeTransport } from 'pdfjs-dist';
+import type { RenderParameters } from 'pdfjs-dist/types/src/display/api';
 import pdfjsLib, {
     configurePdfjsWorkerSrc,
     createPdfjsDocumentOptions,
@@ -47,6 +48,10 @@ export interface IPdfRef {
     readonly gen: number;
 }
 
+export type TPdfPageRenderOptions = Omit<RenderParameters, 'viewport'> & {
+    viewport: IPdfViewport;
+};
+
 export interface IPdfPage {
     readonly pageNumber: number;
     readonly rotate: number;
@@ -67,7 +72,7 @@ export interface IPdfPage {
     getStructTree?(): Promise<unknown | null>;
     getAnnotations(options?: {intent?: string}): Promise<readonly IPdfAnnotation[]>;
     getOperatorList(options?: {annotationMode?: number}): Promise<IPdfOperatorList>;
-    render(options: object): IPdfRenderTask;
+    render(options: TPdfPageRenderOptions): IPdfRenderTask;
     cleanup(): void;
 }
 
