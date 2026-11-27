@@ -24,6 +24,7 @@ import {
     readFile,
     readdir,
     rm,
+    symlink,
     writeFile,
 } from 'fs/promises';
 import type * as FsPromises from 'fs/promises';
@@ -3381,6 +3382,225 @@ describe('image export', () => {
         await expect(exportPdfAsMultiPageTiff('/tmp/input.pdf', outputPath, {cancelGroup: 'tiff-missing-worker-group'}))
             .resolves.toEqual([outputPath]);
         expect(mocks.nativeTiffCombineCancelGroups).toEqual(['tiff-missing-worker-group']);
+    });
+
+    it('preserves ascending order of unresolved entries across partial rollback retries', async () => {
+        const template = join(tempDir, 'partial-rollback.png');
+        const ledger = createStagedFilePublicationLedger();
+        const targets = [
+            join(tempDir, 'partial-0.png'),
+            join(tempDir, 'partial-1.png'),
+            join(tempDir, 'partial-2.png'),
+            join(tempDir, 'partial-3.png'),
+        ];
+        let stagedIndex = 0;
+        mocks.makeSiblingTempPath.mockImplementation(targetPath => `${targetPath}.tmp-${++stagedIndex}`);
+
+        for (const [
+            index,
+            targetPath,
+        ] of targets.entries()) {
+            const stagedPath = join(tempDir, `staged-${index}.tmp`);
+            await writeFile(targetPath, `original-${index}`);
+            await writeFile(stagedPath, `replacement-${index}`);
+            await promoteStagedFiles([{
+                stagedPath,
+                targetPath,
+                suffix: '',
+                allowOverwrite: true,
+            }], undefined, ledger);
+        }
+
+        let failRestores = true;
+        mocks.atomicReplace.mockImplementation(async (sourcePath: string, targetPath: string) => {
+            if (failRestores && (targetPath === targets[0] || targetPath === targets[2])) {
+                throw new Error(`restore failed for ${basename(targetPath)}`);
+            }
+            await realFs.rename(sourcePath, targetPath);
+        });
+
+        await expect(rollbackStagedFilePublications(ledger)).rejects.toMatchObject({name: 'ImageExportRollbackError'});
+        expect(ledger.promotedFiles.map(entry => entry.targetPath)).toEqual([
+            targets[0],
+            targets[2],
+        ]);
+        expect(await readFile(targets[1]!, 'utf8')).toBe('original-1');
+        expect(await readFile(targets[3]!, 'utf8')).toBe('original-3');
+        expect(await readFile(targets[0]!, 'utf8')).toBe('replacement-0');
+        expect(await readFile(targets[2]!, 'utf8')).toBe('replacement-2');
+
+        failRestores = false;
+        await rollbackStagedFilePublications(ledger);
+        expect(ledger.promotedFiles).toEqual([]);
+        for (const [
+            index,
+            targetPath,
+        ] of targets.entries()) {
+            expect(await readFile(targetPath, 'utf8')).toBe(`original-${index}`);
+        }
+        // Released targets can be promoted again on the same ledger without false duplicate conflicts.
+        const retryStaged = join(tempDir, 'retry-0.tmp');
+        await writeFile(retryStaged, 'fresh-0');
+        await expect(promoteStagedFiles([{
+            stagedPath: retryStaged,
+            targetPath: targets[0]!,
+            suffix: '',
+            allowOverwrite: true,
+        }], undefined, ledger)).resolves.toEqual([targets[0]]);
+        await rollbackStagedFilePublications(ledger);
+        expect(await readFile(targets[0]!, 'utf8')).toBe('original-0');
+        expect(existsSync(template)).toBe(false);
+    });
+
+    it('clears failed-batch and stale EEXIST reservations without dropping another batch reservation on symlink races', async () => {
+        const template = join(tempDir, 'shared-ledger.png');
+        const ledger = createStagedFilePublicationLedger();
+
+        const targetA = join(tempDir, 'a.png');
+        const stagedA = join(tempDir, 'a.staged');
+        await writeFile(stagedA, 'page-a');
+        await expect(promoteStagedFiles([{
+            stagedPath: stagedA,
+            targetPath: targetA,
+            suffix: '',
+            allowOverwrite: true,
+        }], undefined, ledger)).resolves.toEqual([targetA]);
+
+        // Competing writer creates b.png as a symlink to a.png after b.png is reserved.
+        const targetB = join(tempDir, 'b.png');
+        const stagedB = join(tempDir, 'b.staged');
+        await writeFile(stagedB, 'page-b');
+        let symlinkCreated = false;
+        mocks.moveFileToMissingPath.mockImplementation(async (source: string, destination: string) => {
+            if (!symlinkCreated && destination === targetB) {
+                symlinkCreated = true;
+                await symlink(targetA, destination);
+            }
+            return realAtomicReplace.moveFileToMissingPath(source, destination);
+        });
+        const publishedB = await promoteStagedFiles([{
+            stagedPath: stagedB,
+            targetPath: targetB,
+            suffix: '',
+            allowOverwrite: false,
+        }], undefined, ledger);
+        expect(publishedB).toEqual([buildOutputPathWithSuffix(targetB, '-1')]);
+
+        // a.png must still be protected against duplicate overwrite in a later batch.
+        const dupStagedA = join(tempDir, 'dup-a.staged');
+        await writeFile(dupStagedA, 'overwrite-a');
+        await expect(promoteStagedFiles([{
+            stagedPath: dupStagedA,
+            targetPath: targetA,
+            suffix: '',
+            allowOverwrite: true,
+        }], undefined, ledger)).rejects.toThrow('Duplicate image export target');
+        expect(await readFile(targetA, 'utf8')).toBe('page-a');
+
+        // A failing batch must not leak its tentative reservations into the shared ledger.
+        const batch2StagedA = join(tempDir, 'batch2-a.staged');
+        const batch2StagedB = join(tempDir, 'batch2-b.staged');
+        await writeFile(batch2StagedA, 'page-2');
+        await writeFile(batch2StagedB, 'dup-page-b1');
+        await expect(promoteStagedFiles([
+            {
+                stagedPath: batch2StagedA,
+                targetPath: template,
+                suffix: '-page-002',
+                allowOverwrite: false,
+            },
+            {
+                stagedPath: batch2StagedB,
+                targetPath: publishedB[0]!,
+                suffix: '',
+                allowOverwrite: true,
+            },
+        ], undefined, ledger)).rejects.toThrow('Duplicate image export target');
+
+        // Removing the symlink frees b.png, and page-002 was not leaked by the failed batch.
+        await rm(targetB);
+        const batch3StagedB = join(tempDir, 'batch3-b.staged');
+        const batch3StagedPage2 = join(tempDir, 'batch3-page2.staged');
+        await writeFile(batch3StagedB, 'page-b-reused');
+        await writeFile(batch3StagedPage2, 'page-2-retry');
+        const thirdPublished = await promoteStagedFiles([
+            {
+                stagedPath: batch3StagedB,
+                targetPath: targetB,
+                suffix: '',
+                allowOverwrite: false,
+            },
+            {
+                stagedPath: batch3StagedPage2,
+                targetPath: template,
+                suffix: '-page-002',
+                allowOverwrite: false,
+            },
+        ], undefined, ledger);
+        expect(thirdPublished).toEqual([
+            targetB,
+            buildOutputPathWithSuffix(template, '-page-002'),
+        ]);
+
+        await commitStagedFilePublications(ledger);
+        expect(ledger.promotedFiles).toEqual([]);
+        const afterCommitStaged = join(tempDir, 'after-commit.staged');
+        await writeFile(afterCommitStaged, 'after-commit');
+        await expect(promoteStagedFiles([{
+            stagedPath: afterCommitStaged,
+            targetPath: targetA,
+            suffix: '',
+            allowOverwrite: true,
+        }], undefined, ledger)).resolves.toEqual([targetA]);
+        await commitStagedFilePublications(ledger);
+    });
+
+    it('promotes and rolls back many single-file batches via the shared ledger cleanly', async () => {
+        const template = join(tempDir, 'many-batches.png');
+        const ledger = createStagedFilePublicationLedger();
+        const totalBatches = 120;
+        const publishedPaths: string[] = [];
+
+        for (let page = 1; page <= totalBatches; page += 1) {
+            const stagedPath = join(tempDir, `many-${page}.staged`);
+            await writeFile(stagedPath, `page-${page}`);
+            const promoted = await promoteStagedFiles([{
+                stagedPath,
+                targetPath: template,
+                suffix: `-page-${String(page).padStart(3, '0')}`,
+                allowOverwrite: false,
+            }], undefined, ledger);
+            publishedPaths.push(...promoted);
+        }
+
+        expect(publishedPaths).toHaveLength(totalBatches);
+        expect(ledger.promotedFiles).toHaveLength(totalBatches);
+
+        // Duplicate target against the very first batch is still caught by the shared ledger.
+        const dupStaged = join(tempDir, 'many-dup.staged');
+        await writeFile(dupStaged, 'dup');
+        await expect(promoteStagedFiles([{
+            stagedPath: dupStaged,
+            targetPath: publishedPaths[0]!,
+            suffix: '',
+            allowOverwrite: true,
+        }], undefined, ledger)).rejects.toThrow('Duplicate image export target');
+
+        await rollbackStagedFilePublications(ledger);
+        expect(ledger.promotedFiles).toEqual([]);
+        for (const publishedPath of publishedPaths) {
+            expect(existsSync(publishedPath)).toBe(false);
+        }
+        // Re-promoting page 1 reuses the original filename after rollback released it.
+        const reuseStaged = join(tempDir, 'many-reuse.staged');
+        await writeFile(reuseStaged, 'reused-page-1');
+        await expect(promoteStagedFiles([{
+            stagedPath: reuseStaged,
+            targetPath: template,
+            suffix: '-page-001',
+            allowOverwrite: false,
+        }], undefined, ledger)).resolves.toEqual([publishedPaths[0]]);
+        await rollbackStagedFilePublications(ledger);
     });
 
 });

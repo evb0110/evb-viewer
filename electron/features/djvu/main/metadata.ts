@@ -4,6 +4,7 @@ import {
     dirname,
     resolve,
 } from 'node:path';
+import { DEFAULT_DJVU_SOURCE_DPI } from '@contracts/djvuConversionPolicy';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import {
     buildDjvuPageComponentMap,
@@ -129,13 +130,13 @@ export async function getDjvuResolution(filePath: string, options: IDjvuMetadata
             ...(options.signal ? { signal: options.signal } : {}),
             timeoutMs: DJVU_METADATA_TIMEOUT_MS,
         });
-        return Number.isSafeInteger(info.sourceDpi) && info.sourceDpi > 0 ? info.sourceDpi : 300;
+        return Number.isSafeInteger(info.sourceDpi) && info.sourceDpi > 0 ? info.sourceDpi : DEFAULT_DJVU_SOURCE_DPI;
     } catch (error) {
         if (isAbortError(error) || getUnprovenNativeTerminationDetail(error) !== undefined) {
             throw error;
         }
         logger.debug(`Failed to read DjVu resolution for ${filePath}: ${String(error)}`);
-        return 300;
+        return DEFAULT_DJVU_SOURCE_DPI;
     }
 }
 

@@ -169,6 +169,7 @@ import {createScanCleanupPageRasterSource} from '@evb/scan-cleanup/core/sourceDp
 import {createScanCleanupScratchDir} from '@evb/scan-cleanup/core/scratchCleanup';
 import {describePageNumbers} from '@evb/scan-cleanup/core/policy/scanCleanupWarningEvents';
 import {
+    SCAN_CLEANUP_ASSEMBLY_STEP_TIMEOUT_MS,
     assembleWithCompactSourcePages,
     type IRenderedCleanupOutputPage,
 } from '@evb/scan-cleanup/core/assembleCompactScanCleanupPages';
@@ -533,7 +534,7 @@ async function validateStagedPdf(
                 3,
             ],
             commandLabel: 'qpdf(scan-cleanup:publish-structure-check)',
-            timeoutMs: 10 * 60 * 1000,
+            timeoutMs: SCAN_CLEANUP_ASSEMBLY_STEP_TIMEOUT_MS,
             log,
         });
     } catch (error) {
@@ -2870,7 +2871,7 @@ async function executeScanCleanupBatch({
     ], {
         signal,
         commandLabel: 'evb-pdf-image-combine(scan-cleanup)',
-        timeoutMs: 10 * 60 * 1000,
+        timeoutMs: SCAN_CLEANUP_ASSEMBLY_STEP_TIMEOUT_MS,
         env: {
             ...process.env,
             ...resolveScanCleanupCombineEnv(outputPages.length),

@@ -27,6 +27,7 @@ import {
 } from '@evb/scan-cleanup/core/scanCleanupDetectionJobState';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 import {
+    SCAN_CLEANUP_JOB_RETENTION_POLICY,
     classifyScanCleanupPreviewError as classifyScanCleanupError,
     scanCleanupScratchShortfall,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
@@ -226,10 +227,7 @@ export function scanCleanupDetectionOwner(
         TDetectionError,
         IScanCleanupDetectionSubscriber
     >({
-        retention: {
-            eventReplayTtlMs: 60_000,
-            terminalRecordTtlMs: 60_000,
-        },
+        retention: SCAN_CLEANUP_JOB_RETENTION_POLICY,
         unbindOnSettlement: true,
         progress: {
             channel: SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState,

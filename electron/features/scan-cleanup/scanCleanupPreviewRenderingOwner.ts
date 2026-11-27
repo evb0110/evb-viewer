@@ -7,6 +7,7 @@ import type {
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {
+    SCAN_CLEANUP_JOB_RETENTION_POLICY,
     classifyScanCleanupPreviewError as classifyScanCleanupError,
     scanCleanupScratchShortfall,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
@@ -118,10 +119,7 @@ export function scanCleanupPreviewRenderingOwner(
         IScanCleanupErrorEnvelope,
         IScanCleanupDetectionSubscriber
     >({
-        retention: {
-            eventReplayTtlMs: 60_000,
-            terminalRecordTtlMs: 60_000,
-        },
+        retention: SCAN_CLEANUP_JOB_RETENTION_POLICY,
         unbindOnSettlement: true,
         ...(dependencies.mainJobScratch === undefined ? {} : {scratch: dependencies.mainJobScratch}),
         toError: (cause, kind) => ({

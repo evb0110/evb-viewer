@@ -10,6 +10,7 @@ import {
     BROWSER_PDF_RENDER_TILE_PX as RENDER_TILE_PX,
     type IBrowserPdfRasterTiles,
 } from '@contracts/browserPdfRaster';
+import { PDF_POINTS_PER_INCH } from '@pdf-core/imageExportResolution';
 
 export interface IBrowserPdfRasterOptions {
     annotationMode: number;
@@ -58,7 +59,7 @@ export function createBrowserPdfBoxRaster(page: IPdfPage, box: {
     heightPoints: number;
 }, dpi: number): IBrowserPdfBoxRaster {
     const userUnit = page.getViewport({scale: 1}).userUnit || 1;
-    const viewport = page.getViewport({scale: dpi / 72 / userUnit});
+    const viewport = page.getViewport({scale: dpi / PDF_POINTS_PER_INCH / userUnit});
     const corners = [
         [
             box.xPoints,
@@ -79,8 +80,8 @@ export function createBrowserPdfBoxRaster(page: IPdfPage, box: {
         viewport,
         x: Math.round(Math.min(...xs)),
         y: Math.round(Math.min(...ys)),
-        width: Math.max(1, Math.ceil((swapsAxes ? box.heightPoints : box.widthPoints) * dpi / 72)),
-        height: Math.max(1, Math.ceil((swapsAxes ? box.widthPoints : box.heightPoints) * dpi / 72)),
+        width: Math.max(1, Math.ceil((swapsAxes ? box.heightPoints : box.widthPoints) * dpi / PDF_POINTS_PER_INCH)),
+        height: Math.max(1, Math.ceil((swapsAxes ? box.widthPoints : box.heightPoints) * dpi / PDF_POINTS_PER_INCH)),
     };
 }
 

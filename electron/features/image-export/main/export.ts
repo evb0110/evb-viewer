@@ -76,7 +76,6 @@ import {
 import { getErrorMessage } from '@electron/utils/error';
 import {isAbortError} from '@electron/utils/abort';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
-import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
 import {
     recordManagedScratchBackup,
     recordManagedScratchComplete,
@@ -408,6 +407,7 @@ async function moveFile(sourcePath: string, targetPath: string) {
 // startup recovery settle it the same way.
 interface IStagedFilePublication {
     targetPath: string;
+    reservedKey: string;
     backupPath: string | null;
     original: IFileIdentity | null;
     published: IFileIdentity | null;
@@ -415,6 +415,8 @@ interface IStagedFilePublication {
 
 export interface IStagedFilePublicationLedger {
     promotedFiles: IStagedFilePublication[];
+    // Normalized target paths currently reserved by promotedFiles in this ledger.
+    reservedTargetPaths: Set<string>;
     // Where backups and publications are recorded, so a crash can roll them back.
     scratchPath: string | null;
 }
@@ -422,8 +424,44 @@ export interface IStagedFilePublicationLedger {
 export function createStagedFilePublicationLedger(scratchPath: string | null = null): IStagedFilePublicationLedger {
     return {
         promotedFiles: [],
+        reservedTargetPaths: new Set<string>(),
         scratchPath,
     };
+}
+
+function resolveAndTrackOutputPathConflict(
+    file: IStagedImageFile,
+    targetPaths: Set<string>,
+) {
+    for (let attempt = 0; attempt < 16; attempt += 1) {
+        let addedKey: string | null = null;
+        const trackedPaths = new Proxy(targetPaths, {
+            get(target, property) {
+                if (property === 'add') {
+                    return (value: string) => {
+                        if (!target.has(value)) {
+                            addedKey = value;
+                            target.add(value);
+                        }
+                        return target;
+                    };
+                }
+                const member: unknown = Reflect.get(target, property, target);
+                return typeof member === 'function' ? member.bind(target) : member;
+            },
+        });
+        const targetPath = resolveOutputPathConflict(file, trackedPaths);
+        if (addedKey !== null) {
+            return {
+                targetPath,
+                reservedKey: addedKey,
+            };
+        }
+        if (file.allowOverwrite) {
+            throw new Error(`Duplicate image export target: ${targetPath}`);
+        }
+    }
+    throw new Error(`Duplicate image export target: ${file.targetPath}`);
 }
 
 // A settled publication leaves the ledger; one that fails stays in it and in
@@ -434,13 +472,14 @@ export const IMAGE_EXPORT_ROLLBACK_ERROR_NAME = 'ImageExportRollbackError';
 export async function rollbackStagedFilePublications(ledger: IStagedFilePublicationLedger) {
     const rollbackFailures: Error[] = [];
     const outcomes = new Set<string>();
-    for (const promotedFile of [...ledger.promotedFiles].reverse()) {
+    const unresolvedReversed: IStagedFilePublication[] = [];
+    for (let index = ledger.promotedFiles.length - 1; index >= 0; index -= 1) {
+        const promotedFile = ledger.promotedFiles[index]!;
         const {
             targetPath, backupPath,
         } = promotedFile;
         try {
             const keptPath = await settlePublishedTarget(targetPath, backupPath, promotedFile.original, promotedFile.published);
-            ledger.promotedFiles.splice(ledger.promotedFiles.indexOf(promotedFile), 1);
             if (keptPath) {
                 rollbackFailures.push(new Error(`${targetPath} changed during the export`));
                 outcomes.add(te('errors.export.originalKept', {
@@ -449,11 +488,19 @@ export async function rollbackStagedFilePublications(ledger: IStagedFilePublicat
                 }));
             }
         } catch (error) {
+            unresolvedReversed.push(promotedFile);
             rollbackFailures.push(new Error(backupPath
                 ? `Failed to restore ${targetPath} from ${backupPath}`
                 : `Failed to remove partially promoted ${targetPath}`, {cause: error}));
             outcomes.add(te('errors.export.restoredOnNextStart'));
         }
+    }
+    ledger.promotedFiles.length = 0;
+    ledger.reservedTargetPaths.clear();
+    for (let index = unresolvedReversed.length - 1; index >= 0; index -= 1) {
+        const unresolved = unresolvedReversed[index]!;
+        ledger.promotedFiles.push(unresolved);
+        ledger.reservedTargetPaths.add(unresolved.reservedKey);
     }
     if (rollbackFailures.length > 0) {
         throw Object.assign(new AggregateError(rollbackFailures, [...outcomes].join(' ')), {name: IMAGE_EXPORT_ROLLBACK_ERROR_NAME});
@@ -466,6 +513,7 @@ export async function commitStagedFilePublications(ledger: IStagedFilePublicatio
     await Promise.all(ledger.promotedFiles.flatMap(file => file.backupPath ?? [])
         .map(backupPath => rm(backupPath, {force: true}).catch(() => undefined)));
     ledger.promotedFiles.length = 0;
+    ledger.reservedTargetPaths.clear();
 }
 
 // A shared ledger collects this batch for its owner to commit or roll back. A
@@ -478,17 +526,26 @@ export async function promoteStagedFiles(
     const sharedLedger = typeof publication === 'string' ? null : publication;
     const batchLedger = createStagedFilePublicationLedger(typeof publication === 'string' ? publication : publication?.scratchPath);
     const {scratchPath} = batchLedger;
+    const targetPaths = sharedLedger ? sharedLedger.reservedTargetPaths : batchLedger.reservedTargetPaths;
+    const batchAddedReservedKeys: string[] = [];
+    const staleReservedKeys: string[] = [];
     try {
-        const targetPaths = new Set(sharedLedger?.promotedFiles.map(file => normalizePathForLookup(file.targetPath)));
         const backupTemporaryPaths: string[] = [];
         for (const file of stagedFiles) {
-            const targetPath = resolveOutputPathConflict(file, targetPaths);
+            const {
+                targetPath,
+                reservedKey,
+            } = resolveAndTrackOutputPathConflict(file, targetPaths);
+            if (sharedLedger) {
+                batchAddedReservedKeys.push(reservedKey);
+            }
             const original = file.allowOverwrite ? await readFileIdentity(targetPath) : null;
             const published = await readFileIdentity(file.stagedPath);
             if (!published) throw new Error(`Image export staged output is missing for ${file.targetPath}`);
             const backupPath = original ? makeSiblingTempPath(targetPath) : null;
             batchLedger.promotedFiles.push({
                 targetPath,
+                reservedKey,
                 backupPath,
                 original,
                 published,
@@ -502,6 +559,7 @@ export async function promoteStagedFiles(
         // One fsync makes the whole batch's record durable before any file of it
         // is copied or replaced; recovery settles a recorded file that was not replaced yet.
         await recordManagedScratchPaths(scratchPath, backupTemporaryPaths);
+        let backupTemporaryIndex = 0;
         for (const [
             index,
             promotedFile,
@@ -510,7 +568,7 @@ export async function promoteStagedFiles(
             if (promotedFile.backupPath) {
                 await copyFileAtomic(promotedFile.targetPath, promotedFile.backupPath, {
                     durable: true,
-                    temporaryPath: backupTemporaryPaths.shift()!,
+                    temporaryPath: backupTemporaryPaths[backupTemporaryIndex++]!,
                 });
             }
             const file = stagedFiles[index]!;
@@ -523,7 +581,15 @@ export async function promoteStagedFiles(
                     break;
                 } catch (error) {
                     if (file.allowOverwrite || !isErrnoException(error) || error.code !== 'EEXIST') throw error;
-                    promotedFile.targetPath = resolveOutputPathConflict(file, targetPaths);
+                    if (sharedLedger) {
+                        staleReservedKeys.push(promotedFile.reservedKey);
+                    }
+                    const replacement = resolveAndTrackOutputPathConflict(file, targetPaths);
+                    promotedFile.targetPath = replacement.targetPath;
+                    promotedFile.reservedKey = replacement.reservedKey;
+                    if (sharedLedger) {
+                        batchAddedReservedKeys.push(replacement.reservedKey);
+                    }
                     // Record and flush the replacement candidate before installing it.
                     await recordManagedScratchPublish(scratchPath, promotedFile.targetPath, promotedFile.published!);
                     await recordManagedScratchPaths(scratchPath, []);
@@ -532,10 +598,23 @@ export async function promoteStagedFiles(
         }
         throwIfAborted(signal);
         const publishedPaths = batchLedger.promotedFiles.map(file => file.targetPath);
-        if (!sharedLedger) await commitStagedFilePublications(batchLedger);
-        sharedLedger?.promotedFiles.push(...batchLedger.promotedFiles);
+        if (sharedLedger) {
+            for (const staleKey of staleReservedKeys) {
+                sharedLedger.reservedTargetPaths.delete(staleKey);
+            }
+            for (const promotedFile of batchLedger.promotedFiles) {
+                sharedLedger.promotedFiles.push(promotedFile);
+            }
+        } else {
+            await commitStagedFilePublications(batchLedger);
+        }
         return publishedPaths;
     } catch (error) {
+        if (sharedLedger) {
+            for (const reservedKey of batchAddedReservedKeys) {
+                sharedLedger.reservedTargetPaths.delete(reservedKey);
+            }
+        }
         await Promise.all(stagedFiles.map(stagedFile => rm(stagedFile.stagedPath, { force: true }).catch(() => undefined)));
         await rollbackStagedFilePublications(batchLedger).catch((rollbackError: unknown) => {
             throw new AggregateError([

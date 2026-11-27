@@ -89,6 +89,7 @@ export {
     resolveWorkspaceMemoryBudget,
 } from '@app/modules/document-viewer/runtime/workspaceMemoryBudget';
 export {
+    RGBA_BYTES_PER_PIXEL,
     workspaceSurfaceBudgetController,
     type IWorkspaceSurfaceBudgetController,
     type IWorkspaceSurfaceLease,

@@ -1,3 +1,4 @@
+import { DEFAULT_DJVU_SOURCE_DPI } from '@contracts/djvuConversionPolicy';
 import { SerializableError } from '@contracts/serializableError';
 import type { IDjvuPageSize } from '@contracts/electronApiDjvu';
 import type { IDjvuComponentRequest } from '@djvu-core/djvuLibreTypes';
@@ -730,9 +731,9 @@ export function parseDjvuPageHead(head: Uint8Array, pageNumber: number): IDjvuPa
         if (rawWidth <= 0 || rawHeight <= 0) {
             invalidDjvu(`DjVu page ${pageNumber} has invalid INFO dimensions`);
         }
-        let dpi = infoLength > 7 && info.byteLength >= 8 ? info[6]! | (info[7]! << 8) : 300;
+        let dpi = infoLength > 7 && info.byteLength >= 8 ? info[6]! | (info[7]! << 8) : DEFAULT_DJVU_SOURCE_DPI;
         if (dpi < 25 || dpi > 6000) {
-            dpi = 300;
+            dpi = DEFAULT_DJVU_SOURCE_DPI;
         }
         const orientation = infoLength >= 10 && info.byteLength >= 10 ? (info[9]! & 7) : 1;
         const swap = orientation === 5 || orientation === 6;

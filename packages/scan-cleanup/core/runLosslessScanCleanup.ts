@@ -37,6 +37,7 @@ import {
 import {resolveScanCleanupAnalysisDpi} from '@evb/scan-cleanup/core/detection';
 import {resolveScanCleanupRasterRenderLimits} from '@evb/scan-cleanup/core/rasterValidation';
 import {buildRunnableNativeScanCleanupManifest} from '@evb/scan-cleanup/core/policy/buildRunnableNativeScanCleanupManifest';
+import {SCAN_CLEANUP_ASSEMBLY_STEP_TIMEOUT_MS} from '@evb/scan-cleanup/core/assembleCompactScanCleanupPages';
 import {
     buildScanCleanupPageOpsInstructions,
     isScanCleanupCliFallbackSentinel,
@@ -556,7 +557,7 @@ export async function runLosslessScanCleanup(
     ], {
         signal,
         commandLabel: 'evb-pdf-page-ops(split-pages:scan-cleanup)',
-        timeoutMs: 10 * 60 * 1000,
+        timeoutMs: SCAN_CLEANUP_ASSEMBLY_STEP_TIMEOUT_MS,
         log,
         ...(context.onRecoveryPending === undefined ? {} : {onTerminationProof: context.onRecoveryPending}),
     });

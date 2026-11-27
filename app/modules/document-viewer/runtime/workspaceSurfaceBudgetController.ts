@@ -1,6 +1,8 @@
 import { resolveWorkspaceMemoryBudget } from '@app/modules/document-viewer/runtime/workspaceMemoryBudget';
 import type { TMemoryPressureLevel } from '@app/utils/viewerResidencyPolicy';
 
+export const RGBA_BYTES_PER_PIXEL = 4;
+
 export type TWorkspaceSurfaceCategory =
     | 'pdf-page-canvas'
     | 'pdf-annotation-canvas'

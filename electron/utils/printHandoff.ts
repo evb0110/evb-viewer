@@ -39,6 +39,7 @@ import { openMacOsPdfPrintDialog } from '@electron/utils/openMacOsPdfPrintDialog
 import { getPrintRuntimePlatform } from '@electron/utils/getPrintRuntimePlatform';
 import {runtimeConfig} from '@electron/runtimeConfig';
 import {waitForBoundedOperation} from '@node-runtime/waitForBoundedOperation';
+import { PDF_POINTS_PER_INCH } from '@pdf-core/imageExportResolution';
 
 const logger = createLogger('documents-print');
 // Low-end Windows machines can report the PDF plugin as loaded before it has painted.
@@ -549,8 +550,8 @@ async function createRasterPrintHtmlPath(path: string, documentTitle: string, si
         }
         let totalPixels = 0;
         for (const pageSize of layout.pageSizes) {
-            const pagePixels = Math.ceil(pageSize.width * PRINT_RASTER_DPI / 72)
-                * Math.ceil(pageSize.height * PRINT_RASTER_DPI / 72);
+            const pagePixels = Math.ceil(pageSize.width * PRINT_RASTER_DPI / PDF_POINTS_PER_INCH)
+                * Math.ceil(pageSize.height * PRINT_RASTER_DPI / PDF_POINTS_PER_INCH);
             if (!Number.isSafeInteger(pagePixels) || pagePixels <= 0 || totalPixels > PRINT_RASTER_MAX_TOTAL_PIXELS - pagePixels) {
                 await removeManagedScratchTempDir(workDir, 'pdfExport-', scratchRoot);
                 return null;

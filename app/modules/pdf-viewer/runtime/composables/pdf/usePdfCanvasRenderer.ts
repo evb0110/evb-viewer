@@ -2,7 +2,10 @@ import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/
 import type {
     ICancelableRenderTask, IPdfAnnotationRenderInput, IPdfLayerRenderResult,
 } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
-import { resolveBoundedRasterDimensions } from '@app/modules/document-viewer/public';
+import {
+    RGBA_BYTES_PER_PIXEL,
+    resolveBoundedRasterDimensions,
+} from '@app/modules/document-viewer/public';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type { TPdfPageRenderContentIntent } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
 import type { MaybeRefOrGetter } from 'vue';
@@ -330,7 +333,7 @@ export const usePdfCanvasRenderer = (deps: {
         if (!shouldContinueCanvasPreparation(options)) {
             return null;
         }
-        const surfaceReservation = options?.reserveSurface?.(pixelSize.grantedPixels * 4);
+        const surfaceReservation = options?.reserveSurface?.(pixelSize.grantedPixels * RGBA_BYTES_PER_PIXEL);
         if (options?.reserveSurface && !surfaceReservation) {
             throw new RangeError(`PDF page ${pdfPage.pageNumber} canvas exceeds the available workspace surface budget`);
         }

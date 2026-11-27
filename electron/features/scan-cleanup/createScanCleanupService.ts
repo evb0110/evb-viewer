@@ -69,6 +69,7 @@ import {
 import {createScanCleanupScratchDir} from '@evb/scan-cleanup/core/scratchCleanup';
 import {reclaimScanCleanupCheckpoint} from '@evb/scan-cleanup/core/conversionCheckpoint';
 import {
+    SCAN_CLEANUP_JOB_RETENTION_POLICY,
     classifyScanCleanupPreviewError as classifyPreviewError,
     resolveScanCleanupPreviewPath as resolvePreviewPath,
     resolveScanCleanupPreviewRasterAdmissionPolicy as resolvePreviewRasterAdmissionPolicy,
@@ -454,10 +455,7 @@ function terminalProgress(
 
 function createScanCleanupJobRegistry(): TScanCleanupJobRegistry {
     return createMainJobRegistry({
-        retention: {
-            eventReplayTtlMs: 60_000,
-            terminalRecordTtlMs: 60_000,
-        },
+        retention: SCAN_CLEANUP_JOB_RETENTION_POLICY,
         toError: (cause, kind) => {
             const message = getErrorMessage(cause);
             if (kind === 'canceled') {

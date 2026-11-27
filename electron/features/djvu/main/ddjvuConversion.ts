@@ -13,7 +13,9 @@ import {
 import { fileURLToPath } from 'node:url';
 import { clamp } from 'es-toolkit/math';
 import { limitAsync } from 'es-toolkit/promise';
+import { DEFAULT_DJVU_SOURCE_DPI } from '@contracts/djvuConversionPolicy';
 import type { THostResourceTier } from '@contracts/hostResourceProfile';
+import { PDF_POINTS_PER_INCH } from '@pdf-core/imageExportResolution';
 import {
     createFileBackedPdfCombineEnv,
     createPdfCombineOutputTooLargeError,
@@ -378,13 +380,13 @@ export async function convertDjvuToPdfFile(
                             timeoutMs: DJVU_IMAGE_PROCESS_TIMEOUT_MS,
                         });
                         await quotaMonitor.checkNow();
-                        const dpi = size?.dpi && size.dpi > 0 ? size.dpi : docInfo.sourceDpi || 300;
+                        const dpi = size?.dpi && size.dpi > 0 ? size.dpi : docInfo.sourceDpi || DEFAULT_DJVU_SOURCE_DPI;
                         const nativeW = size?.width && size.width > 0 ? size.width : rendered.width * subsample;
                         const nativeH = size?.height && size.height > 0 ? size.height : rendered.height * subsample;
                         renderedEntries[offset] = {
                             ppmPath,
-                            widthPoints: Math.max(1, (nativeW / dpi) * 72),
-                            heightPoints: Math.max(1, (nativeH / dpi) * 72),
+                            widthPoints: Math.max(1, (nativeW / dpi) * PDF_POINTS_PER_INCH),
+                            heightPoints: Math.max(1, (nativeH / dpi) * PDF_POINTS_PER_INCH),
                         };
                         if (!renderSignal.aborted) {
                             completedPages += 1;
