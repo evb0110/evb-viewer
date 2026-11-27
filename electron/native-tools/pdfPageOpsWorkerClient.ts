@@ -58,11 +58,14 @@ interface IWarmPageOpsWorker {
     busy: boolean;
     closed: boolean;
     idleTimer: NodeJS.Timeout | null;
+    visibilitySessions: Set<number>;
 }
 
 interface IQueuedTask {
     wasmPath: string;
     args: string[];
+    visibilitySessionId: number | undefined;
+    closeVisibilitySessionId: number | undefined;
     signal: AbortSignal | undefined;
     timeoutMs: number | undefined;
     cancelGroup: string | undefined;
@@ -74,6 +77,35 @@ interface IQueuedTask {
     reject: (reason: unknown) => void;
     onAbort?: () => void;
     onCancelGroup?: () => Promise<boolean>;
+}
+
+function parseVisibilitySessionArgs(args: readonly string[]): {
+    visibilitySessionId: number | undefined;
+    closeVisibilitySessionId: number | undefined;
+} {
+    if (args[0] !== 'ocr-text-visibility') {
+        return {
+            visibilitySessionId: undefined,
+            closeVisibilitySessionId: undefined,
+        };
+    }
+    let visibilitySessionId: number | undefined;
+    let closeVisibilitySessionId: number | undefined;
+    for (let i = 1; i + 1 < args.length; i += 1) {
+        if (args[i] === '--session-id') {
+            const parsed = Number(args[i + 1]);
+            if (Number.isSafeInteger(parsed) && parsed > 0) visibilitySessionId = parsed;
+            i += 1;
+        } else if (args[i] === '--close-session') {
+            const parsed = Number(args[i + 1]);
+            if (Number.isSafeInteger(parsed) && parsed > 0) closeVisibilitySessionId = parsed;
+            i += 1;
+        }
+    }
+    return {
+        visibilitySessionId,
+        closeVisibilitySessionId,
+    };
 }
 
 export interface IRunDesktopPageOpsWasmOptions {
@@ -259,7 +291,14 @@ function createPageOpsWorkerPool() {
     function pumpQueue() {
         while (queue.length > 0) {
             const next = queue[0]!;
-            const idleSamePath = [...workers].find(
+            const targetSessionId = next.visibilitySessionId ?? next.closeVisibilitySessionId;
+            const idleSameSession = targetSessionId === undefined
+                ? undefined
+                : [...workers].find(
+                    entry => !entry.busy && !entry.closed && entry.wasmPath === next.wasmPath
+                        && entry.visibilitySessions.has(targetSessionId),
+                );
+            const idleSamePath = idleSameSession ?? [...workers].find(
                 entry => !entry.busy && !entry.closed && entry.wasmPath === next.wasmPath,
             );
             const idleAny = idleSamePath ?? [...workers].find(entry => !entry.busy && !entry.closed);
@@ -358,6 +397,7 @@ function createPageOpsWorkerPool() {
                 busy: true,
                 closed: false,
                 idleTimer: null,
+                visibilitySessions: new Set(),
             };
             startupSettled = true;
             cleanupStartupCancel();
@@ -385,6 +425,12 @@ function createPageOpsWorkerPool() {
     function dispatchToWorker(entry: IWarmPageOpsWorker, task: IQueuedTask) {
         entry.busy = true;
         clearIdleTimer(entry);
+        if (task.visibilitySessionId !== undefined) {
+            entry.visibilitySessions.add(task.visibilitySessionId);
+        }
+        if (task.closeVisibilitySessionId !== undefined) {
+            entry.visibilitySessions.delete(task.closeVisibilitySessionId);
+        }
         const requestId = ++nextRequestId;
         const rollback = prepareAbortedWriteRollback(task.args);
         let settled = false;
@@ -565,10 +611,28 @@ function createPageOpsWorkerPool() {
             }
             return runInlineFallback(wasmPath, args, options);
         }
+        const {
+            visibilitySessionId,
+            closeVisibilitySessionId,
+        } = parseVisibilitySessionArgs(args);
+        if (closeVisibilitySessionId !== undefined) {
+            const hasHoldingWorker = [...workers].some(
+                entry => !entry.closed && entry.wasmPath === wasmPath && entry.visibilitySessions.has(closeVisibilitySessionId),
+            );
+            if (!hasHoldingWorker) {
+                return Promise.resolve({
+                    stdout: '{}',
+                    stderr: '',
+                    exitCode: 0,
+                });
+            }
+        }
         return new Promise((resolve, reject) => {
             const task: IQueuedTask = {
                 wasmPath,
                 args: [...args],
+                visibilitySessionId,
+                closeVisibilitySessionId,
                 signal: options.signal,
                 timeoutMs: options.timeoutMs,
                 cancelGroup: options.cancelGroup,

@@ -26,6 +26,7 @@ use crate::split::{DocumentPrior, LayoutClassification};
 use crate::CleanupOptions;
 use evb_native_support::{NativeError, NativeErrorCode};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Alternate views one document batch may analyze.
 pub(crate) const MAX_ALTERNATE_VIEW_PAGES: usize = 16;
@@ -116,7 +117,7 @@ fn proves_spread(alternate: &PageResultMetadata) -> bool {
 }
 
 /// Which raster of the page a job reads.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum AnalysisView {
@@ -172,16 +173,18 @@ fn invalid(message: impl Into<String>) -> NativeError {
     NativeError::new(NativeErrorCode::InvalidRequest, message)
 }
 
-/// Finds the recorded analysis of one job.
-fn recorded(
-    analyses: &[PageAnalysis],
-    index: usize,
-    view: AnalysisView,
-    rerun: bool,
-) -> Option<&PageAnalysis> {
-    analyses.iter().find(|analysis| {
-        analysis.job.index == index && analysis.job.view == view && analysis.job.rerun == rerun
-    })
+type RecordedAnalyses<'a> = HashMap<(usize, AnalysisView, bool), &'a PageAnalysis>;
+
+/// Indexes recorded analyses once per step, keeping the first occurrence for
+/// each `(page, view, rerun)` key.
+fn index_recorded_analyses(analyses: &[PageAnalysis]) -> RecordedAnalyses<'_> {
+    let mut indexed = HashMap::with_capacity(analyses.len());
+    for analysis in analyses {
+        indexed
+            .entry((analysis.job.index, analysis.job.view, analysis.job.rerun))
+            .or_insert(analysis);
+    }
+    indexed
 }
 
 /// One pass over a set of pages in one view: their first analyses, the
@@ -193,14 +196,14 @@ enum Pass {
 }
 
 fn run_pass(
-    analyses: &[PageAnalysis],
+    recorded: &RecordedAnalyses<'_>,
     pages: &[(usize, Option<DocumentPrior>)],
     view: AnalysisView,
 ) -> Result<Pass, NativeError> {
     let mut missing = Vec::new();
     let mut first = Vec::with_capacity(pages.len());
     for &(index, document_prior) in pages {
-        match recorded(analyses, index, view, false) {
+        match recorded.get(&(index, view, false)).copied() {
             Some(analysis) => first.push(analysis),
             None => missing.push(AnalysisJob {
                 index,
@@ -233,7 +236,7 @@ fn run_pass(
         let index = first[position].job.index;
         let analysis = match action.change {
             PageReconciliation::Rerun { prior, .. } => {
-                match recorded(analyses, index, view, true) {
+                match recorded.get(&(index, view, true)).copied() {
                     Some(rerun) if rerun.job.document_prior == Some(prior) => rerun,
                     Some(_) => {
                         return Err(invalid(
@@ -291,13 +294,14 @@ pub(crate) fn next_analysis_step(
             analysis.job.index
         )));
     }
+    let recorded = index_recorded_analyses(analyses);
     let primary_pages = document
         .pages
         .iter()
         .enumerate()
         .map(|(index, page)| (index, page.document_prior))
         .collect::<Vec<_>>();
-    let mut finished = match run_pass(analyses, &primary_pages, AnalysisView::Primary)? {
+    let mut finished = match run_pass(&recorded, &primary_pages, AnalysisView::Primary)? {
         Pass::Missing(jobs) => return Ok(AnalysisStep::Analyze(jobs)),
         Pass::Done(pages) => pages
             .into_iter()
@@ -316,7 +320,7 @@ pub(crate) fn next_analysis_step(
         .take(MAX_ALTERNATE_VIEW_PAGES)
         .collect::<Vec<_>>();
     if !alternate_pages.is_empty() {
-        match run_pass(analyses, &alternate_pages, AnalysisView::Alternate)? {
+        match run_pass(&recorded, &alternate_pages, AnalysisView::Alternate)? {
             Pass::Missing(jobs) => return Ok(AnalysisStep::Analyze(jobs)),
             Pass::Done(alternates) => {
                 for (&(index, _), alternate) in alternate_pages.iter().zip(alternates) {

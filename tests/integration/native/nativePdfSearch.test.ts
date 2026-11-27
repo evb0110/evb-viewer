@@ -31,6 +31,11 @@ import {
     shutdownPdfSearchWorkers,
 } from '@electron/features/search/pdfSearchWorkerClient';
 import {streamPdfPageTexts} from '@electron/features/search/pdfPageTexts';
+import {
+    inspectPdfPageTextVisibility,
+    openPdfPageTextVisibilitySession,
+} from '@electron/pdf/inspectPdfPageTextVisibility';
+import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
 import * as workerTasks from '@electron/utils/workerTask';
 import {findPdfSearchMatches} from '@pdf-core/pdfSearchAlgorithms';
 import {mainJobBroker} from '@electron/resources/jobBroker';
@@ -375,4 +380,48 @@ describe('native PDF search integration', () => {
             worker.mockRestore();
         }
     }, 20_000);
+
+    it('reads bounded OCR visibility windows through a single-open WASM session matching one-shot inspection', async () => {
+        const pdfPath = resolve('tests/fixtures/electron/semtext/search.pdf');
+        const pdfPageOpsBinary = resolveNativePageOpsPath() ?? undefined;
+        expect(pdfPageOpsBinary).toBeTruthy();
+        const tempDir = await mkdtemp(join(tmpdir(), 'evb-visibility-session-'));
+        try {
+            const oneShot = await inspectPdfPageTextVisibility({
+                pdfPath,
+                pageNumbers: [
+                    1,
+                    2,
+                ],
+                pdfPageOpsBinary,
+                tempDir,
+                withEvbOcrText: true,
+            });
+            expect(oneShot.status).toBe('available');
+
+            const session = openPdfPageTextVisibilitySession({
+                pdfPath,
+                pdfPageOpsBinary,
+                tempDir,
+                withEvbOcrText: true,
+                reuseSession: true,
+            });
+            try {
+                const win1 = await session.inspectPages([1]);
+                const win2 = await session.inspectPages([2]);
+                expect(win1.status).toBe('available');
+                expect(win2.status).toBe('available');
+                expect(win1.visibility.get(1)).toEqual(oneShot.visibility.get(1));
+                expect(win2.visibility.get(2)).toEqual(oneShot.visibility.get(2));
+            } finally {
+                await session.close();
+            }
+            expectNativeCommandSlotsFree();
+        } finally {
+            await rm(tempDir, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
 });

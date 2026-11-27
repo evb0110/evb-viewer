@@ -69,6 +69,12 @@ const fake = vi.hoisted(() => ({
     nativeTextFailure: null as Error | null,
     pageTexts: new Map<number, string>(),
     evbOcrText: null as string | null,
+    pageOpsBinaryPath: null as string | null,
+    visibilityCalls: [] as Array<{
+        sessionId: string | null;
+        closeSession: string | null;
+        pageCount: number;
+    }>,
     visibilityStarted: null as (() => void) | null,
     visibilityRelease: null as Promise<void> | null,
     pdftotextRanges: [] as string[],
@@ -228,7 +234,22 @@ vi.mock('@electron/native-tools/runNativeToolCommand', () => ({async runNativeTo
         };
     }
     if (args[0] === 'ocr-text-visibility') {
+        const closeIndex = args.indexOf('--close-session');
+        if (closeIndex >= 0) {
+            fake.visibilityCalls.push({
+                sessionId: null,
+                closeSession: args[closeIndex + 1] ?? null,
+                pageCount: 0,
+            });
+            return result('{}');
+        }
+        const sessionIndex = args.indexOf('--session-id');
         const pageNumbers = (await readFile(args[args.indexOf('--pages-file') + 1]!, 'utf8')).trim().split('\n').map(Number);
+        fake.visibilityCalls.push({
+            sessionId: sessionIndex >= 0 ? (args[sessionIndex + 1] ?? null) : null,
+            closeSession: null,
+            pageCount: pageNumbers.length,
+        });
         fake.visibilityStarted?.();
         await fake.visibilityRelease;
         return result(JSON.stringify({
@@ -275,7 +296,7 @@ vi.mock('@electron/file-access/documentStore', async importOriginal => ({
     assertWorkingCopyRevisionCurrent: async () => undefined,
 }));
 // Without evb-pdf-page-ops, text extraction keeps Poppler's layout reading of every page.
-vi.mock('@electron/features/page-ops/public/nativePageOpsPath', () => ({resolveNativePageOpsPath: () => fake.evbOcrText === null ? null : '/fake/evb-pdf-page-ops'}));
+vi.mock('@electron/features/page-ops/public/nativePageOpsPath', () => ({resolveNativePageOpsPath: () => fake.pageOpsBinaryPath ?? (fake.evbOcrText === null ? null : '/fake/evb-pdf-page-ops')}));
 vi.mock('@electron/utils/workerTask', async importOriginal => ({
     ...await importOriginal<typeof TWorkerTaskModule>(),
     resolveUnpackedWorkerPath: () => '/fake/pdf-text-worker.js',
@@ -328,6 +349,8 @@ afterEach(() => {
     fake.nativeTextFailure = null;
     fake.pageTexts = new Map();
     fake.evbOcrText = null;
+    fake.pageOpsBinaryPath = null;
+    fake.visibilityCalls = [];
     fake.visibilityStarted = null;
     fake.visibilityRelease = null;
     fake.pdftotextRanges = [];
@@ -1268,4 +1291,83 @@ describe('provisional search matches', () => {
         expect(provisional()).toEqual([]);
         expect(fake.provisionalSearches).toBe(0);
     }));
+});
+
+describe('multi-window OCR visibility session', () => {
+    const pdfPath = () => join(process.cwd(), 'tests/fixtures/electron/generated-text.pdf');
+
+    it('reuses one WASM visibility session across >2048 pages, reports progress, and closes cleanly', async () => {
+        const totalPages = 4_500;
+        for (let page = 1; page <= totalPages; page += 1) {
+            fake.pageTexts.set(page, `Page ${page}`);
+        }
+        fake.evbOcrText = 'Decoded OCR text';
+        fake.pageOpsBinaryPath = '/fake/evb-pdf-page-ops.wasm';
+
+        const progressPages: number[] = [];
+        const yielded: number[] = [];
+        for await (const page of streamPdfPageTexts(pdfPath(), {}, pageNumber => progressPages.push(pageNumber))) {
+            yielded.push(page.pageNumber);
+        }
+
+        expect(yielded).toHaveLength(totalPages);
+        expect(progressPages[0]).toBe(1);
+        expect(progressPages.at(-1)).toBe(4353);
+
+        const inspectCalls = fake.visibilityCalls.filter(call => call.closeSession === null);
+        const closeCalls = fake.visibilityCalls.filter(call => call.closeSession !== null);
+        expect(inspectCalls).toHaveLength(3);
+        expect(inspectCalls.map(call => call.pageCount)).toEqual([
+            2048,
+            2048,
+            404,
+        ]);
+        const sessionId = inspectCalls[0]?.sessionId;
+        expect(sessionId).toBeTruthy();
+        expect(inspectCalls.every(call => call.sessionId === sessionId)).toBe(true);
+        expect(closeCalls).toHaveLength(1);
+        expect(closeCalls[0]?.closeSession).toBe(sessionId);
+    });
+
+    it('closes the visibility session when canceled mid-stream and never deadlocks 8 concurrent readers', async () => {
+        const totalPages = 2_500;
+        for (let page = 1; page <= totalPages; page += 1) {
+            fake.pageTexts.set(page, `Page ${page}`);
+        }
+        fake.evbOcrText = 'OCR text';
+        fake.pageOpsBinaryPath = '/fake/evb-pdf-page-ops.wasm';
+
+        // 1. Mid-stream cancel closes the opened session.
+        const controller = new AbortController();
+        const canceledPages: number[] = [];
+        await expect((async () => {
+            for await (const page of streamPdfPageTexts(pdfPath(), {signal: controller.signal})) {
+                canceledPages.push(page.pageNumber);
+                if (canceledPages.length === 10) {
+                    controller.abort(new Error('canceled mid-search'));
+                }
+            }
+        })()).rejects.toThrow('canceled mid-search');
+        const closeAfterCancel = fake.visibilityCalls.filter(call => call.closeSession !== null);
+        expect(closeAfterCancel).toHaveLength(1);
+
+        // 2. 8 concurrent multi-window extractions complete without holding broker slots across Poppler.
+        fake.visibilityCalls = [];
+        const concurrent = await Promise.all(
+            Array.from({length: 8}, async () => {
+                let count = 0;
+                for await (const _page of streamPdfPageTexts(pdfPath())) {
+                    count += 1;
+                }
+                return count;
+            }),
+        );
+        expect(concurrent).toEqual(Array(8).fill(totalPages));
+        expect(fake.broker!.getSnapshot()).toMatchObject({
+            active: 0,
+            queued: 0,
+        });
+        const concurrentCloses = fake.visibilityCalls.filter(call => call.closeSession !== null);
+        expect(concurrentCloses).toHaveLength(8);
+    });
 });

@@ -140,6 +140,21 @@ enum OpenMode {
     AppendBase,
 }
 
+#[cfg(test)]
+thread_local! {
+    static SOURCE_PDF_OPEN_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn reset_source_pdf_open_count() {
+    SOURCE_PDF_OPEN_COUNT.with(|count| count.set(0));
+}
+
+#[cfg(test)]
+pub(crate) fn source_pdf_open_count() -> usize {
+    SOURCE_PDF_OPEN_COUNT.with(std::cell::Cell::get)
+}
+
 /// A parsed PDF whose stream data stays in its source.
 pub(crate) struct SourcePdf<S> {
     pub(crate) document: Document,
@@ -253,6 +268,8 @@ impl<S: ByteSource> SourcePdf<S> {
     }
 
     fn open_indexed(bytes: S, len: u64, mode: OpenMode, named: &[ObjectId]) -> Result<Self> {
+        #[cfg(test)]
+        SOURCE_PDF_OPEN_COUNT.with(|count| count.set(count.get().saturating_add(1)));
         let mut reader = Reader::new(&bytes, len)?;
         reader.strict = matches!(mode, OpenMode::StrictVerify);
         let index = match mode {
@@ -424,6 +441,12 @@ impl<S: ByteSource> SourcePdf<S> {
             len: len as u64,
             xref_start,
         })
+    }
+
+    /// The source byte length recorded when this index was opened.
+    #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+    pub(crate) fn len(&self) -> u64 {
+        self.len
     }
 
     /// The source byte range of a stream whose data this source holds.

@@ -1929,11 +1929,17 @@ pub(crate) fn append_source_annotations<F: Fn(&Object) -> Result<Option<Object>>
     let mut copied = HashMap::from([(source_page_id, target_page_id)]);
     let mut output =
         page_annotation_array(target, target.get_dictionary(target_page_id)?).unwrap_or_default();
+    let listed = if annotations.is_empty() {
+        HashSet::new()
+    } else {
+        crate::annotation_threads::page_listed_annotation_ids(source, source_page_id)?
+    };
     for (slot, annotation) in annotations.iter().enumerate() {
         let Some(original) = resolved_dictionary(source, annotation) else {
             continue;
         };
-        let owner = crate::annotation_threads::thread_owner(source, original, source_page_id)?;
+        let owner =
+            crate::annotation_threads::thread_owner(source, original, source_page_id, &listed)?;
         let subtype = resolved_name(source, owner.get(b"Subtype").unwrap_or(&Object::Null));
         if let Some((matrix, view)) = filter {
             let legacy_marker = legacy_marker_on_page(source, owner, source, source_page_id)?;

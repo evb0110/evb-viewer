@@ -141,28 +141,44 @@ pub(crate) fn edit_page_structure<S>(
         .iter()
         .map(|source| &source.document)
         .collect::<Vec<_>>();
-    for document in &documents {
-        PageTreeResolver::validated(*document)?;
-    }
-    let (document, others) = documents
+    let validated_trees = documents
+        .iter()
+        .map(|document| PageTreeResolver::validated(*document))
+        .collect::<Result<Vec<_>>>()?;
+    let source_page_lists = validated_trees
+        .iter()
+        .map(|tree| {
+            tree.validated_pages()
+                .expect("validated page tree holds its leaf page list")
+        })
+        .collect::<Vec<_>>();
+    let (&source_pages, other_page_lists) = source_page_lists
         .split_first()
         .ok_or("A page-structure edit needs an input PDF")?;
     let single = |label: &str| {
-        if others.is_empty() {
-            Ok(&documents[..1])
+        if other_page_lists.is_empty() {
+            Ok((&documents[..1], &source_page_lists[..1]))
         } else {
             Err(format!("{label}: takes one input PDF"))
         }
     };
-    let source_pages = document.get_pages();
     let page_count = source_pages.len() as u32;
     let selected = |pages: &[u32]| {
         pages
             .iter()
             .map(|page_number| {
+                let page_id = page_number
+                    .checked_sub(1)
+                    .and_then(|index| source_pages.get(index as usize))
+                    .copied()
+                    .ok_or_else(|| {
+                        format!(
+                            "Page {page_number} is outside the document page range 1-{page_count}"
+                        )
+                    })?;
                 Ok(PageCloneSource {
                     document_index: 0,
-                    page_id: resolve_page_id(&source_pages, *page_number)?,
+                    page_id,
                 })
             })
             .collect::<Result<Vec<_>>>()
@@ -173,7 +189,7 @@ pub(crate) fn edit_page_structure<S>(
     };
     match edit {
         PageStructureEdit::Delete(pages) => {
-            let sources = single("deletePages")?;
+            let (sources, page_lists) = single("deletePages")?;
             let removed =
                 validate_browser_page_numbers(pages, "deletePages", page_count, true, false)?;
             if removed.len() == source_pages.len() {
@@ -181,49 +197,124 @@ pub(crate) fn edit_page_structure<S>(
             }
             let kept = source_pages
                 .iter()
-                .filter(|(page_number, _)| !removed.contains(page_number))
+                .enumerate()
+                .filter(|(index, _)| !removed.contains(&(*index as u32 + 1)))
                 .map(|(_, page_id)| primary(page_id))
                 .collect::<Vec<_>>();
-            page_subset(sources, &kept, false)
+            page_subset(sources, page_lists, &kept, false)
         }
         PageStructureEdit::Extract(pages) => {
-            let sources = single("extractPages")?;
+            let (sources, page_lists) = single("extractPages")?;
             validate_browser_page_numbers(pages, "extractPages", page_count, true, false)?;
-            page_subset(sources, &selected(pages)?, false)
+            page_subset(sources, page_lists, &selected(pages)?, false)
         }
         PageStructureEdit::Reorder(pages) => {
-            let sources = single("reorderPages")?;
+            let (sources, page_lists) = single("reorderPages")?;
             validate_browser_page_numbers(pages, "reorderPages", page_count, true, true)?;
-            page_subset(sources, &selected(pages)?, false)
+            page_subset(sources, page_lists, &selected(pages)?, false)
         }
         PageStructureEdit::Insert { after_page } => {
-            let [insertion] = others else {
+            let [insertion_pages] = other_page_lists else {
                 return Err("insertPages: takes the document and one insertion PDF".into());
             };
             if after_page > page_count {
                 return Err("Invalid afterPage".into());
             }
-            let (before, after): (Vec<_>, Vec<_>) = source_pages
-                .iter()
-                .partition(|(page_number, _)| **page_number <= after_page);
+            let split_at = after_page as usize;
+            let (before, after) = source_pages.split_at(split_at);
             let sequence = before
-                .into_iter()
-                .map(|(_, page_id)| primary(page_id))
-                .chain(
-                    insertion
-                        .get_pages()
-                        .values()
-                        .map(|page_id| PageCloneSource {
-                            document_index: 1,
-                            page_id: *page_id,
-                        }),
-                )
-                .chain(after.into_iter().map(|(_, page_id)| primary(page_id)))
+                .iter()
+                .map(primary)
+                .chain(insertion_pages.iter().map(|page_id| PageCloneSource {
+                    document_index: 1,
+                    page_id: *page_id,
+                }))
+                .chain(after.iter().map(primary))
                 .collect::<Vec<_>>();
-            page_subset(&documents, &sequence, true)
+            page_subset(&documents, &source_page_lists, &sequence, true)
         }
-        PageStructureEdit::Merge => merge_pages(&documents),
+        PageStructureEdit::Merge => merge_pages(&documents, &source_page_lists),
     }
+}
+
+/// Extracts a subset of pages from a source whose page tree was already
+/// validated, copying only the selected pages and the indirect objects they
+/// reach (no catalog metadata, outlines, page labels, or forms). Used by
+/// batched overlay extraction so each 64-page batch stays O(batch_pages).
+pub(crate) fn extract_validated_pages_for_overlay(
+    source: &Document,
+    source_pages: &[ObjectId],
+    pages: &[u32],
+) -> Result<PageSubset> {
+    let page_count = source_pages.len() as u32;
+    validate_browser_page_numbers(pages, "extractPages", page_count, true, false)?;
+    let page_sequence = pages
+        .iter()
+        .map(|page_number| {
+            let page_id = page_number
+                .checked_sub(1)
+                .and_then(|index| source_pages.get(index as usize))
+                .copied()
+                .ok_or_else(|| {
+                    format!("Page {page_number} is outside the document page range 1-{page_count}")
+                })?;
+            Ok(PageCloneSource {
+                document_index: 0,
+                page_id,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let mut target = Document::with_version(source.version.as_str());
+    let pages_id = target.new_object_id();
+    let mut clone_context = PageCloneContext {
+        sources: vec![source],
+        target,
+        pages_id,
+        object_map: HashMap::new(),
+        completed_pages: HashSet::new(),
+        pending_objects: Vec::new(),
+    };
+    for page in &page_sequence {
+        clone_context
+            .object_map
+            .entry((page.document_index, page.page_id))
+            .or_insert_with(|| clone_context.target.new_object_id());
+    }
+    let page_ids = page_sequence
+        .iter()
+        .map(|page| clone_context.clone_page(*page))
+        .collect::<Result<Vec<_>>>()?;
+    let kids = page_ids
+        .iter()
+        .copied()
+        .map(Object::Reference)
+        .collect::<Vec<_>>();
+    clone_context.target.objects.insert(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => kids,
+            "Count" => page_ids.len() as u32,
+        }
+        .into(),
+    );
+    let catalog = dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+    };
+    let catalog_id = clone_context.target.add_object(catalog);
+    clone_context.target.trailer.set("Root", catalog_id);
+    clone_context.target.prune_objects();
+    let origins = clone_context
+        .object_map
+        .into_iter()
+        .map(|(source, target)| (target, source))
+        .collect::<HashMap<_, _>>();
+    Ok(PageSubset {
+        page_count: page_ids.len() as u32,
+        origins,
+        document: clone_context.target,
+    })
 }
 
 /// Opens the inputs of a page-structure edit, the edited document first.
@@ -249,20 +340,15 @@ pub(crate) fn open_page_structure_sources<S: ByteSource>(
 
 /// Every page of every input in order, each input's outline offset to its
 /// pages. The main outline is rebuilt only when another input adds to it.
-fn merge_pages(documents: &[&Document]) -> Result<PageSubset> {
+fn merge_pages(documents: &[&Document], source_page_lists: &[&[ObjectId]]) -> Result<PageSubset> {
     let mut sequence = Vec::new();
-    for (document_index, document) in documents.iter().enumerate() {
-        sequence.extend(
-            document
-                .get_pages()
-                .into_values()
-                .map(|page_id| PageCloneSource {
-                    document_index,
-                    page_id,
-                }),
-        );
+    for (document_index, pages) in source_page_lists.iter().enumerate() {
+        sequence.extend(pages.iter().map(|&page_id| PageCloneSource {
+            document_index,
+            page_id,
+        }));
     }
-    let mut merged = page_subset(documents, &sequence, false)?;
+    let mut merged = page_subset(documents, source_page_lists, &sequence, false)?;
     let appended = documents[1..]
         .iter()
         .map(|document| read_pdf_outline(*document, false))
@@ -271,15 +357,15 @@ fn merge_pages(documents: &[&Document]) -> Result<PageSubset> {
     if appended.iter().all(Vec::is_empty) {
         return Ok(merged);
     }
-    let mut page_offset = documents[0].get_pages().len() as u32;
+    let mut page_offset = source_page_lists[0].len() as u32;
     let mut bookmarks = read_pdf_outline(documents[0], false)?;
-    for (document, outline) in documents[1..].iter().zip(appended) {
+    for (pages, outline) in source_page_lists[1..].iter().zip(appended) {
         bookmarks.extend(
             outline
                 .into_iter()
                 .map(|bookmark| offset_bookmark(bookmark, page_offset)),
         );
-        page_offset = page_offset.saturating_add(document.get_pages().len() as u32);
+        page_offset = page_offset.saturating_add(pages.len() as u32);
     }
     set_bookmarks(
         &mut merged.document,
@@ -344,6 +430,7 @@ pub(crate) fn write_page_structure_path(
 /// joins the label range its pages land in.
 fn page_subset(
     sources: &[&Document],
+    source_page_lists: &[&[ObjectId]],
     page_sequence: &[PageCloneSource],
     insertion: bool,
 ) -> Result<PageSubset> {
@@ -450,7 +537,13 @@ fn page_subset(
     }
     let catalog_id = clone_context.target.add_object(catalog);
     clone_context.target.trailer.set("Root", catalog_id);
-    set_subset_page_labels(&mut clone_context.target, sources, page_sequence, insertion)?;
+    set_subset_page_labels(
+        &mut clone_context.target,
+        sources,
+        source_page_lists,
+        page_sequence,
+        insertion,
+    )?;
     for (id, object) in crate::split_catalog::page_structure_updates(&clone_context.target)? {
         clone_context.target.set_object(id, object);
     }
@@ -622,13 +715,13 @@ fn field_root(source: &Document, widget: ObjectId) -> Option<ObjectId> {
 fn set_subset_page_labels(
     target: &mut Document,
     sources: &[&Document],
+    source_page_lists: &[&[ObjectId]],
     page_sequence: &[PageCloneSource],
     insertion: bool,
 ) -> Result<()> {
     let mut labelled = false;
     let mut labels = Vec::with_capacity(sources.len());
-    for (index, document) in sources.iter().enumerate() {
-        let pages = document.get_pages();
+    for (index, (document, pages)) in sources.iter().zip(source_page_lists).enumerate() {
         let mut ranges = match document.catalog()?.get(b"PageLabels") {
             Ok(tree) => {
                 labelled = true;
@@ -642,8 +735,9 @@ fn set_subset_page_labels(
         let continues_previous = insertion && index > 0 && ranges.is_empty();
         add_implicit_default_page_label_range(&mut ranges, pages.len() as u32);
         let indices = pages
-            .into_iter()
-            .map(|(number, id)| (id, number - 1))
+            .iter()
+            .enumerate()
+            .map(|(page_index, &id)| (id, page_index as u32))
             .collect::<HashMap<_, _>>();
         labels.push((ranges, indices, continues_previous));
     }

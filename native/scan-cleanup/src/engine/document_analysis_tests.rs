@@ -319,3 +319,46 @@ fn a_batch_analyzes_a_bounded_number_of_alternate_views() {
         (0..MAX_ALTERNATE_VIEW_PAGES).collect::<Vec<_>>()
     );
 }
+
+#[test]
+fn indexed_recorded_lookup_preserves_first_occurrence_validation_and_scales_linearly() {
+    let page_count = 4_000_usize;
+    let doc = document((0..page_count).map(|_| plain_page()).collect());
+    let first_jobs = jobs(next_analysis_step(&doc, &[]).unwrap());
+    assert_eq!(first_jobs.len(), page_count);
+
+    let mut analyses: Vec<PageAnalysis> = first_jobs
+        .iter()
+        .map(|&job| {
+            analyzed(
+                job,
+                metadata(job.index, LayoutClassification::SingleUncutPage, 0.9),
+            )
+        })
+        .collect();
+    // Duplicate entry for page 0 with a conflicting layout must be ignored in favor of the first.
+    analyses.push(analyzed(
+        first_jobs[0],
+        metadata(0, LayoutClassification::TwoPageSpread, 0.99),
+    ));
+
+    let finished_pages = finished(next_analysis_step(&doc, &analyses).unwrap());
+    assert_eq!(finished_pages.len(), page_count);
+    assert_eq!(
+        finished_pages[0].layout_classification,
+        LayoutClassification::SingleUncutPage
+    );
+
+    // Out-of-bounds page analysis is still refused.
+    analyses.push(analyzed(
+        AnalysisJob {
+            index: page_count,
+            view: AnalysisView::Primary,
+            rerun: false,
+            document_prior: None,
+        },
+        metadata(page_count, LayoutClassification::SingleUncutPage, 0.9),
+    ));
+    let error = next_analysis_step(&doc, &analyses).err().unwrap();
+    assert!(error.message.contains("outside the document"));
+}

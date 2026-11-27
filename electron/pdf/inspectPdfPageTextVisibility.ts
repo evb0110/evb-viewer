@@ -7,6 +7,7 @@ import {
 } from 'node:fs/promises';
 import {join} from 'node:path';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
+import {isPdfPageOpsWasmPath} from '@node-runtime/pdfPageOpsWasmRunner';
 import {isAbortError} from '@electron/utils/abort';
 import {getErrorMessage} from '@electron/utils/error';
 import {
@@ -46,6 +47,12 @@ const PERSISTENT_DOCUMENT_FAILURE_CODES: ReadonlySet<TNativeErrorCode> = new Set
 ]);
 const UNREADABLE_DOCUMENTS_REMEMBERED = 8;
 const unreadableDocuments = new Map<string, string>();
+let nextVisibilitySessionId = 0;
+
+function allocateVisibilitySessionId() {
+    nextVisibilitySessionId = (nextVisibilitySessionId % 0x7fff_ffff) + 1;
+    return nextVisibilitySessionId;
+}
 
 async function readDocumentIdentity(pdfPath: string) {
     const fileStat = await stat(pdfPath, {bigint: true}).catch(() => null);
@@ -66,6 +73,70 @@ export type TOcrPdfTextVisibilityAnalysis =
         visibility: Map<number, IPdfOcrPageTextVisibility>;
     };
 
+export interface IPdfPageTextVisibilitySession {
+    inspectPages(
+        pageNumbers: readonly number[],
+        signal?: AbortSignal,
+    ): Promise<TOcrPdfTextVisibilityAnalysis>;
+    close(): Promise<void>;
+}
+
+/**
+ * Opens a visibility inspection session for multi-window reads of one PDF.
+ * On the desktop WASM engine, each `inspectPages` call completes immediately
+ * (holding no native-command or worker slot across Poppler calls) while keeping
+ * the parsed source index cached inside WASM until `close()` frees it.
+ */
+export function openPdfPageTextVisibilitySession(input: {
+    pdfPath: string;
+    pdfPageOpsBinary?: string | undefined;
+    tempDir: string;
+    withEvbOcrText?: boolean;
+    reuseSession?: boolean;
+}): IPdfPageTextVisibilitySession {
+    const canReuseSession = input.reuseSession !== false
+        && input.pdfPageOpsBinary !== undefined
+        && isPdfPageOpsWasmPath(input.pdfPageOpsBinary);
+    const sessionId = canReuseSession ? allocateVisibilitySessionId() : undefined;
+    let opened = false;
+    let closed = false;
+
+    return {
+        async inspectPages(pageNumbers, signal) {
+            if (sessionId !== undefined && !closed) {
+                opened = true;
+            }
+            return inspectPdfPageTextVisibilityWithSession({
+                pdfPath: input.pdfPath,
+                pageNumbers,
+                pdfPageOpsBinary: input.pdfPageOpsBinary,
+                tempDir: input.tempDir,
+                ...(signal === undefined ? {} : {signal}),
+                ...(input.withEvbOcrText === undefined ? {} : {withEvbOcrText: input.withEvbOcrText}),
+                ...(sessionId === undefined || closed ? {} : {sessionId}),
+            });
+        },
+        async close() {
+            if (closed || !opened || sessionId === undefined || input.pdfPageOpsBinary === undefined) {
+                closed = true;
+                return;
+            }
+            closed = true;
+            await runNativeToolCommand(input.pdfPageOpsBinary, [
+                'ocr-text-visibility',
+                '--input',
+                input.pdfPath,
+                '--close-session',
+                String(sessionId),
+            ], {
+                commandLabel: 'evb-pdf-page-ops(ocr-text-visibility:close)',
+                timeoutMs: 5_000,
+                maxStdoutBytes: 1024,
+            }).catch(() => undefined);
+        },
+    };
+}
+
 /**
  * Reads the existing text of the requested pages with the scan the OCR writer
  * replaces text through, in one pass over the document.
@@ -77,6 +148,18 @@ export async function inspectPdfPageTextVisibility(input: {
     tempDir: string;
     signal?: AbortSignal;
     withEvbOcrText?: boolean;
+}): Promise<TOcrPdfTextVisibilityAnalysis> {
+    return inspectPdfPageTextVisibilityWithSession(input);
+}
+
+async function inspectPdfPageTextVisibilityWithSession(input: {
+    pdfPath: string;
+    pageNumbers: readonly number[];
+    pdfPageOpsBinary?: string | undefined;
+    tempDir: string;
+    signal?: AbortSignal;
+    withEvbOcrText?: boolean;
+    sessionId?: number;
 }): Promise<TOcrPdfTextVisibilityAnalysis> {
     if (input.pdfPageOpsBinary === undefined) {
         return {
@@ -112,6 +195,10 @@ export async function inspectPdfPageTextVisibility(input: {
             input.pdfPath,
             '--pages-file',
             pagesPath,
+            ...(input.sessionId === undefined ? [] : [
+                '--session-id',
+                String(input.sessionId),
+            ]),
             ...(input.withEvbOcrText === true ? ['--with-evb-ocr-text'] : []),
         ], {
             commandLabel: 'evb-pdf-page-ops(ocr-text-visibility)',

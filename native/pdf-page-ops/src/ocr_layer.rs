@@ -721,6 +721,61 @@ pub(crate) fn write_ocr_text_visibility(
     Ok(())
 }
 
+/// Reusable single-open index for reading bounded OCR text visibility windows
+/// without re-parsing the PDF object graph on every window.
+pub(crate) struct OcrTextVisibilitySession<S> {
+    source: SourcePdf<S>,
+    incremental: IncrementalDocument,
+    resolver: PageTreeResolver,
+}
+
+impl<S: ByteSource> OcrTextVisibilitySession<S> {
+    pub(crate) fn open(source: S, len: u64) -> Result<Self> {
+        let mut source = SourcePdf::open(source, len)
+            .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+        assert_plaintext_base(
+            &source.document,
+            "Encrypted PDFs are not supported by native page ops",
+        )?;
+        let incremental = source.take_append_base()?;
+        let resolver = PageTreeResolver::new(&incremental.previous_document)?;
+        Ok(Self {
+            source,
+            incremental,
+            resolver,
+        })
+    }
+
+    #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+    pub(crate) fn source_len(&self) -> u64 {
+        self.source.len()
+    }
+
+    pub(crate) fn inspect_pages(
+        &mut self,
+        page_numbers: &[u32],
+        with_evb_ocr_text: bool,
+    ) -> Result<OcrTextVisibilityReport> {
+        inspect_ocr_text_visibility_with_resolver(
+            &mut self.incremental,
+            Some(&self.source as StructuralSource),
+            &self.resolver,
+            page_numbers,
+            with_evb_ocr_text,
+        )
+    }
+
+    pub(crate) fn inspect_pages_json(
+        &mut self,
+        page_numbers: &[u32],
+        with_evb_ocr_text: bool,
+    ) -> Result<Vec<u8>> {
+        Ok(serde_json::to_vec(
+            &self.inspect_pages(page_numbers, with_evb_ocr_text)?,
+        )?)
+    }
+}
+
 /// The `ocrTextVisibility` operation over a document read by range,
 /// serialized as `ocr-text-visibility` prints it.
 pub(crate) fn ocr_text_visibility_from_source<S: ByteSource>(
@@ -729,29 +784,17 @@ pub(crate) fn ocr_text_visibility_from_source<S: ByteSource>(
     page_numbers: &[u32],
     with_evb_ocr_text: bool,
 ) -> Result<Vec<u8>> {
-    let mut source = SourcePdf::open(source, len)
-        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    let mut incremental = source.take_append_base()?;
-    let report = inspect_ocr_text_visibility(
-        &mut incremental,
-        Some(&source as StructuralSource),
-        page_numbers,
-        with_evb_ocr_text,
-    )?;
-    Ok(serde_json::to_vec(&report)?)
+    let mut session = OcrTextVisibilitySession::open(source, len)?;
+    session.inspect_pages_json(page_numbers, with_evb_ocr_text)
 }
 
-fn inspect_ocr_text_visibility(
+fn inspect_ocr_text_visibility_with_resolver(
     incremental: &mut IncrementalDocument,
     structural: Option<StructuralSource<'_>>,
+    resolver: &PageTreeResolver,
     page_numbers: &[u32],
     with_evb_ocr_text: bool,
 ) -> Result<OcrTextVisibilityReport> {
-    assert_plaintext_base(
-        incremental.get_prev_documents(),
-        "Encrypted PDFs are not supported by native page ops",
-    )?;
-    let resolver = PageTreeResolver::new(&incremental.previous_document)?;
     let mut pages = Vec::with_capacity(page_numbers.len());
     let mut text_bytes = 0;
     for &page_number in page_numbers {
@@ -2194,5 +2237,68 @@ BT\n/F 34 Tf\n1 0 0 1 1000 2863 Tm\n<017F0069> Tj\nET\nQ\n% EVB_VIEWER_OCR_LAYER
         .unwrap();
         let saved = Document::load_mem(&combined).unwrap();
         assert_eq!(count_font_objects(&saved), (1, 1, 1));
+    }
+
+    #[test]
+    fn visibility_session_opens_source_once_across_windows_and_matches_one_shot() {
+        let base = blank_target_pdf(16);
+        let font_bytes = b"visibility-session-font-payload".repeat(32);
+        let mut combined = base.clone();
+        // Add EVB OCR layers to odd pages via the writer so the document exercises
+        // both EVB OCR text decoding and blank/non-OCR pages across multiple windows.
+        let pages_payload = serde_json::json!({
+            "pages": [
+                { "pageNumber": 1, "source": 0 },
+                { "pageNumber": 5, "source": 1 },
+                { "pageNumber": 9, "source": 2 },
+                { "pageNumber": 13, "source": 3 },
+            ]
+        })
+        .to_string();
+        let sources = [
+            glyphless_tesseract_page_pdf("WindowOne", &font_bytes, 400),
+            glyphless_tesseract_page_pdf("WindowTwo", &font_bytes, 400),
+            glyphless_tesseract_page_pdf("WindowThree", &font_bytes, 400),
+            glyphless_tesseract_page_pdf("WindowFour", &font_bytes, 400),
+        ];
+        ocr_text_layer_to_source(
+            base.as_slice(),
+            base.len() as u64,
+            pages_payload.as_bytes(),
+            |index| Ok(sources[index].clone()),
+            |revision| {
+                combined.extend_from_slice(revision);
+                Ok(revision.to_vec())
+            },
+        )
+        .unwrap();
+
+        let all_pages: Vec<u32> = (1..=16).collect();
+        let reference: OcrTextVisibilityReport = serde_json::from_slice(
+            &ocr_text_visibility_from_source(
+                combined.as_slice(),
+                combined.len() as u64,
+                &all_pages,
+                true,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+        crate::pdf_source::reset_source_pdf_open_count();
+        let mut session =
+            OcrTextVisibilitySession::open(combined.as_slice(), combined.len() as u64).unwrap();
+        assert_eq!(session.source_len(), combined.len() as u64);
+        let mut collected = Vec::new();
+        for window in all_pages.chunks(4) {
+            let report = session.inspect_pages(window, true).unwrap();
+            collected.extend(report.pages);
+        }
+        assert_eq!(
+            crate::pdf_source::source_pdf_open_count(),
+            1,
+            "OcrTextVisibilitySession must open the PDF source graph exactly once across all windows"
+        );
+        assert_eq!(collected, reference.pages);
     }
 }

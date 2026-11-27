@@ -384,10 +384,20 @@ pub(crate) fn page_tree_damaged(error: Box<dyn Error>) -> Box<dyn Error> {
     )
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct PageTreeResolver {
     root_pages_id: ObjectId,
     page_count: u32,
+    validated_pages: Option<Vec<ObjectId>>,
+    child_prefixes: std::cell::RefCell<HashMap<ObjectId, PageTreePrefixCache>>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct PageTreePrefixCache {
+    /// Cumulative exclusive leaf count and child id for each scanned kid.
+    entries: Vec<(u64, ObjectId)>,
+    /// Next unscanned index in the node's `/Kids` array.
+    next_kid: usize,
 }
 
 impl PageTreeResolver {
@@ -407,27 +417,43 @@ impl PageTreeResolver {
         Ok(Self {
             root_pages_id,
             page_count,
+            validated_pages: None,
+            child_prefixes: std::cell::RefCell::new(HashMap::new()),
         })
     }
 
     /// The resolver every page edit numbers pages through. It refuses a tree
     /// whose pages a reader could number differently: every leaf is a page,
-    /// appears once, and sits where the declared counts place it.
+    /// appears once, has no cycles or shared branches, and every subtree's
+    /// declared `/Count` matches its actual leaf count — checked in one O(P) walk.
     pub(crate) fn validated(document: &impl PdfObjectSource) -> Result<Self> {
         let tree = Self::new(document).map_err(page_tree_damaged)?;
-        let mut leaves = HashSet::new();
-        tree.for_each_page_id(document, |page| {
-            let number = leaves.len() as u32 + 1;
-            if !leaves.insert(page) {
-                return Err(format!("page {} {} R appears twice", page.0, page.1).into());
-            }
-            if tree.page_id(document, number)? != page {
-                return Err(format!("its counts place another page at {number}").into());
-            }
-            Ok(())
-        })
+        let mut in_path = HashSet::new();
+        let mut visited = HashSet::new();
+        let mut pages =
+            Vec::with_capacity(usize::try_from(tree.page_count).unwrap_or(0).min(16_384));
+        let count = validate_page_tree_node(
+            document,
+            tree.root_pages_id,
+            &mut in_path,
+            &mut visited,
+            0,
+            &mut pages,
+        )
         .map_err(page_tree_damaged)?;
-        Ok(tree)
+        if count != u64::from(tree.page_count) {
+            return Err(page_tree_damaged(
+                format!(
+                    "PDF page tree declared {} pages but contains {count}",
+                    tree.page_count
+                )
+                .into(),
+            ));
+        }
+        Ok(Self {
+            validated_pages: Some(pages),
+            ..tree
+        })
     }
 
     /// The resolver once both ends of the declared tree resolve, checked
@@ -446,6 +472,10 @@ impl PageTreeResolver {
         self.page_count
     }
 
+    pub(crate) fn validated_pages(&self) -> Option<&[ObjectId]> {
+        self.validated_pages.as_deref()
+    }
+
     pub(crate) fn page_id(
         &self,
         document: &impl PdfObjectSource,
@@ -454,6 +484,12 @@ impl PageTreeResolver {
         if page_number == 0 || page_number > self.page_count {
             return Err(page_range_error(page_number, self.page_count));
         }
+        if let Some(pages) = &self.validated_pages {
+            return pages
+                .get((page_number - 1) as usize)
+                .copied()
+                .ok_or_else(|| page_range_error(page_number, self.page_count));
+        }
         let mut seen = HashSet::new();
         resolve_page_tree_id(
             document,
@@ -461,6 +497,7 @@ impl PageTreeResolver {
             u64::from(page_number - 1),
             &mut seen,
             0,
+            &self.child_prefixes,
         )
     }
 
@@ -584,12 +621,36 @@ fn resolve_page_tree_id(
     target_page_index: u64,
     seen: &mut HashSet<ObjectId>,
     depth: usize,
+    child_prefixes: &std::cell::RefCell<HashMap<ObjectId, PageTreePrefixCache>>,
 ) -> Result<ObjectId> {
     if depth >= PAGE_TREE_DEPTH_LIMIT {
         return Err("PDF page tree exceeded the structural depth limit".into());
     }
     if !seen.insert(node_id) {
         return Err("PDF page tree contains a reference cycle".into());
+    }
+
+    let cached_hit = {
+        let prefixes = child_prefixes.borrow();
+        prefixes.get(&node_id).and_then(|cache| {
+            let pos = cache
+                .entries
+                .partition_point(|&(end, _)| end <= target_page_index);
+            cache.entries.get(pos).map(|&(_, kid_id)| {
+                let skipped = if pos == 0 {
+                    0
+                } else {
+                    cache.entries[pos - 1].0
+                };
+                (kid_id, target_page_index - skipped)
+            })
+        })
+    };
+    if let Some((kid_id, sub_index)) = cached_hit {
+        let result =
+            resolve_page_tree_id(document, kid_id, sub_index, seen, depth + 1, child_prefixes);
+        seen.remove(&node_id);
+        return result;
     }
 
     let dictionary = page_tree_dictionary(document, node_id)?;
@@ -604,61 +665,138 @@ fn resolve_page_tree_id(
         PageTreeNodeKind::Pages => {
             let kids = page_tree_kids(document, dictionary)?;
             let declared_count = page_tree_count(document, dictionary)?;
+            let has_cached_prefix = child_prefixes.borrow().contains_key(&node_id);
             // A /Kids array whose length equals /Count has one page per child
             // in a well-formed tree. Indexing that array directly keeps flat
             // million-page trees sparse; a multi-page child falls through to
-            // the count-aware walk below.
-            if let Ok(kid_index) = usize::try_from(target_page_index) {
-                if declared_count == u64::try_from(kids.len()).unwrap_or(u64::MAX) {
-                    if let Some(kid) = kids.get(kid_index) {
-                        let kid_id = page_tree_child_id(kid)?;
-                        let kid_dictionary = page_tree_dictionary(document, kid_id)?;
-                        match page_tree_node_kind(kid_dictionary)? {
-                            PageTreeNodeKind::Page => {
-                                seen.remove(&node_id);
-                                return Ok(kid_id);
+            // the prefix-cached count-aware walk below.
+            if !has_cached_prefix {
+                if let Ok(kid_index) = usize::try_from(target_page_index) {
+                    if declared_count == u64::try_from(kids.len()).unwrap_or(u64::MAX) {
+                        if let Some(kid) = kids.get(kid_index) {
+                            let kid_id = page_tree_child_id(kid)?;
+                            let kid_dictionary = page_tree_dictionary(document, kid_id)?;
+                            match page_tree_node_kind(kid_dictionary)? {
+                                PageTreeNodeKind::Page => {
+                                    seen.remove(&node_id);
+                                    return Ok(kid_id);
+                                }
+                                PageTreeNodeKind::Pages
+                                    if page_tree_count(document, kid_dictionary)? == 1 =>
+                                {
+                                    let result = resolve_page_tree_id(
+                                        document,
+                                        kid_id,
+                                        0,
+                                        seen,
+                                        depth + 1,
+                                        child_prefixes,
+                                    );
+                                    seen.remove(&node_id);
+                                    return result;
+                                }
+                                PageTreeNodeKind::Pages => {}
                             }
-                            PageTreeNodeKind::Pages
-                                if page_tree_count(document, kid_dictionary)? == 1 =>
-                            {
-                                let result =
-                                    resolve_page_tree_id(document, kid_id, 0, seen, depth + 1);
-                                seen.remove(&node_id);
-                                return result;
-                            }
-                            PageTreeNodeKind::Pages => {}
                         }
                     }
                 }
             }
-            let mut skipped_pages = 0_u64;
-            let mut result = Err("PDF page tree did not contain the requested page".into());
-            for kid in kids {
-                let kid_id = page_tree_child_id(kid)?;
-                let kid_dictionary = page_tree_dictionary(document, kid_id)?;
-                let kid_count = match page_tree_node_kind(kid_dictionary)? {
-                    PageTreeNodeKind::Page => 1,
-                    PageTreeNodeKind::Pages => page_tree_count(document, kid_dictionary)?,
-                };
-                let end = skipped_pages
-                    .checked_add(kid_count)
-                    .ok_or("PDF page tree page count overflow")?;
-                if target_page_index < end {
-                    result = resolve_page_tree_id(
-                        document,
-                        kid_id,
-                        target_page_index - skipped_pages,
-                        seen,
-                        depth + 1,
-                    );
-                    break;
+            let target_child = {
+                let mut prefixes = child_prefixes.borrow_mut();
+                let cache = prefixes.entry(node_id).or_default();
+                let mut skipped_pages = cache.entries.last().map_or(0, |&(end, _)| end);
+                let mut found = None;
+                while cache.next_kid < kids.len() {
+                    let kid = &kids[cache.next_kid];
+                    let kid_id = page_tree_child_id(kid)?;
+                    let kid_dictionary = page_tree_dictionary(document, kid_id)?;
+                    let kid_count = match page_tree_node_kind(kid_dictionary)? {
+                        PageTreeNodeKind::Page => 1,
+                        PageTreeNodeKind::Pages => page_tree_count(document, kid_dictionary)?,
+                    };
+                    let end = skipped_pages
+                        .checked_add(kid_count)
+                        .ok_or("PDF page tree page count overflow")?;
+                    cache.entries.push((end, kid_id));
+                    cache.next_kid += 1;
+                    if target_page_index < end {
+                        found = Some((kid_id, target_page_index - skipped_pages));
+                        break;
+                    }
+                    skipped_pages = end;
                 }
-                skipped_pages = end;
+                found
+            };
+            match target_child {
+                Some((kid_id, sub_index)) => resolve_page_tree_id(
+                    document,
+                    kid_id,
+                    sub_index,
+                    seen,
+                    depth + 1,
+                    child_prefixes,
+                ),
+                None => Err("PDF page tree did not contain the requested page".into()),
             }
-            result
         }
     };
     seen.remove(&node_id);
+    result
+}
+
+fn validate_page_tree_node(
+    document: &impl PdfObjectSource,
+    node_id: ObjectId,
+    in_path: &mut HashSet<ObjectId>,
+    visited: &mut HashSet<ObjectId>,
+    depth: usize,
+    pages: &mut Vec<ObjectId>,
+) -> Result<u64> {
+    if depth >= PAGE_TREE_DEPTH_LIMIT {
+        return Err("PDF page tree exceeded the structural depth limit".into());
+    }
+    if !in_path.insert(node_id) {
+        return Err("PDF page tree contains a reference cycle".into());
+    }
+    if !visited.insert(node_id) {
+        in_path.remove(&node_id);
+        return Err("PDF page tree shares a node across multiple branches".into());
+    }
+
+    let dictionary = page_tree_dictionary(document, node_id)?;
+    let result = match page_tree_node_kind(dictionary)? {
+        PageTreeNodeKind::Page => {
+            pages.push(node_id);
+            Ok(1)
+        }
+        PageTreeNodeKind::Pages => {
+            let declared_count = page_tree_count(document, dictionary)?;
+            let mut actual_count = 0_u64;
+            for kid in page_tree_kids(document, dictionary)? {
+                let kid_id = page_tree_child_id(kid)?;
+                actual_count = actual_count
+                    .checked_add(validate_page_tree_node(
+                        document,
+                        kid_id,
+                        in_path,
+                        visited,
+                        depth + 1,
+                        pages,
+                    )?)
+                    .ok_or("PDF page tree page count overflow")?;
+            }
+            if actual_count != declared_count {
+                Err(format!(
+                    "PDF page tree node {} {} R declared {declared_count} pages but contains {actual_count}",
+                    node_id.0, node_id.1
+                )
+                .into())
+            } else {
+                Ok(actual_count)
+            }
+        }
+    };
+    in_path.remove(&node_id);
     result
 }
 
@@ -1286,5 +1424,220 @@ mod protocol_schema_tests {
             .map(Vec::len)
             .sum();
         assert_eq!(admitted_points, 99_990);
+    }
+
+    fn build_grouped_page_tree_document(page_count: u32, group_size: u32) -> Document {
+        assert!(page_count > 0 && group_size > 0);
+        let mut doc = Document::with_version("1.5");
+        let root_pages_id = doc.new_object_id();
+        let mut branch_kids = Vec::new();
+        let mut remaining = page_count;
+        while remaining > 0 {
+            let chunk = remaining.min(group_size);
+            remaining -= chunk;
+            let branch_id = doc.new_object_id();
+            let mut leaf_kids = Vec::with_capacity(chunk as usize);
+            for _ in 0..chunk {
+                let page_id = doc.new_object_id();
+                doc.objects.insert(
+                    page_id,
+                    Object::Dictionary(dictionary! {
+                        "Type" => "Page",
+                        "Parent" => branch_id,
+                        "MediaBox" => vec![0.into(), 0.into(), 200.into(), 200.into()],
+                    }),
+                );
+                leaf_kids.push(Object::Reference(page_id));
+            }
+            doc.objects.insert(
+                branch_id,
+                Object::Dictionary(dictionary! {
+                    "Type" => "Pages",
+                    "Parent" => root_pages_id,
+                    "Kids" => leaf_kids,
+                    "Count" => i64::from(chunk),
+                }),
+            );
+            branch_kids.push(Object::Reference(branch_id));
+        }
+        doc.objects.insert(
+            root_pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => branch_kids,
+                "Count" => i64::from(page_count),
+            }),
+        );
+        let catalog_id = doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => root_pages_id,
+        });
+        doc.trailer.set("Root", catalog_id);
+        doc
+    }
+
+    #[test]
+    fn validated_page_tree_scales_linearly_on_wide_non_flat_trees() {
+        let mut reads_by_size = Vec::new();
+        for page_count in [2_500_u32, 5_000_u32, 10_000_u32] {
+            let doc = build_grouped_page_tree_document(page_count, 2);
+            reset_page_tree_node_read_count();
+            let validated = PageTreeResolver::validated(&doc).unwrap();
+            let validate_reads = page_tree_node_read_count();
+            assert_eq!(validated.page_count(), page_count);
+            assert_eq!(
+                validated.validated_pages().unwrap().len(),
+                page_count as usize
+            );
+            // 1 root (new) + 1 root (walk) + P/2 branches + P leaves = 1.5*P + 2
+            let expected_max = (page_count as usize) * 2 + 10;
+            assert!(
+                validate_reads <= expected_max,
+                "expected O(P) reads for {page_count} pages, got {validate_reads}"
+            );
+            reads_by_size.push((page_count, validate_reads));
+
+            // Subsequent ordinal lookups on a validated resolver take 0 tree reads.
+            reset_page_tree_node_read_count();
+            let first = validated.page_id(&doc, 1).unwrap();
+            let mid = validated.page_id(&doc, page_count / 2).unwrap();
+            let last = validated.page_id(&doc, page_count).unwrap();
+            assert_eq!(page_tree_node_read_count(), 0);
+
+            // Unvalidated resolver uses cached child prefixes + binary search.
+            reset_page_tree_node_read_count();
+            let resolver = PageTreeResolver::new(&doc).unwrap();
+            assert_eq!(resolver.page_id(&doc, 1).unwrap(), first);
+            assert_eq!(resolver.page_id(&doc, page_count / 2).unwrap(), mid);
+            assert_eq!(resolver.page_id(&doc, page_count).unwrap(), last);
+            for page in (1..=page_count).step_by(17) {
+                assert_eq!(
+                    resolver.page_id(&doc, page).unwrap(),
+                    validated.page_id(&doc, page).unwrap()
+                );
+            }
+            let cached_lookup_reads = page_tree_node_read_count();
+            assert!(
+                cached_lookup_reads <= (page_count as usize) * 2 + 10,
+                "expected O(P) prefix-cached reads for {page_count} pages, got {cached_lookup_reads}"
+            );
+        }
+        // 4x page count (2.5k -> 10k) must produce ~4x reads, never 16x (O(P^2)).
+        let reads_2500 = reads_by_size[0].1;
+        let reads_10000 = reads_by_size[2].1;
+        assert!(
+            reads_10000 <= reads_2500 * 5,
+            "non-linear growth: 2.5k={reads_2500}, 10k={reads_10000}"
+        );
+    }
+
+    #[test]
+    fn validated_page_tree_rejects_cycles_count_mismatches_and_duplicate_leaves() {
+        // 1. Cycle: root -> branch -> root
+        let mut cyclic = build_grouped_page_tree_document(2, 2);
+        let root_id = cyclic
+            .catalog()
+            .unwrap()
+            .get(b"Pages")
+            .unwrap()
+            .as_reference()
+            .unwrap();
+        let branch_id = cyclic
+            .get_dictionary(root_id)
+            .unwrap()
+            .get(b"Kids")
+            .unwrap()
+            .as_array()
+            .unwrap()[0]
+            .as_reference()
+            .unwrap();
+        cyclic
+            .get_dictionary_mut(branch_id)
+            .unwrap()
+            .set("Kids", vec![Object::Reference(root_id)]);
+        let err = PageTreeResolver::validated(&cyclic)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("cycle"), "expected cycle error, got: {err}");
+
+        // 2. Intermediate count mismatch (even with cancelling siblings so root /Count matches!)
+        let mut mismatched = build_grouped_page_tree_document(4, 2);
+        let root_id = mismatched
+            .catalog()
+            .unwrap()
+            .get(b"Pages")
+            .unwrap()
+            .as_reference()
+            .unwrap();
+        let kids = mismatched
+            .get_dictionary(root_id)
+            .unwrap()
+            .get(b"Kids")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .clone();
+        let branch_a = kids[0].as_reference().unwrap();
+        let branch_b = kids[1].as_reference().unwrap();
+        mismatched
+            .get_dictionary_mut(branch_a)
+            .unwrap()
+            .set("Count", 1);
+        mismatched
+            .get_dictionary_mut(branch_b)
+            .unwrap()
+            .set("Count", 3);
+        let err = PageTreeResolver::validated(&mismatched)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("declared 1 pages but contains 2"),
+            "expected subtree count mismatch error, got: {err}"
+        );
+
+        // 3. Duplicate leaf referenced from two branches
+        let mut dup = build_grouped_page_tree_document(4, 2);
+        let root_id = dup
+            .catalog()
+            .unwrap()
+            .get(b"Pages")
+            .unwrap()
+            .as_reference()
+            .unwrap();
+        let kids = dup
+            .get_dictionary(root_id)
+            .unwrap()
+            .get(b"Kids")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .clone();
+        let branch_a = kids[0].as_reference().unwrap();
+        let branch_b = kids[1].as_reference().unwrap();
+        let shared_leaf = dup
+            .get_dictionary(branch_a)
+            .unwrap()
+            .get(b"Kids")
+            .unwrap()
+            .as_array()
+            .unwrap()[0]
+            .clone();
+        let mut b_kids = dup
+            .get_dictionary(branch_b)
+            .unwrap()
+            .get(b"Kids")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .clone();
+        b_kids[0] = shared_leaf;
+        dup.get_dictionary_mut(branch_b)
+            .unwrap()
+            .set("Kids", b_kids);
+        let err = PageTreeResolver::validated(&dup).unwrap_err().to_string();
+        assert!(
+            err.contains("shares a node"),
+            "expected duplicate leaf rejection, got: {err}"
+        );
     }
 }

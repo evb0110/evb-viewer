@@ -188,9 +188,27 @@ pub(crate) fn allocate_split_annotations(
 ) -> Result<(SplitAnnotationMap, PendingSplitAnnotations)> {
     let mut copies = crate::split_output::SplitAnnotationMap::new();
     let mut pending = Vec::new();
+    let mut listed_by_page: HashMap<ObjectId, (HashSet<ObjectId>, PdfRect, i64)> = HashMap::new();
     for (index, output) in pages.iter_mut().enumerate() {
         let entries = crate::split_navigation::source_annotation_entries(source, output.source_id);
         let mut kept = Vec::with_capacity(entries.len());
+        let page_context = if entries.is_empty() {
+            None
+        } else {
+            if let std::collections::hash_map::Entry::Vacant(slot) =
+                listed_by_page.entry(output.source_id)
+            {
+                slot.insert((
+                    crate::annotation_threads::page_listed_annotation_ids(
+                        source,
+                        output.source_id,
+                    )?,
+                    resolve_page_view(source, output.source_id)?,
+                    resolve_page_rotation(source, output.source_id)?,
+                ));
+            }
+            listed_by_page.get(&output.source_id)
+        };
         for (slot, entry) in entries.into_iter().enumerate() {
             let Some((source_id, mut annotation)) = source
                 .dereference(&entry)
@@ -200,7 +218,15 @@ pub(crate) fn allocate_split_annotations(
                 kept.push(entry);
                 continue;
             };
-            if !crate::annotation_threads::keep_split_annotation(source, output, &annotation)? {
+            let (listed, source_view, source_rotation) = page_context.expect("non-empty entries");
+            if !crate::annotation_threads::keep_split_annotation(
+                source,
+                output,
+                &annotation,
+                listed,
+                *source_view,
+                *source_rotation,
+            )? {
                 continue;
             }
             let copy_id = if let Some(source_id) = source_id {

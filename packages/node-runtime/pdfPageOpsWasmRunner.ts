@@ -555,6 +555,7 @@ function renameWithRetrySync(sourcePath: string, targetPath: string) {
 export interface IPdfPageOpsWasmRunner {
     runFileRequest(request: Uint8Array, io: IHostIoContext): Uint8Array<ArrayBuffer>;
     runRawRequest(request: Uint8Array): Uint8Array<ArrayBuffer>;
+    setVisibilitySessionActive?(sessionId: number, active: boolean): void;
     maybeRecycle(): void;
     dispose(): void;
     memoryBytes(): number;
@@ -691,6 +692,8 @@ export function createPdfPageOpsWasmRunner(
         },
     };
 
+    const activeVisibilitySessions = new Set<number>();
+
     function getTool() {
         tool ??= readExports(new WebAssembly.Instance(wasmModule, hostImports).exports);
         return tool;
@@ -698,10 +701,20 @@ export function createPdfPageOpsWasmRunner(
 
     function dispose() {
         tool = null;
+        activeVisibilitySessions.clear();
+    }
+
+    function setVisibilitySessionActive(sessionId: number, active: boolean) {
+        if (active) {
+            activeVisibilitySessions.add(sessionId);
+        } else {
+            activeVisibilitySessions.delete(sessionId);
+        }
     }
 
     function maybeRecycle() {
-        if (tool && tool.memory.buffer.byteLength > highWaterBytes) {
+        const limit = activeVisibilitySessions.size > 0 ? highWaterBytes * 2 : highWaterBytes;
+        if (tool && tool.memory.buffer.byteLength > limit) {
             dispose();
         }
     }
@@ -780,6 +793,7 @@ export function createPdfPageOpsWasmRunner(
     return {
         runFileRequest: (request, io) => runInternal(request, io),
         runRawRequest: request => runInternal(request, null),
+        setVisibilitySessionActive,
         maybeRecycle,
         dispose,
         memoryBytes: () => tool?.memory.buffer.byteLength ?? 0,
@@ -1031,6 +1045,8 @@ interface IParsedCliArgs {
     metadataOnly: boolean;
     strict: boolean;
     withEvbOcrText: boolean;
+    sessionId?: number;
+    closeSession?: number;
     viewMode?: string;
     orientation?: string;
 }
@@ -1070,6 +1086,8 @@ function parseDesktopPageOpsCliArgs(args: readonly string[]): IParsedCliArgs {
     let metadataOnly = false;
     let strict = false;
     let withEvbOcrText = false;
+    let sessionId: number | undefined;
+    let closeSession: number | undefined;
     let viewMode: string | undefined;
     let orientation: string | undefined;
 
@@ -1182,6 +1200,32 @@ function parseDesktopPageOpsCliArgs(args: readonly string[]): IParsedCliArgs {
             case '--with-evb-ocr-text':
                 withEvbOcrText = true;
                 break;
+            case '--session-id': {
+                if (command !== 'ocr-text-visibility') {
+                    throw new PdfPageOpsNativeError('invalid-request', '--session-id is only valid for ocr-text-visibility');
+                }
+                const raw = nextValue(arg, i);
+                const parsedValue = Number(raw);
+                if (!/^\d+$/u.test(raw) || !Number.isSafeInteger(parsedValue) || parsedValue <= 0 || parsedValue > MAX_U32) {
+                    throw new PdfPageOpsNativeError('invalid-request', `Invalid --session-id value: ${raw}`);
+                }
+                sessionId = parsedValue;
+                i += 1;
+                break;
+            }
+            case '--close-session': {
+                if (command !== 'ocr-text-visibility') {
+                    throw new PdfPageOpsNativeError('invalid-request', '--close-session is only valid for ocr-text-visibility');
+                }
+                const raw = nextValue(arg, i);
+                const parsedValue = Number(raw);
+                if (!/^\d+$/u.test(raw) || !Number.isSafeInteger(parsedValue) || parsedValue <= 0 || parsedValue > MAX_U32) {
+                    throw new PdfPageOpsNativeError('invalid-request', `Invalid --close-session value: ${raw}`);
+                }
+                closeSession = parsedValue;
+                i += 1;
+                break;
+            }
             case '--append':
                 append = true;
                 break;
@@ -1250,6 +1294,8 @@ function parseDesktopPageOpsCliArgs(args: readonly string[]): IParsedCliArgs {
         metadataOnly,
         strict,
         withEvbOcrText,
+        ...(sessionId === undefined ? {} : {sessionId}),
+        ...(closeSession === undefined ? {} : {closeSession}),
         ...(viewMode === undefined ? {} : {viewMode}),
         ...(orientation === undefined ? {} : {orientation}),
     };
@@ -1939,18 +1985,52 @@ function dispatchDesktopPageOpsCommand(
             if (parsed.outputPath !== undefined) {
                 throw new PdfPageOpsNativeError('invalid-request', 'ocr-text-visibility prints its result on stdout and takes no --output');
             }
+            if (parsed.sessionId !== undefined && parsed.closeSession !== undefined) {
+                throw new PdfPageOpsNativeError('invalid-request', '--session-id and --close-session cannot be combined');
+            }
+            if (parsed.closeSession !== undefined) {
+                const request = encodeFileRequest({
+                    operation: OPERATION_CODES.ocrTextVisibility,
+                    sourceCount: 0,
+                    afterPage: parsed.closeSession,
+                    tail: textEncoder.encode('close'),
+                });
+                const emptyIo: IHostIoContext = {
+                    sources: [],
+                    extraOpenOrder: [],
+                    sink: null,
+                    memory: null,
+                };
+                try {
+                    return okResult(decodeJsonResponse(runner.runFileRequest(request, emptyIo)));
+                } finally {
+                    runner.setVisibilitySessionActive?.(parsed.closeSession, false);
+                }
+            }
             const pages = readPagesFile(requireFlag(parsed.pagesFile, '--pages-file'), MAX_COLLECTION_ITEMS);
             return withHostFiles({sourcePaths: [parsed.inputPath]}, io => {
                 const request = encodeFileRequest({
                     operation: OPERATION_CODES.ocrTextVisibility,
                     sourceCount: 1,
+                    ...(parsed.sessionId === undefined ? {} : {afterPage: parsed.sessionId}),
                     pages,
                     ...(parsed.withEvbOcrText ? {tail: textEncoder.encode('with-evb-ocr-text')} : {}),
                 });
-                return {
-                    result: okResult(decodeJsonResponse(runner.runFileRequest(request, io))),
-                    commitOutput: false,
-                };
+                try {
+                    const result = okResult(decodeJsonResponse(runner.runFileRequest(request, io)));
+                    if (parsed.sessionId !== undefined) {
+                        runner.setVisibilitySessionActive?.(parsed.sessionId, true);
+                    }
+                    return {
+                        result,
+                        commitOutput: false,
+                    };
+                } catch (error) {
+                    if (parsed.sessionId !== undefined) {
+                        runner.setVisibilitySessionActive?.(parsed.sessionId, false);
+                    }
+                    throw error;
+                }
             });
         }
 
