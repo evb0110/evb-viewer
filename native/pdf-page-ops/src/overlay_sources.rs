@@ -4,7 +4,6 @@ use evb_native_support::output::AtomicOutput;
 use std::path::Path;
 
 pub(crate) const MAX_SOURCE_PAGE_BATCH_PAGES: usize = 64;
-const MAX_CLASSIC_XREF_OFFSET: u64 = 9_999_999_999;
 
 pub(crate) fn read_text_layer_file(path: &Path) -> Result<TextLayerFile> {
     validate_text_layer(read_json_sidecar(path, "text-layer instructions")?)
@@ -407,35 +406,8 @@ impl<'a> IndexedTextLayerInstructions<'a> {
     }
 }
 
-fn parse_revision_startxref(revision_bytes: &[u8]) -> Result<u64> {
-    let marker = b"startxref";
-    let pos = revision_bytes
-        .windows(marker.len())
-        .rposition(|window| window == marker)
-        .ok_or("overlay-text appended revision is missing startxref")?;
-    let tail = &revision_bytes[pos + marker.len()..];
-    let digits_start = tail
-        .iter()
-        .position(|byte| byte.is_ascii_digit())
-        .ok_or("overlay-text appended revision has invalid startxref offset")?;
-    let digits_end = tail[digits_start..]
-        .iter()
-        .position(|byte| !byte.is_ascii_digit())
-        .map_or(tail.len(), |end| digits_start + end);
-    let text = std::str::from_utf8(&tail[digits_start..digits_end])
-        .map_err(|_| "overlay-text appended revision has non-UTF8 startxref")?;
-    text.parse::<u64>()
-        .map_err(|_| "overlay-text appended revision startxref overflow".into())
-}
-
 fn reset_pending_overlay_revision(incremental: &mut IncrementalDocument) -> Result<()> {
-    let previous_xref_start = incremental.previous_xref_start();
-    incremental.new_document = Document::new_from_prev(&incremental.previous_document);
-    incremental
-        .new_document
-        .trailer
-        .set("Prev", i64::try_from(previous_xref_start)?);
-    Ok(())
+    incremental.reset_pending_revision()
 }
 
 fn check_overlay_xref_budget(
@@ -444,58 +416,7 @@ fn check_overlay_xref_budget(
     revision_bytes: &[u8],
     expected_object_ids: &[ObjectId],
 ) -> Result<()> {
-    if revision_bytes.is_empty() {
-        return Ok(());
-    }
-    let new_xref_start = parse_revision_startxref(revision_bytes)?;
-    let was_xref_stream = matches!(
-        incremental
-            .get_prev_documents()
-            .reference_table
-            .cross_reference_type,
-        lopdf::xref::XrefType::CrossReferenceStream
-    );
-    let wrote_xref_stream = was_xref_stream || new_xref_start > MAX_CLASSIC_XREF_OFFSET;
-    let previous_objects = &incremental.get_prev_documents().objects;
-    let new_objects = &incremental.new_document.objects;
-    let mut new_object_numbers = 0usize;
-    let mut net_value_delta = 0isize;
-    let reopened_value_count = |object: &Object| -> isize {
-        let stream_length_extra =
-            usize::from(matches!(object, Object::Stream(stream) if !stream.dict.has(b"Length")));
-        (crate::pdf_source::object_value_count(object) + stream_length_extra) as isize
-    };
-    for id in expected_object_ids {
-        let Some(new_obj) = new_objects.get(id) else {
-            continue;
-        };
-        let new_values = reopened_value_count(new_obj);
-        if (new_values as usize).saturating_sub(1) > crate::pdf_source::MAX_OBJECT_ELEMENTS {
-            return Err(domain_error(
-                NativeErrorCode::TooLarge,
-                format!(
-                    "PDF object {} {} exceeds the {}-element ceiling",
-                    id.0,
-                    id.1,
-                    crate::pdf_source::MAX_OBJECT_ELEMENTS
-                ),
-            ));
-        }
-        let old_values = match previous_objects.get(id) {
-            Some(old_obj) => reopened_value_count(old_obj),
-            None => {
-                new_object_numbers += 1;
-                0
-            }
-        };
-        net_value_delta = net_value_delta.saturating_add(new_values - old_values);
-    }
-    budget.check_and_record_revision(
-        expected_object_ids.len(),
-        new_object_numbers,
-        net_value_delta,
-        wrote_xref_stream,
-    )
+    incremental.check_xref_budget(budget, revision_bytes, expected_object_ids)
 }
 
 /// Advances the indexed append base in place after a revision has been written
@@ -504,24 +425,7 @@ fn advance_verified_overlay_append_base(
     incremental: &mut IncrementalDocument,
     revision_bytes: &[u8],
 ) -> Result<()> {
-    if revision_bytes.is_empty() {
-        return reset_pending_overlay_revision(incremental);
-    }
-    let new_len = incremental
-        .previous_len()
-        .checked_add(u64::try_from(revision_bytes.len())?)
-        .ok_or("overlay-text output size overflow")?;
-    let new_last_byte = revision_bytes.last().copied();
-    let new_xref_start = parse_revision_startxref(revision_bytes)?;
-    let was_xref_stream = matches!(
-        incremental
-            .get_prev_documents()
-            .reference_table
-            .cross_reference_type,
-        lopdf::xref::XrefType::CrossReferenceStream
-    );
-    let wrote_xref_stream = was_xref_stream || new_xref_start > MAX_CLASSIC_XREF_OFFSET;
-    incremental.advance_verified_revision(new_len, new_last_byte, new_xref_start, wrote_xref_stream)
+    incremental.advance_verified_revision_bytes(revision_bytes)
 }
 
 struct PathBoundedVecWriter {

@@ -150,6 +150,113 @@ impl IncrementalDocument {
         Ok(())
     }
 
+    /// Discards pending changes in `new_document`, restoring a clean revision
+    /// anchored at `previous_xref_start`.
+    pub(crate) fn reset_pending_revision(&mut self) -> Result<()> {
+        let previous_xref_start = self.previous_xref_start;
+        self.new_document = Document::new_from_prev(&self.previous_document);
+        self.new_document
+            .trailer
+            .set("Prev", i64::try_from(previous_xref_start)?);
+        Ok(())
+    }
+
+    /// Verifies that appending `revision_bytes` stays within the indexed
+    /// reader's cumulative cross-reference section, offset, entry, and value
+    /// limits, advancing `budget` on success.
+    pub(crate) fn check_xref_budget(
+        &self,
+        budget: &mut crate::pdf_source::IndexedXrefBudget,
+        revision_bytes: &[u8],
+        expected_object_ids: &[ObjectId],
+    ) -> Result<()> {
+        if revision_bytes.is_empty() {
+            return Ok(());
+        }
+        let new_xref_start = parse_number_after_last_marker(revision_bytes, b"startxref")
+            .ok_or("Appended incremental revision is missing startxref")?;
+        let was_xref_stream = matches!(
+            self.get_prev_documents()
+                .reference_table
+                .cross_reference_type,
+            lopdf::xref::XrefType::CrossReferenceStream
+        );
+        let wrote_xref_stream = was_xref_stream || new_xref_start > MAX_CLASSIC_XREF_OFFSET;
+        let previous_objects = &self.get_prev_documents().objects;
+        let new_objects = &self.new_document.objects;
+        let mut new_object_numbers = 0usize;
+        let mut net_value_delta = 0isize;
+        let reopened_value_count = |object: &Object| -> isize {
+            let stream_length_extra = usize::from(
+                matches!(object, Object::Stream(stream) if !stream.dict.has(b"Length")),
+            );
+            (crate::pdf_source::object_value_count(object) + stream_length_extra) as isize
+        };
+        for id in expected_object_ids {
+            let Some(new_obj) = new_objects.get(id) else {
+                continue;
+            };
+            if object_exceeds_nesting_limit(new_obj, MAX_PDF_STRUCTURAL_NESTING) {
+                return Err(domain_error(
+                    NativeErrorCode::TooLarge,
+                    format!(
+                        "PDF object {} {} exceeds the {MAX_PDF_STRUCTURAL_NESTING}-level nesting ceiling",
+                        id.0, id.1
+                    ),
+                ));
+            }
+            let new_values = reopened_value_count(new_obj);
+            if (new_values as usize).saturating_sub(1) > crate::pdf_source::MAX_OBJECT_ELEMENTS {
+                return Err(domain_error(
+                    NativeErrorCode::TooLarge,
+                    format!(
+                        "PDF object {} {} exceeds the {}-element ceiling",
+                        id.0,
+                        id.1,
+                        crate::pdf_source::MAX_OBJECT_ELEMENTS
+                    ),
+                ));
+            }
+            let old_values = match previous_objects.get(id) {
+                Some(old_obj) => reopened_value_count(old_obj),
+                None => {
+                    new_object_numbers += 1;
+                    0
+                }
+            };
+            net_value_delta = net_value_delta.saturating_add(new_values - old_values);
+        }
+        budget.check_and_record_revision(
+            expected_object_ids.len(),
+            new_object_numbers,
+            net_value_delta,
+            wrote_xref_stream,
+        )
+    }
+
+    /// Advances this append base in place from verified `revision_bytes`,
+    /// resetting pending state when the revision is empty.
+    pub(crate) fn advance_verified_revision_bytes(&mut self, revision_bytes: &[u8]) -> Result<()> {
+        if revision_bytes.is_empty() {
+            return self.reset_pending_revision();
+        }
+        let new_len = self
+            .previous_len
+            .checked_add(u64::try_from(revision_bytes.len())?)
+            .ok_or("Incremental output size overflow")?;
+        let new_last_byte = revision_bytes.last().copied();
+        let new_xref_start = parse_number_after_last_marker(revision_bytes, b"startxref")
+            .ok_or("Appended incremental revision is missing startxref")?;
+        let was_xref_stream = matches!(
+            self.get_prev_documents()
+                .reference_table
+                .cross_reference_type,
+            lopdf::xref::XrefType::CrossReferenceStream
+        );
+        let wrote_xref_stream = was_xref_stream || new_xref_start > MAX_CLASSIC_XREF_OFFSET;
+        self.advance_verified_revision(new_len, new_last_byte, new_xref_start, wrote_xref_stream)
+    }
+
     pub(crate) fn get_prev_documents(&self) -> &Document {
         &self.previous_document
     }
@@ -220,6 +327,36 @@ impl IncrementalDocument {
         self.new_document.set_object(object_id, old_object.clone());
         Ok(())
     }
+}
+
+/// Returns true if any direct value inside `object` sits deeper than
+/// `max_depth`, matching `pdf_source.rs`'s structural parser depth limit.
+fn object_exceeds_nesting_limit(object: &Object, max_depth: usize) -> bool {
+    let mut stack = vec![(object, 0usize)];
+    while let Some((current, depth)) = stack.pop() {
+        if depth > max_depth {
+            return true;
+        }
+        match current {
+            Object::Array(items) => {
+                for item in items {
+                    stack.push((item, depth + 1));
+                }
+            }
+            Object::Dictionary(dictionary) => {
+                for (_, value) in dictionary.iter() {
+                    stack.push((value, depth + 1));
+                }
+            }
+            Object::Stream(stream) => {
+                for (_, value) in stream.dict.iter() {
+                    stack.push((value, depth + 1));
+                }
+            }
+            _ => {}
+        }
+    }
+    false
 }
 
 /// The structural reader stands each base stream in as its dictionary with no
@@ -470,6 +607,124 @@ mod tests {
                 .unwrap()
                 .content,
             b"recovered bytes"
+        );
+    }
+
+    #[test]
+    fn advance_verified_revision_bytes_resets_empty_revision_without_changing_anchor() {
+        let mut document = Document::with_version("1.5");
+        let pages_id = document.new_object_id();
+        let page_id = document.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+        });
+        document.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![page_id.into()],
+                "Count" => 1,
+            }),
+        );
+        let catalog_id = document.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        document.trailer.set("Root", catalog_id);
+        let mut bytes = Vec::new();
+        document.save_to(&mut bytes).unwrap();
+
+        let mut source = SourcePdf::open_append_base(bytes.as_slice(), bytes.len() as u64).unwrap();
+        let mut incremental = source.take_append_base().unwrap();
+        let initial_len = incremental.previous_len();
+        let initial_xref = incremental.previous_xref_start();
+        let initial_max_id = incremental.previous_document.max_id;
+
+        // Add a non-emitted object, then advance with empty revision bytes.
+        let scratch_id = incremental.new_document.add_object(dictionary! {
+            "Type" => "ObjStm",
+        });
+        assert!(incremental.new_document.has_object(scratch_id));
+        incremental.advance_verified_revision_bytes(&[]).unwrap();
+
+        assert_eq!(incremental.previous_len(), initial_len);
+        assert_eq!(incremental.previous_xref_start(), initial_xref);
+        assert_eq!(incremental.previous_document.max_id, initial_max_id);
+        assert!(!incremental.new_document.has_object(scratch_id));
+        assert_eq!(
+            incremental
+                .new_document
+                .trailer
+                .get(b"Prev")
+                .unwrap()
+                .as_i64()
+                .unwrap(),
+            initial_xref as i64
+        );
+    }
+
+    #[test]
+    fn check_xref_budget_rejects_emitted_objects_exceeding_structural_nesting_limit() {
+        let mut document = Document::with_version("1.5");
+        document.reference_table.cross_reference_type = lopdf::xref::XrefType::CrossReferenceTable;
+        let pages_id = document.new_object_id();
+        let page_id = document.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+        });
+        document.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![page_id.into()],
+                "Count" => 1,
+            }),
+        );
+        let catalog_id = document.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        document.trailer.set("Root", catalog_id);
+        let mut bytes = Vec::new();
+        document.save_to(&mut bytes).unwrap();
+
+        let make_nested_dict = |levels: usize| {
+            let mut value = Object::Integer(1);
+            for _ in 0..levels {
+                value = Object::Dictionary(dictionary! { "N" => value });
+            }
+            value
+        };
+
+        // Exactly MAX_PDF_STRUCTURAL_NESTING (256) levels from root to leaf is allowed.
+        let mut source = SourcePdf::open_append_base(bytes.as_slice(), bytes.len() as u64).unwrap();
+        let mut budget = source.xref_budget();
+        let mut inc_ok = source.take_append_base().unwrap();
+        let ok_id = inc_ok
+            .new_document
+            .add_object(make_nested_dict(MAX_PDF_STRUCTURAL_NESTING));
+        let ok_rev = build_incremental_revision(&mut inc_ok).unwrap();
+        inc_ok
+            .check_xref_budget(&mut budget, &ok_rev, &[ok_id])
+            .expect("depth == MAX_PDF_STRUCTURAL_NESTING must pass");
+
+        // MAX_PDF_STRUCTURAL_NESTING + 1 (257) levels must be refused before publishing.
+        let mut source2 =
+            SourcePdf::open_append_base(bytes.as_slice(), bytes.len() as u64).unwrap();
+        let mut budget2 = source2.xref_budget();
+        let mut inc_too_deep = source2.take_append_base().unwrap();
+        let deep_id = inc_too_deep
+            .new_document
+            .add_object(make_nested_dict(MAX_PDF_STRUCTURAL_NESTING + 1));
+        let deep_rev = build_incremental_revision(&mut inc_too_deep).unwrap();
+        let err = inc_too_deep
+            .check_xref_budget(&mut budget2, &deep_rev, &[deep_id])
+            .expect_err("depth > MAX_PDF_STRUCTURAL_NESTING must be refused");
+        assert_eq!(
+            err.downcast_ref::<NativeError>().map(|e| e.code),
+            Some(NativeErrorCode::TooLarge)
         );
     }
 }
