@@ -719,6 +719,140 @@ function offsetOutputOrdinal(mapping: IScanCleanupOutputMapping, offset: number)
         };
 }
 
+function estimateNativeOutputScratchBytes(
+    guardrail: {width: number; height: number; dpi: number},
+    renderDpi: number,
+) {
+    const width = Math.max(1, Math.ceil(guardrail.width * renderDpi / guardrail.dpi));
+    const height = Math.max(1, Math.ceil(guardrail.height * renderDpi / guardrail.dpi));
+    const outputBytes = width * height * 3 * SCAN_CLEANUP_NATIVE_OUTPUT_RASTER_EQUIVALENTS;
+    return Number.isSafeInteger(outputBytes)
+        ? outputBytes
+        : SCAN_CLEANUP_UNMEASURABLE_OUTPUT_SCRATCH_BYTES;
+}
+
+function assertStreamingChildEvidence(
+    batchIndex: number,
+    outputPages: number,
+    report: IScanCleanupRepresentationReport | null,
+    stamp: TScanCleanupProvenanceStamp | null,
+) {
+    // Only an empty child may leave either out: pages without their
+    // mappings or provenance would publish unaccounted output.
+    if (outputPages > 0 && (report === null || stamp === null)) {
+        throw new ScanCleanupContractError(
+            `Scan cleanup batch ${String(batchIndex)} produced pages without its representation report or provenance stamp`,
+        );
+    }
+}
+
+async function estimateStreamingBatchScratchBytes(
+    pageSizeStore: IPdfPageSizeStore,
+    pageNumbers: TScanCleanupPageScope,
+    dpiDetails: TScanCleanupDpiDetails,
+    documentCanvas: TScanCleanupDocumentCanvas | null,
+    preserveOriginalQuality: boolean,
+    signal: AbortSignal,
+): Promise<number | null> {
+    let documentDpi = resolveSourceDpi(dpiDetails.documentDpi);
+    let largestBatchBytes: number | null = 0;
+    for (const batch of iterateScanCleanupPageBatches(pageNumbers.length, SCAN_CLEANUP_STREAMING_BATCH_PAGES)) {
+        signal.throwIfAborted();
+        const batchPageNumbers = collectScanCleanupPageScopeBatch(pageNumbers, batch);
+        if (batchPageNumbers.length === 0) continue;
+        const plans: IScanCleanupRasterHandoffPlan[] = [];
+        for (const pageNumber of batchPageNumbers) {
+            const page = await pageSizeStore.getPage(pageNumber);
+            const guardrail = resolveScanCleanupDocumentGuardrail(undefined, undefined, page);
+            if (guardrail === undefined) {
+                largestBatchBytes = null;
+                break;
+            }
+            if (dpiDetails.documentDpi !== undefined && dpiDetails.documentDpi !== null) {
+                documentDpi = Math.max(documentDpi, resolveSourceDpi(dpiDetails.documentDpi));
+            }
+            if (preserveOriginalQuality) {
+                // Lossless children render their analysis page at no more
+                // than DETECTION_DPI. A page without source image metadata
+                // still has a bounded geometry raster, so the admission does
+                // not silently ignore vector or mixed pages.
+                plans.push({renderDpi: DETECTION_DPI, raster: guardrail});
+                continue;
+            }
+            const planned = resolveScanCleanupPlannedDpi({
+                sourceDpi: resolveSourceDpi(undefined, documentDpi),
+                // An unresolved Auto page may still synthesize a bilevel layer;
+                // using that larger pixel allowance keeps this estimate safe.
+                outputCarriesBinaryLayer: true,
+                sourceRasterDetected: dpiDetails.detected
+                    && dpiDetails.documentDpi !== undefined
+                    && dpiDetails.documentDpi !== null,
+                maxPixels: resolveScanCleanupPipelineMaxPixels(),
+                guardrail,
+            });
+            const renderDpi = planned.dpi < planned.requestedRenderDpi
+                ? planned.dpi
+                : resolveScanCleanupDocumentCanvasRenderDpi(planned.dpi, documentCanvas);
+            plans.push({
+                renderDpi,
+                raster: guardrail,
+                additionalRenderDpis: [DETECTION_DPI],
+                renderCopies: 1,
+                additionalScratchBytes: estimateNativeOutputScratchBytes(guardrail, renderDpi),
+            });
+        }
+        if (largestBatchBytes === null) continue;
+        const batchBytes = plans.length === batchPageNumbers.length
+            ? estimateRawRasterBytes(plans, plans.length)
+            : null;
+        largestBatchBytes = batchBytes === null ? null : Math.max(largestBatchBytes, batchBytes);
+    }
+    return largestBatchBytes;
+}
+
+function createStreamingBatchProgressTracker(
+    pageCount: number,
+    emitProgress: TEmitScanCleanupProgress,
+) {
+    const completedPageNumbers = new Set<number>();
+    let lastRasterizedUnits: number | undefined;
+    const advanceRasterized = (units: number) => {
+        const clamped = Math.min(pageCount, units);
+        lastRasterizedUnits = lastRasterizedUnits === undefined
+            ? clamped
+            : Math.max(lastRasterizedUnits, clamped);
+    };
+    return {
+        forChildBatch(batchStartOffset: number): TEmitScanCleanupProgress {
+            return (childStage, childCompletedUnits, _totalUnits, completedPages, progressOptions) => {
+                if (
+                    completedPages !== undefined
+                    && (childStage === 'rendering' || childStage === 'classifying' || childStage === 'collecting')
+                ) {
+                    for (const pageNumber of completedPages) completedPageNumbers.add(pageNumber);
+                }
+                const childRasterized = childStage === 'rasterizing'
+                    ? childCompletedUnits
+                    : progressOptions?.rasterizedUnits;
+                if (childRasterized !== undefined) advanceRasterized(batchStartOffset + childRasterized);
+                if (completedPageNumbers.size > 0) advanceRasterized(completedPageNumbers.size);
+                emitProgress('rendering', completedPageNumbers.size, pageCount, completedPageNumbers, {
+                    ...(lastRasterizedUnits === undefined ? {} : {rasterizedUnits: lastRasterizedUnits}),
+                    ...(progressOptions?.activePageNumbers === undefined ? {} : {activePageNumbers: progressOptions.activePageNumbers}),
+                    ...(progressOptions?.activeSubPageStage === undefined ? {} : {activeSubPageStage: progressOptions.activeSubPageStage}),
+                });
+            };
+        },
+        completeBatch(batchPageNumbers: readonly number[], endOffsetExclusive: number) {
+            for (const pageNumber of batchPageNumbers) completedPageNumbers.add(pageNumber);
+            lastRasterizedUnits = Math.max(lastRasterizedUnits ?? 0, Math.min(pageCount, endOffsetExclusive));
+            emitProgress('rendering', endOffsetExclusive, pageCount, completedPageNumbers, {
+                rasterizedUnits: lastRasterizedUnits,
+            });
+        },
+    };
+}
+
 /**
  * Run the final renderer one native window at a time. Each child conversion
  * retains the existing page-plan and assembly behavior, but its explicit page
@@ -766,72 +900,10 @@ async function runStreamingScanCleanupConversion({
     // batch; a child serves backward reads from geometry it materialized while
     // planning that batch so no consumer reopens the sidecar from page one.
     const pageSizeStore = createPageSizeStoreFromGeometrySidecar(geometrySidecarPath, signal);
-    let documentDpi = resolveSourceDpi(dpiDetails.documentDpi);
-    let largestBatchBytes: number | null = 0;
-    for (const batch of iterateScanCleanupPageBatches(pageCount, SCAN_CLEANUP_STREAMING_BATCH_PAGES)) {
-        signal.throwIfAborted();
-        const batchPageNumbers = collectScanCleanupPageScopeBatch(pageNumbers, batch);
-        if (batchPageNumbers.length === 0) continue;
-        const plans: IScanCleanupRasterHandoffPlan[] = [];
-        for (const pageNumber of batchPageNumbers) {
-            const page = await pageSizeStore.getPage(pageNumber);
-            const guardrail = resolveScanCleanupDocumentGuardrail(undefined, undefined, page);
-            if (guardrail === undefined) {
-                largestBatchBytes = null;
-                break;
-            }
-            if (dpiDetails.documentDpi !== undefined && dpiDetails.documentDpi !== null) {
-                documentDpi = Math.max(documentDpi, resolveSourceDpi(dpiDetails.documentDpi));
-            }
-            if (request.options.preserveOriginalQuality === true) {
-                // Lossless children render their analysis page at no more
-                // than DETECTION_DPI. A page without source image metadata
-                // still has a bounded geometry raster, so the admission does
-                // not silently ignore vector or mixed pages.
-                plans.push({
-                    renderDpi: DETECTION_DPI,
-                    raster: guardrail,
-                });
-                continue;
-            }
-            const sourceDpi = resolveSourceDpi(undefined, documentDpi);
-            const planned = resolveScanCleanupPlannedDpi({
-                sourceDpi,
-                // An unresolved Auto page may still synthesize a bilevel layer;
-                // using that larger pixel allowance keeps this estimate safe.
-                outputCarriesBinaryLayer: true,
-                sourceRasterDetected: dpiDetails.detected
-                    && dpiDetails.documentDpi !== undefined
-                    && dpiDetails.documentDpi !== null,
-                maxPixels: resolveScanCleanupPipelineMaxPixels(),
-                guardrail,
-            });
-            const renderDpi = planned.dpi < planned.requestedRenderDpi
-                ? planned.dpi
-                : resolveScanCleanupDocumentCanvasRenderDpi(planned.dpi, documentCanvas);
-            const width = Math.max(1, Math.ceil(guardrail.width * renderDpi / guardrail.dpi));
-            const height = Math.max(1, Math.ceil(guardrail.height * renderDpi / guardrail.dpi));
-            const outputBytes = width * height * 3 * SCAN_CLEANUP_NATIVE_OUTPUT_RASTER_EQUIVALENTS;
-            plans.push({
-                renderDpi,
-                raster: guardrail,
-                additionalRenderDpis: [DETECTION_DPI],
-                renderCopies: 1,
-                additionalScratchBytes: Number.isSafeInteger(outputBytes)
-                    ? outputBytes
-                    : SCAN_CLEANUP_UNMEASURABLE_OUTPUT_SCRATCH_BYTES,
-            });
-        }
-        if (largestBatchBytes === null) continue;
-        const batchBytes = plans.length === batchPageNumbers.length
-            ? estimateRawRasterBytes(plans, plans.length)
-            : null;
-        if (batchBytes === null) {
-            largestBatchBytes = null;
-        } else {
-            largestBatchBytes = Math.max(largestBatchBytes, batchBytes);
-        }
-    }
+    const largestBatchBytes = await estimateStreamingBatchScratchBytes(
+        pageSizeStore, pageNumbers, dpiDetails, documentCanvas,
+        request.options.preserveOriginalQuality === true, signal,
+    );
     const scratchAdmission = await resolveScanCleanupScratchAdmission(
         largestBatchBytes,
         resolveCombineOutputByteCap(pageCount),
@@ -858,8 +930,7 @@ async function runStreamingScanCleanupConversion({
     const summaryHandle = await open(batchSummariesPath, 'w');
     const mappingHandle = await open(outputMappingsPath, 'w');
     const pageHandle = await open(outputPagesPath, 'w');
-    const completedPageNumbers = new Set<number>();
-    let lastRasterizedUnits: number | undefined;
+    const batchProgress = createStreamingBatchProgressTracker(pageCount, emitProgress);
     // The run's own provenance, gathered from each child's stamp with its
     // output ordinals moved past the children before it.
     const runStamp = {
@@ -928,16 +999,13 @@ async function runStreamingScanCleanupConversion({
                 childSummary = restoredBatch.summary;
                 childReport = restoredBatch.representationReport;
                 childStamp = restoredBatch.provenanceStamp;
+                assertStreamingChildEvidence(batch.batchIndex, childSummary.outputPages, childReport, childStamp);
                 sourceText.pages.push(...restoredBatch.sourceTextPages.map(page => ({
                     ...page,
                     outputPageIndex: page.outputPageIndex + ordinalOffset,
                 })));
                 sourceText.skippedNonAffine.push(...restoredBatch.skippedNonAffine);
-                for (const pageNumber of batchPageNumbers) completedPageNumbers.add(pageNumber);
-                lastRasterizedUnits = Math.max(lastRasterizedUnits ?? 0, Math.min(pageCount, batch.endOffsetExclusive));
-                emitProgress('rendering', batch.endOffsetExclusive, pageCount, completedPageNumbers, {
-                    rasterizedUnits: lastRasterizedUnits,
-                });
+                batchProgress.completeBatch(batchPageNumbers, batch.endOffsetExclusive);
                 log(
                     'debug',
                     `Scan cleanup resumed bounded output batch ${String(batch.batchIndex)} `
@@ -998,59 +1066,16 @@ async function runStreamingScanCleanupConversion({
                         childRecoveryPending = true;
                         return onRecoveryPending(recovery);
                     },
-                    emitProgress: (childStage, childCompletedUnits, _totalUnits, completedPages, progressOptions) => {
-                        if (
-                            completedPages !== undefined
-                            && (childStage === 'rendering' || childStage === 'classifying' || childStage === 'collecting')
-                        ) {
-                            for (const pageNumber of completedPages) completedPageNumbers.add(pageNumber);
-                        }
-                        const childRasterized = childStage === 'rasterizing'
-                            ? childCompletedUnits
-                            : progressOptions?.rasterizedUnits;
-                        if (childRasterized !== undefined) {
-                            const reportedRasterized = Math.min(pageCount, batch.startOffset + childRasterized);
-                            lastRasterizedUnits = lastRasterizedUnits === undefined
-                                ? reportedRasterized
-                                : Math.max(lastRasterizedUnits, reportedRasterized);
-                        }
-                        if (completedPageNumbers.size > 0) {
-                            const completedFloor = Math.min(pageCount, completedPageNumbers.size);
-                            lastRasterizedUnits = lastRasterizedUnits === undefined
-                                ? completedFloor
-                                : Math.max(lastRasterizedUnits, completedFloor);
-                        }
-                        emitProgress(
-                            'rendering',
-                            completedPageNumbers.size,
-                            pageCount,
-                            completedPageNumbers,
-                            {
-                                ...(lastRasterizedUnits === undefined ? {} : {rasterizedUnits: lastRasterizedUnits}),
-                                ...(progressOptions?.activePageNumbers === undefined ? {} : {activePageNumbers: progressOptions.activePageNumbers}),
-                                ...(progressOptions?.activeSubPageStage === undefined ? {} : {activeSubPageStage: progressOptions.activeSubPageStage}),
-                            },
-                        );
-                    },
+                    emitProgress: batchProgress.forChildBatch(batch.startOffset),
                 });
-                for (const pageNumber of batchPageNumbers) completedPageNumbers.add(pageNumber);
-                lastRasterizedUnits = Math.max(lastRasterizedUnits ?? 0, Math.min(pageCount, batch.endOffsetExclusive));
-                emitProgress('rendering', batch.endOffsetExclusive, pageCount, completedPageNumbers, {
-                    rasterizedUnits: lastRasterizedUnits,
-                });
+                batchProgress.completeBatch(batchPageNumbers, batch.endOffsetExclusive);
                 childReport = await readChildJson<IScanCleanupRepresentationReport>(
                     join(childScratch, 'scan-cleanup-representation-report.json'),
                 );
                 childStamp = await readChildJson<TScanCleanupProvenanceStamp>(
                     join(childScratch, 'scan-cleanup-provenance-stamp.json'),
                 );
-                // Only an empty child may leave either out: pages without their
-                // mappings or provenance would publish unaccounted output.
-                if (childSummary.outputPages > 0 && (childReport === null || childStamp === null)) {
-                    throw new ScanCleanupContractError(
-                        `Scan cleanup batch ${String(batch.batchIndex)} produced pages without its representation report or provenance stamp`,
-                    );
-                }
+                assertStreamingChildEvidence(batch.batchIndex, childSummary.outputPages, childReport, childStamp);
                 if (checkpoint !== undefined && batchSignature !== null && !childRecoveryPending) {
                     const batchSourceTextPages = sourceText.pages
                         .slice(sourceTextPagesBefore)
@@ -1086,13 +1111,6 @@ async function runStreamingScanCleanupConversion({
                     pageCount: childSummary.outputPages,
                 });
                 outputBatchCount += 1;
-            }
-            // Only an empty child may leave either out: pages without their
-            // mappings or provenance would publish unaccounted output.
-            if (childSummary.outputPages > 0 && (childReport === null || childStamp === null)) {
-                throw new ScanCleanupContractError(
-                    `Scan cleanup batch ${String(batch.batchIndex)} produced pages without its representation report or provenance stamp`,
-                );
             }
             for (const mapping of childReport?.outputMappings ?? []) {
                 await appendJsonLine(mappingHandle, offsetOutputOrdinal(mapping, ordinalOffset));
@@ -1775,6 +1793,220 @@ async function collectExistingPageCheckpointArtifacts(
     return artifacts;
 }
 
+async function collectRenderedCleanupOutputs(
+    batch: Pick<IScanCleanupBatchExecution, 'request' | 'paths' | 'scratch' | 'summary' | 'emitProgress' | 'pageNumbers'>,
+    plan: Pick<Awaited<ReturnType<typeof planScanCleanupFinalPages>>, 'documentDpi' | 'pageGeometryByNumber' | 'detectedRasterByPage' | 'resolvePageOutputMode'>,
+    allManifestPages: readonly INativeScanCleanupPageV3[],
+    pageDpi: ReadonlyMap<number, number>,
+    requirePublishedRaster: NonNullable<IRunScanCleanupPipelineDependencies['requirePublishedRaster']>,
+    warn: (message: string) => void,
+) {
+    const {request, paths, scratch, summary, emitProgress, pageNumbers} = batch;
+    const {documentDpi, pageGeometryByNumber, detectedRasterByPage, resolvePageOutputMode} = plan;
+    const pageCount = pageNumbers.length;
+    const outputPages: IRenderedCleanupOutputPage[] = [];
+    const pageMetadataBySource = new Map<number, INativeScanCleanupPageMetadataV3>();
+    const emptyOutputMappings: IScanCleanupOutputMapping[] = [];
+    const fittedMarginBoxPages = new Set<number>();
+    const collectedPageNumbers = new Set<number>();
+    emitProgress('collecting', 0, pageCount, collectedPageNumbers);
+    for (const [pageIndex, page] of allManifestPages.entries()) {
+        const pageMetadata = decodeNativeScanCleanupPageMetadataJson(
+            await readFile(page.pageMetadataPath, 'utf8'),
+        );
+        const sourcePageNumber = page.sourcePageIndex + 1;
+        collectedPageNumbers.add(sourcePageNumber);
+        pageMetadataBySource.set(sourcePageNumber, pageMetadata);
+        emitProgress('collecting', pageIndex + 1, pageCount, collectedPageNumbers);
+        if (pageMetadata.excluded) {
+            commitScanCleanupRenderedPageSummary({
+                summary,
+                pageNumber: sourcePageNumber,
+                pageMetadata,
+                pageOutputs: [],
+                deskewSkipped: 0,
+                cropSkipped: 0,
+                mixedLayerMismatchWarnings: [],
+                pageEmptyOutputMappings: [{
+                    sourcePage: sourcePageNumber,
+                    half: 'full',
+                    outputOrdinal: null,
+                    rotationDegrees: pageMetadata.rotationDegrees,
+                    excluded: true,
+                    blank: false,
+                }],
+                emptyOutputMappings,
+                fittedMarginBoxPages,
+                warn,
+            });
+            continue;
+        }
+        const pageOutputPages: IRenderedCleanupOutputPage[] = [];
+        let intentionallyBlankOutputCount = 0;
+        let pageDeskewSkipped = 0;
+        let pageCropSkipped = 0;
+        const pageMixedLayerWarnings: string[] = [];
+        for (const [outputIndex, output] of page.outputs.entries()) {
+            // The sidecar publishes one raster per output and writes this
+            // metadata beside it, so its absence means the output half was
+            // never produced.
+            let metadataJson: string;
+            try {
+                metadataJson = await readFile(output.metadataPath, 'utf8');
+            } catch (error) {
+                if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+                // Native resolves only the first output_count destinations
+                // for this page. The remaining plan entries are not produced
+                // outputs; when native also reports blank outputs, retain
+                // their explicit empty mapping below.
+                if (outputIndex >= pageMetadata.outputCount) {
+                    if (pageMetadata.blankOutputsSkipped > 0) intentionallyBlankOutputCount += 1;
+                    continue;
+                }
+                throw new ScanCleanupMissingOutputError(
+                    sourcePageNumber, output.metadataPath, 'output metadata', getErrorMessage(error),
+                );
+            }
+            const metadata = decodeNativeScanCleanupOutputMetadataJson(metadataJson);
+            const effectiveDpi = metadata.renderDpi ?? pageDpi.get(sourcePageNumber) ?? documentDpi;
+            let bilevelPath: string | undefined;
+            let backgroundPath: string | undefined;
+            let foregroundMaskPath: string | undefined;
+            let foregroundAlphaPath: string | undefined;
+            let backgroundIsColor: boolean | undefined;
+            let compositePath = output.outputPath;
+            let validationFallbackSource: IRenderedCleanupOutputPage['preservedSource'];
+            if (metadata.layeredWritten) {
+                const candidateBackgroundPath = await requireProducedRasterFile(
+                    requirePublishedRaster, output.backgroundOutputPath ?? undefined,
+                    requirePageNumber(sourcePageNumber), 'mixed background layer',
+                );
+                if (metadata.layeredForegroundKind === 'soft-alpha') {
+                    foregroundAlphaPath = await requireProducedRasterFile(
+                        requirePublishedRaster, output.foregroundAlphaOutputPath ?? undefined,
+                        sourcePageNumber, 'mixed soft foreground alpha',
+                    );
+                } else {
+                    foregroundMaskPath = await requireProducedRasterFile(
+                        requirePublishedRaster, output.foregroundMaskOutputPath ?? undefined,
+                        sourcePageNumber, 'mixed foreground mask',
+                    );
+                }
+                const [backgroundHeader, foregroundHeader] = await Promise.all([
+                    readPpmDimensions(candidateBackgroundPath),
+                    foregroundAlphaPath === undefined
+                        ? readPbmDimensions(foregroundMaskPath!)
+                        : readPgmDimensions(foregroundAlphaPath),
+                ]);
+                const layerMismatch = describeScanCleanupMixedLayerMismatch(
+                    resolveScanCleanupMixedLayerExpectation(metadata, effectiveDpi, sourcePageNumber),
+                    backgroundHeader,
+                    foregroundHeader,
+                );
+                if (layerMismatch !== null) {
+                    backgroundPath = undefined;
+                    foregroundMaskPath = undefined;
+                    foregroundAlphaPath = undefined;
+                    backgroundIsColor = undefined;
+                    let fallbackDescription = 'the non-MRC composite path';
+                    try {
+                        compositePath = await requireProducedRasterFile(
+                            requirePublishedRaster, output.outputPath, sourcePageNumber,
+                            'non-MRC composite fallback after invalid mixed layers',
+                        );
+                    } catch (error) {
+                        if (!(error instanceof ScanCleanupMissingOutputError)) throw error;
+                        validationFallbackSource = pageMetadata.layoutClassification === 'single-uncut-page'
+                            && pageMetadata.outputCount === 1
+                            && metadata.half === 'full'
+                            ? resolveFullSourcePagePreservation(sourcePageNumber, pageGeometryByNumber.get(sourcePageNumber))
+                            : undefined;
+                        if (validationFallbackSource === undefined || paths.pdfPageOpsBinary === undefined) {
+                            throw error;
+                        }
+                        compositePath = join(
+                            scratch, `mixed-layer-fallback-${String(sourcePageNumber)}-${String(outputIndex)}.ppm`,
+                        );
+                        await writeFile(compositePath, FALLBACK_MIXED_LAYER_PPM);
+                        fallbackDescription = 'the original source page';
+                    }
+                    pageMixedLayerWarnings.push(
+                        `Page ${sourcePageNumber} mixed layer dimensions do not match metadata `
+                        + `${layerMismatch}; using ${fallbackDescription}`,
+                    );
+                } else {
+                    backgroundPath = candidateBackgroundPath;
+                    backgroundIsColor = backgroundHeader.isColor;
+                }
+            } else if (metadata.bilevelWritten) {
+                bilevelPath = await requireProducedRasterFile(
+                    requirePublishedRaster, output.bilevelOutputPath ?? undefined, sourcePageNumber, 'bilevel output',
+                );
+            } else {
+                await requireProducedRasterFile(
+                    requirePublishedRaster, output.outputPath, sourcePageNumber, 'composite output',
+                );
+            }
+            const renderedOutput: Omit<IRenderedCleanupOutputPage, 'preservedSource'> = {
+                sourcePageNumber,
+                path: compositePath,
+                ...(bilevelPath === undefined ? {} : {bilevelPath}),
+                ...(backgroundPath === undefined ? {} : {backgroundPath}),
+                ...(foregroundMaskPath === undefined ? {} : {foregroundMaskPath}),
+                ...(foregroundAlphaPath === undefined ? {} : {foregroundAlphaPath}),
+                ...(backgroundIsColor === undefined ? {} : {backgroundIsColor}),
+                dpi: effectiveDpi,
+                // The engine reports the mode it actually rendered with,
+                // which is the only authority once `auto` resolves natively.
+                resolvedOutputMode: (metadata.outputMode === 'auto' ? undefined : metadata.outputMode)
+                    ?? resolvePageOutputMode(sourcePageNumber)
+                    ?? 'color',
+                metadata,
+            };
+            const preservedSource = validationFallbackSource
+                ?? resolveCompactSourcePreservation(
+                    request, sourcePageNumber, pageMetadata, renderedOutput,
+                    pageGeometryByNumber.get(sourcePageNumber), detectedRasterByPage.get(sourcePageNumber),
+                );
+            pageOutputPages.push({
+                ...renderedOutput,
+                ...(preservedSource === undefined ? {} : {preservedSource}),
+            });
+            if (!metadata.skewApplied) pageDeskewSkipped += 1;
+            if (request.options.crop && metadata.contentBox == null) pageCropSkipped += 1;
+        }
+        const pageEmptyOutputMappings: IScanCleanupOutputMapping[] = [];
+        outputPages.push(...collectScanCleanupPageOutputs({
+            request,
+            sourcePageNumber,
+            pageMetadata,
+            pageOutputPages,
+            intentionallyBlankOutputCount,
+            emptyOutputMappings: pageEmptyOutputMappings,
+        }));
+        commitScanCleanupRenderedPageSummary({
+            summary,
+            pageNumber: sourcePageNumber,
+            pageMetadata,
+            pageOutputs: pageOutputPages,
+            deskewSkipped: pageDeskewSkipped,
+            cropSkipped: pageCropSkipped,
+            mixedLayerMismatchWarnings: pageMixedLayerWarnings,
+            pageEmptyOutputMappings,
+            emptyOutputMappings,
+            fittedMarginBoxPages,
+            warn,
+        });
+    }
+    if (fittedMarginBoxPages.size > 0) {
+        reportScanCleanupSummaryWarningEvent(summary, {event: {
+            code: 'matched-canvas-content-fitted-pages',
+            pages: [...fittedMarginBoxPages].map(pageNumber => requirePageNumber(pageNumber)),
+        }}, warn);
+    }
+    return {outputPages, pageMetadataBySource, emptyOutputMappings};
+}
+
 // Executes an admitted page batch in the job's scratch. The caller owns geometry,
 // progress, recovery retention and publication; this body owns bounded conversion.
 async function executeScanCleanupBatch({
@@ -1809,16 +2041,7 @@ async function executeScanCleanupBatch({
         await validateStagedPdf(paths.qpdfBinary, stagedPdfPath, signal, log, dependencies.runCommand);
         return summary;
     }
-    const {
-        documentDpi,
-        rasterPlans,
-        pageGeometryByNumber,
-        detectedRasterByPage,
-        resolvedPagePlanByNumber,
-        analysisDpiByPage,
-        resolvePageOutputMode,
-        resolvePageSourceDpi,
-    } = await planScanCleanupFinalPages({
+    const finalPagePlan = await planScanCleanupFinalPages({
         request,
         documentCanvas,
         rasterSource: dpiDetails,
@@ -1852,15 +2075,14 @@ async function executeScanCleanupBatch({
             return guardrail;
         },
     }, pageNumbers);
-    const estimateNativeOutputScratchBytes = (plan: TScanCleanupFinalPagePlan) => {
-        const width = Math.max(1, Math.ceil(plan.guardrail.width * plan.dpi / plan.guardrail.dpi));
-        const height = Math.max(1, Math.ceil(plan.guardrail.height * plan.dpi / plan.guardrail.dpi));
-        const pixelBytes = width * height * 3;
-        const outputBytes = pixelBytes * SCAN_CLEANUP_NATIVE_OUTPUT_RASTER_EQUIVALENTS;
-        return Number.isSafeInteger(outputBytes)
-            ? outputBytes
-            : SCAN_CLEANUP_UNMEASURABLE_OUTPUT_SCRATCH_BYTES;
-    };
+    const {
+        rasterPlans,
+        pageGeometryByNumber,
+        detectedRasterByPage,
+        resolvedPagePlanByNumber,
+        analysisDpiByPage,
+        resolvePageSourceDpi,
+    } = finalPagePlan;
     let availableScratchBytesPromise: Promise<number | null> | undefined;
     const readAvailableScratchBytesOnce = (directory: string) => (
         availableScratchBytesPromise ??= dependencies.getAvailableScratchBytes(directory)
@@ -1876,7 +2098,7 @@ async function executeScanCleanupBatch({
         renderDpi: plan.dpi,
         raster: plan.guardrail,
         additionalRenderDpis: [analysisDpiByPage.get(plan.pageNumber)!],
-        additionalScratchBytes: estimateNativeOutputScratchBytes(plan),
+        additionalScratchBytes: estimateNativeOutputScratchBytes(plan.guardrail, plan.dpi),
         renderCopies: 1,
     })), scratch, readAvailableScratchBytesOnce, Math.min(rasterPlans.length, streamingBudget.maxInFlightPages));
     logRasterHandoff(log, 'final', rasterHandoff);
@@ -1901,6 +2123,21 @@ async function executeScanCleanupBatch({
     if (trustedForegroundCandidates.length > 0) {
         emitProgress('extracting', 0, trustedForegroundCandidates.length, []);
         const extractionStartedAt = performance.now();
+        const acceptSourceMrcLayer = (pageNumber: number, layer: IPdfMrcLayers) => {
+            const geometryRejection = resolveSourceMrcLayerRejection(
+                pageGeometryByNumber.get(pageNumber)!,
+                layer,
+            );
+            if (geometryRejection === undefined) {
+                trustedMrcLayersByPage.set(pageNumber, layer);
+            } else {
+                log(
+                    'debug',
+                    `Page ${String(pageNumber)} will use raster reconstruction; `
+                    + `source MRC reuse is not proven (${geometryRejection})`,
+                );
+            }
+        };
         if (dependencies.extractMrcLayersBatch !== undefined) {
             try {
                 const layers = await dependencies.extractMrcLayersBatch({
@@ -1925,23 +2162,8 @@ async function executeScanCleanupBatch({
                     onProgress: (completedPages, totalPages) =>
                         emitProgress('extracting', completedPages, totalPages),
                 });
-                for (const [
-                    pageNumber,
-                    layer,
-                ] of layers) {
-                    const geometryRejection = resolveSourceMrcLayerRejection(
-                        pageGeometryByNumber.get(pageNumber)!,
-                        layer,
-                    );
-                    if (geometryRejection === undefined) {
-                        trustedMrcLayersByPage.set(pageNumber, layer);
-                    } else {
-                        log(
-                            'debug',
-                            `Page ${String(pageNumber)} will use raster reconstruction; `
-                            + `source MRC reuse is not proven (${geometryRejection})`,
-                        );
-                    }
+                for (const [pageNumber, layer] of layers) {
+                    acceptSourceMrcLayer(pageNumber, layer);
                 }
             } catch (error) {
                 signal.throwIfAborted();
@@ -1981,21 +2203,7 @@ async function executeScanCleanupBatch({
                             log,
                             signal,
                         });
-                        if (layers !== null) {
-                            const geometryRejection = resolveSourceMrcLayerRejection(
-                                pageGeometryByNumber.get(plan.pageNumber)!,
-                                layers,
-                            );
-                            if (geometryRejection === undefined) {
-                                trustedMrcLayersByPage.set(plan.pageNumber, layers);
-                            } else {
-                                log(
-                                    'debug',
-                                    `Page ${String(plan.pageNumber)} will use raster reconstruction; `
-                                    + `source MRC reuse is not proven (${geometryRejection})`,
-                                );
-                            }
-                        }
+                        if (layers !== null) acceptSourceMrcLayer(plan.pageNumber, layers);
                     } catch (error) {
                         signal.throwIfAborted();
                         if (isAbortError(error)) throw error;
@@ -2065,18 +2273,8 @@ async function executeScanCleanupBatch({
     // any native work starts. Native page work is replayed in bounded
     // manifests below, so a long source document keeps the same canvas,
     // modes, and placement while native residency remains bounded.
-    const outputPages: IRenderedCleanupOutputPage[] = [];
-    const pageMetadataBySource = new Map<number, INativeScanCleanupPageMetadataV3>();
-    const emptyOutputMappings: IScanCleanupOutputMapping[] = [];
-    // The engine's own account of what it had to do to a page, a page it
-    // could not hold at the document's scale, a raster it could not
-    // publish. It travels with the summary and is logged here, so a run
-    // that quietly compromised says where.
-    const report = createScanCleanupSummaryWarningReporter(summary, log);
-    const fittedMarginBoxPages = new Set<number>();
     const renderedPageNumbers = new Set<number>();
     const rasterizedPageNumbers = new Set<number>();
-    const collectedPageNumbers = new Set<number>();
     const manifestPageBySource = new Map<number, INativeScanCleanupPageV3>();
     const fullManifest = pageInputs.length === 0
         ? null
@@ -2534,247 +2732,14 @@ async function executeScanCleanupBatch({
             cleanupStaged: cleanupStagedItems,
         });
     }
-    emitProgress('collecting', 0, pageCount, collectedPageNumbers);
-    for (const [
-        pageIndex,
-        page,
-    ] of allManifestPages.entries()) {
-        const {outputs} = page;
-        const pageMetadata = decodeNativeScanCleanupPageMetadataJson(
-            await readFile(page.pageMetadataPath, 'utf8'),
-        );
-        const sourcePageNumber = page.sourcePageIndex + 1;
-        collectedPageNumbers.add(sourcePageNumber);
-        pageMetadataBySource.set(sourcePageNumber, pageMetadata);
-        emitProgress('collecting', pageIndex + 1, pageCount, collectedPageNumbers);
-            if (pageMetadata.excluded) {
-                commitScanCleanupRenderedPageSummary({
-                    summary,
-                    pageNumber: sourcePageNumber,
-                    pageMetadata,
-                    pageOutputs: [],
-                    deskewSkipped: 0,
-                    cropSkipped: 0,
-                    mixedLayerMismatchWarnings: [],
-                    pageEmptyOutputMappings: [{
-                        sourcePage: sourcePageNumber,
-                        half: 'full',
-                        outputOrdinal: null,
-                        rotationDegrees: pageMetadata.rotationDegrees,
-                        excluded: true,
-                        blank: false,
-                    }],
-                    emptyOutputMappings,
-                    fittedMarginBoxPages,
-                    warn: report,
-                });
-                continue;
-            }
-            const pageOutputPages: typeof outputPages = [];
-            let intentionallyBlankOutputCount = 0;
-            let pageDeskewSkipped = 0;
-            let pageCropSkipped = 0;
-            const pageMixedLayerWarnings: string[] = [];
-            for (const [
-                outputIndex,
-                output,
-            ] of outputs.entries()) {
-            // The sidecar publishes one raster per output and writes this
-            // metadata beside it, so its absence means the output half was
-            // never produced.
-                let metadataJson: string;
-                try {
-                    metadataJson = await readFile(output.metadataPath, 'utf8');
-                } catch (error) {
-                    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-                    // Native resolves only the first output_count destinations
-                    // for this page. The remaining plan entries are not
-                    // produced outputs; when native also reports blank outputs,
-                    // retain their explicit empty mapping below.
-                    if (outputIndex >= pageMetadata.outputCount) {
-                        if (pageMetadata.blankOutputsSkipped > 0) {
-                            intentionallyBlankOutputCount += 1;
-                        }
-                        continue;
-                    }
-                    throw new ScanCleanupMissingOutputError(
-                        sourcePageNumber,
-                        output.metadataPath,
-                        'output metadata',
-                        getErrorMessage(error),
-                    );
-                }
-                const metadata = decodeNativeScanCleanupOutputMetadataJson(metadataJson);
-                const pageNumber = sourcePageNumber;
-                let bilevelPath: string | undefined;
-                let backgroundPath: string | undefined;
-                let foregroundMaskPath: string | undefined;
-                let foregroundAlphaPath: string | undefined;
-                let backgroundIsColor: boolean | undefined;
-                let compositePath = output.outputPath;
-                let validationFallbackSource: IRenderedCleanupOutputPage['preservedSource'];
-                if (metadata.layeredWritten) {
-                    const candidateBackgroundPath = await requireProducedRasterFile(
-                        requirePublishedRaster,
-                        output.backgroundOutputPath ?? undefined,
-                        requirePageNumber(pageNumber),
-                        'mixed background layer',
-                    );
-                    if (metadata.layeredForegroundKind === 'soft-alpha') {
-                        foregroundAlphaPath = await requireProducedRasterFile(
-                            requirePublishedRaster,
-                            output.foregroundAlphaOutputPath ?? undefined,
-                            pageNumber,
-                            'mixed soft foreground alpha',
-                        );
-                    } else {
-                        foregroundMaskPath = await requireProducedRasterFile(
-                            requirePublishedRaster,
-                            output.foregroundMaskOutputPath ?? undefined,
-                            pageNumber,
-                            'mixed foreground mask',
-                        );
-                    }
-                    const [
-                        backgroundHeader,
-                        foregroundHeader,
-                    ] = await Promise.all([
-                        readPpmDimensions(candidateBackgroundPath),
-                        foregroundAlphaPath === undefined
-                            ? readPbmDimensions(foregroundMaskPath!)
-                            : readPgmDimensions(foregroundAlphaPath),
-                    ]);
-                    const layerMismatch = describeScanCleanupMixedLayerMismatch(
-                        resolveScanCleanupMixedLayerExpectation(
-                            metadata,
-                            metadata.renderDpi ?? pageDpi.get(pageNumber) ?? documentDpi,
-                            pageNumber,
-                        ),
-                        backgroundHeader,
-                        foregroundHeader,
-                    );
-                    if (layerMismatch !== null) {
-                        backgroundPath = undefined;
-                        foregroundMaskPath = undefined;
-                        foregroundAlphaPath = undefined;
-                        backgroundIsColor = undefined;
-                        let fallbackDescription = 'the non-MRC composite path';
-                        try {
-                            compositePath = await requireProducedRasterFile(
-                                requirePublishedRaster,
-                                output.outputPath,
-                                pageNumber,
-                                'non-MRC composite fallback after invalid mixed layers',
-                            );
-                        } catch (error) {
-                            if (!(error instanceof ScanCleanupMissingOutputError)) throw error;
-                            validationFallbackSource = pageMetadata.layoutClassification === 'single-uncut-page'
-                            && pageMetadata.outputCount === 1
-                            && metadata.half === 'full'
-                                ? resolveFullSourcePagePreservation(
-                                    pageNumber,
-                                    pageGeometryByNumber.get(pageNumber),
-                                )
-                                : undefined;
-                            if (
-                                validationFallbackSource === undefined
-                            || paths.pdfPageOpsBinary === undefined
-                            ) {
-                                throw error;
-                            }
-                            compositePath = join(
-                                scratch,
-                                `mixed-layer-fallback-${String(pageNumber)}-${String(outputIndex)}.ppm`,
-                            );
-                            await writeFile(compositePath, FALLBACK_MIXED_LAYER_PPM);
-                            fallbackDescription = 'the original source page';
-                        }
-                        const warning = `Page ${pageNumber} mixed layer dimensions do not match metadata `
-                            + `${layerMismatch}; using ${fallbackDescription}`;
-                        pageMixedLayerWarnings.push(warning);
-                    } else {
-                        backgroundPath = candidateBackgroundPath;
-                        backgroundIsColor = backgroundHeader.isColor;
-                    }
-                } else if (metadata.bilevelWritten) {
-                    bilevelPath = await requireProducedRasterFile(
-                        requirePublishedRaster,
-                        output.bilevelOutputPath ?? undefined,
-                        pageNumber,
-                        'bilevel output',
-                    );
-                } else {
-                    await requireProducedRasterFile(
-                        requirePublishedRaster,
-                        output.outputPath,
-                        pageNumber,
-                        'composite output',
-                    );
-                }
-                const renderedOutput: Omit<IRenderedCleanupOutputPage, 'preservedSource'> = {
-                    sourcePageNumber: pageNumber,
-                    path: compositePath,
-                    ...(bilevelPath === undefined ? {} : {bilevelPath}),
-                    ...(backgroundPath === undefined ? {} : {backgroundPath}),
-                    ...(foregroundMaskPath === undefined ? {} : {foregroundMaskPath}),
-                    ...(foregroundAlphaPath === undefined ? {} : {foregroundAlphaPath}),
-                    ...(backgroundIsColor === undefined ? {} : {backgroundIsColor}),
-                    dpi: metadata.renderDpi
-                    ?? pageDpi.get(pageNumber)
-                    ?? documentDpi,
-                    // The engine reports the mode it actually rendered with,
-                    // which is the only authority once `auto` resolves natively.
-                    resolvedOutputMode: (metadata.outputMode === 'auto' ? undefined : metadata.outputMode)
-                    ?? resolvePageOutputMode(pageNumber)
-                    ?? 'color',
-                    metadata,
-                };
-                const preservedSource = validationFallbackSource
-                ?? resolveCompactSourcePreservation(
-                    request,
-                    pageNumber,
-                    pageMetadata,
-                    renderedOutput,
-                    pageGeometryByNumber.get(pageNumber),
-                    detectedRasterByPage.get(pageNumber),
-                );
-                pageOutputPages.push({
-                    ...renderedOutput,
-                    ...(preservedSource === undefined ? {} : {preservedSource}),
-                });
-                if (!metadata.skewApplied) pageDeskewSkipped += 1;
-                if (request.options.crop && metadata.contentBox == null) pageCropSkipped += 1;
-            }
-            const pageEmptyOutputMappings: IScanCleanupOutputMapping[] = [];
-            const collectedPageOutputs = collectScanCleanupPageOutputs({
-                request,
-                sourcePageNumber,
-                pageMetadata,
-                pageOutputPages,
-                intentionallyBlankOutputCount,
-                emptyOutputMappings: pageEmptyOutputMappings,
-            });
-            outputPages.push(...collectedPageOutputs);
-            commitScanCleanupRenderedPageSummary({
-                summary,
-                pageNumber: sourcePageNumber,
-                pageMetadata,
-                pageOutputs: pageOutputPages,
-                deskewSkipped: pageDeskewSkipped,
-                cropSkipped: pageCropSkipped,
-                mixedLayerMismatchWarnings: pageMixedLayerWarnings,
-                pageEmptyOutputMappings,
-                emptyOutputMappings,
-                fittedMarginBoxPages,
-                warn: report,
-            });
-    }
-    if (fittedMarginBoxPages.size > 0) {
-        reportScanCleanupSummaryWarningEvent(summary, {event: {
-            code: 'matched-canvas-content-fitted-pages',
-            pages: [...fittedMarginBoxPages].map(pageNumber => requirePageNumber(pageNumber)),
-        }}, report);
-    }
+    const {outputPages, pageMetadataBySource, emptyOutputMappings} = await collectRenderedCleanupOutputs(
+        {request, paths, scratch, summary, emitProgress, pageNumbers},
+        finalPagePlan,
+        allManifestPages,
+        pageDpi,
+        requirePublishedRaster,
+        warn,
+    );
     summary.outputPages = outputPages.length;
     if (outputPages.length === 0 && !streamingChild) {
         throw new ScanCleanupContractError('evb-scan-cleanup produced no output pages');
