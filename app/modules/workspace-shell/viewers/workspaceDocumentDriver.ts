@@ -52,20 +52,12 @@ import { getDjvuCapability } from '@app/utils/getDjvuCapability';
 import {
     createDocumentProjectionSession,
     ensurePdfProjection,
+    PDF_SOURCE_CAPABILITIES,
 } from '@app/modules/document-viewer/public';
 
 export type {TWorkspaceDocumentDriverId} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
 
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
-
-const PDF_SOURCE_CAPABILITIES: IDocumentSourceCapabilities = {
-    annotations: true,
-    directImageExport: true,
-    outline: true,
-    pageEdits: true,
-    search: true,
-    text: true,
-};
 
 export interface IWorkspaceDocumentDriverSource {
     kind: 'pdf' | 'djvu';
@@ -150,7 +142,7 @@ export interface IWorkspaceDocumentDriver {
 }
 
 interface IWorkspaceDocumentDriverSources {
-    djvuSourcePath: Ref<TDocumentRef | null>;
+    djvuSourcePath: TReadableRef<TDocumentRef | null>;
     workingCopyPath: Ref<TDocumentRef | null>;
     save?: {
         save: (onCommitted?: TDocumentCommitReceipt) => Promise<boolean>;
@@ -160,8 +152,8 @@ interface IWorkspaceDocumentDriverSources {
 }
 
 export interface IWorkspaceDocumentDriverOptions {
-    djvuSourcePath: Ref<TDocumentRef | null>;
-    isDjvuMode: Ref<boolean>;
+    djvuSourcePath: TReadableRef<TDocumentRef | null>;
+    isDjvuMode: TReadableRef<boolean>;
     pdfSrc: Ref<TPdfSource | null>;
     workingCopyPath: Ref<TDocumentRef | null>;
     pendingDocumentPath?: TReadableRef<TDocumentRef | null>;

@@ -55,7 +55,7 @@
             :open="presentsDocumentDialogs && file.showConvertDialog.value"
             :djvu-path="file.djvuSourcePath.value"
             @convert="file.handleDjvuConvert"
-            @update:open="file.showConvertDialog.value = $event"
+            @update:open="file.setConvertDialogOpen"
         />
     </div>
 </template>

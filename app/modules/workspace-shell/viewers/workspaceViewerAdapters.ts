@@ -1,16 +1,10 @@
 import type { Component } from 'vue';
 import {
-    didOpenDocument,
-    isOpenFileResultOfKind,
-} from '@app/types/documentOpenOutcome';
-import {
     createDefaultWorkspaceViewerCapabilities,
     type IWorkspaceViewerCapabilities,
 } from '@app/types/workspaceExpose';
 import type {
     IWorkspaceViewerAdapter,
-    IWorkspaceViewerLifecycleContext,
-    IWorkspaceViewerLifecycleHooks,
     IWorkspaceViewerResolveContext,
     TWorkspaceViewerAdapterId,
     TWorkspaceViewerDocumentType,
@@ -62,36 +56,6 @@ export function resolveWorkspaceViewerViewMode(
     return capabilities?.viewMode === true ? storedViewMode : 'single';
 }
 
-function createDjvuLifecycleHooks(context: IWorkspaceViewerLifecycleContext): IWorkspaceViewerLifecycleHooks {
-    return {
-        beforeOpen: () => {
-            context.invalidatePendingDjvuOpen();
-        },
-        afterOpen: async (outcome, state) => {
-            if (
-                didOpenDocument(outcome)
-                && isOpenFileResultOfKind(outcome.result, 'pdf')
-                && context.isDjvuMode.value
-                && context.workingCopyPath.value !== state.previousWorkingCopyPath
-            ) {
-                const activation = context.captureDjvuActivation();
-                if (activation) {
-                    await context.cleanupDjvuTemp(activation);
-                    context.exitDjvuMode(activation);
-                }
-            }
-        },
-        beforeClose: async () => {
-            context.invalidatePendingDjvuOpen();
-            const activation = context.captureDjvuActivation();
-            if (activation) {
-                await context.cleanupDjvuTemp(activation);
-                context.exitDjvuMode(activation);
-            }
-        },
-    };
-}
-
 export const WORKSPACE_VIEWER_ADAPTERS: readonly IWorkspaceViewerAdapter[] = [
     {
         id: 'pdf',
@@ -121,7 +85,6 @@ export const WORKSPACE_VIEWER_ADAPTERS: readonly IWorkspaceViewerAdapter[] = [
         component: DocumentViewerChassis,
         documentTypes: ['djvu'],
         capabilities: DJVU_VIEWER_CAPABILITIES,
-        createLifecycleHooks: createDjvuLifecycleHooks,
     },
 ] as const satisfies readonly IWorkspaceViewerAdapter[];
 
