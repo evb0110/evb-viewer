@@ -16,7 +16,7 @@ import type {
 } from 'playwright';
 import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 import {
-    lifecycle, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, openPdfFromChooser, settleActiveOpen,
+    lifecycle, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, openPdfFromChooser, readDownloadBytes, settleActiveOpen,
 } from './documentLifecycleTestHelpers';
 
 // C11/C12 expectations are deliberately literal: the rendered reference and
@@ -790,7 +790,7 @@ describe('browser document lifecycle UI', () => {
 
             const download = page.waitForEvent('download', {timeout: 30_000});
             await page.keyboard.press('ControlOrMeta+Shift+S');
-            const saved = await PDFDocument.load(readFileSync(await (await download).path()));
+            const saved = await PDFDocument.load(await readDownloadBytes(await download));
             const annots = saved.getPage(0).node.lookupMaybe(PDFName.of('Annots'), PDFArray);
             const imageSizes = Array.from({length: annots?.size() ?? 0}, (_, index) => annots!.lookup(index, PDFDict))
                 .flatMap((annot) => {

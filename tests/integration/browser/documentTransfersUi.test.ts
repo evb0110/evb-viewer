@@ -1,4 +1,3 @@
-import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {
     PDFDocument, StandardFonts,
@@ -9,7 +8,7 @@ import {
 } from 'vitest';
 import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 import {
-    lifecycle, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, freezeWindow, addNote, noteTexts, readRecoveries, readWindowLocks, clickCenter, paneSelector, readPanePageWidth, zoomActivePane,
+    lifecycle, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, freezeWindow, addNote, noteTexts, readDownloadBytes, readRecoveries, readWindowLocks, clickCenter, paneSelector, readPanePageWidth, zoomActivePane,
     installPickerHandleFixture, settleActiveOpen,
 } from './documentLifecycleTestHelpers';
 import {
@@ -115,7 +114,7 @@ describe('browser document lifecycle UI', () => {
                 exact: true,
             }).click();
             await recovered.getByRole('menuitem', {name: /^Save As/u}).click();
-            const saved = await PDFDocument.load(readFileSync(await (await download).path()));
+            const saved = await PDFDocument.load(await readDownloadBytes(await download));
             expect(noteTexts(saved)).toEqual(new Set([
                 firstNote,
                 secondNote,
@@ -275,7 +274,7 @@ describe('browser document lifecycle UI', () => {
                 exact: true,
             }).click();
             await recovered.getByRole('menuitem', {name: /^Save As/u}).click();
-            const saved = await PDFDocument.load(readFileSync(await (await download).path()));
+            const saved = await PDFDocument.load(await readDownloadBytes(await download));
             expect(noteTexts(saved)).toEqual(new Set(['Copy note']));
             expect(consoleProblems.flat()).toEqual([]);
         } finally {
@@ -454,7 +453,7 @@ describe('browser document lifecycle UI', () => {
             await second.getByRole('menuitem', {name: /^Save As/u}).click();
             // Save As overlays this window's unsaved edits on the file as it is now.
             const expectedNotes = new Set(['First window note', 'Second window note']);
-            expect(noteTexts(await PDFDocument.load(readFileSync(await (await download).path())))).toEqual(expectedNotes);
+            expect(noteTexts(await PDFDocument.load(await readDownloadBytes(await download)))).toEqual(expectedNotes);
             // The download is published before Save As adopts its revision in this window.
             await expect.poll(() => second.locator('.status-save-dot-button').getAttribute('aria-label'), {timeout: 15_000})
                 .toBe('All changes saved');

@@ -16,7 +16,7 @@ import {
     getOcrModelDownloadUrl, OCR_LANGUAGE_MODEL_BYTES, OCR_LANGUAGE_MODEL_SHA256,
 } from '@contracts/ocrLanguages';
 import {
-    lifecycle, openPdfFromChooser,
+    lifecycle, openPdfFromChooser, readDownloadBytes,
 } from './documentLifecycleTestHelpers';
 
 async function openOcrEngineFixture(page: Page) {
@@ -92,9 +92,7 @@ describe('browser OCR progress', () => {
                 name: 'Save',
                 exact: true,
             }).click();
-            const path = await (await download).path();
-            if (!path) throw new Error('Save did not provide downloaded PDF bytes');
-            const saved = await readFile(path);
+            const saved = await readDownloadBytes(await download);
             const evidence = process.env.EVB_HEBREW_OCR_EVIDENCE_DIR;
             if (evidence) {
                 await mkdir(evidence, {recursive: true});

@@ -5,15 +5,18 @@ import {resolve} from 'node:path';
 import {
     PDFDocument, PDFArray, PDFDict, PDFName, PDFString, PDFHexString,
 } from 'pdf-lib';
-import {chromium} from 'playwright';
 import type {
     Browser, BrowserContext, Page, FileChooser,
 } from 'playwright';
 import {
     afterAll, beforeAll, expect, inject,
 } from 'vitest';
+import {
+    closeChromiumBrowser, connectOrLaunchChromium,
+} from './browserIntegrationChromium';
 
 export {clickCenter} from './clickCenter';
+export {readDownloadBytes} from './browserIntegrationChromium';
 
 declare module 'vitest' {
     export interface ProvidedContext {
@@ -174,7 +177,7 @@ export async function freezeWindow(context: BrowserContext, page: Page) {
 }
 
 beforeAll(async () => {
-    browser = await chromium.launch({headless: true});
+    browser = await connectOrLaunchChromium();
     // HTTP readiness precedes the cold client and document-worker graphs.
     // Complete one real open here so per-document hooks start with a ready app.
     const page = await browser.newPage();
@@ -188,7 +191,7 @@ beforeAll(async () => {
 }, 120_000);
 
 afterAll(async () => {
-    await browser?.close();
+    await closeChromiumBrowser(browser);
 });
 
 export async function addNote(page: Page, text: string, position: {

@@ -7,7 +7,7 @@ import {
     describe, expect, it,
 } from 'vitest';
 import {
-    lifecycle, openPdfFromChooser,
+    lifecycle, openPdfFromChooser, readDownloadBytes,
 } from './documentLifecycleTestHelpers';
 
 describe('browser OCR output admission', () => {
@@ -76,9 +76,7 @@ describe('browser OCR output admission', () => {
                 name: 'Save',
                 exact: true,
             }).click();
-            const path = await (await download).path();
-            if (!path) throw new Error('Save did not provide downloaded PDF bytes');
-            const saved = await readFile(path);
+            const saved = await readDownloadBytes(await download);
             expect(saved.byteLength).toBeGreaterThan(formerCeiling);
             expect(saved.subarray(0, original.byteLength).equals(original)).toBe(true);
             expect((await PDFDocument.load(saved)).getPageCount()).toBe(1);

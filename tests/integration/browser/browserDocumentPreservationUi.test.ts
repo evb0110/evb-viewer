@@ -15,7 +15,7 @@ import {
 } from 'vitest';
 import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 import {
-    openPdfFromChooser, lifecycle, waitForOpenFileReady, clickCenter, settleActiveOpen,
+    openPdfFromChooser, lifecycle, waitForOpenFileReady, clickCenter, readDownloadBytes, settleActiveOpen,
 } from './documentLifecycleTestHelpers';
 
 describe('browser document lifecycle UI', () => {
@@ -127,9 +127,7 @@ describe('browser document lifecycle UI', () => {
                 name: 'Save',
                 exact: true,
             }).click();
-            const path = await (await download).path();
-            if (!path) throw new Error('Signed Save As produced no download');
-            const saved = readFileSync(path);
+            const saved = await readDownloadBytes(await download);
             verify(saved, operation);
             expect(saved.subarray(0, source.length)).toEqual(source);
             const reopened = await PDFDocument.load(saved);
@@ -183,9 +181,7 @@ describe('browser document lifecycle UI', () => {
                     exact: true,
                 }).click();
             }
-            const path = await (await download).path();
-            if (!path) throw new Error('Page operation produced no downloaded PDF');
-            const saved = await PDFDocument.load(readFileSync(path));
+            const saved = await PDFDocument.load(await readDownloadBytes(await download));
             expect(saved.getPageCount()).toBe(1);
             expect(saved.getForm().getFields().map(field => field.getName())).toEqual(['retained']);
             expect(saved.getForm().getTextField('retained').getText()).toBe('VISIBLE');

@@ -13,7 +13,7 @@ import {
     afterAll, describe, expect, it,
 } from 'vitest';
 import {
-    collectConsoleProblems, lifecycle, readPersistedDocumentBytes, settleActiveOpen, waitForOpenFileReady,
+    collectConsoleProblems, lifecycle, readDownloadBytes, readPersistedDocumentBytes, settleActiveOpen, waitForOpenFileReady,
 } from './documentLifecycleTestHelpers';
 import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 import type {IProbe} from './scanCleanupUiTestHelpers';
@@ -1058,7 +1058,7 @@ describe('browser Scan Cleanup workspace', () => {
                     exact: true,
                 }).click();
                 await page.getByRole('menuitem', {name: /^Save As/u}).click();
-                const savedBytes = await readFile(await (await downloading).path());
+                const savedBytes = await readDownloadBytes(await downloading);
                 const output = await inspectConversionPdf(savedBytes);
                 const stamp = assertConversionPdf(source, output, sourceBytes, gray);
                 runs.push({

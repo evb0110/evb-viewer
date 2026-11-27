@@ -13,7 +13,10 @@ import {
     resolve,
 } from 'node:path';
 import {build} from 'esbuild';
-import {chromium} from 'playwright';
+import {
+    closeChromiumBrowser,
+    connectOrLaunchChromium,
+} from './browserIntegrationChromium';
 import {clickCenter} from './clickCenter';
 import {
     createAnnotationFidelityFixtureBytes,
@@ -148,7 +151,7 @@ describe('browser annotation save acceptance in Chromium', () => {
                 contents: 'Browser edited skewed comment',
             }]},
         };
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage();
             await page.goto(origin);
@@ -197,12 +200,12 @@ describe('browser annotation save acceptance in Chromium', () => {
             expect(newMarkup.contents).toBe('Browser edited skewed comment');
             expect(after.find(row => row.name === 'evb-shape:sibling')?.rect).not.toEqual(before.find(row => row.name === 'evb-shape:sibling')?.rect);
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     });
 
     it('saves and reopens annotations in small PDFs and in PDFs above the 16 MiB full-read default', async () => {
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage();
             await page.goto(origin);
@@ -243,7 +246,7 @@ describe('browser annotation save acceptance in Chromium', () => {
             });
             expect(result.overFullReadDefault.inputBytes).toBeGreaterThan(16 * 1024 * 1024);
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     }, 120_000);
     it('prepares an admitted facing print without a UI-thread long task and preserves the input', async () => {
@@ -262,7 +265,7 @@ describe('browser annotation save acceptance in Chromium', () => {
             });
         }
         const input = new Uint8Array(await pdf.save());
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage();
             await page.goto(origin);
@@ -287,7 +290,7 @@ describe('browser annotation save acceptance in Chromium', () => {
                 longTasks: [],
             });
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     }, 120_000);
 

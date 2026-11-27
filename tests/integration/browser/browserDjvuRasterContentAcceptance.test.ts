@@ -15,7 +15,6 @@ import {
     resolve,
 } from 'node:path';
 import {build} from 'esbuild';
-import {chromium} from 'playwright';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {
     afterAll,
@@ -24,6 +23,10 @@ import {
     expect,
     it,
 } from 'vitest';
+import {
+    closeChromiumBrowser,
+    connectOrLaunchChromium,
+} from './browserIntegrationChromium';
 
 let server: Server;
 let origin = '';
@@ -188,7 +191,7 @@ afterAll(async () => {
 
 describe('browser compact DjVu saved scan pixels', () => {
     it('retains visible source ink on both exact-size scan pages', async () => {
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage();
             await page.goto(origin);
@@ -221,7 +224,7 @@ describe('browser compact DjVu saved scan pixels', () => {
                 expect(inkPixels ?? await renderSavedPageInkPixels(result.outputPdf, index + 1)).toBeGreaterThan(0);
             }
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     }, 120_000);
 });

@@ -10,7 +10,7 @@ import {
     describe, expect, it,
 } from 'vitest';
 import {
-    openPdfFromChooser, readRecoveries, lifecycle, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled,
+    openPdfFromChooser, readDownloadBytes, readRecoveries, lifecycle, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled,
 } from './documentLifecycleTestHelpers';
 
 describe('browser document lifecycle UI', () => {
@@ -158,7 +158,7 @@ describe('browser document lifecycle UI', () => {
                 exact: true,
             }).click();
             await page.getByRole('menuitem', {name: /^Save As/u}).click();
-            const saved = await PDFDocument.load(readFileSync(await (await download).path()));
+            const saved = await PDFDocument.load(await readDownloadBytes(await download));
             const annots = saved.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
             expect(Array.from({length: annots.size()}, (_, index) => annots.lookup(index, PDFDict)
                 .lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText()))
@@ -218,7 +218,7 @@ describe('browser document lifecycle UI', () => {
                 exact: true,
             }).click();
             await page.getByRole('menuitem', {name: /^Save As/u}).click();
-            const saved = await PDFDocument.load(readFileSync(await (await download).path()));
+            const saved = await PDFDocument.load(await readDownloadBytes(await download));
             const annots = saved.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
             const contents = Array.from({length: annots.size()}, (_, index) => annots.lookup(index, PDFDict)
                 .lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText());
@@ -306,7 +306,7 @@ describe('browser document lifecycle UI', () => {
                 name: 'Save',
                 exact: true,
             }).click();
-            const saved = await PDFDocument.load(readFileSync(await (await download).path()));
+            const saved = await PDFDocument.load(await readDownloadBytes(await download));
             const annots = saved.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
             expect(Array.from({length: annots.size()}, (_, index) => annots.lookup(index, PDFDict)
                 .lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText())).toContain(text);
@@ -488,7 +488,7 @@ describe('browser document lifecycle UI', () => {
                 name: 'Save',
                 exact: true,
             }).click();
-            const savedBytes = readFileSync(await (await download).path());
+            const savedBytes = await readDownloadBytes(await download);
             const saved = await PDFDocument.load(savedBytes);
             const annots = saved.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
             expect(Array.from({length: annots.size()}, (_, index) => annots.lookup(index, PDFDict)

@@ -9,10 +9,7 @@ import {
     resolve,
 } from 'node:path';
 import { build } from 'esbuild';
-import {
-    chromium,
-    type Page,
-} from 'playwright';
+import type {Page} from 'playwright';
 import {
     afterAll,
     beforeAll,
@@ -20,6 +17,10 @@ import {
     expect,
     it,
 } from 'vitest';
+import {
+    closeChromiumBrowser,
+    connectOrLaunchChromium,
+} from './browserIntegrationChromium';
 import { evaluateViewerInvariantCheckpoint } from '@tests/e2e/electron/helpers/viewerInvariants';
 import type { IViewerBugReport } from '@app/modules/viewer-invariants/buildViewerBugReport';
 import type { IViewerUserAction } from '@app/modules/viewer-invariants/viewerActionLog';
@@ -386,7 +387,7 @@ describe('viewer invariant checker against real Chromium layout', () => {
         const evidenceDirectory = resolve(process.cwd(), '.devkit/b03-long-djvu');
         await mkdir(evidenceDirectory, {recursive: true});
         const observations: unknown[] = [];
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage({
                 viewport: {
@@ -505,13 +506,13 @@ describe('viewer invariant checker against real Chromium layout', () => {
             });
             expect(errors).toEqual([]);
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
             await writeFile(join(evidenceDirectory, 'observations.json'), JSON.stringify(observations, null, 2));
         }
     }, BROWSER_TEST_TIMEOUT_MS);
 
     it('keeps the viewer unquiet for 500 ms after a trusted window resize', async () => {
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage({viewport: {
                 height: 700,
@@ -552,12 +553,12 @@ describe('viewer invariant checker against real Chromium layout', () => {
             expect(outcome.reason).toBeNull();
             expect(outcome.elapsedMs).toBeGreaterThanOrEqual(500);
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     }, BROWSER_TEST_TIMEOUT_MS);
 
     it('reports an unsettled viewer by the deadline when animation frames are suspended', async () => {
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage();
             await loadFixture(page, buildTwoPaneMarkup([{
@@ -581,12 +582,12 @@ describe('viewer invariant checker against real Chromium layout', () => {
             const outcome: unknown = await page.evaluate(key => Reflect.get(window, key), outcomeKey);
             expect(outcome, 'settle outcome at the 10 s deadline').toMatchObject({settled: false});
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     }, BROWSER_TEST_TIMEOUT_MS);
 
     it('reports nothing on a conforming viewer and exactly one violation on each known-bad fixture', async () => {
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage({viewport: {
                 height: 700,
@@ -886,12 +887,12 @@ describe('viewer invariant checker against real Chromium layout', () => {
             expect(dockedMarkerOffscreen.violations).toEqual([]);
             expect(dockedMarkerOffscreen.unresolved).toEqual([]);
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     }, BROWSER_TEST_TIMEOUT_MS);
 
     it('compares two settled observations for the stateful invariants', async () => {
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage({viewport: {
                 height: 700,
@@ -1086,12 +1087,12 @@ describe('viewer invariant checker against real Chromium layout', () => {
             });
             expect(violationIds(strandedAfterDrag)).toEqual(['A2-note-window-follows-anchor']);
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     }, BROWSER_TEST_TIMEOUT_MS);
 
     it('names the control a real click hit without carrying the document file name', async () => {
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage({viewport: {
                 height: 700,
@@ -1137,12 +1138,12 @@ describe('viewer invariant checker against real Chromium layout', () => {
                 expect(serialized).not.toContain(DISTINCTIVE_FILE_NAME_TOKEN);
             }
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     }, BROWSER_TEST_TIMEOUT_MS);
 
     it('records a wheel gesture without measuring the viewer it is observing', async () => {
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage({viewport: {
                 height: 700,
@@ -1209,12 +1210,12 @@ describe('viewer invariant checker against real Chromium layout', () => {
             expect(observed.counters.computedStyle).toBe(0);
             expect(observed.counters.rect).toBe(1);
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     }, BROWSER_TEST_TIMEOUT_MS);
 
     it('keeps the action that caused a gesture when the gesture floods the log', async () => {
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage({viewport: {
                 height: 700,
@@ -1263,12 +1264,12 @@ describe('viewer invariant checker against real Chromium layout', () => {
                 .toStrictEqual([...recorded.map(action => action.startedAt)].sort((left, right) => left - right));
             expect(JSON.stringify(recorded)).not.toContain(DISTINCTIVE_FILE_NAME_TOKEN);
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     }, BROWSER_TEST_TIMEOUT_MS);
 
     it('lets a scenario require what it created, where the checker alone reports nothing', async () => {
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage({viewport: {
                 height: 700,
@@ -1338,12 +1339,12 @@ describe('viewer invariant checker against real Chromium layout', () => {
             expect(evaluateViewerInvariantCheckpoint(missingControl, {checkpoint: 'no requirement'}).tolerated)
                 .toEqual([]);
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     }, BROWSER_TEST_TIMEOUT_MS);
 
     it('reports a renderer diagnostic only for a well-formed document and honours a reasoned allowlist', async () => {
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage({viewport: {
                 height: 700,
@@ -1384,12 +1385,12 @@ describe('viewer invariant checker against real Chromium layout', () => {
             });
             expect(allowlisted.violations).toEqual([]);
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     }, BROWSER_TEST_TIMEOUT_MS);
 
     it('settles on the active pane, not the first one, and follows a switch of panes', async () => {
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage();
             const settle = (timeoutMs: number) => page.evaluate(timeout => globalThis.__evbWaitForViewerSettled({timeoutMs: timeout}), timeoutMs);
@@ -1442,7 +1443,7 @@ describe('viewer invariant checker against real Chromium layout', () => {
             });
             expect((await switched).settled, 'the wait follows the newly active pane').toBe(true);
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     }, BROWSER_TEST_TIMEOUT_MS);
 });

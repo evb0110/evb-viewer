@@ -14,7 +14,7 @@ import {
 } from 'vitest';
 import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 import {
-    openPdfFromChooser, lifecycle, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, addNote, noteTexts, clickCenter, paneSelector, zoomActivePane, settleActiveOpen, installPickerHandleFixture,
+    openPdfFromChooser, lifecycle, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, addNote, noteTexts, clickCenter, paneSelector, zoomActivePane, settleActiveOpen, installPickerHandleFixture, readDownloadBytes,
 } from './documentLifecycleTestHelpers';
 
 describe('browser document lifecycle UI', () => {
@@ -92,9 +92,7 @@ describe('browser document lifecycle UI', () => {
             expect(await page.locator('.app-toast-failure').allTextContents()).toEqual([]);
             const artifact = await download;
             expect(artifact).not.toBeNull();
-            const savedPath = await artifact!.path();
-            expect(savedPath).not.toBeNull();
-            const saved = await PDFDocument.load(readFileSync(savedPath!));
+            const saved = await PDFDocument.load(await readDownloadBytes(artifact!));
             expect(saved.getPage(0).getRotation().angle).toBe(90);
             expect(Array.from(noteTexts(saved, '/Text'))).toContain('Large PDF note survives Save');
             expect(await page.locator('.app-toast-failure').count()).toBe(0);
@@ -492,9 +490,7 @@ describe('browser document lifecycle UI', () => {
                     name: 'Save',
                     exact: true,
                 }).click();
-                const path = await (await download).path();
-                if (!path) throw new Error('Save did not provide its downloaded bytes');
-                return PDFDocument.load(readFileSync(path));
+                return PDFDocument.load(await readDownloadBytes(await download));
             };
             if (mode === 'save') {
                 await save(true);

@@ -7,7 +7,7 @@ import {
     describe, expect, it,
 } from 'vitest';
 import {
-    lifecycle, openPdfFromChooser,
+    lifecycle, openPdfFromChooser, readDownloadBytes,
 } from './documentLifecycleTestHelpers';
 
 describe('browser large image import', () => {
@@ -50,9 +50,7 @@ describe('browser large image import', () => {
                 name: 'Save',
                 exact: true,
             }).click();
-            const path = await (await download).path();
-            if (!path) throw new Error('Image import did not save a PDF');
-            const saved = await readFile(path);
+            const saved = await readDownloadBytes(await download);
             expect(saved.byteLength).toBeGreaterThan(16 * 1024 * 1024);
             expect((await PDFDocument.load(saved)).getPageCount()).toBe(1);
             expect(saved.includes(image)).toBe(true);
