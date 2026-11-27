@@ -63,12 +63,6 @@ interface IUsePdfViewerSaveTransactionOptions {
     };
 }
 
-/**
- * Surfaces which field of which annotation failed the semantic reopen. The
- * verifier already reduced text to a length and a digest, so this record is
- * safe to log: no document text and no annotation note text reaches it.
- */
-
 function logSaveRouteDecision(
     request: IPdfViewerNativeMaterializationRequest,
     decision: TPdfSaveRouteDecision,

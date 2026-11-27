@@ -15,7 +15,7 @@ export const NO_DOCUMENT_JOB_RELEASE: TEndDocumentJobRelease = () => undefined;
 
 /**
  * Coordinates ending a document's running reload or Save adoption during tab/window close (#1598),
- * and republishing a released revision inside Save's own document operation lease turn (N7).
+ * and republishing a released revision inside Save's own document operation lease turn.
  */
 export interface IDocumentJobReleaser {
     /** Begins a release scope; the returned end function stops this scope and optionally republishes. */

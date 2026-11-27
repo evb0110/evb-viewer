@@ -21,9 +21,7 @@ export interface IFailureToastAction {
     onMousedown?: (event: MouseEvent) => void;
 }
 
-// The public name is pinned by SEN-CORE-06 and intentionally differs from the
-// repository's usual interface naming convention during this migration.
-export interface FailurePresentation extends IPresentedFailureCapture {
+export interface IFailurePresentation extends IPresentedFailureCapture {
     title: string;
     description?: string;
     technicalDetails?: string;
@@ -39,7 +37,6 @@ export interface FailurePresentation extends IPresentedFailureCapture {
  */
 export interface INoticePresentation extends Pick<IToastOptions, 'id' | 'title' | 'description' | 'actions' | 'duration' | 'progress'> {
     tone: 'warning' | 'info' | 'success';
-    /** Runs when the person closes the notice, by its close button or an action. */
     onDismiss?: () => void;
 }
 
@@ -82,15 +79,14 @@ export function getNonEmptyDetails(values: Array<string | undefined>) {
     return values.filter(line => line !== undefined && line.trim().length > 0).join('\n');
 }
 
-/** A failure's reason and short Error ID, labeled in the reader's language. */
-export function formatFailurePresentationDescription(presentation: FailurePresentation, t: TTranslateFn) {
+export function formatFailurePresentationDescription(presentation: IFailurePresentation, t: TTranslateFn) {
     return getNonEmptyDetails([
         presentation.description,
         `${t('errors.runtime.errorId')}: ${getFailureErrorId(presentation.failure)}`,
     ]);
 }
 
-export function formatFailurePresentationCopy(presentation: FailurePresentation) {
+export function formatFailurePresentationCopy(presentation: IFailurePresentation) {
     return getNonEmptyDetails([
         `Error ID: ${presentation.failure.eventId}`,
         presentation.title,
@@ -122,7 +118,7 @@ function isFailureReceiptShape(value: unknown): value is FailureReceipt {
         && isFailureSeverity(value.severity);
 }
 
-export function isFailurePresentation(value: unknown): value is FailurePresentation {
+export function isFailurePresentation(value: unknown): value is IFailurePresentation {
     if (!isRecord(value)) {
         return false;
     }
@@ -141,7 +137,7 @@ export function isFailurePresentation(value: unknown): value is FailurePresentat
     return isFailureReceiptShape(value.failure);
 }
 
-export async function copyFailurePresentation(presentation: FailurePresentation) {
+export async function copyFailurePresentation(presentation: IFailurePresentation) {
     return copyTextToClipboard(formatFailurePresentationCopy(presentation));
 }
 
@@ -151,13 +147,11 @@ export function createFailureToastPresenter(
     // presenter created before settings apply the saved locale speaks the current one.
     t: TTranslateFn,
 ) {
-    return function presentFailureToast(presentation: FailurePresentation) {
+    return function presentFailureToast(presentation: IFailurePresentation) {
         // The receipt names the toast, so a failure that more than one path
         // reports stays one toast; the toaster pulses it instead of stacking.
         const toastId = presentation.failure.eventId;
         const duration = presentation.persistent ? Number.POSITIVE_INFINITY : FAILURE_TOAST_DURATION_MS;
-        // The caller's own actions (Retry, Details) come first; Copy details
-        // is always there, and says when it has copied.
         const actions = (copied: boolean): IFailureToastAction[] => [
             ...(presentation.actions ?? []),
             {

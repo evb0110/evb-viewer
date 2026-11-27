@@ -12,7 +12,9 @@ import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
 import {BrowserLogger} from '@app/utils/browserLogger';
 
 const MAX_HISTORY_DEPTH = 128;
-// File checkpoints use the other 16 MiB half of the app-wide 32 MiB undo cap.
+// Local annotation undo and redo stacks each use this 16 MiB cap; the
+// workspace command ledger applies a shared 32 MiB command budget, and file
+// history separately limits entries.
 const MAX_ANNOTATION_HISTORY_BYTES = 16 * 1024 * 1024;
 const DEFAULT_COMMAND_BYTES = 1024;
 

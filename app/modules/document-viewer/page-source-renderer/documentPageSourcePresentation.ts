@@ -19,7 +19,7 @@ import {
     getFailureReceipt,
     type FailureReceipt,
 } from '@contracts/diagnostics/failureReceipt';
-import type { FailurePresentation } from '@app/composables/useFailureToast';
+import type { IFailurePresentation } from '@app/composables/useFailureToast';
 import { DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA } from '@contracts/documentOpenErrors';
 import { findSerializableErrorEnvelope } from '@contracts/serializableError';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -35,7 +35,7 @@ const DOCUMENT_RENDER_PRIORITY_RANK: Record<TDocumentRenderPriority, number> = {
 export interface IDocumentPageSourceVisualState {
     generation: number;
     error: string | null;
-    failurePresentation: FailurePresentation | null;
+    failurePresentation: IFailurePresentation | null;
     ready: boolean;
     lease: IDocumentRenderLease | null;
     priority: TDocumentRenderPriority;

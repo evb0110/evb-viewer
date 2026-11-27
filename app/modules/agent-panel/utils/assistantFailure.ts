@@ -1,4 +1,4 @@
-import type {FailurePresentation} from '@app/composables/useFailureToast';
+import type {IFailurePresentation} from '@app/composables/useFailureToast';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {getErrorMessage} from '@app/utils/error';
 import {captureFailureForPresentation} from '@app/utils/failureReporter';
@@ -104,7 +104,7 @@ export interface IAssistantFailureOptions {
 export function captureAssistantFailure(
     error: unknown,
     options: IAssistantFailureOptions,
-): FailurePresentation {
+): IFailurePresentation {
     const existingFailure = getFailureReceipt(error);
     const capture = existingFailure
         ? {failure: existingFailure}

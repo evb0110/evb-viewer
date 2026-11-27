@@ -98,7 +98,7 @@ describe('useRootFontSize', () => {
         setRootFontSize('16px');
         const {rootFontSizePx} = mountWithRootFontSize();
 
-        // `useUiScale.applyUiScaleToDocument` writes an inline custom property on
+        // `applyUiScaleToDocument` (from `useUiScale.ts`) writes an inline custom property on
         // exactly this element, which is what moves the rem base at runtime.
         setRootFontSize('20px');
         await vi.waitFor(() => {

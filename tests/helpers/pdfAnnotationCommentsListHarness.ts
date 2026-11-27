@@ -57,7 +57,7 @@ const ANNOTATION_COMMENT_FIXTURES = Array.from(
 );
 
 /**
- * `useUiScale.applyUiScaleToDocument` writes `--app-ui-scale` inline on `<html>`
+ * `applyUiScaleToDocument` (from `useUiScale.ts`) writes `--app-ui-scale` inline on `<html>`
  * and `html { font-size: calc(16px * var(--app-ui-scale)) }` turns it into the rem
  * base that `useRootFontSize` reads back. A DOM environment resolves no
  * stylesheets, so set the resulting root font size through the same inline-style

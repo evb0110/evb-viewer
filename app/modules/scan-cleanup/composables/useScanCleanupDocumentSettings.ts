@@ -43,7 +43,7 @@ import {isDesktopPlatformActive} from '@app/utils/platform';
 import {scanCleanupSourceIdentityKey} from '@app/modules/scan-cleanup/composables/useScanCleanupSourceSha256';
 import {captureFailureForPresentation} from '@app/utils/failureReporter';
 import {workspaceCommandSinkKey} from '@app/types/workspaceCommand';
-import type {FailurePresentation} from '@app/composables/useFailureToast';
+import type {IFailurePresentation} from '@app/composables/useFailureToast';
 import {getFailureReceipt} from '@contracts/diagnostics/failureReceipt';
 
 interface IUseScanCleanupDocumentSettingsOptions {
@@ -116,7 +116,7 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
     const loadingDocument = ref(false);
     let documentLoadGeneration = 0;
     const documentSettingsReady = ref(false);
-    const documentSettingsLoadFailure = shallowRef<FailurePresentation | null>(null);
+    const documentSettingsLoadFailure = shallowRef<IFailurePresentation | null>(null);
     const documentIntents = new Set<'overrides' | 'pageOverrideDefaults' | 'marginsMm' | 'outputMode'>();
     let marginIntent: Partial<IScanCleanupMarginsMm> = {};
     let defaultsIntent: Partial<IScanCleanupPageOverride> = {};

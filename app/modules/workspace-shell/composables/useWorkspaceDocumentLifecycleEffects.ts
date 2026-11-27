@@ -264,7 +264,7 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
                 error,
             });
         });
-        // The searchable bytes are in history; a view that failed to show them shows its load failure (CR-11).
+        // The searchable bytes are in history; a view that failed to show them shows its load failure.
         if (result.outcome?.status === 'failed') {
             BrowserLogger.warn('ocr', 'OCR result was applied but the view failed to load it', {error: result.outcome.error});
         } else {

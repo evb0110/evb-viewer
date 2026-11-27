@@ -1,4 +1,4 @@
-import type {FailurePresentation} from '@app/composables/useFailureToast';
+import type {IFailurePresentation} from '@app/composables/useFailureToast';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 
 export type TFatalRuntimeErrorKind = 'runtime' | 'startup';
@@ -32,17 +32,17 @@ function isSameFatalRuntimeError(
 export const useFatalRuntimeError = () => {
     const fatalRuntimeError = useState<IFatalRuntimeError | null>('fatal-runtime-error', () => null);
 
-    function setFatalRuntimeError(presentation: FailurePresentation): void;
+    function setFatalRuntimeError(presentation: IFailurePresentation): void;
     function setFatalRuntimeError(
         kind: TFatalRuntimeErrorKind,
-        presentation: FailurePresentation,
+        presentation: IFailurePresentation,
     ): void;
     function setFatalRuntimeError(
-        kindOrPresentation: TFatalRuntimeErrorKind | FailurePresentation,
-        presentationArgument?: FailurePresentation,
+        kindOrPresentation: TFatalRuntimeErrorKind | IFailurePresentation,
+        presentationArgument?: IFailurePresentation,
     ) {
         const kind = typeof kindOrPresentation === 'string' ? kindOrPresentation : 'runtime';
-        let presentation: FailurePresentation;
+        let presentation: IFailurePresentation;
         if (typeof kindOrPresentation === 'string') {
             if (presentationArgument === undefined) {
                 return;

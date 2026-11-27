@@ -112,6 +112,5 @@ export const useUiScale = () => {
         setHostSnapshot,
         refreshHostSnapshot,
         attachHostEnvironmentListener,
-        applyUiScaleToDocument,
     };
 };

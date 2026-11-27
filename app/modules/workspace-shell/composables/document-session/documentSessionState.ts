@@ -8,7 +8,7 @@ import type {
     IDocumentRevisionInfo,
     TDocumentRevisionToken,
 } from '@contracts/documentRevision';
-import type { FailurePresentation } from '@app/composables/useFailureToast';
+import type { IFailurePresentation } from '@app/composables/useFailureToast';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { TPdfRasterDisplayProfile } from '@app/types/pdfRasterDisplayProfile';
 import type {
@@ -40,7 +40,7 @@ export type TDocumentFileRecord = Pick<IWorkspaceDocumentController, 'file' | 'c
 export interface IDocumentSessionState {
     commitFile: TDocumentFileRecord['commitFile'];
     error: Ref<string | null>;
-    failurePresentation: Ref<FailurePresentation | null>;
+    failurePresentation: Ref<IFailurePresentation | null>;
     fileName: ComputedRef<string | null>;
     isDirty: Ref<boolean>;
     isElectron: ComputedRef<boolean>;
@@ -103,7 +103,7 @@ export function createDocumentSessionState(deps: {
     const pdfRasterDisplayProfile = ref<TPdfRasterDisplayProfile | null>(null);
     const openedWorkingCopyPath = ref<TDocumentRef | null>(null);
     const error = ref<string | null>(null);
-    const failurePresentation = shallowRef<FailurePresentation | null>(null);
+    const failurePresentation = shallowRef<IFailurePresentation | null>(null);
     const isDirty = ref(false);
     const pdfConformanceAnalysisState = ref<TPdfConformanceAnalysisState>('none');
     const pdfConformanceProfile = ref<IPdfConformanceProfile | null>(null);

@@ -1,4 +1,4 @@
-import type {FailurePresentation} from '@app/composables/useFailureToast';
+import type {IFailurePresentation} from '@app/composables/useFailureToast';
 import {BrowserLogger} from '@app/utils/browserLogger';
 
 export type TRendererBootstrapFailureKey =
@@ -16,18 +16,18 @@ export interface IRendererBootstrapFailureOptions {
     description?: string;
 }
 
-const rendererBootstrapFailures = new Map<TRendererBootstrapFailureKey, FailurePresentation>();
+const rendererBootstrapFailures = new Map<TRendererBootstrapFailureKey, IFailurePresentation>();
 
 export function getOrCaptureRendererBootstrapFailure(
     options: IRendererBootstrapFailureOptions,
-): FailurePresentation {
+): IFailurePresentation {
     const existing = rendererBootstrapFailures.get(options.key);
     if (existing) {
         return existing;
     }
 
     const failure = BrowserLogger.error(options.section, options.message, options.error, {code: 'RENDERER_STARTUP_WARMUP_FAILED'});
-    const presentation: FailurePresentation = {
+    const presentation: IFailurePresentation = {
         failure,
         title: options.title,
         ...(options.description === undefined ? {} : {description: options.description}),

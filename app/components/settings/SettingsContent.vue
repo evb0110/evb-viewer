@@ -124,7 +124,7 @@ import type { TPerformanceMode } from '@contracts/hostResourceProfile';
 import type {IAgentMcpIntegrationStatus} from '@contracts/agent';
 import type { ExpectedOutcome } from '@contracts/diagnostics/failureReceipt';
 import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdfColors';
-import type { FailurePresentation } from '@app/composables/useFailureToast';
+import type { IFailurePresentation } from '@app/composables/useFailureToast';
 import { useFailureToast } from '@app/composables/useFailureToast';
 import { LOCALE_DEFINITIONS } from '@i18n-core';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -280,7 +280,7 @@ const settingsLoadFailed = computed(() => !isLoaded.value && !settingsLoadPendin
 let assistantPanelPreferenceSave: Promise<boolean> | null = null;
 let diagnosticsPreferenceSave: Promise<boolean> | null = null;
 
-const settingsLoadFailurePresentation = computed<FailurePresentation | null>(() => {
+const settingsLoadFailurePresentation = computed<IFailurePresentation | null>(() => {
     const capture = settingsLoadFailure.value;
     if (!settingsLoadFailed.value || !capture) {
         return null;

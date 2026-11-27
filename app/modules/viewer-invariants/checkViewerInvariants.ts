@@ -142,10 +142,13 @@ function findVisiblePages(surface: IViewerSurface) {
 }
 
 /**
- * R1: the page number the toolbar renders must be a page a reader can actually
- * see. Which of two visible pages should win is an undecided product rule, so
- * the invariant deliberately accepts any visible page, including either page
- * of a facing spread. It still catches a frozen or desynced counter.
+ * R1 (`docs/architecture/behavior-contract.md`): the page number the toolbar
+ * renders must be a page a reader can actually see. R1 settles the winner
+ * among qualifying visible pages (retaining a fully visible current page,
+ * otherwise choosing the greatest visible-area fraction with lower page number
+ * breaking ties), while this checker intentionally tests visibility
+ * membership—accepting any qualifying visible page, including either page of a
+ * facing spread—to catch a frozen or desynced counter.
  */
 function checkToolbarPageVisible(
     surface: IViewerSurface,

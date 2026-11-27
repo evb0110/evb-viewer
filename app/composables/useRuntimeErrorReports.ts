@@ -1,4 +1,4 @@
-import type {FailurePresentation} from '@app/composables/useFailureToast';
+import type {IFailurePresentation} from '@app/composables/useFailureToast';
 import type {ILiveDiagnosticLease} from '@app/utils/failureReporter';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 
@@ -145,7 +145,7 @@ export const useRuntimeErrorReports = () => {
         return false;
     }
 
-    function reportRuntimeError(presentation: FailurePresentation) {
+    function reportRuntimeError(presentation: IFailurePresentation) {
         addReport({
             id: presentation.failure.eventId,
             title: presentation.title,

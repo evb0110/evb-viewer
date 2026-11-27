@@ -61,12 +61,6 @@ export interface IAnnotationSaveSession {
 }
 
 
-/**
- * The production boundary for annotation state. Existing pdfjs snapshots enter
- * through the temporary summary adapter; UI and persistence consumers leave
- * through read models and revision-frontier save sessions.
- */
-
 function shapeToolFromLegacyShape(shape: IShapeAnnotation): TDrawableShapeType {
     if (shape.type === 'polyline') {
         return 'draw';
@@ -155,6 +149,12 @@ export function toCanonicalShapeEntity(
     };
 }
 
+/**
+ * Production boundary for canonical annotation state: document ingestion calls
+ * `parsePdfAnnotations` and reconciles parsed entities into the store, while UI
+ * and persistence consumers read through read models, comment summaries, and
+ * revision-frontier save sessions.
+ */
 export class AnnotationApplication {
     readonly store: AnnotationStore;
 

@@ -1,6 +1,6 @@
-/* Search highlights: class-based (.pdf-search-highlight) and CSS Custom Highlight API (::highlight) */
-
-/* ── Class-Based Search Highlights ─────────────────────────────────── */
+/* Search highlights: class-based (.pdf-search-highlight) and CSS Custom Highlight API
+   (::highlight, used when CSS.highlights and Highlight are supported and the stored
+   highlight mode is 'css'). */
 
 .pdfViewer .pdf-search-highlight {
     background-color: var(--app-pdf-search-highlight-bg);
@@ -38,8 +38,6 @@
 .pdf-word-box--current {
     outline: none;
 }
-
-/* ── CSS Custom Highlight API (Electron/Chromium) ──────────────────── */
 
 ::highlight(pdf-search-match) {
     background-color: var(--app-pdf-search-highlight-bg);

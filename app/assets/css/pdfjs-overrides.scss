@@ -72,10 +72,11 @@
        only interactive trigger and the highlight colour is sufficient visual cue. */
     .annotationEditorLayer,
     .annotation-editor-layer {
-        /* Newly placed sticky notes are backed by a live PDF.js FreeText editor
-           until save. That editor is only a persistence anchor; the Vue marker
-           owns all visuals and interaction, so PDF.js focus/hover rectangles
-           must stay hidden even while the marker is dragged before save. */
+        /* New notes are written as /Text annotations and both new notes and
+           recognized legacy FreeText+Popup markers (ADR 0003) are rendered by
+           the app's Vue annotation layer. This selector is a remnant of the
+           former PDF.js FreeText editor bridge, kept so any anchor editor
+           marked with this class stays visually and interactively hidden. */
         .freeTextEditor.pdf-comment-marker-anchor-editor {
             border-color: transparent !important;
             outline: none !important;
