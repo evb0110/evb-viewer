@@ -708,8 +708,8 @@ function normalizeShapePoints(
         );
     }
     state.count += value.length;
-    if (state.count > PDF_NATIVE_MUTATION_LIMITS.collectionItems) {
-        fail(`shape mutations must include at most ${PDF_NATIVE_MUTATION_LIMITS.collectionItems} points`, options);
+    if (state.count > PDF_NATIVE_MUTATION_LIMITS.shapeSetPoints) {
+        fail(`shape mutations must include at most ${PDF_NATIVE_MUTATION_LIMITS.shapeSetPoints} points`, options);
     }
     return Array.from(value, (point, index) => normalizeShapePoint(point, `${label}[${index}]`, options));
 }
@@ -1398,13 +1398,6 @@ function countNativeMutationItems(mutations: IPdfNativeMutationSet): number {
         add(mutations.shapes.shapes.length);
         add(mutations.shapes.deletedAnnotationIds.length);
         add(mutations.shapes.deletedStableKeys.length);
-        for (const shape of mutations.shapes.shapes) {
-            add(
-                (shape.strokes?.length ?? 0)
-                + (shape.points?.length ?? 0)
-                + (shape.strokes?.reduce((total, stroke) => total + stroke.length, 0) ?? 0),
-            );
-        }
     }
     if (mutations.markup) {
         add(mutations.markup.hints.length);

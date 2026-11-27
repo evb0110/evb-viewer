@@ -1227,4 +1227,36 @@ mod protocol_schema_tests {
             .to_string()
             .contains("shape strokes exceed the 20000-point admission ceiling"));
     }
+
+    #[test]
+    fn multi_shape_payload_at_100000_points_deserializes_cleanly() {
+        let point = r#"{"x":0.2,"y":0.2}"#;
+        let stroke = format!(
+            "[{}]",
+            std::iter::repeat_n(point, MAX_SHAPE_MUTATION_POINTS)
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+        let shape = format!(
+            r##"{{"type":"polyline","pageIndex":0,"x":0.1,"y":0.1,"width":0.3,"height":0.3,"color":"#336699","opacity":1,"strokeWidth":1,"pdfSubtype":"Ink","strokes":[{stroke}]}}"##,
+        );
+        let shapes = std::iter::repeat_n(shape.as_str(), 5)
+            .collect::<Vec<_>>()
+            .join(",");
+        let source = format!(
+            r#"{{"shapes":{{"totalPages":1,"rewriteShapeState":false,"shapes":[{shapes}],"deletedAnnotationIds":[],"deletedStableKeys":[]}}}}"#,
+        );
+
+        let parsed: NativeMutationsFile = serde_json::from_str(&source)
+            .expect("a 100,000-point multi-shape payload must deserialize cleanly");
+        let shapes_mutation = parsed.shapes.expect("shapes mutation must be present");
+        assert_eq!(shapes_mutation.shapes.len(), 5);
+        let total_points: usize = shapes_mutation
+            .shapes
+            .iter()
+            .flat_map(|item| item.strokes.iter())
+            .map(Vec::len)
+            .sum();
+        assert_eq!(total_points, 100_000);
+    }
 }

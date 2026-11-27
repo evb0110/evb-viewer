@@ -199,6 +199,46 @@ interface IShapeMutationChunk {
     deletedStableKeys: string[];
 }
 
+function shapeNativeChunkItemCount(shape: IPdfNativeShapeAnnotation): number {
+    return 1 + (shape.strokes?.length ?? 0) + shapePointCount(shape);
+}
+
+function countNativeChunkItems(mutations: IPdfNativeMutationSet): number {
+    let total = 0;
+    const add = (count: number) => {
+        total = Math.min(
+            PDF_NATIVE_MUTATION_LIMITS.collectionItems + 1,
+            total + count,
+        );
+    };
+    add(mutations.updates?.length ?? 0);
+    add(mutations.geometryUpdates?.length ?? 0);
+    add(mutations.freeTextNotes?.length ?? 0);
+    add(getTextBoxes(mutations).length);
+    add(mutations.deletes?.length ?? 0);
+    add(mutations.pageRotations?.length ?? 0);
+    add(mutations.pageCrops?.length ?? 0);
+    add(mutations.pageCropRemovals?.length ?? 0);
+    add(mutations.pageLabels?.ranges.length ?? 0);
+    add(mutations.bookmarks ? countBookmarkItems(mutations.bookmarks.items) : 0);
+    if (mutations.shapes) {
+        add(mutations.shapes.deletedAnnotationIds.length);
+        add(mutations.shapes.deletedStableKeys.length);
+        for (const shape of mutations.shapes.shapes) {
+            add(shapeNativeChunkItemCount(shape));
+        }
+    }
+    if (mutations.markup) {
+        add(mutations.markup.hints.length);
+        for (const hint of mutations.markup.hints) {
+            add(hint.markupGeometry?.length ?? 0);
+        }
+    }
+    add(mutations.placedImages?.length ?? 0);
+    add(mutations.placedImageGeometryUpdates?.length ?? 0);
+    return total;
+}
+
 function splitShapeMutation(
     shapes: IPdfNativeShapesMutation,
     identityChunkItems: number,
@@ -213,24 +253,6 @@ function splitShapeMutation(
         || deletedStableKeyIndex < shapes.deletedStableKeys.length
         || chunks.length === 0
     ) {
-        const chunkShapes: IPdfNativeShapeAnnotation[] = [];
-        let pointCount = 0;
-        while (chunkShapes.length < Math.min(PDF_NATIVE_MUTATION_LIMITS.shapes, identityChunkItems)) {
-            const shape = shapes.shapes[shapeIndex];
-            if (shape === undefined) {
-                break;
-            }
-            const nextPointCount = pointCount + shapePointCount(shape);
-            if (chunkShapes.length > 0 && nextPointCount > PDF_NATIVE_MUTATION_LIMITS.shapePoints) {
-                break;
-            }
-            if (nextPointCount > PDF_NATIVE_MUTATION_LIMITS.shapePoints) {
-                fail('shape mutations contain a chunk that exceeds the point limit', {errorKind: 'error'});
-            }
-            chunkShapes.push(shape);
-            pointCount = nextPointCount;
-            shapeIndex += 1;
-        }
         const deletedAnnotationIds = shapes.deletedAnnotationIds.slice(
             deletedAnnotationIndex,
             deletedAnnotationIndex + PDF_NATIVE_MUTATION_LIMITS.shapeDeletedItems,
@@ -241,6 +263,40 @@ function splitShapeMutation(
             deletedStableKeyIndex + PDF_NATIVE_MUTATION_LIMITS.shapeDeletedItems,
         );
         deletedStableKeyIndex += deletedStableKeys.length;
+        const chunkShapes: IPdfNativeShapeAnnotation[] = [];
+        let pointCount = 0;
+        let chunkItemCount = deletedAnnotationIds.length + deletedStableKeys.length;
+        while (chunkShapes.length < Math.min(PDF_NATIVE_MUTATION_LIMITS.shapes, identityChunkItems)) {
+            const shape = shapes.shapes[shapeIndex];
+            if (shape === undefined) {
+                break;
+            }
+            const points = shapePointCount(shape);
+            if (points > PDF_NATIVE_MUTATION_LIMITS.shapePoints) {
+                fail('shape mutations contain a shape that exceeds the point limit', {errorKind: 'error'});
+            }
+            const nextPointCount = pointCount + points;
+            const nextChunkItemCount = chunkItemCount + shapeNativeChunkItemCount(shape);
+            if (
+                chunkShapes.length > 0
+                && (
+                    nextPointCount > PDF_NATIVE_MUTATION_LIMITS.shapeChunkPoints
+                    || nextChunkItemCount > PDF_NATIVE_MUTATION_LIMITS.collectionItems
+                )
+            ) {
+                break;
+            }
+            if (
+                nextPointCount > PDF_NATIVE_MUTATION_LIMITS.shapeChunkPoints
+                || nextChunkItemCount > PDF_NATIVE_MUTATION_LIMITS.collectionItems
+            ) {
+                fail('shape mutations contain a chunk that exceeds the point limit', {errorKind: 'error'});
+            }
+            chunkShapes.push(shape);
+            pointCount = nextPointCount;
+            chunkItemCount = nextChunkItemCount;
+            shapeIndex += 1;
+        }
         chunks.push({
             shapes: chunkShapes,
             deletedAnnotationIds,
@@ -434,8 +490,10 @@ export function splitPdfNativeMutationSetIntoBoundedChunks(
                 ...chunk,
             };
             const combinedIds = index === 0 ? collectExpectedNativeIdentityIds(combined) : [];
-            if (index === 0 && combinedIds.length <= PDF_NATIVE_IDENTITY_BINDING_LIMITS.chunkItems
-                && identityBindingReportBytes(combinedIds) <= PDF_NATIVE_IDENTITY_BINDING_LIMITS.chunkBytes) {
+            if (index === 0
+                && combinedIds.length <= PDF_NATIVE_IDENTITY_BINDING_LIMITS.chunkItems
+                && identityBindingReportBytes(combinedIds) <= PDF_NATIVE_IDENTITY_BINDING_LIMITS.chunkBytes
+                && countNativeChunkItems(combined) <= PDF_NATIVE_MUTATION_LIMITS.collectionItems) {
                 Object.assign(base, chunk);
             } else {
                 chunks.push(chunk);

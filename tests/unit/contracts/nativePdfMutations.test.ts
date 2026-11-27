@@ -1019,6 +1019,109 @@ describe('native PDF mutation contracts', () => {
         );
     });
 
+    it('admits heavy multi-shape ink sets past 100,000 points and splits them into bounded native chunks', () => {
+        const makeInkShape = (index: number, strokePoints: number) => ({
+            ...validShape,
+            type: 'polyline' as const,
+            pdfSubtype: 'Ink' as const,
+            stableKey: `evb-shape:heavy-${String(index)}`,
+            strokes: [Array.from({length: strokePoints}, () => ({
+                x: 0.2,
+                y: 0.3,
+            }))],
+        });
+
+        // 12 shapes x 10,000 points = 120,000 points (exceeds 100,000 collectionItems, well under 2,000,000 shapeSetPoints).
+        const mutations = normalizePdfNativeMutationSet({
+            bookmarks: {
+                totalPages: 1,
+                untitledLabel: 'Untitled',
+                items: Array.from({length: 5_000}, (_, index) => createBookmark(`Chapter ${String(index)}`)),
+            },
+            shapes: {
+                totalPages: 1,
+                rewriteShapeState: true,
+                shapes: Array.from({length: 12}, (_, index) => makeInkShape(index, 10_000)),
+                deletedAnnotationIds: [],
+                deletedStableKeys: [],
+            },
+        }, 'mutations');
+
+        const chunks = splitPdfNativeMutationSetIntoBoundedChunks(mutations);
+        const shapeChunks = chunks.filter(chunk => chunk.shapes !== undefined);
+        expect(shapeChunks.length).toBeGreaterThanOrEqual(2);
+        expect(shapeChunks[0]?.shapes?.rewriteShapeState).toBe(true);
+        expect(shapeChunks[0]?.continuation).toBeUndefined();
+        expect(shapeChunks.slice(1).every(chunk =>
+            chunk.shapes?.rewriteShapeState === false && chunk.continuation?.family === 'shapes')).toBe(true);
+
+        const totalShapes = shapeChunks.reduce((sum, chunk) => sum + (chunk.shapes?.shapes.length ?? 0), 0);
+        const totalPoints = shapeChunks.reduce((sum, chunk) => sum + (chunk.shapes?.shapes.reduce(
+            (shapeSum, shape) => shapeSum
+                + (shape.points?.length ?? 0)
+                + (shape.strokes?.reduce((strokeSum, stroke) => strokeSum + stroke.length, 0) ?? 0),
+            0,
+        ) ?? 0), 0);
+        expect(totalShapes).toBe(12);
+        expect(totalPoints).toBe(120_000);
+
+        for (const chunk of chunks) {
+            const chunkShapePoints = chunk.shapes?.shapes.reduce(
+                (sum, shape) => sum
+                    + (shape.points?.length ?? 0)
+                    + (shape.strokes?.reduce((strokeSum, stroke) => strokeSum + stroke.length, 0) ?? 0),
+                0,
+            ) ?? 0;
+            expect(chunkShapePoints).toBeLessThanOrEqual(PDF_NATIVE_MUTATION_LIMITS.shapeChunkPoints);
+
+            // Mirror Rust's per-sidecar aggregate admission count so every emitted chunk is accepted by pdf-page-ops.
+            const rustSidecarItems = (chunk.bookmarks ? countBookmarkItems(chunk.bookmarks.items) : 0)
+                + (chunk.shapes?.shapes.length ?? 0)
+                + (chunk.shapes?.deletedAnnotationIds.length ?? 0)
+                + (chunk.shapes?.deletedStableKeys.length ?? 0)
+                + (chunk.shapes?.shapes.reduce((sum, shape) => sum + (shape.strokes?.length ?? 0), 0) ?? 0)
+                + chunkShapePoints;
+            expect(rustSidecarItems).toBeLessThanOrEqual(PDF_NATIVE_MUTATION_LIMITS.collectionItems);
+        }
+
+        // Reject sets that exceed shapeSetPoints (2,000,000 points = 20 full 100,000-point chunks).
+        const oversizedShapes = Array.from({length: 101}, (_, index) => makeInkShape(index, PDF_NATIVE_MUTATION_LIMITS.shapePoints));
+        expect(() => normalizePdfNativeMutationSet({shapes: {
+            totalPages: 1,
+            rewriteShapeState: false,
+            shapes: oversizedShapes,
+            deletedAnnotationIds: [],
+            deletedStableKeys: [],
+        }}, 'mutations')).toThrow(`shape mutations must include at most ${PDF_NATIVE_MUTATION_LIMITS.shapeSetPoints} points`);
+
+        // Direct chunking still rejects a single shape over the 20,000-point per-shape ceiling.
+        expect(() => splitPdfNativeMutationSetIntoBoundedChunks({shapes: {
+            totalPages: 1,
+            rewriteShapeState: false,
+            shapes: [{
+                ...validShape,
+                pageIndex: requirePageIndex(0),
+                x2: null,
+                y2: null,
+                fillColor: null,
+                annotationId: null,
+                stableKey: null,
+                pdfSubtype: 'Ink',
+                lineStartStyle: null,
+                lineEndStyle: null,
+                createdAt: null,
+                modifiedAt: null,
+                type: 'polyline',
+                strokes: [Array.from({length: PDF_NATIVE_MUTATION_LIMITS.shapePoints + 1}, () => ({
+                    x: 0.2,
+                    y: 0.3,
+                }))],
+            }],
+            deletedAnnotationIds: [],
+            deletedStableKeys: [],
+        }})).toThrow('exceeds the point limit');
+    });
+
     it('continues valid cap-plus-one mutation families in bounded chunks', () => {
         const mutations = normalizePdfNativeMutationSet({
             updates: Array.from({length: PDF_NATIVE_MUTATION_LIMITS.noteTextUpdates + 1}, (_, index) => ({
