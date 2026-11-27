@@ -81,6 +81,7 @@ pub(crate) fn run(input: Input<'_>) -> Output {
             color,
             binary,
             picture_mask,
+            &protected_picture_mask,
             chroma_picture_mask,
             removed_edge_bands,
             text_mask,
@@ -125,7 +126,7 @@ struct HardCompositionInput<'a> {
     protected_picture_mask: &'a BinaryImage,
 }
 
-fn compose_hard_mixed(input: HardCompositionInput<'_>) -> Output {
+fn compose_hard_mixed_planes(input: &HardCompositionInput<'_>) -> (GrayImage, Option<RgbImage>) {
     let HardCompositionInput {
         gray,
         color,
@@ -135,10 +136,10 @@ fn compose_hard_mixed(input: HardCompositionInput<'_>) -> Output {
         removed_edge_bands,
         dpi,
         preserve_confirmed_photo_tones,
-        create_layers,
         create_composite,
         protected_picture_mask,
-    } = input;
+        ..
+    } = *input;
     // The final stencil and the calibrated picture mask are both rebuilt from
     // the cleaned raster. Start the background at neutral white so no
     // producer-authored composite or unclassified scanner tone can travel
@@ -155,21 +156,25 @@ fn compose_hard_mixed(input: HardCompositionInput<'_>) -> Output {
         .filter(|_| chroma_picture_mask.is_some())
         .map(|_| RgbImage::new(gray.width(), gray.height(), [255; 3]));
     let feather_radius = (dpi * 3.0 / 25.4).round().clamp(4.0, 48.0) as usize;
-    let picture_exterior = picture_mask.invert();
-    let (distance_to_picture_exterior, distance_to_stencil) = rayon::join(
-        || squared_euclidean_distance(&picture_exterior),
-        || squared_euclidean_distance(binary),
-    );
+    let feather_distances = (!preserve_confirmed_photo_tones).then(|| {
+        let picture_exterior = picture_mask.invert();
+        rayon::join(
+            || squared_euclidean_distance(&picture_exterior),
+            || squared_euclidean_distance(binary),
+        )
+    });
     let stencil_adjacency_squared = (feather_radius * feather_radius) as u32;
     let alpha_at = |x: usize, y: usize, source_gray: u8| {
-        let index = y * gray.width() + x;
-        if preserve_confirmed_photo_tones {
+        let Some((distance_to_picture_exterior, distance_to_stencil)) = feather_distances.as_ref()
+        else {
             // Every pixel inside a corroborated owner is source appearance, including
             // the rectangular crop's paper-toned boundary. Any protective transition
             // belongs to the exterior ring below; fading owner pixels toward white
             // recreates the tile-shaped halo this path exists to remove.
-            1.0
-        } else if distance_to_stencil[index] <= stencil_adjacency_squared {
+            return 1.0;
+        };
+        let index = y * gray.width() + x;
+        if distance_to_stencil[index] <= stencil_adjacency_squared {
             let spatial_alpha = (f64::from(distance_to_picture_exterior[index]).sqrt()
                 / feather_radius as f64)
                 .clamp(0.0, 1.0);
@@ -271,26 +276,51 @@ fn compose_hard_mixed(input: HardCompositionInput<'_>) -> Output {
                 }
             });
     }
+    (mixed_gray, mixed_color)
+}
+
+fn compose_hard_mixed(input: HardCompositionInput<'_>) -> Output {
+    let (mut mixed_gray, mut mixed_color) = compose_hard_mixed_planes(&input);
+    let HardCompositionInput {
+        gray,
+        binary,
+        dpi,
+        create_layers,
+        create_composite,
+        protected_picture_mask,
+        ..
+    } = input;
+    if create_layers && !create_composite {
+        let foreground_mask = binary.clone();
+        fill_picture_stencil_knockouts(
+            &mut mixed_gray,
+            mixed_color.as_mut(),
+            binary,
+            protected_picture_mask,
+            dpi,
+        );
+        // Move `mixed_color` directly into the layer instead of cloning a
+        // full-res RGB plane that no layered caller publishes (`color_background`
+        // owns the color plane for geometry and composite fallback). Keep a
+        // gray raster of page dimensions on `Output.gray` for callers that
+        // read `output.image.width()` / `height()`.
+        let layer_gray = mixed_gray.clone();
+        return Output {
+            gray: layer_gray,
+            color: None,
+            mixed_layers: Some(MixedLayers {
+                foreground_mask,
+                foreground_alpha: None,
+                background: mixed_gray,
+                color_background: mixed_color,
+                source_mrc: false,
+            }),
+        };
+    }
     let layers = create_layers.then(|| {
         let foreground_mask = binary.clone();
         let mut background = mixed_gray.clone();
         let mut color_background = mixed_color.clone();
-        if !create_composite {
-            fill_picture_stencil_knockouts(
-                &mut background,
-                color_background.as_mut(),
-                binary,
-                protected_picture_mask,
-                dpi,
-            );
-            return MixedLayers {
-                foreground_mask,
-                foreground_alpha: None,
-                background,
-                color_background,
-                source_mrc: false,
-            };
-        }
         if let Some(color_background) = color_background.as_mut() {
             background
                 .data_mut()
@@ -384,36 +414,56 @@ fn fill_picture_stencil_knockouts(
                 let mut gray_sum = 0u64;
                 let mut color_sum = [0u64; 3];
                 let mut samples = 0u64;
+                let ix = x as isize;
+                let iy = y as isize;
+                let max_x = width as isize - 1;
+                let max_y = height as isize - 1;
                 for radius in 1..=max_radius {
-                    for dy in -radius..=radius {
-                        for dx in -radius..=radius {
-                            if dx.abs().max(dy.abs()) != radius {
-                                continue;
+                    let mut visit = |sample_x: usize, sample_y: usize| {
+                        if !picture_ownership_mask.get(sample_x, sample_y)
+                            || stencil.get(sample_x, sample_y)
+                        {
+                            return;
+                        }
+                        gray_sum += u64::from(source_gray.get(sample_x, sample_y));
+                        if let Some(source_color) = source_color.as_ref() {
+                            let pixel = source_color.get(sample_x, sample_y);
+                            for (channel, value) in pixel.into_iter().enumerate() {
+                                color_sum[channel] += u64::from(value);
                             }
-                            let sample_x = x as isize + dx;
-                            let sample_y = y as isize + dy;
-                            if sample_x < 0
-                                || sample_y < 0
-                                || sample_x >= width as isize
-                                || sample_y >= height as isize
-                            {
-                                continue;
+                        }
+                        samples += 1;
+                    };
+                    let x_start = (ix - radius).max(0) as usize;
+                    let x_end = (ix + radius).min(max_x) as usize;
+                    if iy >= radius {
+                        let top_y = (iy - radius) as usize;
+                        for sample_x in x_start..=x_end {
+                            visit(sample_x, top_y);
+                        }
+                    }
+                    if iy + radius <= max_y {
+                        let bottom_y = (iy + radius) as usize;
+                        for sample_x in x_start..=x_end {
+                            visit(sample_x, bottom_y);
+                        }
+                    }
+                    let y_start = (iy - radius + 1).max(0);
+                    let y_end = (iy + radius - 1).min(max_y);
+                    if y_start <= y_end {
+                        let y_start = y_start as usize;
+                        let y_end = y_end as usize;
+                        if ix >= radius {
+                            let left_x = (ix - radius) as usize;
+                            for sample_y in y_start..=y_end {
+                                visit(left_x, sample_y);
                             }
-                            let sample_x = sample_x as usize;
-                            let sample_y = sample_y as usize;
-                            if !picture_ownership_mask.get(sample_x, sample_y)
-                                || stencil.get(sample_x, sample_y)
-                            {
-                                continue;
+                        }
+                        if ix + radius <= max_x {
+                            let right_x = (ix + radius) as usize;
+                            for sample_y in y_start..=y_end {
+                                visit(right_x, sample_y);
                             }
-                            gray_sum += u64::from(source_gray.get(sample_x, sample_y));
-                            if let Some(source_color) = source_color.as_ref() {
-                                let pixel = source_color.get(sample_x, sample_y);
-                                for (channel, value) in pixel.into_iter().enumerate() {
-                                    color_sum[channel] += u64::from(value);
-                                }
-                            }
-                            samples += 1;
                         }
                     }
                     if samples > 0 {
@@ -451,6 +501,7 @@ fn compose_soft_alpha_mixed(
     color: Option<&RgbImage>,
     binary_fallback: &BinaryImage,
     picture_mask: &BinaryImage,
+    protected_picture_mask: &BinaryImage,
     chroma_picture_mask: Option<&BinaryImage>,
     removed_edge_bands: Option<&BinaryImage>,
     text_mask: Option<&BinaryImage>,
@@ -528,28 +579,29 @@ fn compose_soft_alpha_mixed(
 
     // Use the same plate construction as the bilevel Mixed representation.
     // The foreground encoding must not change which tonal or chromatic pixels
-    // survive in the background layer.
-    let bilevel_output = run(Input {
+    // survive in the background layer. Moving the hard-mixed planes directly
+    // avoids redundant full-resolution clones that soft-alpha composition would
+    // otherwise discard immediately.
+    let (mut background, mut color_background) = compose_hard_mixed_planes(&HardCompositionInput {
         gray,
-        raw_gray,
         color,
         binary: binary_fallback,
         picture_mask,
         chroma_picture_mask,
         removed_edge_bands,
-        text_mask,
-        text_vicinity_mask,
         dpi,
         preserve_confirmed_photo_tones,
-        use_soft_alpha_foreground: false,
         create_layers: true,
         create_composite: false,
+        protected_picture_mask,
     });
-    let bilevel_layers = bilevel_output
-        .mixed_layers
-        .expect("requested mixed background layers");
-    let mut background = bilevel_layers.background;
-    let mut color_background = bilevel_layers.color_background;
+    fill_picture_stencil_knockouts(
+        &mut background,
+        color_background.as_mut(),
+        binary_fallback,
+        protected_picture_mask,
+        dpi,
+    );
     background
         .data_mut()
         .par_chunks_mut(gray.width())
@@ -591,7 +643,17 @@ fn compose_soft_alpha_mixed(
     );
 
     if create_composite {
-        let mut composite = background.clone();
+        let (mut composite, mut composite_color, layer_buffers) = if create_layers {
+            let composite = background.clone();
+            let composite_color = color_background.clone();
+            (
+                composite,
+                composite_color,
+                Some((background, color_background)),
+            )
+        } else {
+            (background, color_background, None)
+        };
         composite
             .data_mut()
             .par_chunks_mut(gray.width())
@@ -604,8 +666,7 @@ fn compose_soft_alpha_mixed(
                     }
                 }
             });
-        let composite_color = color_background.as_ref().map(|background| {
-            let mut output = background.clone();
+        if let Some(output) = composite_color.as_mut() {
             output
                 .data_mut()
                 .par_chunks_mut(gray.width() * 3)
@@ -619,9 +680,8 @@ fn compose_soft_alpha_mixed(
                         }
                     }
                 });
-            output
-        });
-        let layers = create_layers.then(|| MixedLayers {
+        }
+        let layers = layer_buffers.map(|(background, color_background)| MixedLayers {
             foreground_mask: binary_fallback.clone(),
             foreground_alpha: Some(foreground_alpha),
             background,
@@ -629,20 +689,304 @@ fn compose_soft_alpha_mixed(
             source_mrc: false,
         });
         (composite, composite_color, layers)
-    } else {
-        let layers = create_layers.then(|| MixedLayers {
+    } else if create_layers {
+        let layer_background = background.clone();
+        let layers = MixedLayers {
             foreground_mask: binary_fallback.clone(),
             foreground_alpha: Some(foreground_alpha),
             background,
             color_background,
             source_mrc: false,
-        });
-        let layer_background = layers
-            .as_ref()
-            .map_or_else(|| gray.clone(), |layers| layers.background.clone());
-        let layer_color = layers
-            .as_ref()
-            .and_then(|layers| layers.color_background.clone());
-        (layer_background, layer_color, layers)
+        };
+        (layer_background, None, Some(layers))
+    } else {
+        (gray.clone(), None, None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn reference_fill_picture_stencil_knockouts(
+        background: &mut GrayImage,
+        mut color_background: Option<&mut RgbImage>,
+        stencil: &BinaryImage,
+        picture_ownership_mask: &BinaryImage,
+        dpi: f64,
+    ) {
+        let width = background.width();
+        let height = background.height();
+        if width == 0 || height == 0 {
+            return;
+        }
+        let max_radius = (dpi * 0.5 / 25.4).ceil().clamp(2.0, 16.0) as isize;
+        let source_color = color_background.as_deref();
+        let source_gray: &GrayImage = background;
+
+        let mut fills = Vec::new();
+        for y in 0..height {
+            for x in 0..width {
+                if !stencil.get(x, y) || !picture_ownership_mask.get(x, y) {
+                    continue;
+                }
+                if source_gray.get(x, y) != 255
+                    || source_color.is_some_and(|bg| bg.get(x, y) != [255; 3])
+                {
+                    continue;
+                }
+                let mut gray_sum = 0u64;
+                let mut color_sum = [0u64; 3];
+                let mut samples = 0u64;
+                for radius in 1..=max_radius {
+                    for dy in -radius..=radius {
+                        for dx in -radius..=radius {
+                            if dx.abs().max(dy.abs()) != radius {
+                                continue;
+                            }
+                            let sample_x = x as isize + dx;
+                            let sample_y = y as isize + dy;
+                            if sample_x < 0
+                                || sample_y < 0
+                                || sample_x >= width as isize
+                                || sample_y >= height as isize
+                            {
+                                continue;
+                            }
+                            let sample_x = sample_x as usize;
+                            let sample_y = sample_y as usize;
+                            if !picture_ownership_mask.get(sample_x, sample_y)
+                                || stencil.get(sample_x, sample_y)
+                            {
+                                continue;
+                            }
+                            gray_sum += u64::from(source_gray.get(sample_x, sample_y));
+                            if let Some(source_color) = source_color.as_ref() {
+                                let pixel = source_color.get(sample_x, sample_y);
+                                for (channel, value) in pixel.into_iter().enumerate() {
+                                    color_sum[channel] += u64::from(value);
+                                }
+                            }
+                            samples += 1;
+                        }
+                    }
+                    if samples > 0 {
+                        break;
+                    }
+                }
+                if samples == 0 {
+                    continue;
+                }
+                fills.push((
+                    x,
+                    y,
+                    ((gray_sum + samples / 2) / samples) as u8,
+                    source_color
+                        .map(|_| color_sum.map(|sum| ((sum + samples / 2) / samples) as u8)),
+                ));
+            }
+        }
+        for (x, y, gray, color) in fills {
+            background.set(x, y, gray);
+            if let (Some(output_color), Some(color)) = (color_background.as_deref_mut(), color) {
+                output_color.set(x, y, color);
+            }
+        }
+    }
+
+    #[test]
+    fn fill_picture_stencil_knockouts_matches_naive_square_ring_across_borders_and_corners() {
+        let mut seed = 0x51a7_9b23_u64;
+        let mut next_u64 = || {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            seed
+        };
+
+        for (width, height) in [
+            (1, 1),
+            (1, 7),
+            (7, 1),
+            (2, 2),
+            (3, 3),
+            (5, 5),
+            (11, 9),
+            (37, 29),
+        ] {
+            for dpi in [72.0, 300.0, 900.0] {
+                for with_color in [false, true] {
+                    let mut bg_actual = GrayImage::new(width, height, 255);
+                    let mut color_actual =
+                        with_color.then(|| RgbImage::new(width, height, [255; 3]));
+                    let mut stencil = BinaryImage::new(width, height);
+                    let mut ownership = BinaryImage::new(width, height);
+
+                    for y in 0..height {
+                        for x in 0..width {
+                            let r = next_u64();
+                            let is_corner_or_border =
+                                x == 0 || y == 0 || x + 1 == width || y + 1 == height;
+                            // Ensure heavy knockout density on corners, borders, and larger blocks
+                            // so radii > 1 and clipped corners are heavily exercised.
+                            let owned = (r & 0b111) != 0;
+                            let is_stencil = if is_corner_or_border {
+                                (r >> 3) % 3 != 0
+                            } else {
+                                (r >> 3) % 5 < 3
+                            };
+                            ownership.set(x, y, owned);
+                            stencil.set(x, y, is_stencil);
+                            let keep_white = is_stencil && owned && ((r >> 8) % 5 != 0);
+                            if !keep_white {
+                                let g = ((r >> 16) % 240) as u8;
+                                bg_actual.set(x, y, g);
+                                if let Some(rgb) = color_actual.as_mut() {
+                                    rgb.set(
+                                        x,
+                                        y,
+                                        [
+                                            ((r >> 24) % 240) as u8,
+                                            ((r >> 32) % 240) as u8,
+                                            ((r >> 40) % 240) as u8,
+                                        ],
+                                    );
+                                }
+                            }
+                        }
+                    }
+
+                    let mut bg_expected = bg_actual.clone();
+                    let mut color_expected = color_actual.clone();
+
+                    fill_picture_stencil_knockouts(
+                        &mut bg_actual,
+                        color_actual.as_mut(),
+                        &stencil,
+                        &ownership,
+                        dpi,
+                    );
+                    reference_fill_picture_stencil_knockouts(
+                        &mut bg_expected,
+                        color_expected.as_mut(),
+                        &stencil,
+                        &ownership,
+                        dpi,
+                    );
+
+                    assert_eq!(
+                        bg_actual, bg_expected,
+                        "gray knockout mismatch on {width}x{height} dpi={dpi} with_color={with_color}"
+                    );
+                    assert_eq!(
+                        color_actual, color_expected,
+                        "color knockout mismatch on {width}x{height} dpi={dpi} with_color={with_color}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn layer_only_composition_matches_composite_layers_and_gates_confirmed_photo_edts() {
+        let mut gray = GrayImage::new(64, 48, 250);
+        let mut color = RgbImage::new(64, 48, [250; 3]);
+        let mut binary = BinaryImage::new(64, 48);
+        let mut picture_mask = BinaryImage::new(64, 48);
+
+        for y in 12..36 {
+            for x in 28..56 {
+                picture_mask.set(x, y, true);
+                let g = (40 + ((x * 5 + y * 9) % 180)) as u8;
+                gray.set(x, y, g);
+                color.set(x, y, [g, g.saturating_add(15), g.saturating_sub(10)]);
+            }
+        }
+        for y in 14..34 {
+            for x in 6..16 {
+                if (x + y) % 2 == 0 {
+                    binary.set(x, y, true);
+                    gray.set(x, y, 20);
+                    color.set(x, y, [20; 3]);
+                }
+            }
+        }
+
+        for preserve_confirmed_photo_tones in [false, true] {
+            for use_soft_alpha_foreground in [false, true] {
+                let with_composite = run(Input {
+                    gray: &gray,
+                    raw_gray: Some(&gray),
+                    color: Some(&color),
+                    binary: &binary,
+                    picture_mask: &picture_mask,
+                    chroma_picture_mask: Some(&picture_mask),
+                    removed_edge_bands: None,
+                    text_mask: None,
+                    text_vicinity_mask: None,
+                    dpi: 300.0,
+                    preserve_confirmed_photo_tones,
+                    use_soft_alpha_foreground,
+                    create_layers: true,
+                    create_composite: true,
+                });
+                let layers_only = run(Input {
+                    gray: &gray,
+                    raw_gray: Some(&gray),
+                    color: Some(&color),
+                    binary: &binary,
+                    picture_mask: &picture_mask,
+                    chroma_picture_mask: Some(&picture_mask),
+                    removed_edge_bands: None,
+                    text_mask: None,
+                    text_vicinity_mask: None,
+                    dpi: 300.0,
+                    preserve_confirmed_photo_tones,
+                    use_soft_alpha_foreground,
+                    create_layers: true,
+                    create_composite: false,
+                });
+                let expected_layers = with_composite.mixed_layers.unwrap();
+                let actual_layers = layers_only.mixed_layers.unwrap();
+                assert_eq!(
+                    actual_layers.foreground_mask,
+                    expected_layers.foreground_mask
+                );
+                assert_eq!(
+                    actual_layers.foreground_alpha,
+                    expected_layers.foreground_alpha
+                );
+                assert_eq!(actual_layers.background, expected_layers.background);
+                assert_eq!(
+                    actual_layers.color_background,
+                    expected_layers.color_background
+                );
+                assert_eq!(
+                    (layers_only.gray.width(), layers_only.gray.height()),
+                    (gray.width(), gray.height())
+                );
+                assert!(
+                    layers_only.color.is_none(),
+                    "layer-only composition should move color into layers instead of cloning it"
+                );
+                let composite_only = run(Input {
+                    gray: &gray,
+                    raw_gray: Some(&gray),
+                    color: Some(&color),
+                    binary: &binary,
+                    picture_mask: &picture_mask,
+                    chroma_picture_mask: Some(&picture_mask),
+                    removed_edge_bands: None,
+                    text_mask: None,
+                    text_vicinity_mask: None,
+                    dpi: 300.0,
+                    preserve_confirmed_photo_tones,
+                    use_soft_alpha_foreground,
+                    create_layers: false,
+                    create_composite: true,
+                });
+                assert_eq!(composite_only.gray, with_composite.gray);
+                assert_eq!(composite_only.color, with_composite.color);
+                assert!(composite_only.mixed_layers.is_none());
+            }
+        }
     }
 }

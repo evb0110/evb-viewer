@@ -419,7 +419,6 @@ fn apply_component_growth(
     });
 
     let mut output = binary.clone();
-    let mut added_owner = vec![0u32; binary.width().saturating_mul(binary.height())];
     let mut added = 0usize;
     let mut projected_ink = binary.count_black();
     let mut projected_surviving = (before.erosion_survival * projected_ink as f64).round() as usize;
@@ -428,6 +427,13 @@ fn apply_component_growth(
         if projected_surviving as f64 / projected_ink as f64 >= projected_target {
             break;
         }
+        // Each group in `growth` owns a distinct non-zero component label and
+        // has not written any of its own candidates into `output` yet, while
+        // rolled-back groups clear their writes from `output`. Any pixel
+        // currently set in `output` whose original label is 0 therefore came
+        // from an earlier accepted component (`!= candidate.owner`), so
+        // `output` + `components` tracks conflicts without a full-page
+        // `added_owner` array.
         let conflicts = group.candidates.iter().any(|candidate| {
             let x = candidate.x as usize;
             let y = candidate.y as usize;
@@ -437,10 +443,8 @@ fn apply_component_growth(
             let bottom = y.saturating_add(1).min(binary.height().saturating_sub(1));
             (top..=bottom).any(|sample_y| {
                 (left..=right).any(|sample_x| {
-                    let original_owner = components.label_at(sample_x, sample_y);
-                    let grown_owner = added_owner[sample_y * binary.width() + sample_x];
-                    original_owner != 0 && original_owner != candidate.owner
-                        || grown_owner != 0 && grown_owner != candidate.owner
+                    output.get(sample_x, sample_y)
+                        && components.label_at(sample_x, sample_y) != candidate.owner
                 })
             })
         });
@@ -460,7 +464,6 @@ fn apply_component_growth(
                 continue;
             }
             output.set(x, y, true);
-            added_owner[y * binary.width() + x] = candidate.owner;
             accepted.push(*candidate);
         }
         if accepted.is_empty() {
@@ -473,7 +476,6 @@ fn apply_component_growth(
                 let x = candidate.x as usize;
                 let y = candidate.y as usize;
                 output.set(x, y, false);
-                added_owner[y * binary.width() + x] = 0;
             }
             continue;
         }
@@ -484,56 +486,88 @@ fn apply_component_growth(
     (output, added)
 }
 
+const fn paper_mask_has_single_4_component(mask: usize) -> bool {
+    let paper = mask & !(1 << 4);
+    if paper == 0 {
+        return false;
+    }
+    let mut visited = 1usize << paper.trailing_zeros();
+    loop {
+        // 3x3 bit layout:
+        //   0 1 2
+        //   3 4 5
+        //   6 7 8
+        let east = (visited & 0b011_011_011) << 1;
+        let west = (visited & 0b110_110_110) >> 1;
+        let south = (visited << 3) & 0b111_111_111;
+        let north = visited >> 3;
+        let expanded = (visited | east | west | south | north) & paper;
+        if expanded == visited {
+            break;
+        }
+        visited = expanded;
+    }
+    visited == paper
+}
+
+const fn build_addition_preserves_topology_lut() -> [bool; 512] {
+    let mut lut = [false; 512];
+    let mut mask = 0usize;
+    while mask < 512 {
+        lut[mask] = paper_mask_has_single_4_component(mask);
+        mask += 1;
+    }
+    lut
+}
+
+static ADDITION_PRESERVES_TOPOLOGY_LUT: [bool; 512] = build_addition_preserves_topology_lut();
+
 /// Adding an 8-connected foreground point is topology-preserving when the
 /// surrounding 4-connected paper remains one local component. Rechecking
 /// after every accepted point matters: individually harmless additions can
 /// otherwise cooperate to close the aperture of a Cyrillic glyph.
 fn addition_preserves_topology(binary: &BinaryImage, x: usize, y: usize) -> bool {
     debug_assert!(!binary.get(x, y));
-    let left = x.saturating_sub(1);
-    let right = x.saturating_add(1).min(binary.width().saturating_sub(1));
-    let top = y.saturating_sub(1);
-    let bottom = y.saturating_add(1).min(binary.height().saturating_sub(1));
-    let local_width = right - left + 1;
-    let local_height = bottom - top + 1;
-    let center_x = x - left;
-    let center_y = y - top;
-    let paper = BinaryImage::from_fn_parallel(local_width, local_height, |sample_x, sample_y| {
-        !(binary.get(left + sample_x, top + sample_y)
-            || sample_x == center_x && sample_y == center_y)
-    });
-    let mut visited = [false; 9];
-    let mut components = 0usize;
-    for start_y in 0..local_height {
-        for start_x in 0..local_width {
-            let start = start_y * 3 + start_x;
-            if !paper.get(start_x, start_y) || visited[start] {
-                continue;
-            }
-            components += 1;
-            if components > 1 {
-                return false;
-            }
-            let mut stack = vec![(start_x, start_y)];
-            visited[start] = true;
-            while let Some((sample_x, sample_y)) = stack.pop() {
-                let neighbors = [
-                    sample_x.checked_sub(1).map(|next| (next, sample_y)),
-                    (sample_x + 1 < local_width).then_some((sample_x + 1, sample_y)),
-                    sample_y.checked_sub(1).map(|next| (sample_x, next)),
-                    (sample_y + 1 < local_height).then_some((sample_x, sample_y + 1)),
-                ];
-                for (next_x, next_y) in neighbors.into_iter().flatten() {
-                    let next = next_y * 3 + next_x;
-                    if paper.get(next_x, next_y) && !visited[next] {
-                        visited[next] = true;
-                        stack.push((next_x, next_y));
-                    }
-                }
-            }
+    let width = binary.width();
+    let height = binary.height();
+    let has_west = x > 0;
+    let has_east = x + 1 < width;
+    let has_north = y > 0;
+    let has_south = y + 1 < height;
+    // Out-of-image cells and the center cell (bit 4) stay 0 so they are
+    // excluded from the local 4-connected paper graph.
+    let mut paper_mask = 0usize;
+    if has_north {
+        let ny = y - 1;
+        if has_west && !binary.get(x - 1, ny) {
+            paper_mask |= 1 << 0;
+        }
+        if !binary.get(x, ny) {
+            paper_mask |= 1 << 1;
+        }
+        if has_east && !binary.get(x + 1, ny) {
+            paper_mask |= 1 << 2;
         }
     }
-    components == 1
+    if has_west && !binary.get(x - 1, y) {
+        paper_mask |= 1 << 3;
+    }
+    if has_east && !binary.get(x + 1, y) {
+        paper_mask |= 1 << 5;
+    }
+    if has_south {
+        let sy = y + 1;
+        if has_west && !binary.get(x - 1, sy) {
+            paper_mask |= 1 << 6;
+        }
+        if !binary.get(x, sy) {
+            paper_mask |= 1 << 7;
+        }
+        if has_east && !binary.get(x + 1, sy) {
+            paper_mask |= 1 << 8;
+        }
+    }
+    ADDITION_PRESERVES_TOPOLOGY_LUT[paper_mask]
 }
 
 fn component_survival_after_growth(
@@ -864,5 +898,352 @@ mod tests {
         );
         assert!(!diagnostics.applied);
         assert_eq!(stabilized, cropped);
+    }
+
+    fn reference_addition_preserves_topology(binary: &BinaryImage, x: usize, y: usize) -> bool {
+        debug_assert!(!binary.get(x, y));
+        let left = x.saturating_sub(1);
+        let right = x.saturating_add(1).min(binary.width().saturating_sub(1));
+        let top = y.saturating_sub(1);
+        let bottom = y.saturating_add(1).min(binary.height().saturating_sub(1));
+        let local_width = right - left + 1;
+        let local_height = bottom - top + 1;
+        let center_x = x - left;
+        let center_y = y - top;
+        let mut paper = BinaryImage::new(local_width, local_height);
+        for sample_y in 0..local_height {
+            for sample_x in 0..local_width {
+                let is_paper = !(binary.get(left + sample_x, top + sample_y)
+                    || sample_x == center_x && sample_y == center_y);
+                paper.set(sample_x, sample_y, is_paper);
+            }
+        }
+        let mut visited = [false; 9];
+        let mut components = 0usize;
+        for start_y in 0..local_height {
+            for start_x in 0..local_width {
+                let start = start_y * 3 + start_x;
+                if !paper.get(start_x, start_y) || visited[start] {
+                    continue;
+                }
+                components += 1;
+                if components > 1 {
+                    return false;
+                }
+                let mut stack = vec![(start_x, start_y)];
+                visited[start] = true;
+                while let Some((sample_x, sample_y)) = stack.pop() {
+                    let neighbors = [
+                        sample_x.checked_sub(1).map(|next| (next, sample_y)),
+                        (sample_x + 1 < local_width).then_some((sample_x + 1, sample_y)),
+                        sample_y.checked_sub(1).map(|next| (sample_x, next)),
+                        (sample_y + 1 < local_height).then_some((sample_x, sample_y + 1)),
+                    ];
+                    for (next_x, next_y) in neighbors.into_iter().flatten() {
+                        let next = next_y * 3 + next_x;
+                        if paper.get(next_x, next_y) && !visited[next] {
+                            visited[next] = true;
+                            stack.push((next_x, next_y));
+                        }
+                    }
+                }
+            }
+        }
+        components == 1
+    }
+
+    #[test]
+    fn addition_preserves_topology_lut_matches_reference_dfs_exhaustively() {
+        // 1. All 512 3x3 bit patterns at an interior pixel (center forced white).
+        for pattern in 0..512usize {
+            let mut image = BinaryImage::new(3, 3);
+            for dy in 0..3 {
+                for dx in 0..3 {
+                    let bit = dy * 3 + dx;
+                    if bit != 4 && (pattern & (1 << bit)) != 0 {
+                        image.set(dx, dy, true);
+                    }
+                }
+            }
+            assert_eq!(
+                addition_preserves_topology(&image, 1, 1),
+                reference_addition_preserves_topology(&image, 1, 1),
+                "interior 3x3 mismatch for pattern {pattern:#011b}"
+            );
+            // Also verify direct LUT entry ignores bit 4.
+            assert_eq!(
+                ADDITION_PRESERVES_TOPOLOGY_LUT[pattern],
+                ADDITION_PRESERVES_TOPOLOGY_LUT[pattern ^ (1 << 4)],
+                "LUT must ignore center bit 4 for pattern {pattern:#011b}"
+            );
+        }
+
+        // 2. Corners, borders, and degenerate 1xN / Nx1 / 2x2 shapes across all states.
+        for (width, height) in [
+            (1, 1),
+            (1, 2),
+            (1, 3),
+            (1, 5),
+            (2, 1),
+            (3, 1),
+            (5, 1),
+            (2, 2),
+            (3, 2),
+            (2, 3),
+            (3, 3),
+        ] {
+            let cells = width * height;
+            let total_states = 1usize << cells;
+            for state in 0..total_states {
+                let mut image = BinaryImage::new(width, height);
+                for y in 0..height {
+                    for x in 0..width {
+                        if (state & (1 << (y * width + x))) != 0 {
+                            image.set(x, y, true);
+                        }
+                    }
+                }
+                for y in 0..height {
+                    for x in 0..width {
+                        if image.get(x, y) {
+                            continue;
+                        }
+                        assert_eq!(
+                            addition_preserves_topology(&image, x, y),
+                            reference_addition_preserves_topology(&image, x, y),
+                            "mismatch on {width}x{height} at ({x}, {y}) state {state:#b}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn reference_apply_component_growth(
+        binary: &BinaryImage,
+        components: &ComponentMap,
+        candidates: &[Vec<GrowthCandidate>],
+        before: StrokeMassMetrics,
+        target_survival: f64,
+        maximum_additions: usize,
+        dpi: f64,
+    ) -> (BinaryImage, usize) {
+        let eroded = erode(binary, 1, 1);
+        let mut surviving_by_component = vec![0usize; components.components().len() + 1];
+        for y in 0..binary.height() {
+            for x in 0..binary.width() {
+                if eroded.get(x, y) {
+                    surviving_by_component[components.label_at(x, y) as usize] += 1;
+                }
+            }
+        }
+        let maximum_extent = (dpi.max(1.0) * 8.0 / 25.4).round().max(8.0) as usize;
+        let mut growth = components
+            .components()
+            .iter()
+            .enumerate()
+            .filter_map(|(index, component)| {
+                let width = component.right - component.left + 1;
+                let height = component.bottom - component.top + 1;
+                if component.area < 4
+                    || width.max(height) > maximum_extent
+                    || width.max(height) > width.min(height).max(1) * 10
+                {
+                    return None;
+                }
+                let additions = candidates.get(component.label as usize)?.as_slice();
+                if additions.is_empty() {
+                    return None;
+                }
+                let old_surviving = surviving_by_component[component.label as usize];
+                let old_survival = old_surviving as f64 / component.area as f64;
+                if old_survival >= target_survival {
+                    return None;
+                }
+                let new_surviving =
+                    component_survival_after_growth(components, component, additions);
+                let added_survival = new_surviving.saturating_sub(old_surviving);
+                if added_survival * component.area <= additions.len() * old_surviving {
+                    return None;
+                }
+                Some(ComponentGrowth {
+                    component_index: index,
+                    survival: old_survival,
+                    candidates: additions,
+                })
+            })
+            .collect::<Vec<_>>();
+        growth.sort_by(|left, right| {
+            left.survival
+                .total_cmp(&right.survival)
+                .then(left.component_index.cmp(&right.component_index))
+        });
+
+        let mut output = binary.clone();
+        let mut added_owner = vec![0u32; binary.width().saturating_mul(binary.height())];
+        let mut added = 0usize;
+        let mut projected_ink = binary.count_black();
+        let mut projected_surviving =
+            (before.erosion_survival * projected_ink as f64).round() as usize;
+        let projected_target = (target_survival + PROJECTED_SURVIVAL_SAFETY_MARGIN).clamp(0.0, 1.0);
+        for group in growth {
+            if projected_surviving as f64 / projected_ink as f64 >= projected_target {
+                break;
+            }
+            let conflicts = group.candidates.iter().any(|candidate| {
+                let x = candidate.x as usize;
+                let y = candidate.y as usize;
+                let left = x.saturating_sub(1);
+                let right = x.saturating_add(1).min(binary.width().saturating_sub(1));
+                let top = y.saturating_sub(1);
+                let bottom = y.saturating_add(1).min(binary.height().saturating_sub(1));
+                (top..=bottom).any(|sample_y| {
+                    (left..=right).any(|sample_x| {
+                        let original_owner = components.label_at(sample_x, sample_y);
+                        let grown_owner = added_owner[sample_y * binary.width() + sample_x];
+                        original_owner != 0 && original_owner != candidate.owner
+                            || grown_owner != 0 && grown_owner != candidate.owner
+                    })
+                })
+            });
+            if conflicts {
+                continue;
+            }
+            let component = &components.components()[group.component_index];
+            let old_surviving = surviving_by_component[component.label as usize];
+            let mut accepted = Vec::with_capacity(group.candidates.len());
+            for candidate in group.candidates {
+                if added.saturating_add(accepted.len()) >= maximum_additions {
+                    break;
+                }
+                let x = candidate.x as usize;
+                let y = candidate.y as usize;
+                if !reference_addition_preserves_topology(&output, x, y) {
+                    continue;
+                }
+                output.set(x, y, true);
+                added_owner[y * binary.width() + x] = candidate.owner;
+                accepted.push(*candidate);
+            }
+            if accepted.is_empty() {
+                continue;
+            }
+            let new_surviving = component_survival_after_growth(components, component, &accepted);
+            let added_survival = new_surviving.saturating_sub(old_surviving);
+            if added_survival * component.area <= accepted.len() * old_surviving {
+                for candidate in accepted {
+                    let x = candidate.x as usize;
+                    let y = candidate.y as usize;
+                    output.set(x, y, false);
+                    added_owner[y * binary.width() + x] = 0;
+                }
+                continue;
+            }
+            added += accepted.len();
+            projected_ink += accepted.len();
+            projected_surviving += added_survival;
+        }
+        (output, added)
+    }
+
+    #[test]
+    fn apply_component_growth_matches_dense_owner_reference_with_conflicts_and_rollback() {
+        // Build a synthetic page with:
+        // 1. Border-touching components (testing clipped 3x3 topology LUT)
+        // 2. Adjacent thin stems separated by 3 px (grown pixels conflict with neighbor)
+        // 3. Open C-shaped glyphs (testing sequential pixel rechecking + rollback)
+        let mut binary = BinaryImage::new(64, 48);
+        // Border-touching bar at (0..3, 0..8)
+        for y in 0..8 {
+            for x in 0..3 {
+                binary.set(x, y, true);
+            }
+        }
+        // Adjacent thin bars separated by 2 white columns at y=12..24:
+        // growing the first stem adds its right boundary column, which is
+        // 8-adjacent to the next stem's left boundary candidate and must
+        // trigger the cross-component conflict guard.
+        for offset in [4usize, 9, 14, 19] {
+            for y in 12..24 {
+                for x in offset..offset + 3 {
+                    binary.set(x, y, true);
+                }
+            }
+        }
+        // Open C-shaped aperture glyph at x=34..43, y=10..22
+        for y in 10..22 {
+            for x in 34..43 {
+                let border = !(36..41).contains(&x) || !(12..20).contains(&y);
+                let aperture = x >= 41 && y == 16;
+                if border && !aperture {
+                    binary.set(x, y, true);
+                }
+            }
+        }
+        // Near-bottom-right corner component
+        for y in 40..48 {
+            for x in 59..64 {
+                binary.set(x, y, true);
+            }
+        }
+
+        let components = ComponentMap::from_binary(&binary);
+        let exterior = exterior_white_components(&binary);
+        let boundary = dilate(&binary, 1, 1).subtract(&binary);
+        let mut candidates = vec![Vec::<GrowthCandidate>::new(); components.components().len() + 1];
+        for y in 0..binary.height() {
+            for x in 0..binary.width() {
+                if !boundary.get(x, y) || !exterior.get(x, y) {
+                    continue;
+                }
+                if let Some(owner) = unique_neighbor_owner(&components, x, y) {
+                    candidates[owner as usize].push(GrowthCandidate {
+                        x: x as u32,
+                        y: y as u32,
+                        owner,
+                    });
+                }
+            }
+        }
+        let before = stroke_mass_metrics(&binary).unwrap();
+        // Test across multiple budget caps (forcing partial acceptance & rollback).
+        for maximum_additions in [3usize, 12, 40, 200] {
+            let actual = apply_component_growth(
+                &binary,
+                &components,
+                &candidates,
+                before,
+                0.95,
+                maximum_additions,
+                300.0,
+            );
+            let expected = reference_apply_component_growth(
+                &binary,
+                &components,
+                &candidates,
+                before,
+                0.95,
+                maximum_additions,
+                300.0,
+            );
+            assert_eq!(
+                actual, expected,
+                "component growth diverged for maximum_additions={maximum_additions}"
+            );
+            if maximum_additions == 200 {
+                // Verify the cross-component conflict guard actually triggered:
+                // stem 1 (x=4..7) grows into x=7, blocking stem 2 (x=9..12)
+                // from growing into x=8 (adjacent to x=7).
+                assert!(
+                    (12..24).any(|y| actual.0.get(7, y)),
+                    "expected first stem to grow toward the 2-column gap"
+                );
+                assert!(
+                    (12..24).all(|y| !actual.0.get(8, y) && !actual.0.get(12, y)),
+                    "expected second stem to stay unchanged due to cross-component conflict"
+                );
+            }
+        }
     }
 }

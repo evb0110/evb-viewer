@@ -1302,3 +1302,136 @@ fn generated_wasm_typescript_is_current() {
         path.display()
     );
 }
+
+#[test]
+fn raw_bilevel_packing_matches_p4_payload_across_widths_and_heights() {
+    for height in 1..=4 {
+        for width in 1..=65 {
+            let mut image = BinaryImage::new(width, height);
+            for y in 0..height {
+                for x in 0..width {
+                    if (x * 7 + y * 13 + width) % 5 < 2 {
+                        image.set(x, y, true);
+                    }
+                }
+            }
+            let encoded = crate::io::pbm::encode_p4_bilevel(&image).unwrap();
+            let payload_len = width.div_ceil(8) * height;
+            let expected = &encoded[encoded.len() - payload_len..];
+            let actual = pack_raw_bilevel(&image).unwrap();
+            assert_eq!(
+                actual.as_slice(),
+                expected,
+                "raw bilevel payload mismatch for {width}x{height}"
+            );
+            assert_eq!(actual.capacity(), payload_len);
+        }
+    }
+    assert!(pack_raw_bilevel(&BinaryImage::new(0, 4)).is_err());
+    assert!(pack_raw_bilevel(&BinaryImage::new(4, 0)).is_err());
+}
+
+#[test]
+fn encode_result_preserves_wire_format_and_enforces_too_large_limits() {
+    let page_json = br#"{"page":1}"#;
+    let details_json = br#"{"ok":true}"#;
+    let make_outputs = || {
+        vec![
+            FrameOutput {
+                metadata_json: br#"{"out":0}"#.to_vec(),
+                planes: vec![
+                    FramePlane {
+                        role: PLANE_ROLE_BACKGROUND,
+                        kind: PLANE_KIND_RGB8,
+                        encoding: PLANE_ENCODING_RAW,
+                        width: 2,
+                        height: 1,
+                        data: vec![1, 2, 3, 4, 5, 6],
+                    },
+                    FramePlane {
+                        role: PLANE_ROLE_FOREGROUND_MASK,
+                        kind: PLANE_KIND_BILEVEL1,
+                        encoding: PLANE_ENCODING_RAW,
+                        width: 2,
+                        height: 1,
+                        data: vec![0b1000_0000],
+                    },
+                ],
+            },
+            FrameOutput {
+                metadata_json: br#"{"out":1}"#.to_vec(),
+                planes: vec![FramePlane {
+                    role: PLANE_ROLE_COMPOSITE,
+                    kind: PLANE_KIND_GRAY8,
+                    encoding: PLANE_ENCODING_RAW,
+                    width: 3,
+                    height: 1,
+                    data: vec![10, 20, 30],
+                }],
+            },
+        ]
+    };
+
+    let encoded = encode_result(page_json, details_json, make_outputs()).unwrap();
+    let decoded = decode_result(&encoded);
+    assert_eq!(decoded.page, page_json);
+    assert_eq!(decoded.details, details_json);
+    assert_eq!(decoded.outputs.len(), 2);
+    assert_eq!(decoded.outputs[0].metadata, br#"{"out":0}"#);
+    assert_eq!(decoded.outputs[0].planes.len(), 2);
+    let bg = &decoded.outputs[0].planes[0];
+    assert_eq!(
+        (bg.role, bg.kind, bg.encoding, bg.width, bg.height),
+        (
+            PLANE_ROLE_BACKGROUND,
+            PLANE_KIND_RGB8,
+            PLANE_ENCODING_RAW,
+            2,
+            1
+        )
+    );
+    assert_eq!(bg.data, vec![1, 2, 3, 4, 5, 6]);
+    let fg = &decoded.outputs[0].planes[1];
+    assert_eq!(
+        (fg.role, fg.kind, fg.encoding, fg.width, fg.height),
+        (
+            PLANE_ROLE_FOREGROUND_MASK,
+            PLANE_KIND_BILEVEL1,
+            PLANE_ENCODING_RAW,
+            2,
+            1
+        )
+    );
+    assert_eq!(fg.data, vec![0b1000_0000]);
+    assert_eq!(decoded.outputs[1].metadata, br#"{"out":1}"#);
+    let comp = &decoded.outputs[1].planes[0];
+    assert_eq!(
+        (comp.role, comp.kind, comp.encoding, comp.width, comp.height),
+        (
+            PLANE_ROLE_COMPOSITE,
+            PLANE_KIND_GRAY8,
+            PLANE_ENCODING_RAW,
+            3,
+            1
+        )
+    );
+    assert_eq!(comp.data, vec![10, 20, 30]);
+
+    let exact_limit =
+        encode_result_with_limit(page_json, details_json, make_outputs(), encoded.len()).unwrap();
+    assert_eq!(exact_limit, encoded);
+
+    let err = encode_result_with_limit(page_json, details_json, make_outputs(), encoded.len() - 1)
+        .unwrap_err();
+    let native = err.downcast_ref::<NativeError>().expect("a native error");
+    assert_eq!(native.code, NativeErrorCode::TooLarge);
+
+    #[cfg(target_pointer_width = "64")]
+    {
+        let mut oversized_width = make_outputs();
+        oversized_width[0].planes[0].width = u32::MAX as usize + 1;
+        let err = encode_result(page_json, details_json, oversized_width).unwrap_err();
+        let native = err.downcast_ref::<NativeError>().expect("a native error");
+        assert_eq!(native.code, NativeErrorCode::TooLarge);
+    }
+}

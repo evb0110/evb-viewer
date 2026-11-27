@@ -37,7 +37,7 @@ use crate::engine::page_workflow::{
 };
 use crate::engine::render::CleanupMetadata;
 use crate::engine::resource_planning::{manifest_cache, PlanningOperation};
-use crate::io::{pbm, raster};
+use crate::io::raster;
 use crate::protocol::manifest_v3::{
     validate_document_canvas, validate_matched_canvas_plan, validate_page_options, AnalysisPurpose,
     CanvasScope, DetailRenderGeometry, DocumentCanvas, Operation, PageAdmission, RenderMode,
@@ -52,7 +52,7 @@ use evb_native_support::{
     },
     NativeError, NativeErrorCode, NativeErrorEnvelope,
 };
-use scan_primitives::GrayImage;
+use scan_primitives::{BinaryImage, GrayImage};
 use serde::{Deserialize, Serialize};
 use std::{cell::RefCell, error::Error, slice, sync::atomic::AtomicBool};
 
@@ -694,6 +694,50 @@ fn plane_role_code(role: PlaneRole) -> u32 {
     }
 }
 
+/// Packs a bilevel image into raw PBM P4 row bytes (MSB-first, one is black)
+/// without allocating a P4 header or copying the payload a second time.
+fn pack_raw_bilevel(image: &BinaryImage) -> Result<Vec<u8>, String> {
+    let width = image.width();
+    let height = image.height();
+    if width == 0 || height == 0 {
+        return Err("PBM P4 dimensions must be positive".to_string());
+    }
+    let row_stride = width
+        .checked_add(7)
+        .ok_or_else(|| "PBM P4 row stride overflow".to_string())?
+        / 8;
+    let bitmap_len = row_stride
+        .checked_mul(height)
+        .ok_or_else(|| "PBM P4 payload size overflow".to_string())?;
+    let mut bytes = Vec::new();
+    bytes
+        .try_reserve_exact(bitmap_len)
+        .map_err(|_| "Raw bilevel plane exceeds available memory".to_string())?;
+    let words_per_line = image.words_per_line();
+    let full_words = row_stride / 4;
+    let tail_bytes = row_stride % 4;
+    let tail_bits = width % 8;
+    let tail_mask = if tail_bits != 0 {
+        u8::MAX << (8 - tail_bits)
+    } else {
+        u8::MAX
+    };
+    for row in image.words().chunks_exact(words_per_line) {
+        for word in &row[..full_words] {
+            bytes.extend_from_slice(&word.to_be_bytes());
+        }
+        if tail_bytes != 0 {
+            let word_bytes = row[full_words].to_be_bytes();
+            bytes.extend_from_slice(&word_bytes[..tail_bytes]);
+        }
+        if tail_bits != 0 {
+            let last = bytes.len() - 1;
+            bytes[last] &= tail_mask;
+        }
+    }
+    Ok(bytes)
+}
+
 impl PlaneSink for FramePlaneSink {
     fn publish(&mut self, plane: &OutputPlane<'_>) -> Result<(), String> {
         let (kind, width, height) = match &plane.pixels {
@@ -712,19 +756,29 @@ impl PlaneSink for FramePlaneSink {
         } else {
             let data = match &plane.pixels {
                 PlanePixels::Gray(image) => {
-                    let mut data = Vec::with_capacity(image.width() * image.height());
-                    for y in 0..image.height() {
-                        data.extend_from_slice(image.row(y));
+                    let byte_len = image.width().checked_mul(image.height()).ok_or_else(|| {
+                        "Raw grayscale plane exceeds the address space".to_string()
+                    })?;
+                    let mut data = Vec::new();
+                    data.try_reserve_exact(byte_len)
+                        .map_err(|_| "Raw grayscale plane exceeds available memory".to_string())?;
+                    if image.stride() == image.width() {
+                        data.extend_from_slice(&image.data()[..byte_len]);
+                    } else {
+                        for y in 0..image.height() {
+                            data.extend_from_slice(image.row(y));
+                        }
                     }
                     data
                 }
-                PlanePixels::Rgb(image) => image.data().to_vec(),
-                PlanePixels::Bilevel(image) => {
-                    // The P4 payload after its header is exactly the packed rows.
-                    let encoded = pbm::encode_p4_bilevel(image)?;
-                    let rows = image.width().div_ceil(8) * image.height();
-                    encoded[encoded.len() - rows..].to_vec()
+                PlanePixels::Rgb(image) => {
+                    let mut data = Vec::new();
+                    data.try_reserve_exact(image.data().len())
+                        .map_err(|_| "Raw RGB plane exceeds available memory".to_string())?;
+                    data.extend_from_slice(image.data());
+                    data
                 }
+                PlanePixels::Bilevel(image) => pack_raw_bilevel(image)?,
             };
             (PLANE_ENCODING_RAW, data)
         };
@@ -848,15 +902,16 @@ fn run_render_page(frame: &RequestFrame<'_>) -> Result<Vec<u8>, Box<dyn Error>> 
         None => vec![OutputPlanes::default(); output_count],
     };
     let FinishedPage {
-        mut outputs,
+        outputs,
         mut metadata,
         options,
         ..
     } = finish_page(rendered, final_render, request.document_canvas, planes)?;
     let mut frame_outputs = Vec::with_capacity(outputs.len());
     let mut geometries = Vec::with_capacity(outputs.len());
+    let mut matched_in_memory = Vec::with_capacity(outputs.len());
     let total_outputs = u32::try_from(outputs.len()).unwrap_or(u32::MAX);
-    for (output_index, output) in outputs.iter_mut().enumerate() {
+    for (output_index, mut output) in outputs.into_iter().enumerate() {
         crate::sub_page_progress::report_sub_page_progress(
             crate::sub_page_progress::SubPageStage::Encode,
             u32::try_from(output_index).unwrap_or(u32::MAX),
@@ -877,6 +932,10 @@ fn run_render_page(frame: &RequestFrame<'_>) -> Result<Vec<u8>, Box<dyn Error>> 
             request.source_page_index,
             request.document_canvas,
         ));
+        matched_in_memory.push(output.matched_in_memory());
+        // Release each finished output's raster buffers before processing the
+        // next output or framing the final response.
+        drop(output);
         crate::sub_page_progress::report_sub_page_progress(
             crate::sub_page_progress::SubPageStage::Encode,
             u32::try_from(output_index + 1).unwrap_or(u32::MAX),
@@ -894,21 +953,25 @@ fn run_render_page(frame: &RequestFrame<'_>) -> Result<Vec<u8>, Box<dyn Error>> 
             request.render_mode == RenderMode::Preview,
         );
     }
-    let matched = outputs
-        .iter()
-        .zip(&geometries)
-        .map(|(output, geometry)| (geometry, output.matched_in_memory()))
-        .collect::<Vec<_>>();
-    for (index, placement, canvas) in
-        plan_document_canvas_placements(&matched, request.document_canvas)?
     {
-        frame_outputs[index].metadata_json = place_metadata_on_document_canvas(
-            &frame_outputs[index].metadata_json,
-            &geometries[index],
-            placement,
-            &canvas,
-        )?;
+        let matched = geometries
+            .iter()
+            .zip(&matched_in_memory)
+            .map(|(geometry, &matched)| (geometry, matched))
+            .collect::<Vec<_>>();
+        for (index, placement, canvas) in
+            plan_document_canvas_placements(&matched, request.document_canvas)?
+        {
+            frame_outputs[index].metadata_json = place_metadata_on_document_canvas(
+                &frame_outputs[index].metadata_json,
+                &geometries[index],
+                placement,
+                &canvas,
+            )?;
+        }
     }
+    drop(geometries);
+    drop(matched_in_memory);
     if let Some(pdf_page) = &request.pdf_page {
         for output in &mut frame_outputs {
             if let Some(metadata) =
@@ -918,7 +981,9 @@ fn run_render_page(frame: &RequestFrame<'_>) -> Result<Vec<u8>, Box<dyn Error>> 
             }
         }
     }
-    encode_result(&serde_json::to_vec(&metadata)?, &[], &frame_outputs)
+    let page_json = serde_json::to_vec(&metadata)?;
+    drop(metadata);
+    encode_result(&page_json, &[], frame_outputs)
 }
 
 fn run_analyze_page(frame: &RequestFrame<'_>) -> Result<Vec<u8>, Box<dyn Error>> {
@@ -967,7 +1032,7 @@ fn run_analyze_page(frame: &RequestFrame<'_>) -> Result<Vec<u8>, Box<dyn Error>>
     encode_result(
         &serde_json::to_vec(&metadata)?,
         &serde_json::to_vec(&details)?,
-        &[],
+        Vec::new(),
     )
 }
 
@@ -1043,13 +1108,22 @@ fn run_plan_analysis(frame: &RequestFrame<'_>) -> Result<Vec<u8>, Box<dyn Error>
                 .collect::<Result<_, _>>()?,
         },
     };
-    encode_result(&[], &serde_json::to_vec(&result)?, &[])
+    encode_result(&[], &serde_json::to_vec(&result)?, Vec::new())
 }
 
 fn encode_result(
     page_json: &[u8],
     details_json: &[u8],
-    outputs: &[FrameOutput],
+    outputs: Vec<FrameOutput>,
+) -> Result<Vec<u8>, Box<dyn Error>> {
+    encode_result_with_limit(page_json, details_json, outputs, MAX_OUTPUT_BYTES)
+}
+
+fn encode_result_with_limit(
+    page_json: &[u8],
+    details_json: &[u8],
+    outputs: Vec<FrameOutput>,
+    max_output_bytes: usize,
 ) -> Result<Vec<u8>, Box<dyn Error>> {
     let too_large = || {
         NativeError::new(
@@ -1061,30 +1135,38 @@ fn encode_result(
         .checked_add(page_json.len())
         .and_then(|total| total.checked_add(details_json.len()))
         .ok_or_else(too_large)?;
-    for output in outputs {
+    for output in &outputs {
         total = total
-            .checked_add(OUTPUT_HEADER_BYTES + output.metadata_json.len())
+            .checked_add(OUTPUT_HEADER_BYTES)
+            .and_then(|total| total.checked_add(output.metadata_json.len()))
             .ok_or_else(too_large)?;
         for plane in &output.planes {
             total = total
-                .checked_add(PLANE_HEADER_BYTES + plane.data.len())
+                .checked_add(PLANE_HEADER_BYTES)
+                .and_then(|total| total.checked_add(plane.data.len()))
                 .ok_or_else(too_large)?;
         }
     }
-    if total > MAX_OUTPUT_BYTES {
+    if total > max_output_bytes {
         return Err(too_large().into());
     }
-    let mut bytes = Vec::with_capacity(total);
+    let mut bytes = Vec::new();
+    bytes.try_reserve_exact(total).map_err(|_| too_large())?;
     write_len(&mut bytes, page_json.len())?;
     write_len(&mut bytes, details_json.len())?;
     write_len(&mut bytes, outputs.len())?;
     bytes.extend_from_slice(page_json);
     bytes.extend_from_slice(details_json);
     for output in outputs {
-        write_len(&mut bytes, output.metadata_json.len())?;
-        write_len(&mut bytes, output.planes.len())?;
-        bytes.extend_from_slice(&output.metadata_json);
-        for plane in &output.planes {
+        let FrameOutput {
+            metadata_json,
+            planes,
+        } = output;
+        write_len(&mut bytes, metadata_json.len())?;
+        write_len(&mut bytes, planes.len())?;
+        bytes.extend_from_slice(&metadata_json);
+        drop(metadata_json);
+        for plane in planes {
             for value in [plane.role, plane.kind, plane.encoding] {
                 bytes.extend_from_slice(&value.to_le_bytes());
             }
@@ -1092,6 +1174,7 @@ fn encode_result(
             write_len(&mut bytes, plane.height)?;
             write_len(&mut bytes, plane.data.len())?;
             bytes.extend_from_slice(&plane.data);
+            drop(plane);
         }
     }
     Ok(bytes)
