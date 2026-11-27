@@ -1,3 +1,6 @@
+import * as v from 'valibot';
+import {PDF_IMAGE_COMBINE_PROGRESS_SCHEMA} from '@contracts/pdfImageCombineProgress';
+
 export function createPdfCombineProgressHandler(
     totalPages: number,
     onProcessed: (processed: number, total: number) => void,
@@ -12,19 +15,22 @@ export function createPdfCombineProgressHandler(
             if (!line.trim()) {
                 continue;
             }
+            let raw: unknown;
             try {
-                const payload = JSON.parse(line) as {
-                    processed?: unknown;
-                    total?: unknown
-                };
-                const processed = typeof payload.processed === 'number' ? payload.processed : 0;
-                const total = typeof payload.total === 'number' && payload.total > 0
-                    ? payload.total
-                    : Math.max(1, totalPages);
-                onProcessed(Math.min(processed, total), total);
+                raw = JSON.parse(line);
             } catch {
                 onMalformedLine?.(line);
+                continue;
             }
+            const parsed = v.safeParse(PDF_IMAGE_COMBINE_PROGRESS_SCHEMA, raw, {abortEarly: true});
+            if (!parsed.success) {
+                onMalformedLine?.(line);
+                continue;
+            }
+            const total = parsed.output.total > 0
+                ? parsed.output.total
+                : Math.max(1, totalPages);
+            onProcessed(Math.min(parsed.output.processed, total), total);
         }
     };
 }

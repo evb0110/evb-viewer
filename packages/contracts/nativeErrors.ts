@@ -1,3 +1,4 @@
+import type {NativeErrorCode} from '@contracts/scan-cleanup/nativeWire.generated';
 import {
     isOneOf,
     isRecord,
@@ -17,9 +18,14 @@ export const NATIVE_ERROR_CODES = [
     'timeout',
     'panic',
     'native-failure',
-] as const;
+] as const satisfies readonly NativeErrorCode[];
 
 export type TNativeErrorCode = typeof NATIVE_ERROR_CODES[number];
+
+type TAssertNativeErrorCodeParity<T extends true> = T;
+export type TNativeErrorCodeBidirectionalParity = TAssertNativeErrorCodeParity<
+    [Exclude<NativeErrorCode, TNativeErrorCode>] extends [never] ? true : false
+>;
 
 export const NATIVE_ERROR_ENVELOPE_SCHEMA = v.object({
     ...SERIALIZABLE_ERROR_ENVELOPE_SCHEMA.entries,

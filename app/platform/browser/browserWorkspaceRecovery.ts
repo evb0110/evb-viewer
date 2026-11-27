@@ -1,5 +1,4 @@
 import { collectDocuments } from '@document-store/collectDocuments';
-import * as v from 'valibot';
 import {
     decodeJson,
     decodeManifest,
@@ -36,13 +35,15 @@ import { createPaneId } from '@contracts/editorPanes';
 import { createEpochMs } from '@contracts/timestamps';
 import { createTabId } from '@contracts/windowTabs';
 import {
+    createBlankWorkspaceCheckpointTab,
     decodeStoredWorkspaceCheckpoint,
+    decodeWorkspaceAnnotationRecovery,
     decodeWorkspaceCheckpoint,
+    decodeWorkspaceTabDrafts,
     type IWorkspaceCheckpoint,
     type IWorkspaceCheckpointAnnotationRecovery,
     type IWorkspaceCheckpointTab,
     toStoredWorkspaceCheckpoint,
-    workspaceAnnotationRecoveryRefSchema,
 } from '@contracts/workspaceCheckpoint';
 import { isRecord } from '@contracts/runtimeGuards';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -51,6 +52,7 @@ const WINDOW_LOCK_PREFIX = 'evb-window:';
 const LOG_SECTION = 'workspace-recovery';
 
 const isAbsent = (error: unknown) => isRecord(error) && (error.code === 'ENOENT' || error.name === 'NotFoundError');
+const durableStore = () => browserDocumentStore.stores().then(({durable}) => durable);
 
 /** The lock a live window holds; a checkpoint whose window lock is free belongs to a window that is gone. */
 export const browserWindowLockName = (windowId: string) => `${WINDOW_LOCK_PREFIX}${windowId}`;
@@ -77,7 +79,7 @@ function recentFileIds() {
  */
 function collectOnce() {
     collection ??= (async () => {
-        const {durable} = await browserDocumentStore.stores();
+        const durable = await durableStore();
         if (!durable || !await heldBrowserLockNames()) return null;
         const recent = recentFileIds();
         const {unsaved, held, unreadable} = await collectDocuments(durable, id => (recent.has(id) ? Promise.resolve(null) : holdBrowserLock(browserDocumentLockName(id))));
@@ -118,43 +120,37 @@ function collectOnce() {
  * with so they replay. One whose manifest cannot be read comes back as a notice that its work was not found.
  */
 async function orphanTab(id: string, paneId: IWorkspaceCheckpointTab['paneId']): Promise<IWorkspaceCheckpointTab | null> {
-    const {durable} = await browserDocumentStore.stores();
+    const durable = await durableStore();
     const path = `${DOCUMENTS_DIR}/${id}/${MANIFEST_NAME}`;
     const manifest = durable && await durable.port.read(path).then(decodeManifest).catch((error: unknown) => {
         if (isAbsent(error)) return null;
         BrowserLogger.warn(LOG_SECTION, 'Unsaved work no workspace shows cannot be read', {path, error});
         return undefined;
     });
+    const base = createBlankWorkspaceCheckpointTab(createTabId(), paneId);
     if (manifest === undefined) {
-        return {
-            tabId: createTabId(), paneId, fileName: 'Recovered document.pdf', sourceRef: null, workingCopyRef: null,
-            isDirty: false, isDjvu: false, currentPage: null, zoom: null, zoomMode: null, workingCopyLost: true,
-        };
+        return {...base, fileName: 'Recovered document.pdf', workingCopyLost: true};
     }
     if (!durable || manifest?.ext !== 'pdf') return null;
     const draftsRef = manifest.drafts === undefined ? null : await durable.port.read(`${DOCUMENTS_DIR}/${id}/${manifest.drafts}`)
         .then((bytes) => {
-            const drafts = v.safeParse(workspaceAnnotationRecoveryRefSchema, decodeJson(bytes));
+            const drafts = decodeWorkspaceAnnotationRecovery(decodeJson(bytes));
             return drafts.success && directoryOf(drafts.output.workingCopyRef) === id ? drafts.output.workingCopyRef : null;
         })
         .catch(() => null);
-    const key = handleKeyOf(manifest.destination ?? null);
+    const destination = manifest.destination ?? null;
+    const key = handleKeyOf(destination);
     const stored = key === null ? undefined : await fileHandleStore.get(key).catch(() => undefined);
-    const fileName = stored?.name ?? destinationFileName(manifest.destination ?? null)
+    const fileName = stored?.name ?? destinationFileName(destination)
         ?? (draftsRef && getBrowserDocumentFileName(draftsRef)) ?? manifest.name ?? 'Recovered document.pdf';
     const workingCopyRef = draftsRef ?? createBrowserDocumentRef(fileName, id);
     return {
-        tabId: createTabId(),
-        paneId,
+        ...base,
         fileName,
-        sourceRef: key !== null && stored ? createBrowserDocumentRef(stored.name, key) : workingCopyRef,
+        sourceRef: stored ? createBrowserDocumentRef(stored.name, key!) : workingCopyRef,
         workingCopyRef,
         requiresSaveAsOnFirstSave: key === null,
         isDirty: true,
-        isDjvu: false,
-        currentPage: null,
-        zoom: null,
-        zoomMode: null,
     };
 }
 
@@ -167,13 +163,11 @@ function directoryOf(ref: string | null) {
 }
 
 /** Opens a tab's unsaved directory here and puts its drafts back on the tab; `workingCopyLost` when it would not open. */
-async function restoreUnsavedTab(tab: IWorkspaceCheckpointTab & {workingCopyRef: TDocumentRef}): Promise<IWorkspaceCheckpointTab> {
-    browserDocumentStore.nameSource(tab.workingCopyRef, tab.sourceRef ?? tab.workingCopyRef);
-    const doc = await browserDocumentStore.documentOf(tab.workingCopyRef);
-    const drafts = doc?.state().drafts;
-    return doc
-        ? {...tab, isDirty: true, ...(drafts === undefined ? {} : {annotationRecovery: drafts as IWorkspaceCheckpointTab['annotationRecovery']})}
-        : {...tab, workingCopyLost: true};
+async function restoreUnsavedTab({annotationRecovery: _, annotationRecoveryInvalid: _i, ...tab}: IWorkspaceCheckpointTab, ref: TDocumentRef): Promise<IWorkspaceCheckpointTab> {
+    browserDocumentStore.nameSource(ref, tab.sourceRef ?? ref);
+    const doc = await browserDocumentStore.documentOf(ref);
+    if (!doc) return {...tab, workingCopyLost: true};
+    return {...tab, isDirty: true, ...decodeWorkspaceTabDrafts(doc.state().drafts, issue => BrowserLogger.warn(LOG_SECTION, 'Ignored malformed drafts', {directory: doc.id, ref, issue}))};
 }
 
 /**
@@ -185,15 +179,13 @@ async function completeCheckpoint(checkpoint: IWorkspaceCheckpoint | null, orpha
     const paneId = checkpoint?.activePaneId ?? checkpoint?.panes[0]?.paneId ?? createPaneId();
     const tabs: IWorkspaceCheckpointTab[] = [];
     for (const tab of checkpoint?.tabs ?? []) {
-        const {workingCopyRef} = tab;
-        const directory = directoryOf(workingCopyRef);
-        tabs.push(workingCopyRef && directory !== null && unsaved.has(directory)
-            ? await restoreUnsavedTab({...tab, workingCopyRef})
-            : tab);
+        const ref = tab.workingCopyRef;
+        const directory = directoryOf(ref);
+        tabs.push(ref && directory !== null && unsaved.has(directory) ? await restoreUnsavedTab(tab, ref) : tab);
     }
     for (const id of orphans) {
         const tab = await orphanTab(id, paneId);
-        const restored = tab?.workingCopyRef ? await restoreUnsavedTab({...tab, workingCopyRef: tab.workingCopyRef}) : tab;
+        const restored = tab?.workingCopyRef ? await restoreUnsavedTab(tab, tab.workingCopyRef) : tab;
         // One another window opened first stays there; one that cannot be read is reported.
         if (restored && (tab?.workingCopyLost || !restored.workingCopyLost)) tabs.push(restored);
     }
@@ -235,7 +227,7 @@ export async function claimBrowserWorkspaceCheckpoint(windowId: string, inherite
     const collected = await collectOnce();
     const unsaved = new Set(collected?.unsaved);
     const uninspected = (id: string) => !collected || collected.held.includes(id);
-    const {durable} = await browserDocumentStore.stores();
+    const durable = await durableStore();
     if (!durable) return null;
     const checkpoints = [...await readWorkspaceCheckpoints(durable.port)];
     const named = new Set(checkpoints.flatMap(([, checkpoint]) => namesOf(checkpoint)));
@@ -271,7 +263,7 @@ export async function acknowledgeBrowserWorkspaceCheckpoint(windowId: string) {
     const taken = claimed;
     claimed = null;
     if (!taken) return;
-    const {durable} = await browserDocumentStore.stores();
+    const durable = await durableStore();
     if (durable && taken.windowId !== windowId) await removeWorkspaceCheckpoint(durable.port, taken.windowId).catch(() => undefined);
     taken.release();
 }
@@ -279,7 +271,7 @@ export async function acknowledgeBrowserWorkspaceCheckpoint(windowId: string) {
 /** Whether this window's checkpoint names unsaved work it restores. */
 export async function hasBrowserWorkspaceCheckpoint(windowId: string) {
     const unsaved = new Set((await collectOnce())?.unsaved);
-    const {durable} = await browserDocumentStore.stores();
+    const durable = await durableStore();
     return durable !== null && namesOf((await readWorkspaceCheckpoints(durable.port)).get(windowId)).some(id => unsaved.has(id));
 }
 
@@ -299,7 +291,7 @@ function writeWindowCheckpoint(windowId: string): Promise<boolean> {
         for (const dir of directoryNaming.keys()) directoryNaming.set(dir, null);
     }
     const run = written.catch(() => false).then(async () => {
-        const {durable} = await browserDocumentStore.stores();
+        const durable = await durableStore();
         const included = [...directoryNaming.keys()];
         const clearPending = () => {
             for (const dir of included) if (directoryNaming.get(dir) === run) directoryNaming.set(dir, null);
@@ -373,12 +365,12 @@ export async function setBrowserDocumentDrafts(drafts: IWorkspaceCheckpointAnnot
     if (browserDocumentStore.tokenOf(entry) !== drafts.workingByteRevision) return false;
     const state = doc.state();
     if (state.current?.foreign === 'staged') return false;
-    const expectedRevisionId = state.current?.id ?? null;
-    const draftGuard = {byteRevision: state.byteRevision, baseline: state.baseline, foreignStaged: false};
-    if (drafts.payload === undefined && state.drafts === undefined) return true;
-    if (drafts.payload !== undefined) await browserDocumentStore.nameEdited(entry);
+    const clear = drafts.payload === undefined;
+    if (clear && state.drafts === undefined) return true;
+    if (state.drafts !== undefined && !decodeWorkspaceAnnotationRecovery(state.drafts).success) return false;
+    if (!clear) await browserDocumentStore.nameEdited(entry);
     if (!browserDocumentStore.openEntries().includes(entry) || doc.state().current?.foreign === 'staged' || browserDocumentStore.tokenOf(entry) !== drafts.workingByteRevision) return false;
-    const stored = await doc.setDrafts(expectedRevisionId, drafts.payload === undefined ? undefined : drafts, draftGuard);
+    const stored = await doc.setDrafts(state.current?.id ?? null, clear ? undefined : drafts, {byteRevision: state.byteRevision, baseline: state.baseline, foreignStaged: false});
     if (stored.status === 'conflict') throw new Error('Drafts were not stored');
     return stored.status === 'stored';
 }

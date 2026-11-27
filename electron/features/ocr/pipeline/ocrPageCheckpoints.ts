@@ -16,10 +16,10 @@ import {BROWSER_OCR_ENGINE_REVISION} from '@contracts/browserOcrEngine';
 import {BROWSER_QPDF_ENGINE_WASM_SHA256} from '@contracts/browserQpdfEngine';
 import {OCR_WORD_GEOMETRY_SCHEMA} from '@contracts/browserPageOpsWorker';
 import type {IDocumentRevisionInfo} from '@contracts/documentRevision';
-import type {
-    IOcrDiagnostic,
-    IOcrSearchablePdfOptions,
-    TOcrSearchablePdfPages,
+import {
+    OCR_DIAGNOSTIC_SCHEMA,
+    type IOcrSearchablePdfOptions,
+    type TOcrSearchablePdfPages,
 } from '@contracts/electronApiOcr';
 import {
     EARLY_PRINT_MODEL_CODES,
@@ -56,7 +56,7 @@ const checkpointSchema = v.object({
             rasterHeightPx: v.pipe(finiteSchema, v.gtValue(0)),
             matrix: v.pipe(v.array(v.pipe(v.array(finiteSchema), v.length(3))), v.length(3)),
         })),
-        diagnostics: v.custom<IOcrDiagnostic[]>(Array.isArray),
+        diagnostics: v.array(OCR_DIAGNOSTIC_SCHEMA),
     }),
 });
 

@@ -577,7 +577,9 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
             options?: { onStdout?: (chunk: string) => void },
         ) => {
             for (let processed = 1; processed <= 4; processed += 1) {
-                options?.onStdout?.(`{"processed":${processed},"total":4}\n`);
+                options?.onStdout?.(
+                    `{"type":"progress","processed":${processed},"total":4,"percent":${processed * 25},"elapsedMs":${processed},"estimatedRemainingMs":0}\n`,
+                );
             }
             const outputPath = args[args.indexOf('--output') + 1]!;
             await writeFile(outputPath, '%PDF-1.4\n%%EOF\n', 'utf8');

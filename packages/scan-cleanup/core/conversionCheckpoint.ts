@@ -29,6 +29,7 @@ import * as v from 'valibot';
 import {
     SCAN_CLEANUP_OUTPUT_HALVES,
     SCAN_CLEANUP_OUTPUT_MODES,
+    SCAN_CLEANUP_PAGE_ROTATIONS,
 } from '@contracts/scan-cleanup/domain';
 import type {
     TNativeScanCleanupDocumentInkPriorV3,
@@ -52,6 +53,8 @@ import {sha256Utf8Hex} from '@evb/scan-cleanup/core/sha256Utf8Hex';
 import type {TScanCleanupPageScope} from '@evb/scan-cleanup/core/pageScope';
 import type {
     IRunScanCleanupPipelineRequest,
+    IScanCleanupOutputMapping,
+    IScanCleanupOutputPageForSummary,
     IScanCleanupRepresentationReport,
     TScanCleanupLog,
 } from '@evb/scan-cleanup/core/types';
@@ -1500,83 +1503,201 @@ function parseTextLayerInstruction(value: unknown): IScanCleanupTextLayerInstruc
     };
 }
 
-const VALID_ROTATIONS = new Set([
-    0,
-    90,
-    180,
-    270,
+const finiteNumberSchema = v.pipe(v.number(), v.finite());
+const nonNegativeFiniteSchema = v.pipe(finiteNumberSchema, v.minValue(0));
+const positiveFiniteSchema = v.pipe(finiteNumberSchema, v.gtValue(0));
+const nonNegativeSafeIntSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
+const positiveSafeIntSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(1));
+const pointSchema = v.object({
+    x: finiteNumberSchema,
+    y: finiteNumberSchema,
+});
+const pixelRectSchema = v.object({
+    xPx: finiteNumberSchema,
+    yPx: finiteNumberSchema,
+    widthPx: nonNegativeFiniteSchema,
+    heightPx: nonNegativeFiniteSchema,
+});
+const affineRowSchema = v.tuple([
+    finiteNumberSchema,
+    finiteNumberSchema,
+    finiteNumberSchema,
 ]);
-const VALID_OUTPUT_HALVES = new Set<string>(SCAN_CLEANUP_OUTPUT_HALVES);
-const VALID_OUTPUT_MODES = new Set<string>(SCAN_CLEANUP_OUTPUT_MODES);
+const affineSchema = v.object({
+    matrix: v.tuple([
+        affineRowSchema,
+        affineRowSchema,
+        affineRowSchema,
+    ]),
+});
+const dewarpMappingSchema = v.pipe(v.object({
+    columns: v.pipe(positiveSafeIntSchema, v.minValue(2)),
+    rows: v.pipe(positiveSafeIntSchema, v.minValue(2)),
+    outputOrigin: pointSchema,
+    outputWidth: positiveSafeIntSchema,
+    outputHeight: positiveSafeIntSchema,
+    outputToSource: v.array(pointSchema),
+    sourceToOutput: v.array(pointSchema),
+}), v.check(mapping => {
+    const pointCount = mapping.columns * mapping.rows;
+    return Number.isSafeInteger(pointCount)
+        && mapping.outputToSource.length === pointCount
+        && mapping.sourceToOutput.length === pointCount;
+}));
+const outputMappingSchema = v.object({
+    sourcePage: positiveSafeIntSchema,
+    half: v.picklist(SCAN_CLEANUP_OUTPUT_HALVES),
+    outputOrdinal: v.nullable(positiveSafeIntSchema),
+    rotationDegrees: v.picklist(SCAN_CLEANUP_PAGE_ROTATIONS),
+    excluded: v.boolean(),
+    blank: v.boolean(),
+});
+const streamBytesSchema = v.pipe(v.object({
+    composite: v.optional(nonNegativeSafeIntSchema),
+    bilevel: v.optional(nonNegativeSafeIntSchema),
+    background: v.optional(nonNegativeSafeIntSchema),
+    foregroundMask: v.optional(nonNegativeSafeIntSchema),
+    foregroundAlpha: v.optional(nonNegativeSafeIntSchema),
+}), v.transform((bytes): NonNullable<IScanCleanupOutputPageForSummary['streamBytes']> => ({
+    ...(bytes.composite === undefined ? {} : {composite: bytes.composite}),
+    ...(bytes.bilevel === undefined ? {} : {bilevel: bytes.bilevel}),
+    ...(bytes.background === undefined ? {} : {background: bytes.background}),
+    ...(bytes.foregroundMask === undefined ? {} : {foregroundMask: bytes.foregroundMask}),
+    ...(bytes.foregroundAlpha === undefined ? {} : {foregroundAlpha: bytes.foregroundAlpha}),
+})));
+const renderGeometrySchema = v.pipe(v.object({
+    canvasHeightPx: positiveSafeIntSchema,
+    canvasWidthPx: positiveSafeIntSchema,
+    cropRect: pixelRectSchema,
+    dewarpMapping: v.nullable(dewarpMappingSchema),
+    dewarped: v.boolean(),
+    foldClipLeftPx: v.optional(nonNegativeSafeIntSchema),
+    foldClipRightPx: v.optional(nonNegativeSafeIntSchema),
+    forwardTransform: v.nullable(affineSchema),
+    inputHeightPx: positiveSafeIntSchema,
+    inputWidthPx: positiveSafeIntSchema,
+    intrinsicRasterHeightPx: v.optional(positiveSafeIntSchema),
+    intrinsicRasterWidthPx: v.optional(positiveSafeIntSchema),
+    matchedCanvasContentHeightPx: v.nullable(positiveSafeIntSchema),
+    matchedCanvasContentWidthPx: v.nullable(positiveSafeIntSchema),
+    matchedCanvasIntrinsicOverflowLeftPx: v.optional(nonNegativeSafeIntSchema),
+    matchedCanvasIntrinsicOverflowRightPx: v.optional(nonNegativeSafeIntSchema),
+    matchedCanvasIntrinsicOverflowTopPx: v.optional(nonNegativeSafeIntSchema),
+    outputHeightPx: positiveSafeIntSchema,
+    outputWidthPx: positiveSafeIntSchema,
+    placementOffsetXPx: nonNegativeSafeIntSchema,
+    placementOffsetYPx: nonNegativeSafeIntSchema,
+    sourceRegion: pixelRectSchema,
+}), v.transform((geometry): NonNullable<IScanCleanupOutputPageForSummary['renderGeometry']> => ({
+    canvasHeightPx: geometry.canvasHeightPx,
+    canvasWidthPx: geometry.canvasWidthPx,
+    cropRect: geometry.cropRect,
+    dewarpMapping: geometry.dewarpMapping,
+    dewarped: geometry.dewarped,
+    forwardTransform: geometry.forwardTransform,
+    inputHeightPx: geometry.inputHeightPx,
+    inputWidthPx: geometry.inputWidthPx,
+    matchedCanvasContentHeightPx: geometry.matchedCanvasContentHeightPx,
+    matchedCanvasContentWidthPx: geometry.matchedCanvasContentWidthPx,
+    outputHeightPx: geometry.outputHeightPx,
+    outputWidthPx: geometry.outputWidthPx,
+    placementOffsetXPx: geometry.placementOffsetXPx,
+    placementOffsetYPx: geometry.placementOffsetYPx,
+    sourceRegion: geometry.sourceRegion,
+    ...(geometry.foldClipLeftPx === undefined ? {} : {foldClipLeftPx: geometry.foldClipLeftPx}),
+    ...(geometry.foldClipRightPx === undefined ? {} : {foldClipRightPx: geometry.foldClipRightPx}),
+    ...(geometry.intrinsicRasterHeightPx === undefined ? {} : {intrinsicRasterHeightPx: geometry.intrinsicRasterHeightPx}),
+    ...(geometry.intrinsicRasterWidthPx === undefined ? {} : {intrinsicRasterWidthPx: geometry.intrinsicRasterWidthPx}),
+    ...(geometry.matchedCanvasIntrinsicOverflowLeftPx === undefined ? {} : {matchedCanvasIntrinsicOverflowLeftPx: geometry.matchedCanvasIntrinsicOverflowLeftPx}),
+    ...(geometry.matchedCanvasIntrinsicOverflowRightPx === undefined ? {} : {matchedCanvasIntrinsicOverflowRightPx: geometry.matchedCanvasIntrinsicOverflowRightPx}),
+    ...(geometry.matchedCanvasIntrinsicOverflowTopPx === undefined ? {} : {matchedCanvasIntrinsicOverflowTopPx: geometry.matchedCanvasIntrinsicOverflowTopPx}),
+})));
+const representationPageSchema = v.pipe(v.object({
+    outputPageNumber: positiveSafeIntSchema,
+    sourcePageNumber: positiveSafeIntSchema,
+    semanticMode: v.picklist(SCAN_CLEANUP_OUTPUT_MODES),
+    representation: v.pipe(v.string(), v.minLength(1)),
+    preservationReason: v.nullable(v.string()),
+    sourceDpi: v.nullable(positiveFiniteSchema),
+    sourceBackgroundDpi: v.nullable(positiveFiniteSchema),
+    renderDpi: positiveFiniteSchema,
+    illuminationNormalized: v.boolean(),
+    textToneApplied: v.boolean(),
+    binarizationMode: v.nullable(v.string()),
+    half: v.picklist(SCAN_CLEANUP_OUTPUT_HALVES),
+    outputOrdinal: positiveSafeIntSchema,
+    rotationDegrees: v.picklist(SCAN_CLEANUP_PAGE_ROTATIONS),
+    excluded: v.boolean(),
+    blank: v.boolean(),
+    streamBytes: v.optional(streamBytesSchema),
+    renderGeometry: v.optional(renderGeometrySchema),
+}), v.transform(({
+    streamBytes,
+    renderGeometry,
+    ...page
+}): IScanCleanupOutputPageForSummary => ({
+    ...page,
+    ...(streamBytes === undefined ? {} : {streamBytes}),
+    ...(renderGeometry === undefined ? {} : {renderGeometry}),
+})));
+const representationReportSchema = v.pipe(v.object({
+    schemaVersion: v.literal(1),
+    sourceBytes: nonNegativeFiniteSchema,
+    outputBytes: nonNegativeFiniteSchema,
+    outputToSourceByteRatio: nonNegativeFiniteSchema,
+    compactSourceBudget: v.unknown(),
+    outputMappings: v.array(outputMappingSchema),
+    pages: v.array(representationPageSchema),
+    outputMappingsSidecarPath: v.optional(v.string()),
+    pagesSidecarPath: v.optional(v.string()),
+}), v.transform(({
+    outputMappingsSidecarPath,
+    pagesSidecarPath,
+    ...report
+}): IScanCleanupRepresentationReport => ({
+    ...report,
+    ...(outputMappingsSidecarPath === undefined ? {} : {outputMappingsSidecarPath}),
+    ...(pagesSidecarPath === undefined ? {} : {pagesSidecarPath}),
+})));
+const emptyRepresentationReportSchema = v.pipe(v.object({
+    schemaVersion: v.optional(v.literal(1)),
+    sourceBytes: v.optional(nonNegativeFiniteSchema),
+    outputBytes: v.optional(nonNegativeFiniteSchema),
+    outputToSourceByteRatio: v.optional(nonNegativeFiniteSchema),
+    compactSourceBudget: v.optional(v.unknown()),
+    outputMappings: v.array(outputMappingSchema),
+    pages: v.pipe(v.array(representationPageSchema), v.length(0)),
+    outputMappingsSidecarPath: v.optional(v.string()),
+    pagesSidecarPath: v.optional(v.string()),
+}), v.transform(({
+    schemaVersion,
+    sourceBytes,
+    outputBytes,
+    outputToSourceByteRatio,
+    compactSourceBudget,
+    outputMappings,
+    pages,
+    outputMappingsSidecarPath,
+    pagesSidecarPath,
+}): IScanCleanupRepresentationReport => ({
+    schemaVersion: schemaVersion ?? 1,
+    sourceBytes: sourceBytes ?? 0,
+    outputBytes: outputBytes ?? 0,
+    outputToSourceByteRatio: outputToSourceByteRatio ?? 0,
+    compactSourceBudget: compactSourceBudget ?? null,
+    outputMappings,
+    pages,
+    ...(outputMappingsSidecarPath === undefined ? {} : {outputMappingsSidecarPath}),
+    ...(pagesSidecarPath === undefined ? {} : {pagesSidecarPath}),
+})));
 
-function isValidOutputMapping(
-    value: unknown,
+function hasValidOutputMappingContext(
+    mapping: IScanCleanupOutputMapping,
     expectedPageSet: ReadonlySet<number>,
     outputPages: number,
 ): boolean {
-    if (!isRecord(value)) {
-        return false;
-    }
-    if (
-        typeof value.sourcePage !== 'number'
-        || !Number.isSafeInteger(value.sourcePage)
-        || !expectedPageSet.has(value.sourcePage)
-        || typeof value.half !== 'string'
-        || !VALID_OUTPUT_HALVES.has(value.half)
-        || typeof value.rotationDegrees !== 'number'
-        || !VALID_ROTATIONS.has(value.rotationDegrees)
-        || typeof value.excluded !== 'boolean'
-        || typeof value.blank !== 'boolean'
-    ) {
-        return false;
-    }
-    if (value.outputOrdinal === null) {
-        return true;
-    }
-    return typeof value.outputOrdinal === 'number'
-        && Number.isSafeInteger(value.outputOrdinal)
-        && value.outputOrdinal >= 1
-        && value.outputOrdinal <= outputPages;
-}
-
-function isValidRepresentationPage(
-    value: unknown,
-    expectedPageSet: ReadonlySet<number>,
-    outputPages: number,
-): boolean {
-    if (!isRecord(value)) {
-        return false;
-    }
-    return typeof value.outputPageNumber === 'number'
-        && Number.isSafeInteger(value.outputPageNumber)
-        && value.outputPageNumber >= 1
-        && value.outputPageNumber <= outputPages
-        && typeof value.outputOrdinal === 'number'
-        && Number.isSafeInteger(value.outputOrdinal)
-        && value.outputOrdinal >= 1
-        && value.outputOrdinal <= outputPages
-        && typeof value.sourcePageNumber === 'number'
-        && Number.isSafeInteger(value.sourcePageNumber)
-        && expectedPageSet.has(value.sourcePageNumber)
-        && typeof value.semanticMode === 'string'
-        && VALID_OUTPUT_MODES.has(value.semanticMode)
-        && typeof value.representation === 'string'
-        && value.representation.length > 0
-        && (value.preservationReason === null || typeof value.preservationReason === 'string')
-        && (value.sourceDpi === null || (typeof value.sourceDpi === 'number' && Number.isFinite(value.sourceDpi) && value.sourceDpi > 0))
-        && (value.sourceBackgroundDpi === null || (typeof value.sourceBackgroundDpi === 'number' && Number.isFinite(value.sourceBackgroundDpi) && value.sourceBackgroundDpi > 0))
-        && typeof value.renderDpi === 'number'
-        && Number.isFinite(value.renderDpi)
-        && value.renderDpi > 0
-        && typeof value.illuminationNormalized === 'boolean'
-        && typeof value.textToneApplied === 'boolean'
-        && (value.binarizationMode === null || typeof value.binarizationMode === 'string')
-        && typeof value.half === 'string'
-        && VALID_OUTPUT_HALVES.has(value.half)
-        && typeof value.rotationDegrees === 'number'
-        && VALID_ROTATIONS.has(value.rotationDegrees)
-        && typeof value.excluded === 'boolean'
-        && typeof value.blank === 'boolean';
+    return expectedPageSet.has(mapping.sourcePage)
+        && (mapping.outputOrdinal === null || (mapping.outputOrdinal >= 1 && mapping.outputOrdinal <= outputPages));
 }
 
 function validateBatchState(
@@ -1645,43 +1766,35 @@ function validateBatchState(
     }
     let representationReport: IScanCleanupRepresentationReport | null = null;
     if (value.representationReport !== null) {
+        const parsedReport = v.safeParse(
+            summary.outputPages === 0 ? emptyRepresentationReportSchema : representationReportSchema,
+            value.representationReport,
+            {abortEarly: true},
+        );
+        if (!parsedReport.success) {
+            return null;
+        }
+        const report = parsedReport.output;
         if (
-            !isRecord(value.representationReport)
-            || !Array.isArray(value.representationReport.outputMappings)
-            || !Array.isArray(value.representationReport.pages)
-            || !value.representationReport.outputMappings.every(mapping => (
-                isValidOutputMapping(mapping, expectedPageSet, summary.outputPages)
+            report.pages.length !== summary.outputPages
+            || !report.outputMappings.every(mapping => (
+                hasValidOutputMappingContext(mapping, expectedPageSet, summary.outputPages)
             ))
-            || !value.representationReport.pages.every(page => (
-                isValidRepresentationPage(page, expectedPageSet, summary.outputPages)
+            || !report.pages.every(page => (
+                expectedPageSet.has(page.sourcePageNumber)
+                && page.outputPageNumber <= summary.outputPages
+                && page.outputOrdinal <= summary.outputPages
             ))
-            || value.representationReport.pages.length !== summary.outputPages
         ) {
             return null;
         }
-        const mappedOutputCount = value.representationReport.outputMappings.filter(
-            mapping => isRecord(mapping) && mapping.outputOrdinal !== null,
+        const mappedOutputCount = report.outputMappings.filter(
+            mapping => mapping.outputOrdinal !== null,
         ).length;
         if (mappedOutputCount !== summary.outputPages) {
             return null;
         }
-        if (
-            summary.outputPages > 0 && (
-                value.representationReport.schemaVersion !== 1
-                || typeof value.representationReport.sourceBytes !== 'number'
-                || !Number.isFinite(value.representationReport.sourceBytes)
-                || value.representationReport.sourceBytes < 0
-                || typeof value.representationReport.outputBytes !== 'number'
-                || !Number.isFinite(value.representationReport.outputBytes)
-                || value.representationReport.outputBytes < 0
-                || typeof value.representationReport.outputToSourceByteRatio !== 'number'
-                || !Number.isFinite(value.representationReport.outputToSourceByteRatio)
-                || value.representationReport.outputToSourceByteRatio < 0
-            )
-        ) {
-            return null;
-        }
-        representationReport = value.representationReport as unknown as IScanCleanupRepresentationReport;
+        representationReport = report;
     } else if (summary.outputPages > 0) {
         return null;
     }
@@ -1700,7 +1813,7 @@ function validateBatchState(
             !stamp.effectiveOptions.perSourcePage.every(entry => expectedPageSet.has(entry.sourcePage))
             || !stamp.pagePlanDigests.every(entry => expectedPageSet.has(entry.sourcePage))
             || !stamp.outputMappings.every(mapping => (
-                isValidOutputMapping(mapping, expectedPageSet, summary.outputPages)
+                hasValidOutputMappingContext(mapping, expectedPageSet, summary.outputPages)
             ))
             || stamp.outputMappings.filter(mapping => mapping.outputOrdinal !== null).length !== summary.outputPages
         ) {

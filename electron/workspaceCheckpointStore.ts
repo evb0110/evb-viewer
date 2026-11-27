@@ -15,7 +15,10 @@ import {
     type IWorkspaceCheckpoint as IStoredCheckpoint,
 } from '@document-store/workspaceCheckpoint';
 import {
+    createBlankWorkspaceCheckpointTab as blankTab,
     decodeStoredWorkspaceCheckpoint,
+    decodeWorkspaceAnnotationRecovery,
+    decodeWorkspaceTabDrafts,
     toStoredWorkspaceCheckpoint,
     type IWorkspaceCheckpoint,
     type IWorkspaceCheckpointAnnotationRecovery,
@@ -49,7 +52,6 @@ const log = createLogger('workspace-checkpoint-store');
  * Each window's workspace is one checkpoint in the document store: tabs, panes, views and document directories.
  * Unsaved annotations live as document drafts in each manifest and are attached on claim.
  */
-interface IDrafts {annotationRecovery: IWorkspaceCheckpointAnnotationRecovery}
 type TCheckpointOwnerPhase = 'live' | 'claimed' | 'restoring' | 'discarded';
 interface IRestoreInFlight {readonly tabIds: Set<string>; readonly sourceRefs: Set<string>}
 
@@ -197,11 +199,6 @@ function isAdmittedOpenPath(sourceRef: TDocumentRef, owner: number | WebContents
     }
 }
 
-const blankTab = (tabId: IWorkspaceCheckpointTab['tabId'], paneId: IWorkspaceCheckpointTab['paneId']): IWorkspaceCheckpointTab => ({
-    tabId, paneId, fileName: null, sourceRef: null, workingCopyRef: null,
-    isDirty: false, isDjvu: false, currentPage: null, zoom: null, zoomMode: null,
-});
-
 /** Stores this window's tabs, panes and views and the directory each tab shows; resolves once durable. */
 export function saveWorkspaceCheckpoint(checkpoint: IWorkspaceCheckpoint, senderId: number, owner?: WebContents) {
     const {ownerId} = getOwner(senderId, owner);
@@ -243,7 +240,13 @@ export async function setWorkspaceDocumentDrafts(drafts: IWorkspaceCheckpointAnn
     const entry = ownedDocument(drafts.workingCopyRef, senderId);
     if (!entry) throw new Error('Drafts of an unowned working copy');
     // A damaged document's directory waits for a start that reads it.
-    if (entry.doc.damaged || (drafts.payload === undefined && entry.doc.state().drafts === undefined)) return true;
+    if (entry.doc.damaged) return true;
+    const storedDrafts = entry.doc.state().drafts;
+    // Unrecognized persisted drafts stay on disk untouched: refuse clears and overwrites so commitDrafts blocks destructive edits.
+    if (storedDrafts !== undefined && !decodeWorkspaceAnnotationRecovery(isRecord(storedDrafts) ? storedDrafts.annotationRecovery : undefined).success) {
+        return false;
+    }
+    if (drafts.payload === undefined && storedDrafts === undefined) return true;
     if (drafts.payload !== undefined) await nameEditedDirectory(entry);
     const status = await setOpenDocumentDrafts(entry, drafts.workingByteRevision, drafts.payload === undefined ? undefined : {annotationRecovery: drafts});
     if (status === 'conflict') throw new Error('Drafts were not stored');
@@ -420,7 +423,7 @@ async function claimTab(tab: IWorkspaceCheckpointTab, stored: IStoredCheckpoint,
 async function reopenTab(tab: IWorkspaceCheckpointTab, stored: IStoredCheckpoint, senderId: number, touchedRefs: Set<string>): Promise<IWorkspaceCheckpointTab> {
     const directory = stored.tabs[tab.tabId]?.directory;
     if (!directory || !await holdsUnsavedWork(directory, tab.sourceRef)) return tab;
-    const {annotationRecovery: _stale, ...rest} = tab;
+    const {annotationRecovery: _stale, annotationRecoveryInvalid: _staleInvalid, ...rest} = tab;
     try {
         const entry = await reopenStoredDocument(directory, {ownerWebContentsId: senderId, ...(tab.sourceRef ? {originalPath: tab.sourceRef} : {})});
         touchedRefs.add(entry.ref);
@@ -438,14 +441,21 @@ async function reopenTab(tab: IWorkspaceCheckpointTab, stored: IStoredCheckpoint
             }
             return tab;
         }
-        const drafts = isRecord(state.drafts) ? (state.drafts as unknown as IDrafts).annotationRecovery : undefined;
         const ref = requireDocumentRef(entry.ref);
+        const rawDrafts = state.drafts === undefined
+            ? undefined
+            : (isRecord(state.drafts) && state.drafts.annotationRecovery !== undefined ? state.drafts.annotationRecovery : null);
+        const draftFields = decodeWorkspaceTabDrafts(
+            rawDrafts,
+            issue => log.warn(`Ignored malformed persisted workspace drafts in ${DOCUMENTS_DIR}/${directory}; kept reopened document and draft file on disk: ${issue}`),
+            ref,
+        );
         return {
             ...rest,
             isDirty: true,
             workingCopyRef: ref,
             sourceRef: requireDocumentRef(state.destination ?? entry.originalPath ?? tab.sourceRef ?? entry.ref),
-            ...(drafts ? {annotationRecovery: {...drafts, workingCopyRef: ref}} : {}),
+            ...draftFields,
             ...(state.damaged ? {workingCopyLost: true as const} : {}),
         };
     } catch (error) {

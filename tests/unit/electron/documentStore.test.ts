@@ -580,6 +580,141 @@ describe('desktop document store', () => {
         expect(await readFile(pdf)).toEqual(Buffer.from(ORIGINAL));
     });
 
+    it('ignores a malformed persisted draft envelope without losing the reopened document, draft file, or healthy sibling tab', async () => {
+        const healthyPdf = await writeTemp('healthy.pdf', ORIGINAL);
+        const healthyEntry = await store.openDocumentFromFile(healthyPdf, {ownerWebContentsId: 7});
+        const malformedPdf = await writeTemp('malformed.pdf', EDITED);
+        const malformedEntry = await store.openDocumentFromFile(malformedPdf, {ownerWebContentsId: 7});
+
+        const paneId = requirePaneId('pane-1');
+        const healthyTabId = requireTabId('tab-healthy');
+        const malformedTabId = requireTabId('tab-malformed');
+        const healthyToken = store.documentRevisionToken(healthyEntry);
+        const healthyDrafts = {
+            artifactId: 'artifact-healthy',
+            documentInstanceId: 'instance-healthy',
+            workingCopyRef: healthyEntry.ref as never,
+            workingByteRevision: healthyToken,
+            annotationMutationGeneration: 2,
+            payload: {entities: [{kind: 'note', text: 'healthy note'}]},
+        };
+        const checkpoint: IWorkspaceCheckpoint = {
+            version: 1,
+            capturedAt: requireEpochMs(Date.now()),
+            activePaneId: paneId,
+            activeTabId: healthyTabId,
+            layout: {type: 'leaf', paneId},
+            panes: [{paneId, tabIds: [healthyTabId, malformedTabId], activeTabId: healthyTabId}],
+            tabs: [
+                {
+                    tabId: healthyTabId,
+                    paneId,
+                    fileName: 'healthy.pdf',
+                    sourceRef: healthyPdf as never,
+                    workingCopyRef: healthyEntry.ref as never,
+                    isDirty: true,
+                    isDjvu: false,
+                    currentPage: 1,
+                    zoom: 1,
+                    zoomMode: null,
+                },
+                {
+                    tabId: malformedTabId,
+                    paneId,
+                    fileName: 'malformed.pdf',
+                    sourceRef: malformedPdf as never,
+                    workingCopyRef: malformedEntry.ref as never,
+                    isDirty: true,
+                    isDjvu: false,
+                    currentPage: 2,
+                    zoom: 1,
+                    zoomMode: null,
+                },
+            ],
+        };
+
+        expect(await checkpoints.saveWorkspaceCheckpoint(checkpoint, 7)).toBe(true);
+        expect(await checkpoints.setWorkspaceDocumentDrafts(healthyDrafts, 7)).toBe(true);
+        const malformedDraftEnvelope = {
+            annotationRecovery: {
+                artifactId: 'invalid artifact id with spaces',
+                documentInstanceId: '',
+                workingCopyRef: 123,
+                workingByteRevision: '',
+                annotationMutationGeneration: -1,
+                payload: {entities: [{kind: 'note', text: 'kept on disk'}]},
+            },
+        };
+        expect(await store.setOpenDocumentDrafts(malformedEntry, store.documentRevisionToken(malformedEntry), malformedDraftEnvelope)).toBe('stored');
+
+        const malformedManifest = JSON.parse(await readFile(join(tempRoot, 'store', 'documents', malformedEntry.doc.id, 'manifest.json'), 'utf8')) as {drafts?: string};
+        expect(malformedManifest.drafts).toBeDefined();
+        const malformedDraftPath = join(tempRoot, 'store', 'documents', malformedEntry.doc.id, malformedManifest.drafts!);
+        const draftBytesBefore = await readFile(malformedDraftPath);
+
+        await restart();
+        diagnosticLog.warn.mockClear();
+        const claimed = await checkpoints.claimWorkspaceCheckpoint(9);
+
+        expect(claimed).not.toBeNull();
+        expect(claimed?.tabs).toHaveLength(2);
+
+        const claimedHealthy = claimed?.tabs.find(tab => tab.tabId === healthyTabId);
+        expect(claimedHealthy).toMatchObject({
+            workingCopyRef: healthyEntry.ref,
+            sourceRef: healthyPdf,
+            isDirty: true,
+            annotationRecovery: {
+                artifactId: 'artifact-healthy',
+                workingCopyRef: healthyEntry.ref,
+                workingByteRevision: healthyToken,
+                payload: {entities: [{kind: 'note', text: 'healthy note'}]},
+            },
+        });
+        expect(claimedHealthy?.workingCopyLost).toBeUndefined();
+        expect(claimedHealthy?.annotationRecoveryInvalid).toBeUndefined();
+
+        const claimedMalformed = claimed?.tabs.find(tab => tab.tabId === malformedTabId);
+        expect(claimedMalformed).toMatchObject({
+            workingCopyRef: malformedEntry.ref,
+            sourceRef: malformedPdf,
+            isDirty: true,
+            annotationRecoveryInvalid: true,
+        });
+        expect(claimedMalformed?.annotationRecovery).toBeUndefined();
+        expect(claimedMalformed?.workingCopyLost).toBeUndefined();
+
+        const reopenedMalformed = store.requireOpenDocument(malformedEntry.ref, 9);
+        expect(await readAll(reopenedMalformed)).toEqual(EDITED);
+        expect(await readFile(malformedDraftPath)).toEqual(draftBytesBefore);
+        expect(retainedDiagnostics()).toContain(`documents/${malformedEntry.doc.id}`);
+
+        // Renderer startup finishes opening the tab and sends a payload-free clear;
+        // both clears and overwrites must be refused (false) so commitDrafts blocks
+        // subsequent page mutations from deleting the rejected draft file on disk.
+        const reopenedRevision = store.documentRevisionToken(reopenedMalformed);
+        expect(await checkpoints.setWorkspaceDocumentDrafts({
+            artifactId: 'document-drafts',
+            documentInstanceId: 'instance-reopened',
+            workingCopyRef: malformedEntry.ref as never,
+            workingByteRevision: reopenedRevision,
+            annotationMutationGeneration: 0,
+        }, 9)).toBe(false);
+        expect(await readFile(malformedDraftPath)).toEqual(draftBytesBefore);
+        expect(reopenedMalformed.doc.state().drafts).toEqual(malformedDraftEnvelope);
+
+        expect(await checkpoints.setWorkspaceDocumentDrafts({
+            artifactId: 'document-drafts',
+            documentInstanceId: 'instance-reopened',
+            workingCopyRef: malformedEntry.ref as never,
+            workingByteRevision: reopenedRevision,
+            annotationMutationGeneration: 1,
+            payload: {entities: [{kind: 'note', text: 'must not overwrite'}]},
+        }, 9)).toBe(false);
+        expect(await readFile(malformedDraftPath)).toEqual(draftBytesBefore);
+        expect(reopenedMalformed.doc.state().drafts).toEqual(malformedDraftEnvelope);
+    });
+
     it('clears a document\'s drafts when the working bytes hold everything, and refuses drafts of an outdated revision', async () => {
         const {entry} = await openPdf();
         const drafts = {
