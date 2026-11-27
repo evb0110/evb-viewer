@@ -2,7 +2,6 @@ import {findPdfStructurePreservationRefusal} from '@contracts/nativeErrors';
 import { isRecord } from '@contracts/runtimeGuards';
 import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
-import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { QPDF_TIMEOUT_MS } from '@electron/pdf/pdfPageCount';
 import { createLogger } from '@electron/utils/createLogger';
 
@@ -28,8 +27,6 @@ async function readCatalogJson(
         'read-document-catalog',
         '--input',
         inputPath,
-        '--qpdf',
-        getPdfNativeToolPaths().qpdf,
     ], {
         timeoutMs: QPDF_TIMEOUT_MS,
         maxStdoutBytes: PDF_CATALOG_MAX_BYTES,

@@ -6,8 +6,7 @@ import {resolve} from 'node:path';
 import {
     PDFDocument, PDFName, pushGraphicsState, popGraphicsState, concatTransformationMatrix, drawObject, setTextRenderingMode, TextRenderingMode,
 } from 'pdf-lib';
-import {spawnSync} from 'node:child_process';
-import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
+import {runDesktopQpdfWasm} from '@electron/native-tools/qpdfWasmWorkerClient';
 import {chromium} from 'playwright';
 import {
     describe, expect, it,
@@ -253,15 +252,20 @@ describe('browser document lifecycle UI', () => {
             expect(noteTexts(await PDFDocument.load(originalAfterDirtySave), '/Text')).toContain('Dirty note survives Optimize');
             const savedPath = resolve(outputDirectory, 'optimized.pdf');
             writeFileSync(savedPath, savedBytes);
-            const check = spawnSync(getPdfNativeToolPaths().qpdf, [
+            const check = await runDesktopQpdfWasm([
                 '--check',
                 savedPath,
-            ], {encoding: 'utf8'});
-            expect(check.error).toBeUndefined();
+            ], {
+                allowedExitCodes: [
+                    0,
+                    3,
+                ],
+                commandLabel: 'qpdf(browser-optimize-check)',
+            });
             expect([
                 0,
                 3,
-            ], check.stderr).toContain(check.status);
+            ], check.stderr).toContain(check.exitCode);
             const savedPdf = await PDFDocument.load(savedBytes);
             expect(savedPdf.getPage(0).getSize()).toEqual({
                 width: 400,
@@ -362,7 +366,7 @@ describe('browser document lifecycle UI', () => {
                     sha256: sha256(adoptedBytes),
                 },
                 qpdf: {
-                    status: check.status,
+                    status: check.exitCode,
                     stdout: check.stdout,
                     stderr: check.stderr,
                 },
@@ -460,12 +464,14 @@ describe('browser document lifecycle UI', () => {
             expect(saved.toString('latin1')).toMatch(/\/Linearized\s/u);
             expect(saved.length).toBeLessThan(await page.evaluate(() => Number(Reflect.get(window, '__qp2FrontierSize'))));
             expect(await page.evaluate(() => Reflect.get(window, '__qp2HasStage'))).toBe(true);
-            const check = spawnSync(getPdfNativeToolPaths().qpdf, [
+            const check = await runDesktopQpdfWasm([
                 '--check',
                 savedPath,
-            ], {encoding: 'utf8'});
-            expect(check.error).toBeUndefined();
-            expect(check.status, check.stderr).toBe(0);
+            ], {
+                allowedExitCodes: [0],
+                commandLabel: 'qpdf(browser-saveas-check)',
+            });
+            expect(check.exitCode, check.stderr).toBe(0);
             const reopened = await PDFDocument.load(saved);
             expect(reopened.getPageCount()).toBe(1);
             expect(noteTexts(reopened)).toContain('Accepted staged frontier');
@@ -476,7 +482,7 @@ describe('browser document lifecycle UI', () => {
                 sourceSha256: createHash('sha256').update(original).digest('hex'),
                 savedSha256: createHash('sha256').update(saved).digest('hex'),
                 qpdf: {
-                    status: check.status,
+                    status: check.exitCode,
                     stdout: check.stdout,
                     stderr: check.stderr,
                 },

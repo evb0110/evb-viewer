@@ -3,6 +3,8 @@ import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimit
 
 /** Bump with the pinned engine artifact so existing browser caches cannot mix runtimes. */
 export const BROWSER_QPDF_ENGINE_REVISION = '12.3.2-r1';
+/** Pinned SHA-256 digest of `evb-qpdf.wasm`, shared by desktop checkpoints and web packaging. */
+export const BROWSER_QPDF_ENGINE_WASM_SHA256 = 'dded30522af651ab3c7cf62be7b49e242a5576c3d38f08bbe89b00eb45204286';
 /** qpdf reads whole files; the browser admits the inputs its page tool admits. */
 export const BROWSER_QPDF_MAX_INPUT_BYTES = BROWSER_PAGE_OPS_MAX_REQUEST_BYTES;
 /** The bound desktop puts on a native tool's captured stderr. */

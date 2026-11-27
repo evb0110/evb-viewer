@@ -21,7 +21,6 @@ import {
     mainJobBroker,
     type TTerminationProofSink,
 } from '@electron/resources/jobBroker';
-import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/main/resolveNativePageOpsPath';
 import { getAppTempDir } from '@electron/utils/appTempDir';
@@ -129,8 +128,6 @@ async function appendPageCropMutations(
             pdfPath,
             '--mutations-file',
             mutationsPath,
-            '--qpdf',
-            getPdfNativeToolPaths().qpdf,
             '--modified-at',
             createNativeModifiedAt(),
             '--append',
@@ -253,10 +250,6 @@ export async function getPageGeometry(
             '--page',
             String(pageNumber),
         ];
-        const qpdfPath = getPdfNativeToolPaths().qpdf;
-        if (qpdfPath) {
-            args.push('--qpdf', qpdfPath);
-        }
         const {stdout} = await runNativeToolCommand(binaryPath, args, {
             timeoutMs: PAGE_GEOMETRY_NATIVE_TIMEOUT_MS,
             maxStdoutBytes: PAGE_GEOMETRY_MAX_OUTPUT_BYTES,

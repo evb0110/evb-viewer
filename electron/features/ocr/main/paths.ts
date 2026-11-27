@@ -25,7 +25,6 @@ export function resolveOcrPipelinePaths(): IOcrPipelinePaths {
         tessdataPath: getRuntimeTessdataDir(),
         pdftoppmBinary: pdfPaths.pdftoppm,
         pdftotextBinary: pdfPaths.pdftotext,
-        qpdfBinary: pdfPaths.qpdf,
         tempDir: getAppTempDir(),
         ...(pdfPaths.pdfimages === undefined ? {} : {pdfimagesBinary: pdfPaths.pdfimages}),
         ...(pdfPaths.popplerDataDir === undefined ? {} : {popplerDataDir: pdfPaths.popplerDataDir}),

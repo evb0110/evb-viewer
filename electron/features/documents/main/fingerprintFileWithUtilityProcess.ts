@@ -6,12 +6,14 @@ import {
     mainJobBroker,
     type TTerminationProofSink,
 } from '@electron/resources/jobBroker';
+import {hasNativeErrorCode} from '@contracts/nativeErrors';
 import {
     decodeDocumentSaveUtilityRequest,
     getDocumentSaveUtilityReusePlan,
     type IDocumentSaveUtilityValidateRequest,
 } from '@electron/features/documents/main/documentSaveUtilityProtocol';
 import {fingerprintFileBounded} from '@electron/features/documents/main/fingerprintFileBounded';
+import {validatePdfStructureFromPath} from '@electron/features/documents/main/pdfConformancePathAnalysis';
 import {validateTargetedPdfObjects} from '@electron/features/documents/main/validateTargetedPdfObjects';
 import {
     runNativeToolCommand,
@@ -144,6 +146,7 @@ export async function validateDocumentSaveStagingFile(
         ...(reuse.tailCheck ? {tailCheck: true} : {}),
         signal: operationSignal,
     });
+    let strictStructuralValidated = false;
     if (!reuse.qpdfCheck && !reuse.nativeIncrementalCheck && request.validationBinary) {
         try {
             const result = await runValidationCommand(request.validationBinary, [
@@ -162,9 +165,19 @@ export async function validateDocumentSaveStagingFile(
                     ? abortErrorFromSignal(options.signal)
                     : error;
             }
-            const exitCode: unknown = (error as {code?: unknown}).code;
-            if (exitCode !== 3 && exitCode !== '3') {
-                throw new Error(`PDF save staging file failed qpdf validation: ${getErrorMessage(error)}`);
+            if (hasNativeErrorCode(error) && error.code === 'too-large') {
+                await validatePdfStructureFromPath(request.sourcePath, {
+                    strict: true,
+                    timeoutMs: options.timeoutMs,
+                    signal: operationSignal,
+                    ...(options.onTerminationProof ? {onTerminationProof: options.onTerminationProof} : {}),
+                });
+                strictStructuralValidated = true;
+            } else {
+                const exitCode: unknown = (error as {code?: unknown}).code;
+                if (exitCode !== 3 && exitCode !== '3') {
+                    throw new Error(`PDF save staging file failed qpdf validation: ${getErrorMessage(error)}`);
+                }
             }
         }
     }
@@ -174,12 +187,32 @@ export async function validateDocumentSaveStagingFile(
         && !reuse.changedObjectRefsCheck
         && request.validationBinary
     ) {
-        await validateTargetedPdfObjects(
-            request.sourcePath,
-            request.validationBinary,
-            changedObjectRefs,
-            runValidationCommand,
-        );
+        try {
+            await validateTargetedPdfObjects(
+                request.sourcePath,
+                request.validationBinary,
+                changedObjectRefs,
+                runValidationCommand,
+            );
+        } catch (error) {
+            if (getUnprovenNativeTerminationDetail(error) !== undefined || options.signal?.aborted || operationSignal.aborted) {
+                throw options.signal?.aborted && getUnprovenNativeTerminationDetail(error) === undefined
+                    ? abortErrorFromSignal(options.signal)
+                    : error;
+            }
+            if (hasNativeErrorCode(error) && error.code === 'too-large') {
+                if (!strictStructuralValidated) {
+                    await validatePdfStructureFromPath(request.sourcePath, {
+                        strict: true,
+                        timeoutMs: options.timeoutMs,
+                        signal: operationSignal,
+                        ...(options.onTerminationProof ? {onTerminationProof: options.onTerminationProof} : {}),
+                    });
+                }
+            } else {
+                throw error;
+            }
+        }
     }
     if (options.signal?.aborted) {
         throw abortErrorFromSignal(options.signal);

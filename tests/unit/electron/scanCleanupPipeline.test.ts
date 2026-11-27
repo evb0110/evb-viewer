@@ -6009,8 +6009,6 @@ describe('scan cleanup pipeline', () => {
                 '/page-ops',
                 expect.arrayContaining([
                     'split-pages',
-                    '--qpdf',
-                    '/qpdf',
                 ]),
                 expect.objectContaining({commandLabel: 'evb-pdf-page-ops(split-pages:scan-cleanup)'}),
             );

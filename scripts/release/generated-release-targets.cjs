@@ -110,29 +110,6 @@ const manifest = JSON.parse(String.raw`{
         },
         {
             "binaryName": null,
-            "id": "qpdf",
-            "label": "qpdf native tools",
-            "packagedEntries": [
-                {
-                    "id": "qpdf",
-                    "label": "qpdf binary",
-                    "pathSegments": [
-                        "bin",
-                        "qpdf{exeSuffix}"
-                    ],
-                    "type": "file"
-                }
-            ],
-            "sourceRootSegments": [
-                "resources",
-                "qpdf"
-            ],
-            "stagedRootSegments": [
-                "qpdf"
-            ]
-        },
-        {
-            "binaryName": null,
             "id": "pdf-print-dialog",
             "label": "macOS PDF print dialog helper",
             "packagedEntries": [
@@ -288,9 +265,6 @@ const manifest = JSON.parse(String.raw`{
         "executableRoots": [
             [
                 "poppler"
-            ],
-            [
-                "qpdf"
             ],
             [
                 "pdf-print-dialog"

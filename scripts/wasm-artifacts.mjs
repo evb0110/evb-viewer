@@ -239,7 +239,7 @@ export const PREBUILT_WASM_FILES = [
         sha256: 'f82b9c7173d9ccc34db0d45ebf49db690dcb905b6be5caee295ff8e24b84a848',
         url: `${PREBUILT_WASM_BASE_URL}/evb-tesseract-5.5.3-r1.mjs`,
     },
-    // scripts/build-qpdf-wasm.sh, the desktop's qpdf for browser repair and rewrites.
+    // scripts/build-qpdf-wasm.sh, the unified qpdf engine for desktop and browser.
     {
         bytes: 2587783,
         label: 'qpdf engine WASM',

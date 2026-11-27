@@ -2,7 +2,6 @@ import { writeFile } from 'fs/promises';
 import { join } from 'path';
 import * as v from 'valibot';
 import {REPLACE_PAGE_IMAGES_REPORT_SCHEMA} from '@contracts/browserPageOpsWriters';
-import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { resolveNativePageOpsPath } from '@electron/features/page-ops/public';
 import {
@@ -66,8 +65,6 @@ async function runPageOpsPass(
         paths.output,
         '--instructions-file',
         instructionsPath,
-        '--qpdf',
-        getPdfNativeToolPaths().qpdf,
     ], {
         commandLabel: `evb-pdf-page-ops(${command})`,
         timeoutMs: PDF_OPTIMIZE_PASS_TIMEOUT_MS,

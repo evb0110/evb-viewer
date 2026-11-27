@@ -46,10 +46,6 @@ const PACKAGED_TOOL_SMOKE_POLICY = {
             'poppler',
         ],
     },
-    qpdf: {
-        allowedExitCodes: new Set([0]),
-        expectedOutputTokens: ['qpdf'],
-    },
 };
 
 /** @param {string} toolName @returns {IToolSmokePolicy} */

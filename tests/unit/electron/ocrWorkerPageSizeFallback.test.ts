@@ -81,7 +81,6 @@ describe('OCR worker native page-size probe', () => {
         })));
         const source = createOcrPageSizeSource({
             pdfPageOpsBinary: '/native/evb-pdf-page-ops',
-            qpdfBinary: '/native/qpdf',
             tempDir: probeTempDir,
             runCommand,
         });
@@ -132,8 +131,6 @@ describe('OCR worker native page-size probe', () => {
             sourcePdfPath,
             '--output',
             expect.any(String),
-            '--qpdf',
-            '/native/qpdf',
             '--metadata-only',
         ]);
 
@@ -195,7 +192,6 @@ describe('OCR worker native page-size probe', () => {
 
         const result = await createOcrPageSizeSource({
             pdfPageOpsBinary: '/native/evb-pdf-page-ops',
-            qpdfBinary: '/native/qpdf',
             tempDir,
             runCommand,
         }).read(join(tempDir, 'huge.pdf'), [1]);

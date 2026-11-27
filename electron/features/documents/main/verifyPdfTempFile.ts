@@ -1,6 +1,6 @@
 import { stat } from 'node:fs/promises';
 import { mainJobBroker } from '@electron/resources/jobBroker';
-import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
+import { resolveDesktopQpdfPath } from '@electron/native-tools/qpdfWasmWorkerClient';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import type {IDocumentsSenderIdContext} from '@electron/features/documents/documentsContexts';
 import {resolveTypedStagedArtifact} from '@electron/features/documents/main/managedTempFileHandles';
@@ -64,7 +64,7 @@ export async function verifyPdfTempFile(sourcePath: string, options: {
         type: 'validate',
         sourcePath,
         expectedBytes,
-        validationBinary: getPdfNativeToolPaths().qpdf,
+        validationBinary: resolveDesktopQpdfPath(),
         ...(options.changedObjectRefs?.length ? {changedObjectRefs: options.changedObjectRefs} : {}),
         ...(stagedArtifact === undefined ? {} : {stagedArtifact}),
     }, {

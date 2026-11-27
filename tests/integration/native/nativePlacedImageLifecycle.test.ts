@@ -1,4 +1,3 @@
-import {execFile} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {
     access,
@@ -9,7 +8,6 @@ import {
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {promisify} from 'node:util';
 import {
     PDFArray,
     PDFDict,
@@ -31,10 +29,9 @@ import type {TPdfNativeMutationSetNativeToolPayload} from '@contracts/nativePdfM
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {formatPdfJsAnnotationRef} from '@app/utils/pdfAnnotationRefs';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
+import {runDesktopQpdfWasm} from '@electron/native-tools/qpdfWasmWorkerClient';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
-import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 
-const execFileAsync = promisify(execFile);
 const NATIVE_LIFECYCLE_TIMEOUT_MS = 120_000;
 const ONE_PIXEL_JPEG = Buffer.from([
     '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgG',
@@ -135,7 +132,6 @@ describe('native placed-image lifecycle integration', () => {
         tempRoot = await mkdtemp(join(tmpdir(), 'evb-native-image-lifecycle-'));
         const binaryPath = resolveNativePageOpsPath();
         expect(binaryPath).not.toBeNull();
-        const qpdfPath = getPdfNativeToolPaths().qpdf;
         await access(binaryPath!);
         const pdfPath = join(tempRoot, 'lifecycle.pdf');
         const imagePath = join(tempRoot, 'pixel.jpg');
@@ -170,18 +166,15 @@ describe('native placed-image lifecycle integration', () => {
                 mutationPath,
                 '--modified-at',
                 `D:20260829120${sequence}00+04'00'`,
-                '--qpdf',
-                qpdfPath,
                 '--append',
             ], {
                 timeoutMs: NATIVE_LIFECYCLE_TIMEOUT_MS,
             });
-            await execFileAsync(qpdfPath, [
+            await runDesktopQpdfWasm([
                 '--check',
                 pdfPath,
             ], {
-                encoding: 'utf8',
-                timeout: NATIVE_LIFECYCLE_TIMEOUT_MS,
+                timeoutMs: NATIVE_LIFECYCLE_TIMEOUT_MS,
             });
         };
 

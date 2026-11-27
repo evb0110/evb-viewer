@@ -15,8 +15,8 @@ import type {IPdfConformanceProfile} from '@contracts/pdfConformance';
 import type {IPdfConformanceFactsWire} from '@contracts/pdfPageOpsWire.generated';
 import {hasNativeErrorCode} from '@contracts/nativeErrors';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
+import {runDesktopQpdfWasm} from '@electron/native-tools/qpdfWasmWorkerClient';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
-import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {getAppTempDir} from '@electron/utils/appTempDir';
 import {usingManagedScratchScope} from '@electron/utils/managedScratchTemp';
 import {QPDF_SUCCESS_EXIT_CODES} from '@pdf-core/qpdfCommands';
@@ -60,6 +60,7 @@ export interface IPdfConformancePathAnalysisOptions {
     cancelGroup?: string;
     timeoutMs?: number;
     markerEvidence?: 'full' | 'structural-only';
+    strict?: boolean;
     onTerminationProof?: TTerminationProofSink;
 }
 
@@ -217,19 +218,11 @@ async function readPdfStructuralFactsFromPath(
             'The native PDF conformance structural reader is unavailable',
         );
     }
-    const qpdfPath = getPdfNativeToolPaths().qpdf;
-    if (!qpdfPath) {
-        throw capabilityError(
-            'native-unavailable',
-            'The bundled qpdf structural reader is unavailable',
-        );
-    }
     const runConformanceCommand = (targetPath: string) => runNativeToolCommand(nativePath, [
         'pdf-conformance',
         '--input',
         targetPath,
-        '--qpdf',
-        qpdfPath,
+        ...(options.strict ? ['--strict'] : []),
     ], {
         timeoutMs: options.timeoutMs ?? PDF_CONFORMANCE_STRUCTURAL_TIMEOUT_MS,
         maxStdoutBytes: PDF_CONFORMANCE_FACTS_MAX_BYTES,
@@ -247,14 +240,14 @@ async function readPdfStructuralFactsFromPath(
         try {
             ({stdout} = await runConformanceCommand(filePath));
         } catch (error) {
-            if (isAbortError(error) || !(hasNativeErrorCode(error) && error.code === 'corrupt-xref')) {
+            if (options.strict || isAbortError(error) || !(hasNativeErrorCode(error) && error.code === 'corrupt-xref')) {
                 throw error;
             }
             // Damaged cross-reference tables that the WASM structural indexer refuses can still be
             // recovered by qpdf without decrypting or decompressing streams.
             ({stdout} = await usingManagedScratchScope('pdf-page-ops-', getAppTempDir(), async scratchDir => {
                 const repairedPath = join(scratchDir, 'repaired.pdf');
-                await runNativeToolCommand(qpdfPath, [
+                await runDesktopQpdfWasm([
                     '--warning-exit-0',
                     '--preserve-unreferenced',
                     '--stream-data=preserve',
@@ -278,7 +271,8 @@ async function readPdfStructuralFactsFromPath(
             throw error;
         }
         const message = getErrorMessage(error);
-        const code = /stdout exceeded|truncated|timed out|too.large|resource.limit/iu.test(message)
+        const code = (hasNativeErrorCode(error) && error.code === 'too-large')
+            || /stdout exceeded|truncated|timed out|too.large|resource.limit/iu.test(message)
             ? 'structural-output-too-large'
             : 'native-failure';
         throw capabilityError(

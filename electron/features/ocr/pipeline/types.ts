@@ -13,7 +13,6 @@ export interface IOcrPipelinePaths {
     pdfimagesBinary?: string;
     popplerDataDir?: string;
     popplerFontConfigDir?: string;
-    qpdfBinary: string;
     pdfPageOpsBinary?: string;
     scanCleanupBinary?: string;
     tempDir: string;

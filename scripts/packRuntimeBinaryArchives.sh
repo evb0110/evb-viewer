@@ -9,7 +9,7 @@ case "$TARGET" in
   darwin-arm64|linux-x64|linux-arm64|win32-x64|win32-arm64) ;;
   *) echo "Usage: scripts/packRuntimeBinaryArchives.sh <platform-arch>" >&2; exit 2 ;;
 esac
-FAMILIES=(poppler qpdf)
+FAMILIES=(poppler)
 TAR_BIN="${TAR_BIN:-tar}"
 if [ "$(uname -s)" = Darwin ] && [ "${TAR_BIN:-tar}" = tar ]; then
   TAR_BIN=gtar
@@ -30,7 +30,7 @@ pack_tree() {
     echo "Error: runtime resource tree is missing: resources/$relative_root" >&2
     exit 1
   fi
-  if [ "$TARGET" = win32-x64 ] && { [ "$family" = poppler ] || [ "$family" = qpdf ]; }; then
+  if [ "$TARGET" = win32-x64 ] && [ "$family" = poppler ]; then
     local cached_archive
     cached_archive="$(find "$PROJECT_ROOT/.cache/runtime-binaries" -maxdepth 1 -type f \
       -name "$family-$TARGET-*.tar-gz" -print -quit 2>/dev/null || true)"

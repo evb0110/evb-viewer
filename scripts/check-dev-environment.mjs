@@ -247,10 +247,6 @@ console.log(executablePath);
                 'pdftotext',
                 join(projectRoot, 'resources', 'poppler', hostTag, 'bin', process.platform === 'win32' ? 'pdftotext.exe' : 'pdftotext'),
             ],
-            [
-                'qpdf',
-                join(projectRoot, 'resources', 'qpdf', hostTag, 'bin', process.platform === 'win32' ? 'qpdf.exe' : 'qpdf'),
-            ],
         ];
         const missingNativeResources = nativeResourcePaths
             .filter(([
@@ -271,7 +267,6 @@ console.log(executablePath);
             'pdfinfo',
             'pdftoppm',
             'pdftotext',
-            'qpdf',
             'patchelf',
         ]
             .filter(command => !commandPath(command));

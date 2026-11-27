@@ -27,7 +27,6 @@ export type TOcrPageSizeProbeResult =
 
 export interface IOcrPageSizeSourceInput {
     pdfPageOpsBinary?: string;
-    qpdfBinary?: string;
     tempDir: string;
     signal?: AbortSignal;
     log?: TWorkerLog;
@@ -107,7 +106,6 @@ export function createOcrPageSizeSource(input: IOcrPageSizeSourceInput): IOcrPag
             pdfPath,
             store: createPdfPageSizeStore(pdfPath, {
                 pdfPageOpsBinary,
-                ...(input.qpdfBinary === undefined ? {} : {qpdfBinary: input.qpdfBinary}),
                 tempDir: input.tempDir,
                 ...(input.signal === undefined ? {} : {signal: input.signal}),
                 log: input.log ?? (() => undefined),

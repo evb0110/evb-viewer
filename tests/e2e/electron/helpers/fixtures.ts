@@ -51,8 +51,7 @@ import {
 import { getE2ERunId } from '@scripts/electron-run/electronRunRunId';
 import { getCurrentSessionName } from '@scripts/electron-run/electronRunSessionPaths';
 import {createPdfjsNodeDocumentOptions} from '@electron/features/search/pdfjsPageTexts';
-import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
-import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
+import { runDesktopQpdfWasm } from '@electron/native-tools/qpdfWasmWorkerClient';
 import { MAX_EAGER_PDF_CONFORMANCE_BYTES } from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import type { IPdfNativeMutationSet } from '@contracts/electronApiDocuments';
@@ -1425,7 +1424,6 @@ async function writeFixtureCatalog(filePath: string, catalog: Pick<IPdfNativeMut
     const {resolveNativePageOpsPath} = await import('@electron/features/page-ops/public/nativePageOpsPath');
     const {runNativeToolCommand} = await import('@electron/native-tools/runNativeToolCommand');
     const pageOps = resolveNativePageOpsPath();
-    const qpdf = getPdfNativeToolPaths().qpdf;
     if (!pageOps) {
         throw new Error(`pdf-page-ops is required to write fixture catalog metadata: ${filePath}`);
     }
@@ -1440,8 +1438,6 @@ async function writeFixtureCatalog(filePath: string, catalog: Pick<IPdfNativeMut
             filePath,
             '--mutations-file',
             mutationsPath,
-            '--qpdf',
-            qpdf,
             '--modified-at',
             'D:20260101000000Z',
             '--append',
@@ -2411,16 +2407,12 @@ async function runQpdf(
         maxStdoutBytes: number;
     },
 ) {
-    const qpdf = getPdfNativeToolPaths().qpdf;
     try {
-        return await runNativeCommand(qpdf, args, {
+        return await runDesktopQpdfWasm(args, {
             commandLabel: `qpdf ${operation}`,
-            defaultCwdToCommandDir: true,
             maxStderrBytes: limits.maxStderrBytes,
             maxStdoutBytes: limits.maxStdoutBytes,
-            prependCommandDirToPath: true,
             timeoutMs: 120_000,
-            windowsHide: true,
         });
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -2538,31 +2530,23 @@ export async function readPdfPageSnapshots(filePath: string | Uint8Array): Promi
 }
 
 export async function readPdfMetadataWithQpdf(filePath: string) {
-    const qpdf = getPdfNativeToolPaths().qpdf;
-
-    await runNativeCommand(qpdf, [
+    await runDesktopQpdfWasm([
         '--check',
         filePath,
     ], {
         commandLabel: 'qpdf metadata matrix check',
-        defaultCwdToCommandDir: true,
         maxStderrBytes: 32 * 1024,
         maxStdoutBytes: 32 * 1024,
-        prependCommandDirToPath: true,
         timeoutMs: 30_000,
-        windowsHide: true,
     });
-    const result = await runNativeCommand(qpdf, [
+    const result = await runDesktopQpdfWasm([
         '--json',
         filePath,
     ], {
         commandLabel: 'qpdf metadata matrix JSON',
-        defaultCwdToCommandDir: true,
         maxStderrBytes: 64 * 1024,
         maxStdoutBytes: 512 * 1024,
-        prependCommandDirToPath: true,
         timeoutMs: 30_000,
-        windowsHide: true,
     });
     interface IQpdfMetadataOutline {
         title?: string;

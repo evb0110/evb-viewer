@@ -33,7 +33,6 @@ import {
 } from '@pdf-core';
 import {hasNativeErrorCode} from '@contracts/nativeErrors';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
-import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public';
 import {
     enqueueWorkingCopyMutation,
@@ -281,8 +280,6 @@ async function prepareNativeNoteMutation(options: {
                             join(dirname(payloadFilePath), identityBindingsFileName),
                         ]
                         : []),
-                    '--qpdf',
-                    getPdfNativeToolPaths().qpdf,
                     '--annotation-ownership-cache',
                     join(getAppTempDir(), 'annotation-ownership'),
                     '--modified-at',

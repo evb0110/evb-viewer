@@ -1,16 +1,11 @@
+import {stat} from 'fs/promises';
+import {hasNativeErrorCode} from '@contracts/nativeErrors';
+import {resolveNativePageOpsPath} from '@electron/features/page-ops/main/resolveNativePageOpsPath';
 import {
-    symlink,
-    stat,
-    writeFile,
-} from 'fs/promises';
-import {devNull} from 'node:os';
-import {
-    dirname, join, resolve,
-} from 'path';
-import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
-import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
-import { getAppTempDir } from '@electron/utils/appTempDir';
-import { usingManagedScratchScope } from '@electron/utils/managedScratchTemp';
+    runDesktopQpdfWasm,
+    type IRunDesktopQpdfWasmOptions,
+} from '@electron/native-tools/qpdfWasmWorkerClient';
+import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {
     getPdfPageCount,
     QPDF_OUTPUT_SUCCESS_EXIT_CODES,
@@ -30,51 +25,17 @@ export interface IQpdfOperationOptions {
     cancelGroup?: string;
 }
 
-type TRunQpdfCommandOptions = Parameters<typeof runNativeToolCommand>[2]
-    & {scratchDirectory?: string};
-
-function getQpdfBinary() {
-    return getPdfNativeToolPaths().qpdf;
-}
+type TRunQpdfCommandOptions = IRunDesktopQpdfWasmOptions & {scratchDirectory?: string};
 
 export async function runQpdfCommand(
     args: string[],
     options: TRunQpdfCommandOptions,
 ) {
     const {
-        scratchDirectory,
-        ...nativeOptions
+        scratchDirectory: _unusedScratchDirectory,
+        ...qpdfOptions
     } = options;
-    const runWithArguments = async (tempDir: string) => {
-        const argsPath = join(tempDir, 'args.txt');
-        if (/[\r\n]/u.test(argsPath)) throw new TypeError('qpdf argument scratch path contains a line break');
-        const binary = getQpdfBinary();
-        const aliases = new Map<string, string>();
-        const encoded: string[] = [];
-        // The supported commands put CR/LF only in path operands. A symlink
-        // preserves their spelling, including a not-yet-created staged output.
-        for (const arg of args) {
-            if (!/[\r\n]/u.test(arg)) {
-                encoded.push(arg);
-                continue;
-            }
-            const target = resolve(nativeOptions.cwd ?? dirname(binary), arg);
-            let alias = aliases.get(target);
-            if (alias === undefined) {
-                alias = join(tempDir, `path-${aliases.size}.pdf`);
-                await symlink(target, alias, 'file');
-                aliases.set(target, alias);
-            }
-            encoded.push(alias);
-        }
-        await writeFile(argsPath, encoded.join('\n'));
-        await runNativeToolCommand(binary, [`@${argsPath}`], nativeOptions);
-    };
-    if (scratchDirectory === undefined) {
-        await usingManagedScratchScope('qpdfArgs-', getAppTempDir(), runWithArguments);
-    } else {
-        await runWithArguments(scratchDirectory);
-    }
+    await runDesktopQpdfWasm(args, qpdfOptions);
 }
 
 /** Strict reopen/xref gate: warning-corrupt output is not promotable. */
@@ -82,17 +43,48 @@ export async function verifyPdfStructureStrict(pdfPath: string, options: IQpdfOp
     // Page operations rewrite objects, never stream data, so a full reparse and
     // rewrite without stream decoding covers what they can break. `qpdf --check`
     // also decodes every image, which takes most of a minute on a large scan.
-    await runNativeToolCommand(getQpdfBinary(), [
-        '--decode-level=none',
-        '--compress-streams=n',
-        pdfPath,
-        devNull,
-    ], {
-        timeoutMs: QPDF_TIMEOUT_MS,
-        allowedExitCodes: [0],
-        commandLabel: 'qpdf(strict-structure-check)',
-        ...options,
-    });
+    try {
+        await runDesktopQpdfWasm([
+            '--decode-level=none',
+            '--compress-streams=n',
+            pdfPath,
+            '/dev/null',
+        ], {
+            timeoutMs: QPDF_TIMEOUT_MS,
+            allowedExitCodes: [0],
+            commandLabel: 'qpdf(strict-structure-check)',
+            ...options,
+        });
+    } catch (error) {
+        if (hasNativeErrorCode(error) && error.code === 'too-large') {
+            // A single PDF stream > 2 GiB exceeds wasm32's 32-bit std::string
+            // limit inside qpdf; verify full structure through evb-pdf-page-ops.wasm
+            // (64-bit host-file streaming) instead of refusing a valid save.
+            const pageOpsPath = resolveNativePageOpsPath();
+            if (!pageOpsPath) {
+                throw error;
+            }
+            const {stdout} = await runNativeToolCommand(pageOpsPath, [
+                'pdf-conformance',
+                '--input',
+                pdfPath,
+                '--strict',
+            ], {
+                timeoutMs: QPDF_TIMEOUT_MS,
+                allowedExitCodes: [0],
+                maxStdoutBytes: 64 * 1024,
+                rejectOnStdoutTruncation: true,
+                commandLabel: 'evb-pdf-page-ops(strict-structure-check)',
+                ...options,
+            });
+            const parsed = JSON.parse(stdout) as Record<string, unknown>;
+            if (typeof parsed.isEncrypted !== 'boolean' || typeof parsed.isSigned !== 'boolean') {
+                throw new Error('evb-pdf-page-ops(strict-structure-check) returned invalid conformance payload');
+            }
+            return;
+        }
+        throw error;
+    }
 }
 
 export async function assertNonEmptyPdfOutput(outputPath: string, operationLabel: string) {

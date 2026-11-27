@@ -19,7 +19,6 @@ const STREAM_WRITE_BUFFER_CHARS = 64 * 1024;
  */
 export async function writeSearchablePdf(input: {
     pdfPageOpsBinary: string;
-    qpdfBinary: string;
     sourcePdfPath: string;
     pages: AsyncIterable<{
         pdfPath: string;
@@ -80,8 +79,6 @@ export async function writeSearchablePdf(input: {
             outputPath,
             '--instructions-file',
             instructionsPath,
-            '--qpdf',
-            input.qpdfBinary,
         ], {
             commandLabel: 'evb-pdf-page-ops(ocr-text-layer)',
             signal: input.signal,

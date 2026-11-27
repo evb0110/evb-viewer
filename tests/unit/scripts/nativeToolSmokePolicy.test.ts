@@ -315,17 +315,16 @@ describe('native tool smoke policy', () => {
     });
 
     it('requires both an allowed exit code and recognizable output', () => {
-        expect(() => assertPackagedToolSmoke('qpdf', 0, 'qpdf version 12.0.0')).not.toThrow();
         expect(() => assertPackagedToolSmoke('pdfinfo', 0, 'pdfinfo version 25.0.0')).not.toThrow();
         expect(() => assertPackagedToolSmoke('pdftoppm', 0, 'pdftoppm version 25.0.0')).not.toThrow();
         expect(() => assertPackagedToolSmoke('pdftotext', 0, 'pdftotext version 25.0.0')).not.toThrow();
         expect(() => assertPackagedToolSmoke('evb-scan-cleanup', 0, 'evb-scan-cleanup 0.1.0')).not.toThrow();
         expect(() => assertPackagedToolSmoke('evb-pdf-image-combine-compact-manifest', 1, 'Missing --compact-manifest value')).not.toThrow();
-        expect(() => assertPackagedToolSmoke('qpdf', 2, 'qpdf version 12.0.0')).toThrow(
-            'Packaged tool smoke test failed (qpdf) with exit code 2',
+        expect(() => assertPackagedToolSmoke('pdfinfo', 2, 'pdfinfo version 25.0.0')).toThrow(
+            'Packaged tool smoke test failed (pdfinfo) with exit code 2',
         );
-        expect(() => assertPackagedToolSmoke('qpdf', 0, 'unexpected output')).toThrow(
-            'Packaged tool smoke test output for qpdf did not match any expected signature',
+        expect(() => assertPackagedToolSmoke('pdfinfo', 0, 'unexpected output')).toThrow(
+            'Packaged tool smoke test output for pdfinfo did not match any expected signature',
         );
         expect(() => assertPackagedToolSmoke('evb-pdf-image-combine-compact-manifest', 1, 'Unknown argument: --compact-manifest')).toThrow(
             'Packaged tool smoke test output for evb-pdf-image-combine-compact-manifest did not match any expected signature',

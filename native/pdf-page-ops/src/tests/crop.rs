@@ -310,7 +310,6 @@ fn path_crop_and_remove_crop_append_page_dictionary_revisions() {
         },
         input_path: pdf.clone(),
         output_path: Some(pdf.clone()),
-        qpdf_path: None,
     })
     .expect("path crop should append a revision");
 
@@ -328,7 +327,6 @@ fn path_crop_and_remove_crop_append_page_dictionary_revisions() {
         },
         input_path: pdf.clone(),
         output_path: Some(pdf.clone()),
-        qpdf_path: None,
     })
     .expect("path crop removal should append a revision");
 
@@ -595,7 +593,7 @@ fn a_large_base_whose_startxref_value_is_not_an_integer_takes_no_append() {
     std::fs::write(&pages_file, b"1\n").unwrap();
     let len = std::fs::metadata(&pdf).unwrap().len();
     assert!(matches!(
-        append_admission(&pdf, None).unwrap(),
+        append_admission(&pdf).unwrap(),
         AppendAdmission::Repairable(_)
     ));
     let error = mutate_pdf(Config {
@@ -604,7 +602,6 @@ fn a_large_base_whose_startxref_value_is_not_an_integer_takes_no_append() {
         },
         input_path: pdf.clone(),
         output_path: Some(pdf.clone()),
-        qpdf_path: None,
     })
     .unwrap_err();
     assert_eq!(
@@ -660,7 +657,6 @@ fn large_path_crop_and_remove_crop_read_the_source_by_index() {
         },
         input_path: pdf.clone(),
         output_path: Some(pdf.clone()),
-        qpdf_path: None,
     })
     .expect("large path crop should read the source by index");
 
@@ -681,7 +677,6 @@ fn large_path_crop_and_remove_crop_read_the_source_by_index() {
         },
         input_path: pdf.clone(),
         output_path: Some(pdf.clone()),
-        qpdf_path: None,
     })
     .expect("large path crop removal should read the source by index");
 
@@ -705,7 +700,6 @@ fn large_path_crop_and_remove_crop_read_the_source_by_index() {
         },
         input_path: pdf.clone(),
         output_path: Some(pdf.clone()),
-        qpdf_path: None,
     })
     .unwrap_err();
     assert_eq!(
@@ -958,7 +952,6 @@ fn a_large_base_whose_startxref_value_ends_at_a_vertical_tab_takes_an_append() {
         },
         input_path: pdf.clone(),
         output_path: Some(pdf.clone()),
-        qpdf_path: None,
     })
     .expect("a startxref value ended by \\v is qpdf's terminal revision");
     let new_len = std::fs::metadata(&pdf).unwrap().len();

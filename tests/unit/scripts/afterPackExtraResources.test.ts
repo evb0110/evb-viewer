@@ -384,13 +384,6 @@ describe('afterPack extraResources preflight', () => {
                 type: 'directory',
             }),
             expect.objectContaining({
-                label: 'qpdf native tools (darwin-arm64)',
-                sourcePath: path.join('/repo', 'resources', 'qpdf', 'darwin-arm64'),
-                stagedPath: path.join('/app/EVB Viewer.app/Contents/Resources', 'qpdf', 'darwin-arm64'),
-                tag: 'darwin-arm64',
-                type: 'directory',
-            }),
-            expect.objectContaining({
                 label: 'macOS PDF print dialog helper (darwin-arm64)',
                 sourcePath: path.join('/repo', '.tmp', 'pdf-print-dialog', 'darwin-arm64'),
                 stagedPath: path.join(

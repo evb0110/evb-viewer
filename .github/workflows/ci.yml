@@ -416,7 +416,7 @@ jobs:
   windows_atomic_pdf_replacement:
     name: Windows Atomic PDF Replacement
     if: ${{ contains(fromJSON(needs.changed_areas.outputs.selected), 'windows_atomic_pdf_replacement') }}
-    needs: changed_areas
+    needs: [changed_areas, build_wasm]
     runs-on: windows-latest
     timeout-minutes: 15
 
@@ -430,6 +430,11 @@ jobs:
         uses: ./.github/actions/setup-ci-env
         with:
           node-version: ${{ env.NODE_VERSION }}
+
+      - name: Download browser WASM builds
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: browser-wasm
 
       - name: Restore Windows launcher build
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

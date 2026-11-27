@@ -535,8 +535,6 @@ export async function runLosslessScanCleanup(
         'split-pages',
         '--input',
         preparedPdfPath,
-        '--qpdf',
-        paths.qpdfBinary,
         '--output',
         stagedPdfPath,
         '--instructions-file',

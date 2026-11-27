@@ -280,12 +280,17 @@ fn read_source(
             };
             encode_bytes(RESPONSE_JSON, serde_json::to_vec(&catalog)?)
         }
-        OP_CONFORMANCE => encode_bytes(
-            RESPONSE_JSON,
-            serde_json::to_vec(&pdf_conformance_facts(
-                &SourcePdf::open_conformance(HostSource(0), len)?.document,
-            )?)?,
-        ),
+        OP_CONFORMANCE => {
+            let source = if after_page != 0 {
+                SourcePdf::open_strict_verify(HostSource(0), len)?
+            } else {
+                SourcePdf::open_conformance(HostSource(0), len)?
+            };
+            encode_bytes(
+                RESPONSE_JSON,
+                serde_json::to_vec(&pdf_conformance_facts(&source.document)?)?,
+            )
+        }
         _ => {
             let with_evb_ocr_text = match tail {
                 b"" => false,

@@ -69,7 +69,6 @@ PINNED_PACKAGES=(
   "mingw-w64-clang-aarch64-poppler-data-0.4.12-1-any.pkg.tar.zst edfc4431d43b18efcf8a2a0303c6373217e92d64cc2a27f598795a4de147afa1"
   "mingw-w64-clang-aarch64-python-3.14.7-1-any.pkg.tar.zst 71e30c7ca33c64e8bbfdd3bb2cea7abefeb1031d64044f7221cd48298164c8e6"
   "mingw-w64-clang-aarch64-python-packaging-26.3-1-any.pkg.tar.zst 0ec02e5fbbd209ade0fa917f59137f6ae2fa4d1f3511b3c7af52dadadd349d71"
-  "mingw-w64-clang-aarch64-qpdf-12.3.2-1-any.pkg.tar.zst 3e977be7545fe77afb95ee9d328b761b2f27d2b6cdcf68c0efbb93db34592dca"
   "mingw-w64-clang-aarch64-sqlite3-3.53.4-1-any.pkg.tar.zst 4fb56701725abb22615e8014d301b91a23f882330e3de9ca9671053d57c97782"
   "mingw-w64-clang-aarch64-tcl-8.6.18-1-any.pkg.tar.zst 0b0115a42fc2624c993f6f217e1430e9990155671e37b71e58bf5320924d43d1"
   "mingw-w64-clang-aarch64-tk-8.6.18-1-any.pkg.tar.zst 8d2567fff7df027b127333dd27e43827311f4fc36d1ee0e34bb302b5a900c870"
@@ -105,7 +104,7 @@ copy_runtime_dlls() {
 }
 
 STAGING_BIN="$STAGING/clangarm64/bin"
-for family in poppler qpdf; do
+for family in poppler; do
   rm -rf "$PROJECT_ROOT/resources/$family/$TARGET"
   mkdir -p "$PROJECT_ROOT/resources/$family/$TARGET/bin"
 done
@@ -117,8 +116,7 @@ cp -R "$STAGING/clangarm64/share/poppler" "$PROJECT_ROOT/resources/poppler/$TARG
 if [ -d "$STAGING/clangarm64/etc/fonts" ]; then
   cp -R "$STAGING/clangarm64/etc/fonts" "$PROJECT_ROOT/resources/poppler/$TARGET/etc/"
 fi
-cp "$STAGING_BIN/qpdf.exe" "$PROJECT_ROOT/resources/qpdf/$TARGET/bin/"
-for family in poppler qpdf; do
+for family in poppler; do
   copy_runtime_dlls "$STAGING_BIN" "$PROJECT_ROOT/resources/$family/$TARGET/bin"
   find "$PROJECT_ROOT/resources/$family/$TARGET/bin" -maxdepth 1 -type f \( -iname '*.exe' -o -iname '*.dll' \) > "$BUILD_DIR/$family-pe-files.txt"
   node "$SCRIPT_DIR/release/windows-pe-dependencies.mjs" verify \
