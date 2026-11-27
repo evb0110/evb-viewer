@@ -45,7 +45,7 @@ import { isReservedTempPath } from '@electron/utils/pathValidator';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import {
     mainJobBroker,
-    type TTerminationProofSink,
+    type IJobBrokerRunContext,
 } from '@electron/resources/jobBroker';
 import {
     resolvePdfImageCombineResidentBytes,
@@ -276,7 +276,7 @@ async function tryConvertRenderedPpmToPngNative(
     signal?: AbortSignal,
     cancelGroup?: string,
     dpi = DEFAULT_RENDER_DPI,
-    onTerminationProof?: TTerminationProofSink,
+    brokerRun?: IJobBrokerRunContext,
 ) {
     const binaryPath = isNativePdfImageCombineDisabled() ? null : resolveNativePdfImageCombinePath();
     if (!binaryPath) {
@@ -298,7 +298,7 @@ async function tryConvertRenderedPpmToPngNative(
             commandLabel: 'evb-pdf-image-combine(ppm-to-png)',
             ...(signal ? { signal } : {}),
             ...(cancelGroup ? { cancelGroup } : {}),
-            ...(onTerminationProof ? { onTerminationProof } : {}),
+            ...(brokerRun ? { brokerRun } : {}),
         });
         await unlink(sourcePath).catch(() => undefined);
         return true;
@@ -319,10 +319,10 @@ async function convertRenderedPpmToPng(
     signal?: AbortSignal,
     cancelGroup?: string,
     dpi = DEFAULT_RENDER_DPI,
-    onTerminationProof?: TTerminationProofSink,
+    brokerRun?: IJobBrokerRunContext,
 ) {
     const pngPath = sourcePath.replace(/\.ppm$/i, '.png');
-    if (await tryConvertRenderedPpmToPngNative(sourcePath, pngPath, signal, cancelGroup, dpi, onTerminationProof)) {
+    if (await tryConvertRenderedPpmToPngNative(sourcePath, pngPath, signal, cancelGroup, dpi, brokerRun)) {
         return pngPath;
     }
 
@@ -357,10 +357,10 @@ export async function convertRenderedPpmToImage(
     signal?: AbortSignal,
     cancelGroup?: string,
     dpi = DEFAULT_RENDER_DPI,
-    onTerminationProof?: TTerminationProofSink,
+    brokerRun?: IJobBrokerRunContext,
 ) {
     if (format === 'png') {
-        return convertRenderedPpmToPng(sourcePath, signal, cancelGroup, dpi, onTerminationProof);
+        return convertRenderedPpmToPng(sourcePath, signal, cancelGroup, dpi, brokerRun);
     }
     const outputPath = sourcePath.replace(/\.ppm$/i, format === 'jpeg' ? '.jpg' : '.tif');
     if (isNativePdfImageCombineDisabled()) {
@@ -384,7 +384,7 @@ export async function convertRenderedPpmToImage(
         commandLabel: `evb-pdf-image-combine(ppm-to-${format})`,
         ...(signal ? {signal} : {}),
         ...(cancelGroup ? {cancelGroup} : {}),
-        ...(onTerminationProof ? {onTerminationProof} : {}),
+        ...(brokerRun ? {brokerRun} : {}),
     });
     await unlink(sourcePath).catch(() => undefined);
     return outputPath;

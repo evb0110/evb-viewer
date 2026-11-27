@@ -32,6 +32,10 @@ import {
     isNativePdfImageCombineBitmapPath,
     tryWritePdfWithNativeImageCombiner,
 } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
+import type {
+    IJobBrokerRunContext,
+    TTerminationProofSink,
+} from '@electron/resources/jobBroker';
 import {
     PdfCombineCapabilityError,
     isPdfCombineCapabilityError,
@@ -63,7 +67,8 @@ interface INativePdfAssemblerOptions {
     /** Keep the native attempt strict instead of allowing the JS fallback. */
     failureMode?: 'fallback' | 'capability-error';
     onProgress?: (progress: INativePdfAssemblerProgress) => void;
-    onTerminationProof?: (proof: Promise<boolean>) => void;
+    brokerRun?: IJobBrokerRunContext;
+    onTerminationProof?: TTerminationProofSink;
     signal?: AbortSignal;
 }
 
@@ -273,6 +278,7 @@ async function flushImageChunk(
             ? {maxInputBytes: NATIVE_IMAGE_COMBINER_MAX_INPUT_BYTES}
             : {}),
         onProgress,
+        ...(options?.brokerRun ? {brokerRun: options.brokerRun} : {}),
         ...(options?.onTerminationProof ? {onTerminationProof: options.onTerminationProof} : {}),
         ...(options?.signal ? { signal: options.signal } : {}),
     });
@@ -288,8 +294,12 @@ async function flushImageChunk(
     }
 
     await assertNonEmptyPdfOutput(chunkPath, 'Combining image pages');
+    const pageCountTerminationProof = options?.brokerRun?.onTerminationProof ?? options?.onTerminationProof;
     const chunkPageCount = countGeneratedPages
-        ? await getPdfPageCount(chunkPath, options?.signal ? { signal: options.signal } : {})
+        ? await getPdfPageCount(chunkPath, {
+            ...(options?.signal ? { signal: options.signal } : {}),
+            ...(pageCountTerminationProof ? { onTerminationProof: pageCountTerminationProof } : {}),
+        })
         : 0;
     if (countGeneratedPages) {
         assertPageLimit(addPageCounts(currentPageCount, chunkPageCount), limits);
@@ -357,9 +367,17 @@ async function getOptionalDjvuPageCount(inputPath: string, signal?: AbortSignal)
 }
 
 /** Every chunk's pages in order, with each chunk's outline and page labels. */
-async function mergePdfChunks(chunkPaths: string[], outputPath: string, signal?: AbortSignal) {
+async function mergePdfChunks(
+    chunkPaths: string[],
+    outputPath: string,
+    signal?: AbortSignal,
+    brokerRun?: IJobBrokerRunContext,
+) {
     const [first, ...rest] = chunkPaths;
-    await runPageStructureCommand('merge-pages', first!, outputPath, {sources: rest}, signal ? {signal} : {});
+    await runPageStructureCommand('merge-pages', first!, outputPath, {sources: rest}, {
+        ...(signal ? {signal} : {}),
+        ...(brokerRun ? {brokerRun} : {}),
+    });
 }
 
 async function writePdfFromInputPathsNativeWithTempDir(
@@ -456,7 +474,7 @@ async function writePdfFromInputPathsNativeWithTempDir(
             return pageCount;
         }
 
-        await mergePdfChunks(chunkPaths, outputPath, options?.signal);
+        await mergePdfChunks(chunkPaths, outputPath, options?.signal, options?.brokerRun);
         throwIfAborted(options?.signal);
         emitProgress(progress, options, progress.total);
         return pageCount;

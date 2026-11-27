@@ -22,7 +22,9 @@ import {
 } from '@electron/features/ocr/publicNative';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {
-    chainTerminationProofSink,
+    chainJobBrokerRunContext,
+    mergeTerminationProofSinks,
+    type IJobBrokerRunContext,
     type TTerminationProofSink,
 } from '@electron/resources/jobBroker';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
@@ -61,26 +63,40 @@ const defaultDependencies: IRunScanCleanupPipelineDependencies = {
 
 function scopeDependenciesToLease(
     dependencies: IRunScanCleanupPipelineDependencies,
+    brokerRun: IJobBrokerRunContext | undefined,
     onTerminationProof: TTerminationProofSink | undefined,
 ): IRunScanCleanupPipelineDependencies {
-    if (onTerminationProof === undefined) {
+    const outerProofSink = mergeTerminationProofSinks(
+        brokerRun?.onTerminationProof,
+        onTerminationProof,
+    );
+    if (brokerRun === undefined && outerProofSink === undefined) {
         return dependencies;
     }
-    const mergeProofSink = (inner: TTerminationProofSink | undefined) => (
-        inner === undefined
-            ? onTerminationProof
-            : chainTerminationProofSink(onTerminationProof, inner)
-    );
-    const runCommand: IRunScanCleanupPipelineDependencies['runCommand'] = (command, args, commandOptions) => dependencies.runCommand(command, args, {
-        ...commandOptions,
-        onTerminationProof: mergeProofSink(commandOptions?.onTerminationProof),
-    });
+    const baseBrokerRun = chainJobBrokerRunContext(brokerRun, onTerminationProof);
+    const runCommand: IRunScanCleanupPipelineDependencies['runCommand'] = (command, args, commandOptions) => {
+        const {
+            onTerminationProof: innerProof,
+            ...restOptions
+        } = commandOptions ?? {};
+        const scopedBrokerRun = chainJobBrokerRunContext(baseBrokerRun, innerProof);
+        if (scopedBrokerRun !== undefined && dependencies.runCommand === runNativeToolCommand) {
+            return runNativeToolCommand(command, args, {
+                ...restOptions,
+                brokerRun: scopedBrokerRun,
+            });
+        }
+        const mergedProof = mergeTerminationProofSinks(outerProofSink, innerProof);
+        return dependencies.runCommand(command, args, {
+            ...restOptions,
+            ...(mergedProof === undefined ? {} : {onTerminationProof: mergedProof}),
+        });
+    };
     const scopedRenderers = dependencies.renderPage === renderPdfPageToPng || dependencies.renderPagePpm === renderPdfPageToPpm
         ? createScanCleanupRenderers(
             runCommand,
             undefined,
             error => getUnprovenNativeTerminationDetail(error) !== undefined,
-            chainTerminationProofSink,
         )
         : null;
     return {
@@ -89,7 +105,7 @@ function scopeDependenciesToLease(
         getPageCount: dependencies.getPageCount === getPdfPageCount
             ? (pdfPath, pageCountOptions) => getPdfPageCount(pdfPath, {
                 ...pageCountOptions,
-                onTerminationProof,
+                ...(outerProofSink === undefined ? {} : {onTerminationProof: outerProofSink}),
             })
             : dependencies.getPageCount,
         detectSourceDpi: dependencies.detectSourceDpi === detectSourceDpiDetails
@@ -111,17 +127,31 @@ function scopeDependenciesToLease(
             ? scopedRenderers.renderPagePpm
             : dependencies.renderPagePpm,
         runSidecar: dependencies.runSidecar === runScanCleanupSidecar
-            ? (binary, manifestPath, sidecarSignal, log, onProgress, sidecarOptions) => runScanCleanupSidecar(
-                binary,
-                manifestPath,
-                sidecarSignal,
-                log,
-                onProgress,
-                {
-                    ...sidecarOptions,
-                    onTerminationProof: mergeProofSink(sidecarOptions?.onTerminationProof),
-                },
-            )
+            ? (binary, manifestPath, sidecarSignal, log, onProgress, sidecarOptions) => {
+                const {
+                    onTerminationProof: innerProof,
+                    ...restSidecarOptions
+                } = sidecarOptions ?? {};
+                const scopedBrokerRun = chainJobBrokerRunContext(baseBrokerRun, innerProof);
+                const mergedProof = scopedBrokerRun === undefined
+                    ? mergeTerminationProofSinks(outerProofSink, innerProof)
+                    : undefined;
+                return runScanCleanupSidecar(
+                    binary,
+                    manifestPath,
+                    sidecarSignal,
+                    log,
+                    onProgress,
+                    {
+                        ...restSidecarOptions,
+                        ...(scopedBrokerRun !== undefined
+                            ? {brokerRun: scopedBrokerRun}
+                            : mergedProof === undefined
+                                ? {}
+                                : {onTerminationProof: mergedProof}),
+                    },
+                );
+            }
             : dependencies.runSidecar,
     };
 }
@@ -136,6 +166,7 @@ export async function runScanCleanupPipeline(
     dependencies: IRunScanCleanupPipelineDependencies = defaultDependencies,
     options?: {
         onCheckpointReadyForCleanup?: (entryDir: string) => void;
+        brokerRun?: IJobBrokerRunContext;
         onTerminationProof?: TTerminationProofSink;
     },
 ): Promise<TScanCleanupSummary> {
@@ -144,7 +175,11 @@ export async function runScanCleanupPipeline(
         request.options.pageOverrideDefaults,
         request.options.marginsMm,
     );
-    const scopedDependencies = scopeDependenciesToLease(dependencies, options?.onTerminationProof);
+    const scopedDependencies = scopeDependenciesToLease(
+        dependencies,
+        options?.brokerRun,
+        options?.onTerminationProof,
+    );
     const resolvedDependencies: IRunScanCleanupPipelineDependencies = {
         ...scopedDependencies,
         ...(scopedDependencies.evidenceDirectory === undefined

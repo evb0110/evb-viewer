@@ -47,7 +47,7 @@ import {
 } from '@evb/scan-cleanup/adapters/extractPdfMrcLayers';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public';
 import {
-    chainTerminationProofSink,
+    chainJobBrokerRunContext,
     mainJobBroker,
 } from '@electron/resources/jobBroker';
 import {getHostResourceProfileSnapshot} from '@electron/resources/hostResourceProfile';
@@ -115,14 +115,34 @@ export const defaultDependencies: IScanCleanupPreviewDependencies = {
     resolvePageOpsBinary: resolveNativePageOpsPath,
     getTempDir: getAppTempDir,
     getPdftoppmBinary: () => getPdfNativeToolPaths().pdftoppm,
-    detectSourceDpi: async (sourcePdfPath, pageNumber, signal) => {
+    detectSourceDpi: async (sourcePdfPath, pageNumber, signal, brokerRun) => {
         const paths = getPdfNativeToolPaths();
-        const result = await detectSourceDpiDetails(sourcePdfPath, paths.pdfimages, logScanCleanupMessage, undefined, signal, [pageNumber]);
+        const result = await detectSourceDpiDetails(
+            sourcePdfPath,
+            paths.pdfimages,
+            logScanCleanupMessage,
+            undefined,
+            signal,
+            [pageNumber],
+            undefined,
+            undefined,
+            brokerRun,
+        );
         return (await result.getPageRaster(pageNumber))?.dpi ?? null;
     },
-    detectRasterPages: async (sourcePdfPath, signal, pageNumbers) => {
+    detectRasterPages: async (sourcePdfPath, signal, pageNumbers, brokerRun) => {
         const paths = getPdfNativeToolPaths();
-        return detectSourceDpiDetails(sourcePdfPath, paths.pdfimages, logScanCleanupMessage, undefined, signal, pageNumbers);
+        return detectSourceDpiDetails(
+            sourcePdfPath,
+            paths.pdfimages,
+            logScanCleanupMessage,
+            undefined,
+            signal,
+            pageNumbers,
+            undefined,
+            undefined,
+            brokerRun,
+        );
     },
     isRasterDetectionAvailable: () => getPdfNativeToolPaths().pdfimages !== undefined,
     extractMrcLayers: async (
@@ -132,18 +152,22 @@ export const defaultDependencies: IScanCleanupPreviewDependencies = {
         backgroundOutputPath,
         signal,
         log,
-        onTerminationProof,
+        brokerRun,
     ) => {
         const paths = getPdfNativeToolPaths();
         const pdfImageCombineBinary = resolveNativePdfImageCombinePath();
-        const runCommand: typeof runNativeToolCommand = onTerminationProof === undefined
+        const runCommand: typeof runNativeToolCommand = brokerRun === undefined
             ? runNativeToolCommand
-            : (command, args, options) => runNativeToolCommand(command, args, {
-                ...options,
-                onTerminationProof: options?.onTerminationProof === undefined
-                    ? onTerminationProof
-                    : chainTerminationProofSink(onTerminationProof, options.onTerminationProof),
-            });
+            : (command, args, options) => {
+                const {
+                    onTerminationProof: innerProof,
+                    ...restOptions
+                } = options ?? {};
+                return runNativeToolCommand(command, args, {
+                    ...restOptions,
+                    brokerRun: chainJobBrokerRunContext(brokerRun, innerProof),
+                });
+            };
         if (pdfImageCombineBinary !== null) {
             const extracted = await extractPdfMrcLayersBatch({
                 pdfPath: sourcePdfPath,
@@ -195,7 +219,7 @@ export const defaultDependencies: IScanCleanupPreviewDependencies = {
         },
         perOwnerLimit: 1,
         signal,
-    }, ({onTerminationProof}) => work(onTerminationProof)),
+    }, brokerRun => work(brokerRun)),
     runWithPreviewLease: (
         ownerId,
         visibility,
@@ -222,7 +246,7 @@ export const defaultDependencies: IScanCleanupPreviewDependencies = {
                 ioWeight: 1,
             },
             signal,
-        }, ({onTerminationProof}) => work(onTerminationProof));
+        }, brokerRun => work(brokerRun));
     },
     getSourceStatIdentity: async sourcePdfPath => {
         // A source gone from its path is the reader's file, not a missing

@@ -386,9 +386,9 @@ describe('page crop operations', () => {
         mocks.runNativeToolCommand.mockImplementationOnce(async (
             _binaryPath: string,
             _args: string[],
-            options: { onTerminationProof?: (proof: Promise<boolean>) => void },
+            options: { brokerRun?: { onTerminationProof?: (proof: Promise<boolean>) => void } },
         ) => {
-            options.onTerminationProof?.(Promise.resolve(false));
+            options.brokerRun?.onTerminationProof?.(Promise.resolve(false));
             throw unproven;
         });
 

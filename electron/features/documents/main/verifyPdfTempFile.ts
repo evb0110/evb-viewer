@@ -60,7 +60,7 @@ export async function verifyPdfTempFile(sourcePath: string, options: {
             ioWeight: 4,
         },
         ...(signal ? {signal} : {}),
-    }, ({onTerminationProof}) => validateDocumentSaveStagingFile({
+    }, brokerRun => validateDocumentSaveStagingFile({
         type: 'validate',
         sourcePath,
         expectedBytes,
@@ -70,6 +70,6 @@ export async function verifyPdfTempFile(sourcePath: string, options: {
     }, {
         timeoutMs: 10 * 60_000,
         ...(signal ? {signal} : {}),
-        onTerminationProof,
+        brokerRun,
     }));
 }

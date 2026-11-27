@@ -448,7 +448,7 @@ export function scanCleanupDetectionOwner(
                             job.signal,
                             rasterPolicy,
                             request.options,
-                            async onTerminationProof => {
+                            async brokerRun => {
                                 const materializedRequest = await dependencies.materializeRequest(
                                     request,
                                     sender.id,
@@ -480,7 +480,7 @@ export function scanCleanupDetectionOwner(
                                         ? {}
                                         : {renderPageBatch: dependencies.renderPageBatch}),
                                     runSidecar: dependencies.runSidecar,
-                                }, onTerminationProof);
+                                }, brokerRun);
                                 // Preview and detection share the retained document's
                                 // bounded stores. Keep this view narrow so detection
                                 // reuses their ownership without taking a
@@ -489,7 +489,7 @@ export function scanCleanupDetectionOwner(
                                     openDocument: request => rawRasterRetention.openDocument(request, ownerId),
                                     pageCount: rawRasterRetention.pageCount,
                                     pageSizeStore: rawRasterRetention.pageSizeStore,
-                                    rasterPages: rawRasterRetention.rasterPageSource,
+                                    rasterPages: (doc, sig) => rawRasterRetention.rasterPageSource(doc, sig, brokerRun),
                                     retainedPaths: rawRasterRetention.retainedPaths,
                                     claimRaster: (document, pageNumber, dpi) => rawRasterRetention.claimRaster(
                                         document,

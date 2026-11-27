@@ -19,6 +19,11 @@ import { fileURLToPath } from 'url';
 import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { PDF_IMAGE_COMBINE_THREADS_ENV } from '@electron/native-tools/pdfImageCombineBudget';
+import {
+    mapJobBrokerRunTerminationProof,
+    type IJobBrokerRunContext,
+    type TTerminationProofSink,
+} from '@electron/resources/jobBroker';
 import { createNativeFallbackTestError } from '@electron/native-tools/createNativeFallbackTestError';
 import { getErrorMessage } from '@electron/utils/error';
 import { createLogger } from '@electron/utils/createLogger';
@@ -61,7 +66,8 @@ interface INativePdfImageCombineOptions {
     onProgress?: (progress: TPdfImageCombineProgress) => void;
     signal?: AbortSignal;
     rotationDegrees?: readonly number[];
-    onTerminationProof?: (proof: Promise<boolean>) => void;
+    brokerRun?: IJobBrokerRunContext;
+    onTerminationProof?: TTerminationProofSink;
 }
 
 type TNativePdfImageCombineRetainCleanup = (
@@ -471,7 +477,7 @@ export async function tryBuildOptimizedPdfWithNativeImageCombiner(
     imagePaths: string[],
     dpi: number,
     onPageProcessed?: (pageNum: number, totalPages: number) => void,
-    options: Pick<INativePdfImageCombineOptions, 'combineThreads' | 'signal'> = {},
+    options: Pick<INativePdfImageCombineOptions, 'brokerRun' | 'combineThreads' | 'onTerminationProof' | 'signal'> = {},
 ): Promise<Uint8Array | null> {
     if (!Number.isFinite(dpi) || dpi <= 0 || !canUseNativePdfImageCombine(imagePaths, SUPPORTED_NATIVE_NETPBM_EXTENSIONS)) {
         return null;
@@ -479,7 +485,9 @@ export async function tryBuildOptimizedPdfWithNativeImageCombiner(
 
     return createPdfWithNativeImageCombiner(imagePaths, {
         ...(onPageProcessed ? {onProgress: progress => onPageProcessed(progress.processed, progress.total)} : {}),
+        ...(options.brokerRun === undefined ? {} : {brokerRun: options.brokerRun}),
         ...(options.combineThreads === undefined ? {} : {combineThreads: options.combineThreads}),
+        ...(options.onTerminationProof === undefined ? {} : {onTerminationProof: options.onTerminationProof}),
         ...(options.signal === undefined ? {} : {signal: options.signal}),
     }, [
         '--dpi',
@@ -489,7 +497,7 @@ export async function tryBuildOptimizedPdfWithNativeImageCombiner(
 
 async function createPdfWithNativeImageCombiner(
     inputPaths: string[],
-    options: Pick<INativePdfImageCombineOptions, 'combineThreads' | 'onProgress' | 'signal'>,
+    options: Pick<INativePdfImageCombineOptions, 'brokerRun' | 'combineThreads' | 'onProgress' | 'onTerminationProof' | 'signal'>,
     extraArgs: string[],
 ) {
     const binaryPath = resolveNativePdfImageCombinePath();
@@ -658,6 +666,28 @@ async function runNativePdfImageCombine(
         }
     };
 
+    const forwardIdentityBoundProof = (
+        proof: Promise<boolean>,
+        outerSink?: TTerminationProofSink,
+    ) => {
+        const identityBoundProof = childPid === null ? proof.then(() => false) : proof;
+        try {
+            outerSink?.(identityBoundProof);
+        } finally {
+            try {
+                retainCleanupUntilTerminationProof?.(identityBoundProof, childPid, outputPath);
+            } finally {
+                if (options?.onTerminationProof !== undefined && options.onTerminationProof !== outerSink) {
+                    options.onTerminationProof(identityBoundProof);
+                }
+            }
+        }
+    };
+    const brokerRun = mapJobBrokerRunTerminationProof(
+        options?.brokerRun,
+        outerSink => proof => forwardIdentityBoundProof(proof, outerSink),
+    );
+
     try {
         await runNativeToolCommand(binaryPath, args, {
             env,
@@ -670,11 +700,11 @@ async function runNativePdfImageCombine(
             onSpawn: pid => {
                 childPid = pid;
             },
-            onTerminationProof: proof => {
-                const identityBoundProof = childPid === null ? proof.then(() => false) : proof;
-                retainCleanupUntilTerminationProof?.(identityBoundProof, childPid, outputPath);
-                options?.onTerminationProof?.(identityBoundProof);
-            },
+            ...(brokerRun !== undefined
+                ? {brokerRun}
+                : {
+                    onTerminationProof: proof => forwardIdentityBoundProof(proof),
+                }),
             onStdout: chunk => {
                 stdoutBuffer += chunk;
                 if (Buffer.byteLength(stdoutBuffer, 'utf8') > NATIVE_PDF_IMAGE_COMBINE_MAX_STDOUT_BUFFER_BYTES) {

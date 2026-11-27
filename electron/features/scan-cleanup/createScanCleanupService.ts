@@ -820,7 +820,7 @@ export function createScanCleanupService(
                                 },
                                 perOwnerLimit: 1,
                                 signal: job.signal,
-                            }, async ({onTerminationProof}) => {
+                            }, async (brokerRun) => {
                                 const pdfPaths = getPdfNativeToolPaths();
                                 const scanCleanupBinary = resolvePreviewPath();
                                 const pdfImageCombineBinary = resolveNativePdfImageCombinePath();
@@ -880,7 +880,7 @@ export function createScanCleanupService(
                                         },
                                         // The worker's native children run under this
                                         // lease, so an unproven stop keeps it charged.
-                                        onTerminationProof,
+                                        brokerRun,
                                     },
                                 );
                                 // Resolve the cancel-vs-publish race in the same main

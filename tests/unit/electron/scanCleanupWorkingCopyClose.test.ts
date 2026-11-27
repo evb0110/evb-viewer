@@ -655,7 +655,7 @@ describe('closing a source document during scan cleanup', () => {
             signal: AbortSignal,
             _onProgress: unknown,
             _jobId: unknown,
-            options?: {onTerminationProof?: (proof: Promise<boolean>) => void},
+            options?: {brokerRun?: {onTerminationProof?: (proof: Promise<boolean>) => void}},
         ) => {
             observed.resolve(signal);
             return new Promise<never>((_, reject) => {
@@ -664,7 +664,7 @@ describe('closing a source document during scan cleanup', () => {
                     // answer. A surviving child would still be reading the
                     // source, so the run reports the stop as unproven, to the
                     // lease its children run under as the worker task does.
-                    options?.onTerminationProof?.(Promise.resolve(false));
+                    options?.brokerRun?.onTerminationProof?.(Promise.resolve(false));
                     setTimeout(() => reject(markUnprovenNativeTermination(
                         toAbortError(signal),
                         'evb-scan-cleanup process tree (pid=4242) was not proven dead within 8000ms of termination',

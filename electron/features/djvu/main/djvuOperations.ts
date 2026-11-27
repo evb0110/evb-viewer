@@ -71,7 +71,10 @@ import {
     type TJobId,
     type TRequestId,
 } from '@contracts/shared';
-import { mainJobBroker } from '@electron/resources/jobBroker';
+import {
+    mainJobBroker,
+    type IJobBrokerRunContext,
+} from '@electron/resources/jobBroker';
 import { getHostResourceProfileSnapshot } from '@electron/resources/hostResourceProfile';
 
 const DJVU_SEARCH_PROGRESS_PAGE_BATCH = 8;
@@ -386,6 +389,7 @@ async function runCoalescedPreviewRequest<TResult>(
     priority: number,
     render: (
         operation: {
+            brokerRun: IJobBrokerRunContext;
             cancelGroup: string;
             onTerminationProof: (proof: Promise<boolean>) => void;
             signal: AbortSignal;
@@ -430,7 +434,7 @@ async function runCoalescedPreviewRequest<TResult>(
                 ioWeight: 1,
             },
             signal: abortController.signal,
-        }, async ({onTerminationProof}) => {
+        }, async (brokerRun) => {
             state.pendingRequests.delete(requestId);
             if (sender.isDestroyed()) {
                 throw new Error('DjVu preview operation canceled');
@@ -465,8 +469,9 @@ async function runCoalescedPreviewRequest<TResult>(
             mainOperation.signal.addEventListener('abort', abortMainOperation, { once: true });
             try {
                 return await render({
+                    brokerRun,
                     cancelGroup,
-                    onTerminationProof,
+                    onTerminationProof: brokerRun.onTerminationProof,
                     signal: abortController.signal,
                 });
             } finally {

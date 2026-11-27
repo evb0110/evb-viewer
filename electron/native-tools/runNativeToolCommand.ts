@@ -7,6 +7,11 @@ import { runDesktopQpdfWasm } from '@electron/native-tools/qpdfWasmWorkerClient'
 import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
 import { withDefinedCommandOptions } from '@electron/native-tools/withDefinedCommandOptions';
 import type { IProcessResult } from '@electron/native-tools/processResult';
+import {
+    mergeTerminationProofSinks,
+    type IJobBrokerRunContext,
+    type TTerminationProofSink,
+} from '@electron/resources/jobBroker';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 
 /**
@@ -47,7 +52,8 @@ export interface IRunNativeToolCommandOptions {
     onStderr?: (chunk: string) => void;
     onSpawn?: (pid: number) => void;
     onClose?: () => void;
-    onTerminationProof?: (proof: Promise<boolean>) => void;
+    brokerRun?: IJobBrokerRunContext;
+    onTerminationProof?: TTerminationProofSink;
     terminationGraceMs?: number;
     stdin?: AsyncIterable<string>;
     log?: (level: 'debug' | 'warn' | 'error', message: string) => void;
@@ -75,6 +81,10 @@ export async function runNativeToolCommand(
     args: string[],
     options: IRunNativeToolCommandOptions = {},
 ): Promise<IProcessResult> {
+    const wasmTerminationProof = mergeTerminationProofSinks(
+        options.brokerRun?.onTerminationProof,
+        options.onTerminationProof,
+    );
     if (isPdfPageOpsWasmPath(command)) {
         try {
             return await runDesktopPageOpsWasm(command, args, {
@@ -86,9 +96,9 @@ export async function runNativeToolCommand(
                 ...(options.rejectOnStdoutTruncation === undefined
                     ? {}
                     : {rejectOnStdoutTruncation: options.rejectOnStdoutTruncation}),
-                ...(options.onTerminationProof === undefined
+                ...(wasmTerminationProof === undefined
                     ? {}
-                    : {onTerminationProof: options.onTerminationProof}),
+                    : {onTerminationProof: wasmTerminationProof}),
             });
         } finally {
             options.onClose?.();
@@ -109,15 +119,15 @@ export async function runNativeToolCommand(
                 ...(options.rejectOnStdoutTruncation === undefined
                     ? {}
                     : {rejectOnStdoutTruncation: options.rejectOnStdoutTruncation}),
-                ...(options.onTerminationProof === undefined
+                ...(wasmTerminationProof === undefined
                     ? {}
-                    : {onTerminationProof: options.onTerminationProof}),
+                    : {onTerminationProof: wasmTerminationProof}),
             });
         } finally {
             options.onClose?.();
         }
     }
-    await assertNativeToolBuild(command);
+    await assertNativeToolBuild(command, options.brokerRun);
     return runNativeCommand(command, args, createRunCommandOptions(options));
 }
 
@@ -125,7 +135,10 @@ export async function runNativeToolCommand(
  * Fails when an EVB native binary was built from other native sources than this
  * app, checked once per binary path.
  */
-export function assertNativeToolBuild(command: string) {
+export function assertNativeToolBuild(
+    command: string,
+    brokerRun?: IJobBrokerRunContext,
+) {
     const baseName = basename(command).toLowerCase().replace(/\.exe$/u, '');
     const expectedBuildId = expectedBuildIds?.[baseName];
     if (expectedBuildId === undefined) {
@@ -133,9 +146,20 @@ export function assertNativeToolBuild(command: string) {
     }
     let verified = verifiedBuilds.get(command);
     if (verified === undefined) {
+        const probeBrokerRun: IJobBrokerRunContext | undefined = brokerRun === undefined
+            ? undefined
+            : {
+                broker: brokerRun.broker,
+                lease: brokerRun.lease,
+                onTerminationProof: brokerRun.leaseTerminationProof ?? brokerRun.onTerminationProof,
+                ...(brokerRun.leaseTerminationProof === undefined
+                    ? {}
+                    : {leaseTerminationProof: brokerRun.leaseTerminationProof}),
+            };
         verified = runNativeCommand(command, ['--build-id'], createRunCommandOptions({
             maxStdoutBytes: 256,
             commandLabel: `${baseName}(build-id)`,
+            ...(probeBrokerRun === undefined ? {} : {brokerRun: probeBrokerRun}),
         })).then((result) => {
             const actualBuildId = result.stdout.trim();
             if (actualBuildId !== expectedBuildId) {

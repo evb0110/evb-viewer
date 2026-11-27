@@ -63,7 +63,7 @@ export async function analyzePdfConformanceFile(
                 ioWeight: 1,
             },
             ...(options.signal === undefined ? {} : {signal: options.signal}),
-        }, ({onTerminationProof}) => {
+        }, brokerRun => {
             const timeoutMs = options.timeoutMs ?? QPDF_VALIDATE_MAX_TIMEOUT_MS;
             const timeoutSignal = AbortSignal.timeout(timeoutMs);
             const operationSignal = options.signal
@@ -76,7 +76,7 @@ export async function analyzePdfConformanceFile(
                 ...options,
                 timeoutMs,
                 signal: operationSignal,
-                onTerminationProof,
+                brokerRun,
             });
         });
         logger.debug('PDF conformance analysis completed', {filePath});

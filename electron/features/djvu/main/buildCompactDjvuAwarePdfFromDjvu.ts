@@ -40,7 +40,10 @@ import {
 import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
 import { probeNativeNetpbm } from '@electron/features/djvu/main/probeNativeNetpbm';
 import { withCompactDjvuResourceLease } from '@electron/features/djvu/main/withCompactDjvuResourceLease';
-import type { TTerminationProofSink } from '@electron/resources/jobBroker';
+import type {
+    IJobBrokerRunContext,
+    TTerminationProofSink,
+} from '@electron/resources/jobBroker';
 import {createPdfCombineProgressHandler} from '@evb/scan-cleanup/core/createPdfCombineProgressHandler';
 import {readPpmDimensions} from '@evb/scan-cleanup/core/rasterLayerDimensions';
 import { createLogger } from '@electron/utils/createLogger';
@@ -81,6 +84,8 @@ interface ICompactDjvuPdfExportOptions {
     pages?: number[];
     onProgress?: (percent: number) => void;
     qualityPreset?: TDjvuCompactFidelityPreset;
+    /** The page lease's run context, so page renders and probes reuse that lease. */
+    brokerRun?: IJobBrokerRunContext;
     /** The page lease's proof sink, so every page render runs under that lease. */
     onTerminationProof?: TTerminationProofSink;
 }
@@ -275,10 +280,11 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
                         jobId: options.jobId,
                         kind: 'page',
                         signal: activeQuotaMonitor.signal,
-                        task: onTerminationProof => buildCompactPageSpec(
+                        task: brokerRun => buildCompactPageSpec(
                             {
                                 ...conversionOptions,
-                                onTerminationProof,
+                                brokerRun,
+                                onTerminationProof: brokerRun.onTerminationProof,
                             },
                             pageTempDir,
                             pageNumber,
@@ -375,7 +381,7 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
             jobId: options.jobId,
             kind: 'combine',
             signal: combineSignal,
-            task: async (onTerminationProof) => {
+            task: async (brokerRun) => {
                 const combined = await runRegisteredDjvuProcess(
                     `${options.jobId}-compact-combine`,
                     binaryPath,
@@ -388,7 +394,7 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
                     ],
                     {
                         signal: combineSignal,
-                        onTerminationProof,
+                        brokerRun,
                         // A book-length combine can outlast any fixed deadline;
                         // it streams per-page progress, so only silence times out.
                         timeoutResetsOnStdout: true,
@@ -717,7 +723,7 @@ async function buildCompactPageSpec(
     }
 
     const maskPath = await renderMaskLayer(options, pagePrefix, pageNumber);
-    const maskStats = await readPbmMaskStats(maskPath);
+    const maskStats = await readPbmMaskStats(maskPath, options);
     const pageSize = resolvePageSizePoints(
         options.pageSizes?.[pageNumber - 1] ?? null,
         options.sourceDpi,
@@ -730,7 +736,7 @@ async function buildCompactPageSpec(
         ? await renderForegroundLayer(options, pagePrefix, pageNumber, structure)
         : null;
     const foregroundColor = foregroundColorPath
-        ? await analyzeForegroundColor(foregroundColorPath)
+        ? await analyzeForegroundColor(foregroundColorPath, options)
         : null;
 
     if (foregroundColor && hasDjvuCompactForegroundColor(foregroundColor)) {
@@ -754,7 +760,7 @@ async function buildCompactPageSpec(
     }
 
     const backgroundPath = await renderBackgroundLayer(options, pagePrefix, pageNumber, structure);
-    const backgroundStats = await readNetpbmStats(backgroundPath);
+    const backgroundStats = await readNetpbmStats(backgroundPath, options);
     if (isDjvuCompactFlatBackground(backgroundStats)) {
         return {
             pageNumber,
@@ -959,15 +965,18 @@ function nativeSubsample(layer: IDjvuLayerInfo | null, fallback = DJVU_NATIVE_LA
     return Math.min(DJVU_COMPACT_MAX_SUBSAMPLE, Math.max(DJVU_COMPACT_MIN_SUBSAMPLE, subsample));
 }
 
-async function analyzeForegroundColor(foregroundPath: string): Promise<IForegroundColorAnalysis> {
-    const nativeProbe = await readNativeNetpbmProbe(foregroundPath);
+async function analyzeForegroundColor(
+    foregroundPath: string,
+    options?: Pick<ICompactDjvuPdfExportOptions, 'brokerRun' | 'signal'>,
+): Promise<IForegroundColorAnalysis> {
+    const nativeProbe = await readNativeNetpbmProbe(foregroundPath, options);
     if (nativeProbe) {
         return {
             dominantColor: nativeProbe.dominantColor,
             colorRatio: nativeProbe.colorRatio,
         };
     }
-    const stats = await readNetpbmStats(foregroundPath);
+    const stats = await readNetpbmStats(foregroundPath, options);
     return {
         dominantColor: await readDominantForegroundColor(foregroundPath),
         colorRatio: stats.colorRatio,
@@ -1099,12 +1108,18 @@ function canRepresentManifestPath(path: string) {
         && !/[\r\n\t]/u.test(path);
 }
 
-function readNativeNetpbmProbe(path: string) {
-    return probeNativeNetpbm(resolveNativePdfImageCombinePath(), path);
+function readNativeNetpbmProbe(
+    path: string,
+    options?: Pick<ICompactDjvuPdfExportOptions, 'brokerRun' | 'signal'>,
+) {
+    return probeNativeNetpbm(resolveNativePdfImageCombinePath(), path, options);
 }
 
-async function readNetpbmStats(path: string) {
-    const nativeProbe = await readNativeNetpbmProbe(path);
+async function readNetpbmStats(
+    path: string,
+    options?: Pick<ICompactDjvuPdfExportOptions, 'brokerRun' | 'signal'>,
+) {
+    const nativeProbe = await readNativeNetpbmProbe(path, options);
     if (nativeProbe) {
         if (nativeProbe.magic === 'P4') {
             throw new Error('PBM foreground probes are not supported');
@@ -1186,8 +1201,11 @@ async function readDominantForegroundColor(path: string): Promise<[number, numbe
     ];
 }
 
-async function readPbmMaskStats(path: string) {
-    const nativeProbe = await readNativeNetpbmProbe(path);
+async function readPbmMaskStats(
+    path: string,
+    options?: Pick<ICompactDjvuPdfExportOptions, 'brokerRun' | 'signal'>,
+) {
+    const nativeProbe = await readNativeNetpbmProbe(path, options);
     if (nativeProbe) {
         if (nativeProbe.magic !== 'P4') {
             throw new Error(`Unsupported foreground mask magic: ${nativeProbe.magic}`);

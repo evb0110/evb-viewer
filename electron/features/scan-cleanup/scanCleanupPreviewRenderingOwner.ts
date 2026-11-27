@@ -12,7 +12,7 @@ import {
 } from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
 import {
     createStableJobBrokerOwnerId,
-    type TTerminationProofSink,
+    type IJobBrokerRunContext,
 } from '@electron/resources/jobBroker';
 import { getErrorMessage } from '@electron/utils/error';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
@@ -240,7 +240,7 @@ export function scanCleanupPreviewRenderingOwner(
         signal: AbortSignal,
         options: IScanCleanupPreviewRequest['options'],
         rasterMaxPixels: number | undefined,
-        run: (onTerminationProof?: TTerminationProofSink) => Promise<T>,
+        run: (brokerRun?: IJobBrokerRunContext) => Promise<T>,
     ) => {
         signal.throwIfAborted();
         const runWithLease = dependencies.runWithPreviewLease;
@@ -257,11 +257,11 @@ export function scanCleanupPreviewRenderingOwner(
                     attempt.signal,
                     options,
                     rasterMaxPixels,
-                    onTerminationProof => {
+                    brokerRun => {
                         admission.granted = true;
                         signal.removeEventListener('abort', abortAttempt);
                         admission.reissue = null;
-                        return run(onTerminationProof);
+                        return run(brokerRun);
                     },
                 );
             } catch (error) {
@@ -503,13 +503,27 @@ export function scanCleanupPreviewRenderingOwner(
                         context.signal,
                         request.options,
                         rasterPolicy.rasterMaxPixels,
-                        async onTerminationProof => {
+                        async brokerRun => {
+                            const scopedRetention = brokerRun === undefined
+                                ? rawRasterRetention
+                                : {
+                                    ...rawRasterRetention,
+                                    rasterPageSource: (
+                                        doc: Parameters<typeof rawRasterRetention.rasterPageSource>[0],
+                                        sig: AbortSignal,
+                                    ) => rawRasterRetention.rasterPageSource(doc, sig, brokerRun),
+                                    sourceDpi: (
+                                        doc: Parameters<typeof rawRasterRetention.sourceDpi>[0],
+                                        pageNumber: number,
+                                        sig: AbortSignal,
+                                    ) => rawRasterRetention.sourceDpi(doc, pageNumber, sig, brokerRun),
+                                };
                             const result = await scanCleanupPreviewRenderer(
                                 materialized,
                                 context.signal,
-                                rawRasterRetention,
+                                scopedRetention,
                                 baseAnalysisCache,
-                                bindScanCleanupTerminationProof(dependencies, onTerminationProof),
+                                bindScanCleanupTerminationProof(dependencies, brokerRun),
                                 raw => sender.send(SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onPreviewRaw, raw),
                                 scratchPath,
                                 baseAnalysisPins,

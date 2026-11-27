@@ -2463,11 +2463,11 @@ describe('native DjVu open admission', async () => {
             color: null,
             items: [],
         }]);
-        mocks.embedBookmarksIntoPdfFile = (_inputPdfPath, _outputPdfPath, _bookmarks, signal, onTerminationProof) => {
+        mocks.embedBookmarksIntoPdfFile = (_inputPdfPath, _outputPdfPath, _bookmarks, signal, brokerRun) => {
             bookmarkStarted.resolve(undefined);
             return new Promise<number>((_resolve, reject) => {
                 const rejectUnproven = () => {
-                    onTerminationProof?.(delayedProof.promise);
+                    brokerRun?.onTerminationProof?.(delayedProof.promise);
                     reject(bookmarkError);
                 };
                 if (signal?.aborted) {

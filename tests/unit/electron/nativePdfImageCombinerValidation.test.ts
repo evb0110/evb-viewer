@@ -478,4 +478,294 @@ describe('native PDF image combiner output validation', () => {
         expect(mocks.rm).toHaveBeenCalledWith('/tmp/output.pdf', { force: true });
     });
 
+    it('charges a single broker lease across wrapped combiner proof sinks from buildOptimizedPdf / estimateSizes', async () => {
+        const proc = new MockProcess();
+        mocks.spawn.mockReturnValueOnce(proc);
+        const {
+            configureMainJobBroker,
+            mainJobBroker,
+        } = await import('@electron/resources/jobBroker');
+        const {buildOptimizedPdf} = await import('@electron/features/djvu/main/buildOptimizedPdf');
+        const {resolvePdfImageCombineResidentBytes} = await import('@electron/native-tools/pdfImageCombineBudget');
+
+        configureMainJobBroker({
+            logicalCpus: 4,
+            totalRamBytes: 4 * 1024 ** 3,
+            safeMode: false,
+            detectedTier: 'low',
+            performanceMode: 'auto',
+            tier: 'low',
+        });
+        const estimateResources = {
+            cpuTokens: 1,
+            estimatedResidentBytes: resolvePdfImageCombineResidentBytes(mainJobBroker.getSnapshot().capacity),
+            nativeProcesses: 1,
+            ioWeight: 2,
+        };
+        const result = await mainJobBroker.run({
+            ownerId: 'djvu-estimate:/tmp/sample.ppm',
+            kind: 'djvu-estimate',
+            priority: 'user',
+            resources: estimateResources,
+        }, async (brokerRun) => {
+            const pdfPromise = buildOptimizedPdf(['/tmp/sample.ppm'], 300, undefined, {
+                combineThreads: 1,
+                brokerRun,
+            });
+            await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
+            // Wrapped proof sink in runNativePdfImageCombine must preserve the explicit
+            // lease rather than double-charging mainJobBroker with a second leaf lease.
+            expect(mainJobBroker.getSnapshot()).toMatchObject({
+                active: 1,
+                queued: 0,
+                used: estimateResources,
+            });
+            proc.emit('close', 0);
+            return pdfPromise;
+        });
+
+        expect(result.byteLength).toBeGreaterThan(0);
+        expect(mainJobBroker.getSnapshot()).toMatchObject({
+            active: 0,
+            queued: 0,
+        });
+    });
+
+    it('retains the owning broker lease through the wrapped identity-bound combiner proof sink on unproven termination', async () => {
+        vi.useFakeTimers();
+        const proc = new MockProcess();
+        mocks.spawn.mockReturnValueOnce(proc);
+        const termination = Promise.withResolvers<boolean>();
+        mocks.terminateDetachedChildProcess.mockReturnValueOnce(termination.promise);
+
+        const {
+            configureMainJobBroker,
+            mainJobBroker,
+        } = await import('@electron/resources/jobBroker');
+        const {tryBuildOptimizedPdfWithNativeImageCombiner} = await import('@electron/image/tryCreatePdfWithNativeImageCombiner');
+
+        configureMainJobBroker({
+            logicalCpus: 4,
+            totalRamBytes: 4 * 1024 ** 3,
+            safeMode: false,
+            detectedTier: 'low',
+            performanceMode: 'auto',
+            tier: 'low',
+        });
+        const controller = new AbortController();
+        const resources = {
+            cpuTokens: 1,
+            estimatedResidentBytes: 512 * 1024 * 1024,
+            nativeProcesses: 1,
+            ioWeight: 2,
+        };
+        const runPromise = mainJobBroker.run({
+            ownerId: 'djvu-estimate:/tmp/hung.ppm',
+            kind: 'djvu-estimate',
+            priority: 'user',
+            resources,
+        }, async (brokerRun) => {
+            return tryBuildOptimizedPdfWithNativeImageCombiner(['/tmp/hung.ppm'], 300, undefined, {
+                signal: controller.signal,
+                brokerRun,
+            });
+        }).catch((error: unknown) => error);
+
+        await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
+        expect(mainJobBroker.getSnapshot()).toMatchObject({
+            active: 1,
+            used: resources,
+        });
+
+        controller.abort(new DOMException('Canceled', 'AbortError'));
+        await vi.advanceTimersByTimeAsync(3_500);
+        await expect(runPromise).resolves.toMatchObject({name: 'AbortError'});
+        // Lease stays charged (still single charge) until termination proof resolves true.
+        expect(mainJobBroker.getSnapshot()).toMatchObject({
+            active: 1,
+            used: resources,
+        });
+
+        termination.resolve(true);
+        await vi.waitFor(() => expect(mainJobBroker.getSnapshot()).toMatchObject({
+            active: 0,
+            used: {nativeProcesses: 0},
+        }));
+    });
+
+    it('acquires a leaf lease when tryWritePdfWithNativeImageCombiner receives a released brokerRun lease', async () => {
+        const proc = new MockProcess();
+        mocks.spawn.mockReturnValueOnce(proc);
+        const {
+            configureMainJobBroker,
+            mainJobBroker,
+        } = await import('@electron/resources/jobBroker');
+        const {tryWritePdfWithNativeImageCombiner} = await import('@electron/image/tryCreatePdfWithNativeImageCombiner');
+
+        configureMainJobBroker({
+            logicalCpus: 4,
+            totalRamBytes: 4 * 1024 ** 3,
+            safeMode: false,
+            detectedTier: 'low',
+            performanceMode: 'auto',
+            tier: 'low',
+        });
+        let releasedBrokerRun: Parameters<Parameters<typeof mainJobBroker.run>[1]>[0] | undefined;
+        await mainJobBroker.run({
+            ownerId: 'stale-combine',
+            kind: 'combine',
+            priority: 'user',
+            resources: {
+                cpuTokens: 2,
+                estimatedResidentBytes: 512 * 1024 * 1024,
+                nativeProcesses: 1,
+                ioWeight: 2,
+            },
+        }, async (brokerRun) => {
+            releasedBrokerRun = brokerRun;
+        });
+
+        expect(mainJobBroker.isActive(releasedBrokerRun!.lease)).toBe(false);
+        const writePromise = tryWritePdfWithNativeImageCombiner(['/tmp/input.png'], '/tmp/output.pdf', {
+            brokerRun: releasedBrokerRun!,
+        });
+        await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
+        // broker.isActive(lease) is false, so runNativeCommand acquires a leaf lease.
+        expect(mainJobBroker.getSnapshot()).toMatchObject({
+            active: 1,
+            used: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 512 * 1024 * 1024,
+                nativeProcesses: 1,
+                ioWeight: 1,
+            },
+        });
+        proc.emit('close', 0);
+        await expect(writePromise).resolves.toBe(true);
+        expect(mainJobBroker.getSnapshot().active).toBe(0);
+    });
+
+    it('runs dev-build --build-id probe under the owning brokerRun lease without double-charging', async () => {
+        const previousBuildIds = (globalThis as Record<string, unknown>).__EVB_NATIVE_BUILD_IDS__;
+        (globalThis as Record<string, unknown>).__EVB_NATIVE_BUILD_IDS__ = {
+            'evb-pdf-image-combine': 'test-build-id-123',
+        };
+        try {
+            const buildIdProc = new MockProcess();
+            const combineProc = new MockProcess();
+            mocks.spawn
+                .mockReturnValueOnce(buildIdProc)
+                .mockReturnValueOnce(combineProc);
+            const {
+                configureMainJobBroker,
+                mainJobBroker,
+            } = await import('@electron/resources/jobBroker');
+            const {runNativeToolCommand} = await import('@electron/native-tools/runNativeToolCommand');
+            configureMainJobBroker({
+                logicalCpus: 4,
+                totalRamBytes: 4 * 1024 ** 3,
+                safeMode: false,
+                detectedTier: 'low',
+                performanceMode: 'auto',
+                tier: 'low',
+            });
+            const resources = {
+                cpuTokens: 1,
+                estimatedResidentBytes: 512 * 1024 * 1024,
+                nativeProcesses: 1,
+                ioWeight: 2,
+            };
+            await mainJobBroker.run({
+                ownerId: 'dev-build-id-test',
+                kind: 'combine',
+                priority: 'user',
+                resources,
+            }, async (brokerRun) => {
+                const cmd = runNativeToolCommand('/native/evb-pdf-image-combine', ['--output', '/tmp/out.pdf'], {
+                    brokerRun,
+                });
+                await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledTimes(1));
+                // Uncached --build-id probe must run under the caller's lease (1 active, not 2).
+                expect(mainJobBroker.getSnapshot()).toMatchObject({
+                    active: 1,
+                    used: resources,
+                });
+                buildIdProc.stdout.emit('data', Buffer.from('test-build-id-123\n'));
+                buildIdProc.emit('close', 0);
+                await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledTimes(2));
+                expect(mainJobBroker.getSnapshot()).toMatchObject({
+                    active: 1,
+                    used: resources,
+                });
+                combineProc.emit('close', 0);
+                await cmd;
+            });
+            expect(mainJobBroker.getSnapshot().active).toBe(0);
+        } finally {
+            if (previousBuildIds === undefined) {
+                delete (globalThis as Record<string, unknown>).__EVB_NATIVE_BUILD_IDS__;
+            } else {
+                (globalThis as Record<string, unknown>).__EVB_NATIVE_BUILD_IDS__ = previousBuildIds;
+            }
+        }
+    });
+
+    it('releases the combine lease when a dev --build-id probe terminates cleanly before combiner spawn', async () => {
+        vi.useFakeTimers();
+        const previousBuildIds = (globalThis as Record<string, unknown>).__EVB_NATIVE_BUILD_IDS__;
+        (globalThis as Record<string, unknown>).__EVB_NATIVE_BUILD_IDS__ = {
+            'evb-pdf-image-combine': 'test-build-id-timeout',
+        };
+        try {
+            const buildIdProc = new MockProcess();
+            mocks.spawn.mockReturnValueOnce(buildIdProc);
+            mocks.terminateDetachedChildProcess.mockResolvedValueOnce(true);
+            const {
+                configureMainJobBroker,
+                mainJobBroker,
+            } = await import('@electron/resources/jobBroker');
+            const {tryBuildOptimizedPdfWithNativeImageCombiner} = await import('@electron/image/tryCreatePdfWithNativeImageCombiner');
+            configureMainJobBroker({
+                logicalCpus: 4,
+                totalRamBytes: 4 * 1024 ** 3,
+                safeMode: false,
+                detectedTier: 'low',
+                performanceMode: 'auto',
+                tier: 'low',
+            });
+            const resources = {
+                cpuTokens: 1,
+                estimatedResidentBytes: 512 * 1024 * 1024,
+                nativeProcesses: 1,
+                ioWeight: 2,
+            };
+
+            const runPromise = mainJobBroker.run({
+                ownerId: 'dev-build-id-timeout',
+                kind: 'djvu-estimate',
+                priority: 'user',
+                resources,
+            }, async (brokerRun) => tryBuildOptimizedPdfWithNativeImageCombiner(
+                ['/tmp/input.ppm'],
+                300,
+                undefined,
+                {brokerRun},
+            )).catch((error: unknown) => error);
+
+            await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledTimes(1));
+            // Advance past DEFAULT_NATIVE_COMMAND_TIMEOUT_MS (15m) so --build-id times out and terminates cleanly.
+            await vi.advanceTimersByTimeAsync(15 * 60 * 1_000 + 50);
+            const error = await runPromise;
+            expect(error).toBeInstanceOf(Error);
+            // Proven --build-id termination must NOT be converted to false by the combiner's childPid wrapper.
+            expect(mainJobBroker.getSnapshot().active).toBe(0);
+        } finally {
+            if (previousBuildIds === undefined) {
+                delete (globalThis as Record<string, unknown>).__EVB_NATIVE_BUILD_IDS__;
+            } else {
+                (globalThis as Record<string, unknown>).__EVB_NATIVE_BUILD_IDS__ = previousBuildIds;
+            }
+        }
+    });
+
 });

@@ -309,8 +309,6 @@ export async function openInputPaths(
     const outputPath = buildCombinedPdfOutputPath(normalizedPaths);
     const workingPath = await usingManagedScratchScope('pdfExport-scope-', getAppTempDir(), async tempDir => {
         let lifecycle: ReturnType<typeof createOpenInputPathsAbortLifecycle> | null = null;
-        let brokerLease: Awaited<ReturnType<typeof mainJobBroker.acquire>> | null = null;
-        let workingPath: string;
         try {
             lifecycle = createOpenInputPathsAbortLifecycle(
                 owner,
@@ -321,7 +319,7 @@ export async function openInputPaths(
             const combinedInputBytes = await Promise.all(normalizedPaths.map(path => stat(path)
                 .then(fileStat => fileStat.size, () => 0)))
                 .then(sizes => sizes.reduce((total, size) => total + size, 0));
-            brokerLease = await mainJobBroker.acquire({
+            return await mainJobBroker.run({
                 ownerId: `pdf-combine:${getOwnerWebContentsId(owner) ?? 'main'}`,
                 kind: 'pdf-combine',
                 priority: 'user',
@@ -336,32 +334,31 @@ export async function openInputPaths(
                     nativeProcesses: 1,
                     ioWeight: 4,
                 },
+            }, async brokerRun => {
+                const tempOutputPath = join(tempDir, basename(outputPath));
+                throwIfAborted(signal);
+                await createPdfFileFromInputPaths(
+                    normalizedPaths,
+                    tempOutputPath,
+                    {
+                        ...(options.onCombineProgress ? { onProgress: options.onCombineProgress } : {}),
+                        brokerRun,
+                        signal,
+                    },
+                );
+                throwIfAborted(signal);
+                logger.info('Created combined PDF for input batch', {outputPath});
+                allowOpenPaths([tempOutputPath], owner);
+                const trustedTempOutputPath = requireOpenPath(tempOutputPath, owner);
+                return (await createDocumentFromFile(
+                    trustedTempOutputPath,
+                    outputPath,
+                    getOwnerWebContentsId(owner),
+                )).ref;
             });
-            const tempOutputPath = join(tempDir, basename(outputPath));
-            throwIfAborted(signal);
-            await createPdfFileFromInputPaths(
-                normalizedPaths,
-                tempOutputPath,
-                {
-                    ...(options.onCombineProgress ? { onProgress: options.onCombineProgress } : {}),
-                    signal,
-                },
-            );
-            throwIfAborted(signal);
-            logger.info('Created combined PDF for input batch', {outputPath});
-            allowOpenPaths([tempOutputPath], owner);
-            const trustedTempOutputPath = requireOpenPath(tempOutputPath, owner);
-            workingPath = (await createDocumentFromFile(
-                trustedTempOutputPath,
-                outputPath,
-                getOwnerWebContentsId(owner),
-            )).ref;
         } finally {
-            brokerLease?.release();
             lifecycle?.cleanup();
         }
-
-        return workingPath;
     });
 
     return {

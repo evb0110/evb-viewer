@@ -19,7 +19,7 @@ import {
 } from '@electron/utils/abort';
 import {
     mainJobBroker,
-    type TTerminationProofSink,
+    type IJobBrokerRunContext,
 } from '@electron/resources/jobBroker';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/main/resolveNativePageOpsPath';
@@ -45,7 +45,7 @@ function runBrokeredCropTask(
     pageCount: number,
     senderWebContentsId: number | undefined,
     signal: AbortSignal | undefined,
-    work: (onTerminationProof: TTerminationProofSink) => Promise<void>,
+    work: (brokerRun: IJobBrokerRunContext) => Promise<void>,
 ) {
     return mainJobBroker.run({
         ownerId: senderWebContentsId !== undefined
@@ -60,7 +60,7 @@ function runBrokeredCropTask(
             ioWeight: 3,
         },
         ...(signal ? { signal } : {}),
-    }, ({onTerminationProof}) => measureElectronPerfAsync(`page-ops:${type}`, () => work(onTerminationProof), {
+    }, brokerRun => measureElectronPerfAsync(`page-ops:${type}`, () => work(brokerRun), {
         thresholdMs: 25,
         details: {
             workingCopyPath,
@@ -103,7 +103,7 @@ async function appendPageCropMutations(
     mutations: Record<string, unknown>,
     options: {
         signal?: AbortSignal;
-        onTerminationProof?: TTerminationProofSink;
+        brokerRun?: IJobBrokerRunContext;
     },
 ) {
     throwIfAborted(options.signal);
@@ -136,7 +136,7 @@ async function appendPageCropMutations(
             timeoutMs: PAGE_GEOMETRY_NATIVE_TIMEOUT_MS,
             commandLabel: `evb-pdf-page-ops(${operation})`,
             ...(options.signal ? { signal: options.signal } : {}),
-            ...(options.onTerminationProof ? { onTerminationProof: options.onTerminationProof } : {}),
+            ...(options.brokerRun ? { brokerRun: options.brokerRun } : {}),
         });
         const outputStat = await stat(pdfPath);
         if (outputStat.size === 0) {
@@ -179,7 +179,7 @@ export async function cropPages(
         pages.length,
         senderWebContentsId,
         signal,
-        onTerminationProof => appendPageCropMutations(
+        brokerRun => appendPageCropMutations(
             'crop',
             workingCopyPath,
             {
@@ -194,7 +194,7 @@ export async function cropPages(
             },
             {
                 ...(signal ? { signal } : {}),
-                onTerminationProof,
+                brokerRun,
             },
         ),
     );
@@ -212,7 +212,7 @@ export async function removeCropFromPages(
         pages.length,
         senderWebContentsId,
         signal,
-        onTerminationProof => appendPageCropMutations(
+        brokerRun => appendPageCropMutations(
             'remove-crop',
             workingCopyPath,
             {
@@ -220,7 +220,7 @@ export async function removeCropFromPages(
             },
             {
                 ...(signal ? { signal } : {}),
-                onTerminationProof,
+                brokerRun,
             },
         ),
     );
