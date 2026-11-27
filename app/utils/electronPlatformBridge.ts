@@ -1,11 +1,15 @@
+import type {
+    IElectronBridgeWindow,
+    TRawElectronBridgeHandle,
+} from '@app/types/electron';
+import type {IElectronAPI} from '@contracts/electronApi';
 import {PLATFORM_FEATURE_REGISTRY} from '@contracts/platformApiDescriptor';
 import type {
     TAnyDefinedPlatformFeature, TPlatformIpcAbortSubscription,
 } from '@contracts/platformFeature';
 import {isRecord} from '@contracts/runtimeGuards';
 
-type TElectronPlatformApi = NonNullable<Window['electronAPI']>;
-const rendererApis = new WeakMap<TElectronPlatformApi, TElectronPlatformApi>();
+const rendererApis = new WeakMap<TRawElectronBridgeHandle, IElectronAPI>();
 
 function adaptIpcMethod(invoke: (...args: unknown[]) => unknown) {
     return async (...args: unknown[]) => {
@@ -31,32 +35,35 @@ function adaptIpcMethod(invoke: (...args: unknown[]) => unknown) {
     };
 }
 
-function adaptElectronPlatformApi(api: TElectronPlatformApi): TElectronPlatformApi {
-    const adapted = {...api};
-    for (const feature of PLATFORM_FEATURE_REGISTRY as readonly TAnyDefinedPlatformFeature[]) {
-        let capability: Record<string, unknown> = adapted;
-        for (const segment of feature.path) {
-            const child = capability[segment];
-            if (!isRecord(child)) break;
-            const copy = {...child};
-            capability[segment] = copy;
-            capability = copy;
-        }
-        for (const [
-            name,
-            spec,
-        ] of Object.entries(feature.methods)) {
-            const method = capability[name];
-            if (spec.kind === 'async' && !('local' in spec) && typeof method === 'function') {
-                capability[name] = adaptIpcMethod(method as (...args: unknown[]) => unknown);
+function adaptElectronPlatformApi(api: TRawElectronBridgeHandle): IElectronAPI {
+    const adapted: object = {...api};
+    if (isRecord(adapted)) {
+        for (const feature of PLATFORM_FEATURE_REGISTRY as readonly TAnyDefinedPlatformFeature[]) {
+            let capability: Record<string, unknown> = adapted;
+            for (const segment of feature.path) {
+                const child = capability[segment];
+                if (!isRecord(child)) break;
+                const copy = {...child};
+                capability[segment] = copy;
+                capability = copy;
+            }
+            for (const [
+                name,
+                spec,
+            ] of Object.entries(feature.methods)) {
+                const method = capability[name];
+                if (spec.kind === 'async' && !('local' in spec) && typeof method === 'function') {
+                    capability[name] = adaptIpcMethod(method as (...args: unknown[]) => unknown);
+                }
             }
         }
     }
-    rendererApis.set(api, adapted);
-    return adapted;
+    const adaptedApi = adapted as IElectronAPI;
+    rendererApis.set(api, adaptedApi);
+    return adaptedApi;
 }
 
-function getElectronWindow(): Window | null {
+function getElectronWindow(): IElectronBridgeWindow | null {
     if (typeof window === 'undefined') {
         return null;
     }
@@ -64,7 +71,7 @@ function getElectronWindow(): Window | null {
     return window;
 }
 
-export function getRawElectronPlatformApi(): TElectronPlatformApi | undefined {
+export function getRawElectronPlatformApi(): IElectronAPI | undefined {
     const api = getElectronWindow()?.electronAPI;
     return api === undefined ? undefined : rendererApis.get(api) ?? adaptElectronPlatformApi(api);
 }

@@ -16,10 +16,6 @@ import {
     OCR_SEARCHABLE_PDF_OPTIONS_SCHEMA,
 } from '@contracts/electronApiOcr';
 import {
-    decodeDocumentOcrAvailability,
-    decodeDocumentOcrPageSnapshot,
-    decodeDocumentTextCatalogWindow,
-    decodeDocumentTextSnapshot,
     MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES,
     type IDocumentOcrAvailability,
     type IDocumentOcrPageSnapshot,
@@ -36,13 +32,14 @@ import {
     type TDocumentRevisionToken,
 } from '@contracts/documentRevision';
 import {isLikelyAbsolutePath} from '@contracts/ipcAssertions';
-import {decodeOcrLanguages} from '@contracts/ocrLanguages';
 import {
     definePlatformFeature,
+    platformResultType,
     type TFeatureCapability,
     type TFeatureEventMap,
     type TFeatureInvokeMap,
     type TPlatformFeatureSchema,
+    type TPlatformResultSpec,
 } from '@contracts/platformFeature';
 import {isRecord} from '@contracts/runtimeGuards';
 import {
@@ -416,7 +413,7 @@ function defineOcrMethod<
     const TName extends string,
     const TChannel extends string,
     const TArgs extends TPlatformFeatureSchema<unknown[]>,
-    const TResult extends TPlatformFeatureSchema,
+    const TResult extends TPlatformResultSpec,
 >(definition: {
     name: TName;
     channel: TChannel;
@@ -453,11 +450,11 @@ function defineOcrMethod<
     } as const;
 }
 
-const languageResult = v.custom<IOcrLanguage[]>(value => decodeOcrLanguages(value) !== null);
-const documentTextCatalogResult = v.custom<IDocumentTextSnapshot>(value => decodeDocumentTextSnapshot(value) !== null);
-const documentTextCatalogWindowResult = v.custom<IDocumentTextCatalogWindow>(value => decodeDocumentTextCatalogWindow(value) !== null);
-const documentOcrAvailabilityResult = v.custom<IDocumentOcrAvailability>(value => decodeDocumentOcrAvailability(value) !== null);
-const documentOcrPageResult = v.custom<IDocumentOcrPageSnapshot>(value => decodeDocumentOcrPageSnapshot(value) !== null);
+const languageResult = platformResultType<IOcrLanguage[]>();
+const documentTextCatalogResult = platformResultType<IDocumentTextSnapshot>();
+const documentTextCatalogWindowResult = platformResultType<IDocumentTextCatalogWindow>();
+const documentOcrAvailabilityResult = platformResultType<IDocumentOcrAvailability>();
+const documentOcrPageResult = platformResultType<IDocumentOcrPageSnapshot>();
 const progressReplay = {
     owner: 'ipc-progress-pump',
     mode: 'latest-per-key',

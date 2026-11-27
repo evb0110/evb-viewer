@@ -243,7 +243,14 @@ export function createTypedIpcEventSubscriber<
         };
     }
 
+    const shared: ISharedIpcEventSubscriber = {
+        onPayloadUnchecked: (channel, callback) =>
+            subscribe(channel, (_event, payload) => callback(payload)),
+    };
+
     return {
+        shared,
+
         onNoArg<TChannel extends TNoArgEventChannel<TEventMap>>(
             channel: TChannel,
             callback: () => void,
@@ -287,13 +294,25 @@ export function createTypedIpcEventSubscriber<
     };
 }
 
+/**
+ * Minimal shared IPC event subscriber interface backed by an arbitrary-channel
+ * listener registry, avoiding `as unknown as` casts without relying on method
+ * bivariance.
+ */
+export interface ISharedIpcEventSubscriber {
+    readonly onPayloadUnchecked: (
+        channel: string,
+        callback: (payload: unknown) => void,
+    ) => TMenuEventUnsubscribe;
+}
+
 export function createPlatformFeaturePreloadClient<
     TFeature extends TAnyDefinedPlatformFeature,
 >(
     ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener' | 'send'>,
     feature: TFeature,
     directBindings?: TFeatureDirectBindings<TFeature>,
-    sharedEventSubscriber?: ReturnType<typeof createTypedIpcEventSubscriber<Record<string, unknown>>>,
+    sharedEventSubscriber?: ISharedIpcEventSubscriber,
 ): TFeatureCapability<TFeature> {
     let invokeTimeoutMsByChannel: Record<string, number> | undefined;
     for (const spec of Object.values(feature.methods)) {

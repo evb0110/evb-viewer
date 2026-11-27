@@ -57,7 +57,10 @@ import {
     DOCUMENT_WORKING_COPY_PLATFORM_FEATURE,
 } from '@contracts/documentsPlatformFeature';
 import { getDebugLogMessages } from '@electron/preload/debugLogBuffer';
-import {createDocumentsPreloadStreams} from '@electron/features/documents/createDocumentsPreloadStreams';
+import {
+    createDocumentsPreloadStreams,
+    type IDocumentsDirectInvokeMap,
+} from '@electron/features/documents/createDocumentsPreloadStreams';
 import {MAX_RENDERER_FILE_OPEN_TOKENS_PER_SENDER} from '@electron/features/documents/public/maxRendererFileOpenTokensPerSender';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 import {
@@ -188,29 +191,37 @@ export function createElectronApi(
     electronWebUtils: typeof webUtils,
     options: ICreateElectronApiOptions = {},
 ): IElectronAPI & {diagnostics: IPreloadDiagnosticsApi;} {
-    const invokeDocuments = (channel: string, ...args: unknown[]) => ipcRenderer.invoke(channel, ...args) as Promise<boolean>;
+    type TDocumentsFileOpenGrantChannel =
+        | typeof DOCUMENTS_CHANNELS.registerRendererFileOpenToken
+        | typeof DOCUMENTS_CHANNELS.registerRendererFileOpenTokens
+        | typeof DOCUMENTS_CHANNELS.allowRendererFileOpen
+        | typeof DOCUMENTS_CHANNELS.allowRendererFileOpenBatch;
+    const invokeDocuments = <TChannel extends TDocumentsFileOpenGrantChannel>(
+        channel: TChannel,
+        ...args: IDocumentsDirectInvokeMap[TChannel]['args']
+    ) => ipcRenderer.invoke(channel, ...args) as Promise<IDocumentsDirectInvokeMap[TChannel]['result']>;
     const eventSubscriber = createTypedIpcEventSubscriber<ICoreEventMap>(ipcRenderer);
-    const sharedFeatureEventSubscriber = eventSubscriber as unknown as ReturnType<typeof createTypedIpcEventSubscriber<Record<string, unknown>>>;
+    const sharedEventSubscriber = eventSubscriber.shared;
     const documentStreams = createDocumentsPreloadStreams(ipcRenderer);
     const documentOpenFeature = createPlatformFeaturePreloadClient(
         ipcRenderer,
         DOCUMENT_OPEN_PLATFORM_FEATURE,
         undefined,
-        sharedFeatureEventSubscriber,
+        sharedEventSubscriber,
     );
-    const pageOps = createPlatformFeaturePreloadClient(ipcRenderer, PAGE_OPS_PLATFORM_FEATURE, undefined, sharedFeatureEventSubscriber);
-    const imageExport = createPlatformFeaturePreloadClient(ipcRenderer, IMAGE_EXPORT_PLATFORM_FEATURE, undefined, sharedFeatureEventSubscriber);
-    const ocr = createPlatformFeaturePreloadClient(ipcRenderer, OCR_PLATFORM_FEATURE, undefined, sharedFeatureEventSubscriber);
-    const settingsIpc = createPlatformFeaturePreloadClient(ipcRenderer, SETTINGS_PLATFORM_FEATURE, undefined, sharedFeatureEventSubscriber);
-    const updatesIpc = createPlatformFeaturePreloadClient(ipcRenderer, UPDATES_PLATFORM_FEATURE, undefined, sharedFeatureEventSubscriber);
-    const hostIpc = createPlatformFeaturePreloadClient(ipcRenderer, HOST_PLATFORM_FEATURE, {getResourceProfile: () => options.resourceProfile ?? null}, sharedFeatureEventSubscriber);
+    const pageOps = createPlatformFeaturePreloadClient(ipcRenderer, PAGE_OPS_PLATFORM_FEATURE, undefined, sharedEventSubscriber);
+    const imageExport = createPlatformFeaturePreloadClient(ipcRenderer, IMAGE_EXPORT_PLATFORM_FEATURE, undefined, sharedEventSubscriber);
+    const ocr = createPlatformFeaturePreloadClient(ipcRenderer, OCR_PLATFORM_FEATURE, undefined, sharedEventSubscriber);
+    const settingsIpc = createPlatformFeaturePreloadClient(ipcRenderer, SETTINGS_PLATFORM_FEATURE, undefined, sharedEventSubscriber);
+    const updatesIpc = createPlatformFeaturePreloadClient(ipcRenderer, UPDATES_PLATFORM_FEATURE, undefined, sharedEventSubscriber);
+    const hostIpc = createPlatformFeaturePreloadClient(ipcRenderer, HOST_PLATFORM_FEATURE, {getResourceProfile: () => options.resourceProfile ?? null}, sharedEventSubscriber);
     const systemIpc = createPlatformFeaturePreloadClient(
         ipcRenderer,
         SYSTEM_PLATFORM_FEATURE,
         {getMemoryInfo: readSystemMemoryInfo},
-        sharedFeatureEventSubscriber,
+        sharedEventSubscriber,
     );
-    const windowTabsIpc = createPlatformFeaturePreloadClient(ipcRenderer, WINDOW_TABS_PLATFORM_FEATURE, undefined, sharedFeatureEventSubscriber);
+    const windowTabsIpc = createPlatformFeaturePreloadClient(ipcRenderer, WINDOW_TABS_PLATFORM_FEATURE, undefined, sharedEventSubscriber);
     const shutdownSaveFlushCallbacks = new Set<() => Promise<{
         dirtyWorkingCopyPaths?: string[];
         flushedWorkingCopyPaths?: string[];
@@ -467,13 +478,13 @@ export function createElectronApi(
             getPathsForFiles,
             registerFilesForOpen,
         },
-        sharedFeatureEventSubscriber,
+        sharedEventSubscriber,
     ) satisfies IDocumentsPickerCapability;
     const recentFilesIpc = createPlatformFeaturePreloadClient(
         ipcRenderer,
         DOCUMENT_RECENT_FILES_PLATFORM_FEATURE,
         undefined,
-        sharedFeatureEventSubscriber,
+        sharedEventSubscriber,
     );
     const recentFiles = {
         ...recentFilesIpc,
@@ -484,13 +495,13 @@ export function createElectronApi(
         ipcRenderer,
         DOCUMENT_WINDOW_PLATFORM_FEATURE,
         undefined,
-        sharedFeatureEventSubscriber,
+        sharedEventSubscriber,
     ) satisfies IDocumentsWindowCapability;
     const documentMenu = createPlatformFeaturePreloadClient(
         ipcRenderer,
         DOCUMENT_MENU_PLATFORM_FEATURE,
         undefined,
-        sharedFeatureEventSubscriber,
+        sharedEventSubscriber,
     );
     const documentOpen = {
         openDocumentDirect,
@@ -503,14 +514,14 @@ export function createElectronApi(
         ipcRenderer,
         DOCUMENT_WORKING_COPY_PLATFORM_FEATURE,
         undefined,
-        sharedFeatureEventSubscriber,
+        sharedEventSubscriber,
     ) satisfies IDocumentsWorkingCopyCapability;
     const documentFiles = {
         ...createPlatformFeaturePreloadClient(
             ipcRenderer,
             DOCUMENT_FILES_PLATFORM_FEATURE,
             {savePdfData: documentStreams.savePdfData},
-            sharedFeatureEventSubscriber,
+            sharedEventSubscriber,
         ),
         beginDocxFileStream: documentStreams.beginDocxFileStream,
         writeDocxFileStreamChunk: documentStreams.writeDocxFileStreamChunk,
@@ -521,7 +532,7 @@ export function createElectronApi(
         ipcRenderer,
         DOCUMENT_PDF_PLATFORM_FEATURE,
         undefined,
-        sharedFeatureEventSubscriber,
+        sharedEventSubscriber,
     ) satisfies IDocumentsPdfCapability;
     const api = {
         documentPicker,
@@ -536,11 +547,11 @@ export function createElectronApi(
         imageExport,
 
         ocr,
-        scanCleanup: createPlatformFeaturePreloadClient(ipcRenderer, SCAN_CLEANUP_PLATFORM_FEATURE, {getSupport: () => FULL_SCAN_CLEANUP_SUPPORT}, sharedFeatureEventSubscriber),
+        scanCleanup: createPlatformFeaturePreloadClient(ipcRenderer, SCAN_CLEANUP_PLATFORM_FEATURE, {getSupport: () => FULL_SCAN_CLEANUP_SUPPORT}, sharedEventSubscriber),
 
-        search: createPlatformFeaturePreloadClient(ipcRenderer, SEARCH_PLATFORM_FEATURE, undefined, sharedFeatureEventSubscriber),
+        search: createPlatformFeaturePreloadClient(ipcRenderer, SEARCH_PLATFORM_FEATURE, undefined, sharedEventSubscriber),
 
-        djvu: createPlatformFeaturePreloadClient(ipcRenderer, DJVU_PLATFORM_FEATURE, undefined, sharedFeatureEventSubscriber),
+        djvu: createPlatformFeaturePreloadClient(ipcRenderer, DJVU_PLATFORM_FEATURE, undefined, sharedEventSubscriber),
 
         settings: {
             ...settingsIpc,
@@ -580,11 +591,11 @@ export function createElectronApi(
                 eventSubscriber.onNoArg(CORE_IPC_EVENT_CHANNELS.menuCheckForUpdates, callback),
         },
 
-        shell: createPlatformFeaturePreloadClient(ipcRenderer, SHELL_PLATFORM_FEATURE, undefined, sharedFeatureEventSubscriber),
+        shell: createPlatformFeaturePreloadClient(ipcRenderer, SHELL_PLATFORM_FEATURE, undefined, sharedEventSubscriber),
 
         host: hostIpc,
 
-        agent: createPlatformFeaturePreloadClient(ipcRenderer, AGENT_PLATFORM_FEATURE, undefined, sharedFeatureEventSubscriber),
+        agent: createPlatformFeaturePreloadClient(ipcRenderer, AGENT_PLATFORM_FEATURE, undefined, sharedEventSubscriber),
 
         windowTabs: {
             ...windowTabsIpc,

@@ -67,9 +67,13 @@ export async function resizeElectronWindowContentArea(
     );
 
     const before = await readElectronWindowMetrics(page);
-    const windowState = await page.evaluate((requested: IElectronWindowSize) => (
-        (window as Window & {electronAPI: {host: IHostCapability;};}).electronAPI.host.restoreNormalWindow(requested)
-    ), contentSize);
+    const windowState = await page.evaluate((requested: IElectronWindowSize) => {
+        const host = (window as Window & {electronAPI?: {host?: IHostCapability;};}).electronAPI?.host;
+        if (!host) {
+            throw new Error('electronAPI.host is unavailable');
+        }
+        return host.restoreNormalWindow(requested);
+    }, contentSize);
     if (!windowState.supported || windowState.fullScreen || windowState.maximized) {
         throw new Error(
             'The window did not leave its native placement before the resize '

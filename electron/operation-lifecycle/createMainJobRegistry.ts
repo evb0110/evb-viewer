@@ -371,6 +371,13 @@ export function createMainJobRegistry<
         const terminal = new Promise<TTerminal>(resolve => { resolveTerminal = resolve; });
         const settled = new Promise<void>(resolve => { resolveSettled = resolve; });
         const createdAtMs = now(); const owner = ownerOf(startOptions.owner);
+        const handle: THandle = {
+            jobId,
+            signal,
+            terminal,
+            settled,
+            cancel: reason => requestCancel(record, reason),
+        };
         const record: IRecord = {
             actor: startOptions.owner,
             owner,
@@ -388,20 +395,13 @@ export function createMainJobRegistry<
                 updatedAtMs: createdAtMs,
             },
             subscribers: new Set(),
-            handle: undefined as never,
+            handle,
             resolveTerminal,
             cancelPromise: Promise.resolve(),
             cleanupSignals: [],
             terminalAtMs: null,
             retentionTimer: null,
             settled: false,
-        };
-        record.handle = {
-            jobId,
-            signal,
-            terminal,
-            settled,
-            cancel: reason => requestCancel(record, reason),
         };
         records.set(jobId, record);
         cancelHooks.set(record, startOptions.onCancel); bind(record); emit(record);

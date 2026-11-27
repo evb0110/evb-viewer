@@ -41,6 +41,17 @@ const requiredInBrowser = {
     electron: false,
 } as const satisfies Record<TPlatformBackend, boolean>;
 
+/**
+ * Platform API methods that remain outside `definePlatformFeature` specs
+ * (direct DOCX stream invokes, preload-local debug logging, and core IPC
+ * handshake/readiness channels).
+ *
+ * Removal condition: delete each entry once its owning feature spec models
+ * that transport (streamed direct-IPC methods, preload-local callbacks, or
+ * one-way `ipcRenderer.send` channels), and delete `legacyMethodPaths` and
+ * the `methods` table of `LEGACY_PLATFORM_API_DESCRIPTOR_WITHOUT_MIGRATED_FEATURES`
+ * once every entry lives in `PLATFORM_FEATURE_REGISTRY`.
+ */
 const legacyMethodPaths = [
     [
         'documentFiles',

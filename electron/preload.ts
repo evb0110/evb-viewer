@@ -16,7 +16,10 @@ import {
 } from '@electron/preload/preloadLog';
 import { installStartupOverlayLifecycle } from '@electron/preload/installStartupOverlayLifecycle';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
-import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
+import {
+    UPDATES_PLATFORM_FEATURE,
+    decodeAppUpdateStatus,
+} from '@contracts/updatesPlatformFeature';
 import { readHostResourceProfileArgument } from '@electron/preload/readHostResourceProfileArgument';
 import { readHostEnvironmentArgument } from '@electron/preload/readHostEnvironmentArgument';
 import { readUiScalePreferenceArgument } from '@electron/preload/readUiScalePreferenceArgument';
@@ -90,10 +93,14 @@ if (isRendererAutomationFileOpenHelperEnabled()) {
         return true;
     });
     // Replays an update status through the renderer's own `updates:status`
-    // subscription, which still validates it. Unpackaged Linux builds never
-    // reach an update offer, so this is how E2E presents one.
+    // subscription after validating the automation-supplied frame. Unpackaged
+    // Linux builds never reach an update offer, so this is how E2E presents one.
     contextBridge.exposeInMainWorld('__emitUpdateStatusForAutomation', (status: unknown) => {
-        ipcRenderer.emit(UPDATES_PLATFORM_FEATURE.events.onStatus.channel, {}, status);
+        const decoded = decodeAppUpdateStatus(status);
+        if (decoded === null) {
+            throw new Error('Invalid automation update status payload');
+        }
+        ipcRenderer.emit(UPDATES_PLATFORM_FEATURE.events.onStatus.channel, {}, decoded);
     });
     // Runs an application-menu item as its accelerator would; synthesized
     // key events never reach the native menu on macOS.

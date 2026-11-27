@@ -344,6 +344,14 @@ function acknowledgeGlobalPreferences(settings: IScanCleanupGlobalPreferences, r
     }
 }
 
+function copyGlobalPreferenceField<TKey extends keyof IScanCleanupGlobalPreferences>(
+    target: IScanCleanupGlobalPreferences,
+    source: IScanCleanupGlobalPreferences,
+    key: TKey,
+) {
+    target[key] = cloneScanCleanupPreferenceValue(source[key]);
+}
+
 function applyCommittedGlobalPreferences(settings: IScanCleanupGlobalPreferences, requestId?: TRequestId) {
     acknowledgeGlobalPreferences(settings, requestId);
     acknowledgedPreferences = cloneScanCleanupPreferenceValue(settings);
@@ -353,7 +361,7 @@ function applyCommittedGlobalPreferences(settings: IScanCleanupGlobalPreferences
     applyingRemotePreferences = true;
     for (const key of Object.keys(settings) as Array<keyof IScanCleanupGlobalPreferences>) {
         if (!pendingGlobalFields.has(key)) {
-            preferences[key] = cloneScanCleanupPreferenceValue(settings[key]) as never;
+            copyGlobalPreferenceField(preferences, settings, key);
         }
     }
     applyingRemotePreferences = false;

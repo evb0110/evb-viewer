@@ -27,6 +27,10 @@ import {
     DOCUMENTS_CHANNELS,
     DOCUMENTS_EVENT_CHANNELS,
 } from '@electron/features/documents/contract';
+import type {
+    IDocumentsDirectInvokeMap,
+    IRendererFileOpenRequest,
+} from '@electron/features/documents/createDocumentsPreloadStreams';
 import {
     attachSerializedPdfPersistencePort,
     registerDocumentRevisionEventBridge,
@@ -177,10 +181,6 @@ import {
 } from '@electron/features/documents/main/serializedPdfPersistence';
 
 interface IRendererFileOpenToken {expiresAtMs: number;}
-interface IRendererFileOpenRequest {
-    filePath: string;
-    token: string;
-}
 
 const RENDERER_FILE_OPEN_TOKEN_TTL_MS = 5 * 60 * 1000;
 const RENDERER_FILE_OPEN_PATH_CHECK_TIMEOUT_MS = 5_000;
@@ -320,7 +320,7 @@ function decodeRendererFileOpenRequest(value: unknown): IRendererFileOpenRequest
     };
 }
 
-function decodeStagedSerializedPdfArgs(args: readonly unknown[]) {
+function decodeStagedSerializedPdfArgs(args: readonly unknown[]): [TSessionId, ITypedStagedArtifact] {
     const stagedOutput = v.safeParse(TYPED_STAGED_ARTIFACT_SCHEMA, args[1], {abortEarly: true});
     if (!stagedOutput.success) throw new Error('stagedOutput must be a typed staged artifact');
     return [
@@ -329,7 +329,7 @@ function decodeStagedSerializedPdfArgs(args: readonly unknown[]) {
     ];
 }
 
-function decodeSessionIdArgs(args: readonly unknown[]) {
+function decodeSessionIdArgs(args: readonly unknown[]): [TSessionId] {
     return [requireSessionId(decodeStringArg(args, 0, 'sessionId'))];
 }
 
@@ -347,20 +347,28 @@ const savePdfDataBeginArgsSchema = v.pipe(
         path,
         totalBytes,
         revisionOptions,
-    ]) => revisionOptions === undefined || revisionOptions === null
-        ? [
-            path,
-            totalBytes,
-        ]
-        : [
-            path,
-            totalBytes,
-            revisionOptions,
-        ]),
+    ]): IDocumentsDirectInvokeMap[typeof DOCUMENTS_CHANNELS.fileSavePdfDataBegin]['args'] => (
+        revisionOptions === undefined || revisionOptions === null
+            ? [
+                path,
+                totalBytes,
+            ]
+            : [
+                path,
+                totalBytes,
+                revisionOptions,
+            ]
+    )),
 );
 
+type TDocumentsDirectArgDecoders = {
+    [TChannel in keyof IDocumentsDirectInvokeMap]: {
+        decodeArgs: (args: readonly unknown[]) => IDocumentsDirectInvokeMap[TChannel]['args'];
+    };
+};
+
 /** Argument decoders for the channels outside the platform-feature specs. */
-export const DOCUMENTS_DIRECT_ARG_DECODERS: Record<string, {decodeArgs: (args: readonly unknown[]) => unknown[]}> = {
+export const DOCUMENTS_DIRECT_ARG_DECODERS: TDocumentsDirectArgDecoders = {
     [DOCUMENTS_CHANNELS.registerRendererFileOpenToken]: {decodeArgs: args => [decodeStringArg(args, 0, 'token')]},
     [DOCUMENTS_CHANNELS.registerRendererFileOpenTokens]: {decodeArgs: args => [decodeStringArrayArg(args, 0, 'tokens')]},
     [DOCUMENTS_CHANNELS.allowRendererFileOpen]: {decodeArgs: args => [decodeRendererFileOpenRequest(args[0])]},
@@ -622,7 +630,7 @@ export const documentsMainBindings = {
  * document events.
  */
 export function registerDocumentsDirectIpc(
-    registrar: IIpcMainRegistrar<never, IpcMainInvokeEvent>,
+    registrar: IIpcMainRegistrar<IDocumentsDirectInvokeMap, IpcMainInvokeEvent>,
     eventRegistrar: {on: (channel: string, handler: (event: IpcMainEvent, ...args: unknown[]) => void) => void},
 ) {
     registerDocumentRevisionEventBridge();

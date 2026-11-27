@@ -10,7 +10,10 @@ import {
     DOCUMENTS_EVENT_CHANNELS,
 } from '@electron/features/documents/contract';
 import {DOCX_EXPORT_STREAM_CHANNELS} from '@contracts/docxExport';
-import {DOCUMENT_PLATFORM_FEATURES} from '@contracts/documentsPlatformFeature';
+import {
+    DOCUMENT_PLATFORM_FEATURES,
+    type DOCUMENT_FILES_PLATFORM_FEATURE,
+} from '@contracts/documentsPlatformFeature';
 import {AGENT_PLATFORM_FEATURE} from '@contracts/agentPlatformFeature';
 import {IMAGE_EXPORT_PLATFORM_FEATURE} from '@contracts/imageExportPlatformFeature';
 import {OCR_PLATFORM_FEATURE} from '@contracts/ocrPlatformFeature';
@@ -25,6 +28,7 @@ import {DJVU_PLATFORM_FEATURE} from '@contracts/djvuPlatformFeature';
 import {WINDOW_TABS_PLATFORM_FEATURE} from '@contracts/windowTabsPlatformFeature';
 import type {
     TAnyDefinedPlatformFeature,
+    TFeatureEventMap,
     TFeatureMainBindings,
 } from '@contracts/platformFeature';
 import type {ICoreIpcHandlerOptions} from '@electron/platform-ipc/registerCoreIpcHandlers';
@@ -76,6 +80,9 @@ let documentsRuntimePromise: Promise<ILoadedDocumentsRuntime> | null = null;
 let loadedDocumentsRuntime: ILoadedDocumentsRuntime | null = null;
 let unsubscribePreloadRevisionBridge: (() => void) | null = null;
 
+type TDocumentRevisionChangedPayload =
+    TFeatureEventMap<typeof DOCUMENT_FILES_PLATFORM_FEATURE>[typeof DOCUMENTS_EVENT_CHANNELS.documentRevisionChanged];
+
 function installPreloadDocumentRevisionBridge(context: IFeatureRegistrationContext) {
     if (unsubscribePreloadRevisionBridge || loadedDocumentsRuntime) {
         return;
@@ -86,7 +93,10 @@ function installPreloadDocumentRevisionBridge(context: IFeatureRegistrationConte
                 continue;
             }
             try {
-                window.webContents.send(DOCUMENTS_EVENT_CHANNELS.documentRevisionChanged, event);
+                window.webContents.send(
+                    DOCUMENTS_EVENT_CHANNELS.documentRevisionChanged,
+                    event satisfies TDocumentRevisionChangedPayload,
+                );
             } catch (error) {
                 featureRegistrationLogger.debug(`Failed to send document revision event: ${getErrorMessage(error)}`);
             }
