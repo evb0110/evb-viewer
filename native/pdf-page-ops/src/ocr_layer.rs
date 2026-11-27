@@ -949,11 +949,13 @@ fn seed_ocr_font_cache<S>(
     }
 }
 
-/// Writes every instruction's page into the incremental revision. `load_source`
-/// returns the Tesseract page PDF an instruction names, by path or by index.
-fn apply_ocr_text_layer<S>(
+/// Writes every instruction's page into the incremental revision using a
+/// pre-built `PageTreeResolver`. `load_source` returns the Tesseract page PDF
+/// an instruction names, by path or by index.
+fn apply_ocr_text_layer_with_resolver<S>(
     incremental: &mut IncrementalDocument,
     structural: Option<StructuralSource<'_>>,
+    resolver: &PageTreeResolver,
     pages: &[OcrTextLayerPage<S>],
     font_cache: &mut OcrFontCache,
     mut load_source: impl FnMut(&S) -> Result<Document>,
@@ -962,8 +964,7 @@ fn apply_ocr_text_layer<S>(
         incremental.get_prev_documents(),
         "Encrypted PDFs are not supported by native page ops",
     )?;
-    let resolver = PageTreeResolver::new(&incremental.previous_document)?;
-    seed_ocr_font_cache(incremental, structural, &resolver, pages, font_cache);
+    seed_ocr_font_cache(incremental, structural, resolver, pages, font_cache);
     for page in pages {
         let mut source = load_source(&page.source)?;
         let source_resolver = PageTreeResolver::new(&source)?;
@@ -1005,8 +1006,9 @@ fn apply_ocr_text_layer<S>(
 /// Appends the text layer `instructions` describe to the PDF at
 /// `input_path`, whose pages it reads through the file's index, and replaces
 /// `output_path` with the result once it is verified. Large documents stream in
-/// bounded batches onto the single staged output file so memory stays bounded
-/// while sharing one deduplicated OCR font across every batch.
+/// bounded batches onto the single staged output file, retaining the parsed
+/// base xref and page-tree state in memory across batches while sharing one
+/// deduplicated OCR font.
 pub(crate) fn write_ocr_text_layer_path(
     input_path: &Path,
     output_path: &Path,
@@ -1021,47 +1023,77 @@ pub(crate) fn write_ocr_text_layer_path(
         .ok_or("ocr-text-layer requires at least one page")?;
     let mut font_cache = OcrFontCache::default();
     let (file, len) = open_source_file(input_path)?;
-    let (mut first_incremental, _) =
-        ocr_text_layer_base(file, len, first_batch, &mut font_cache, |path: &PathBuf| {
-            load_ocr_source(path)
-        })?;
-    let first_revision_bytes = build_incremental_revision(&mut first_incremental)?;
-    let first_expected_object_ids = collect_incremental_append_object_ids(&first_incremental);
+    let mut source_pdf = SourcePdf::open_append_base(file, len)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    let mut xref_budget = source_pdf.xref_budget();
+    let mut incremental = source_pdf.take_append_base()?;
+    let resolver = PageTreeResolver::new(&incremental.previous_document)?;
+    apply_ocr_text_layer_with_resolver(
+        &mut incremental,
+        Some(&source_pdf as StructuralSource),
+        &resolver,
+        first_batch,
+        &mut font_cache,
+        |path: &PathBuf| load_ocr_source(path),
+    )?;
+    let first_revision_bytes = build_incremental_revision(&mut incremental)?;
+    let first_expected_object_ids = collect_incremental_append_object_ids(&incremental);
+    let mut first_next_budget = xref_budget;
+    incremental.check_xref_budget(
+        &mut first_next_budget,
+        &first_revision_bytes,
+        &first_expected_object_ids,
+    )?;
     let mut first_pending = Some((
-        first_incremental,
         first_revision_bytes,
         first_expected_object_ids,
+        first_next_budget,
     ));
     with_staged_incremental_output_for_revision(
         input_path,
         output_path,
         Some(&source_witness),
-        |staged_output_path| {
-            if let Some((incremental, revision_bytes, expected_object_ids)) = first_pending.take() {
+        move |staged_output_path| {
+            // Rebind stream range reads to the private staged snapshot so later
+            // batches never read from `input_path` after staging and no handle
+            // to `input_path` remains open across atomic publication.
+            let staged_file = File::open(staged_output_path).map_err(io_domain_error)?;
+            let source_pdf = source_pdf.with_byte_source(staged_file);
+            if let Some((revision_bytes, expected_object_ids, next_budget)) = first_pending.take() {
                 write_incremental_revision(
                     staged_output_path,
                     &incremental,
                     &revision_bytes,
                     &expected_object_ids,
                 )?;
+                incremental.advance_verified_revision_bytes(&revision_bytes)?;
+                xref_budget = next_budget;
             }
             for batch in batches {
-                let (staged_file, staged_len) = open_source_file(staged_output_path)?;
-                let (mut incremental, _) = ocr_text_layer_base(
-                    staged_file,
-                    staged_len,
+                apply_ocr_text_layer_with_resolver(
+                    &mut incremental,
+                    Some(&source_pdf as StructuralSource),
+                    &resolver,
                     batch,
                     &mut font_cache,
                     |path: &PathBuf| load_ocr_source(path),
                 )?;
                 let revision_bytes = build_incremental_revision(&mut incremental)?;
                 let expected_object_ids = collect_incremental_append_object_ids(&incremental);
+                let mut next_budget = xref_budget;
+                incremental.check_xref_budget(
+                    &mut next_budget,
+                    &revision_bytes,
+                    &expected_object_ids,
+                )?;
                 write_incremental_revision(
                     staged_output_path,
                     &incremental,
                     &revision_bytes,
                     &expected_object_ids,
                 )?;
+                incremental.advance_verified_revision_bytes(&revision_bytes)?;
+                xref_budget = next_budget;
             }
             Ok(())
         },
@@ -1070,6 +1102,7 @@ pub(crate) fn write_ocr_text_layer_path(
 
 /// The append base `source` holds, with the text layer `pages` write
 /// into it, and the document's page count.
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 fn ocr_text_layer_base<S: ByteSource, P>(
     source: S,
     len: u64,
@@ -1082,9 +1115,11 @@ fn ocr_text_layer_base<S: ByteSource, P>(
     let mut incremental = source.take_append_base()?;
     let page_count = u32::try_from(incremental.previous_document.get_pages().len())
         .map_err(|_| "PDF page count exceeds the response range")?;
-    apply_ocr_text_layer(
+    let resolver = PageTreeResolver::new(&incremental.previous_document)?;
+    apply_ocr_text_layer_with_resolver(
         &mut incremental,
         Some(&source as StructuralSource),
+        &resolver,
         pages,
         font_cache,
         load_source,
@@ -1135,13 +1170,13 @@ pub(crate) fn ocr_text_layer_to_source<S: ByteSource>(
 }
 
 /// Desktop host-file `ocr-text-layer`: streams `OCR_STREAMING_BATCH_PAGES`
-/// (64-page) batches onto the sink file with one shared `OcrFontCache`,
-/// matching native `write_ocr_text_layer_path`.
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
-pub(crate) fn ocr_text_layer_to_source_batched<S: ByteSource, K: ByteSource>(
+/// (64-page) batches onto the sink file with one shared `OcrFontCache` and one
+/// retained append base, advancing `/Prev`, the object allocator, and visible
+/// sink length only after `write_at` and readback verification succeed.
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+pub(crate) fn ocr_text_layer_to_source_batched<S: ByteSource>(
     source: S,
     len: u64,
-    sink_source: impl Fn() -> K,
     instructions: &[u8],
     page_pdf: impl Fn(usize) -> Result<Vec<u8>>,
     mut write_at: impl FnMut(u64, &[u8]) -> Result<Vec<u8>>,
@@ -1149,10 +1184,6 @@ pub(crate) fn ocr_text_layer_to_source_batched<S: ByteSource, K: ByteSource>(
     let instructions: OcrTextLayerFile<usize> =
         parse_json_sidecar_bytes(instructions, "OCR text-layer instructions")?;
     validate_ocr_text_layer(&instructions)?;
-    let mut batches = instructions.pages.chunks(OCR_STREAMING_BATCH_PAGES);
-    let first_batch = batches
-        .next()
-        .ok_or("ocr-text-layer requires at least one page")?;
     let mut font_cache = OcrFontCache::default();
     let load_page = |&index: &usize| -> Result<Document> {
         let bytes = page_pdf(index)?;
@@ -1164,42 +1195,46 @@ pub(crate) fn ocr_text_layer_to_source_batched<S: ByteSource, K: ByteSource>(
         }
         checked_ocr_source(load_pdf_bytes(&bytes))
     };
-    let (page_count, mut current_len) = {
-        let (mut first_incremental, page_count) =
-            ocr_text_layer_base(source, len, first_batch, &mut font_cache, load_page)?;
-        let first_revision = appended_revision_bytes(&mut first_incremental)?;
-        let first_written = write_at(len, &first_revision)?;
-        validate_incremental_append_bytes(
-            &first_written,
-            len,
-            first_incremental.previous_xref_start(),
-            &collect_incremental_append_object_ids(&first_incremental),
-        )?;
-        let next_len = len
-            .checked_add(first_revision.len() as u64)
-            .ok_or("OCR incremental output size overflow")?;
-        (page_count, next_len)
-    };
+    let mut source_pdf = SourcePdf::open_append_base(source, len)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    let mut xref_budget = source_pdf.xref_budget();
+    let mut incremental = source_pdf.take_append_base()?;
+    let resolver = PageTreeResolver::new(&incremental.previous_document)?;
+    let page_count = u32::try_from(incremental.previous_document.get_pages().len())
+        .map_err(|_| "PDF page count exceeds the response range")?;
+    let mut current_len = len;
 
-    for batch in batches {
-        let (mut incremental, _) = ocr_text_layer_base(
-            sink_source(),
-            current_len,
+    for batch in instructions.pages.chunks(OCR_STREAMING_BATCH_PAGES) {
+        apply_ocr_text_layer_with_resolver(
+            &mut incremental,
+            Some(&source_pdf as StructuralSource),
+            &resolver,
             batch,
             &mut font_cache,
             load_page,
         )?;
         let revision = appended_revision_bytes(&mut incremental)?;
+        let expected_object_ids = collect_incremental_append_object_ids(&incremental);
+        let mut next_budget = xref_budget;
+        incremental.check_xref_budget(&mut next_budget, &revision, &expected_object_ids)?;
         let written = write_at(current_len, &revision)?;
         validate_incremental_append_bytes(
             &written,
             current_len,
             incremental.previous_xref_start(),
-            &collect_incremental_append_object_ids(&incremental),
+            &expected_object_ids,
         )?;
-        current_len = current_len
-            .checked_add(revision.len() as u64)
+        if written != revision {
+            return Err(
+                "OCR incremental append readback bytes do not match written revision".into(),
+            );
+        }
+        let next_len = current_len
+            .checked_add(u64::try_from(revision.len())?)
             .ok_or("OCR incremental output size overflow")?;
+        incremental.advance_verified_revision_bytes(&revision)?;
+        xref_budget = next_budget;
+        current_len = next_len;
     }
     Ok(page_count)
 }
@@ -2300,5 +2335,391 @@ BT\n/F 34 Tf\n1 0 0 1 1000 2863 Tm\n<017F0069> Tj\nET\nQ\n% EVB_VIEWER_OCR_LAYER
             "OcrTextVisibilitySession must open the PDF source graph exactly once across all windows"
         );
         assert_eq!(collected, reference.pages);
+    }
+
+    fn blank_target_pdf_classic_xref(page_count: usize) -> Vec<u8> {
+        let mut doc = Document::with_version("1.5");
+        let pages_id = doc.new_object_id();
+        let page_ids: Vec<ObjectId> = (0..page_count)
+            .map(|_| {
+                doc.add_object(dictionary! {
+                    "Type" => "Page",
+                    "Parent" => pages_id,
+                    "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+                    "Resources" => dictionary! {},
+                })
+            })
+            .collect();
+        doc.set_object(
+            pages_id,
+            dictionary! {
+                "Type" => "Pages",
+                "Kids" => page_ids.into_iter().map(Object::Reference).collect::<Vec<_>>(),
+                "Count" => page_count as i64,
+            },
+        );
+        let catalog_id = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+        doc.trailer.set("Root", catalog_id);
+        doc.reference_table.cross_reference_type = lopdf::xref::XrefType::CrossReferenceTable;
+        let mut bytes = Vec::new();
+        doc.save_to(&mut bytes).unwrap();
+        bytes
+    }
+
+    fn blank_target_pdf_xref_stream(page_count: usize) -> Vec<u8> {
+        let mut doc = Document::with_version("1.5");
+        let pages_id = doc.new_object_id();
+        let page_ids: Vec<ObjectId> = (0..page_count)
+            .map(|_| {
+                doc.add_object(dictionary! {
+                    "Type" => "Page",
+                    "Parent" => pages_id,
+                    "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+                    "Resources" => dictionary! {},
+                })
+            })
+            .collect();
+        doc.set_object(
+            pages_id,
+            dictionary! {
+                "Type" => "Pages",
+                "Kids" => page_ids.into_iter().map(Object::Reference).collect::<Vec<_>>(),
+                "Count" => page_count as i64,
+            },
+        );
+        let catalog_id = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+        doc.trailer.set("Root", catalog_id);
+        doc.reference_table.cross_reference_type = lopdf::xref::XrefType::CrossReferenceStream;
+        let mut bytes = Vec::new();
+        doc.save_modern(&mut bytes).unwrap();
+        bytes
+    }
+
+    fn empty_ocr_page_pdf() -> Vec<u8> {
+        let mut doc = Document::with_version("1.5");
+        let pages_id = doc.new_object_id();
+        let page_id = doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+            "Resources" => dictionary! {},
+        });
+        doc.set_object(
+            pages_id,
+            dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![Object::Reference(page_id)],
+                "Count" => 1,
+            },
+        );
+        let catalog_id = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+        doc.trailer.set("Root", catalog_id);
+        let mut bytes = Vec::new();
+        doc.save_to(&mut bytes).unwrap();
+        bytes
+    }
+
+    #[test]
+    fn batched_ocr_retains_base_across_batches_and_preserves_xref_chain_for_classic_and_xref_stream(
+    ) {
+        let total_pages = OCR_STREAMING_BATCH_PAGES * 2 + 3; // 3 batches: 64 + 64 + 3
+        let font_bytes = b"batched-retained-base-pdf-ttf-payload".repeat(32);
+        let page_pdfs: Vec<Vec<u8>> = (1..=total_pages)
+            .map(|page| {
+                glyphless_tesseract_page_pdf(&format!("MultiBatch{page}"), &font_bytes, 500)
+            })
+            .collect();
+        let instructions = serde_json::json!({
+            "pages": (1..=total_pages)
+                .map(|page| serde_json::json!({ "pageNumber": page, "source": page - 1 }))
+                .collect::<Vec<_>>()
+        })
+        .to_string();
+
+        for (label, expect_classic, base) in [
+            (
+                "classic-xref",
+                true,
+                blank_target_pdf_classic_xref(total_pages),
+            ),
+            (
+                "xref-stream",
+                false,
+                blank_target_pdf_xref_stream(total_pages),
+            ),
+        ] {
+            let base_xref = parse_number_after_last_marker(&base, b"startxref").unwrap();
+            assert_eq!(
+                base[base_xref as usize..].starts_with(b"xref"),
+                expect_classic,
+                "{label}: base PDF xref format mismatch"
+            );
+            let mut sink = base.clone();
+            let mut batch_boundaries: Vec<(u64, usize)> = Vec::new();
+
+            crate::pdf_source::reset_source_pdf_open_count();
+            let returned_pages = ocr_text_layer_to_source_batched(
+                base.as_slice(),
+                base.len() as u64,
+                instructions.as_bytes(),
+                |index| Ok(page_pdfs[index].clone()),
+                |offset, revision| {
+                    assert_eq!(
+                        offset,
+                        sink.len() as u64,
+                        "{label}: write_at offset must match committed sink length"
+                    );
+                    batch_boundaries.push((offset, revision.len()));
+                    sink.extend_from_slice(revision);
+                    Ok(revision.to_vec())
+                },
+            )
+            .unwrap();
+            assert_eq!(returned_pages as usize, total_pages);
+            assert_eq!(
+                crate::pdf_source::source_pdf_open_count(),
+                1,
+                "{label}: batched OCR must open SourcePdf exactly once across all 3 batches"
+            );
+            assert_eq!(batch_boundaries.len(), 3, "{label}: expected 3 batches");
+
+            // Verify every batch's incremental xref chain links cleanly via /Prev back to base_xref,
+            // matches the expected classic vs xref-stream format, and every prefix ending at a batch
+            // boundary is independently readable.
+            let mut expected_prev = base_xref;
+            for (batch_idx, &(offset, rev_len)) in batch_boundaries.iter().enumerate() {
+                let end = offset as usize + rev_len;
+                let revision = &sink[offset as usize..end];
+                let prev = parse_number_after_last_marker(revision, b"/Prev")
+                    .unwrap_or_else(|| panic!("{label} batch {batch_idx} missing /Prev"));
+                assert_eq!(
+                    prev, expected_prev,
+                    "{label} batch {batch_idx} /Prev must point to prior revision's startxref"
+                );
+                let startxref = parse_number_after_last_marker(revision, b"startxref")
+                    .unwrap_or_else(|| panic!("{label} batch {batch_idx} missing startxref"));
+                assert!(
+                    startxref >= offset && startxref < end as u64,
+                    "{label} batch {batch_idx} startxref out of range"
+                );
+                assert_eq!(
+                    revision[(startxref - offset) as usize..].starts_with(b"xref"),
+                    expect_classic,
+                    "{label} batch {batch_idx}: emitted xref format mismatch"
+                );
+                expected_prev = startxref;
+
+                // Each cumulative prefix must open cleanly through both lopdf and SourcePdf.
+                let prefix = &sink[..end];
+                let reopened = Document::load_mem(prefix).unwrap_or_else(|err| {
+                    panic!("{label} batch {batch_idx} prefix invalid: {err}")
+                });
+                assert_eq!(reopened.get_pages().len(), total_pages);
+                SourcePdf::open_strict_verify(prefix, prefix.len() as u64).unwrap_or_else(|err| {
+                    panic!("{label} batch {batch_idx} strict verify failed: {err}")
+                });
+            }
+
+            let saved = Document::load_mem(&sink).unwrap();
+            assert_eq!(count_font_objects(&saved), (1, 1, 1), "{label}: font dedup");
+            let sample_pages = [
+                1u32,
+                OCR_STREAMING_BATCH_PAGES as u32,
+                (OCR_STREAMING_BATCH_PAGES + 1) as u32,
+                (OCR_STREAMING_BATCH_PAGES * 2) as u32,
+                total_pages as u32,
+            ];
+            let report: serde_json::Value = serde_json::from_slice(
+                &ocr_text_visibility_from_source(
+                    sink.as_slice(),
+                    sink.len() as u64,
+                    &sample_pages,
+                    true,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+            for (idx, &page_num) in sample_pages.iter().enumerate() {
+                assert_eq!(
+                    report["pages"][idx]["evbOcrLines"][0]["text"],
+                    format!("MultiBatch{page_num}"),
+                    "{label}: page {page_num} text mismatch"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn batched_ocr_handles_blank_pages_batch_and_fails_cleanly_on_later_batch_and_readback_errors()
+    {
+        let total_pages = OCR_STREAMING_BATCH_PAGES + 2;
+        let base = blank_target_pdf_classic_xref(total_pages);
+        let font_bytes = b"batched-error-and-empty-font-payload".repeat(24);
+        let empty_pdf = empty_ocr_page_pdf();
+        let text_pdf = glyphless_tesseract_page_pdf("AfterEmptyBatch", &font_bytes, 500);
+
+        // 1. Batch 1 has blank OCR pages (no OCR content/font added), batch 2 writes text.
+        let instructions = serde_json::json!({
+            "pages": (1..=total_pages)
+                .map(|page| serde_json::json!({ "pageNumber": page, "source": page - 1 }))
+                .collect::<Vec<_>>()
+        })
+        .to_string();
+        let mut sink = base.clone();
+        let mut writes: Vec<(u64, usize)> = Vec::new();
+        ocr_text_layer_to_source_batched(
+            base.as_slice(),
+            base.len() as u64,
+            instructions.as_bytes(),
+            |index| {
+                if index < OCR_STREAMING_BATCH_PAGES {
+                    Ok(empty_pdf.clone())
+                } else {
+                    Ok(text_pdf.clone())
+                }
+            },
+            |offset, revision| {
+                writes.push((offset, revision.len()));
+                sink.extend_from_slice(revision);
+                Ok(revision.to_vec())
+            },
+        )
+        .unwrap();
+        assert_eq!(writes.len(), 2);
+        assert_eq!(writes[0].0, base.len() as u64);
+        assert_eq!(writes[1].0, base.len() as u64 + writes[0].1 as u64);
+        assert!(writes[1].1 > 0);
+        SourcePdf::open_strict_verify(sink.as_slice(), sink.len() as u64).unwrap();
+        let saved_after_blank = Document::load_mem(&sink).unwrap();
+        assert_eq!(count_font_objects(&saved_after_blank), (1, 1, 1));
+        let report: serde_json::Value = serde_json::from_slice(
+            &ocr_text_visibility_from_source(
+                sink.as_slice(),
+                sink.len() as u64,
+                &[1, total_pages as u32],
+                true,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(report["pages"][0]["evbOcrLayer"], false);
+        assert_eq!(
+            report["pages"][1]["evbOcrLines"][0]["text"],
+            "AfterEmptyBatch"
+        );
+
+        // 2. Failure during batch 2 page_pdf load leaves batch 1 intact and returns error cleanly.
+        let mut sink_load_fail = base.clone();
+        let mut batch1_end = 0usize;
+        let err = ocr_text_layer_to_source_batched(
+            base.as_slice(),
+            base.len() as u64,
+            instructions.as_bytes(),
+            |index| {
+                if index == OCR_STREAMING_BATCH_PAGES {
+                    Err(domain_error(
+                        NativeErrorCode::Io,
+                        "simulated batch-2 page load failure",
+                    ))
+                } else {
+                    Ok(text_pdf.clone())
+                }
+            },
+            |offset, revision| {
+                assert_eq!(offset, sink_load_fail.len() as u64);
+                sink_load_fail.extend_from_slice(revision);
+                batch1_end = sink_load_fail.len();
+                Ok(revision.to_vec())
+            },
+        )
+        .unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("simulated batch-2 page load failure"));
+        assert!(batch1_end > base.len());
+        SourcePdf::open_strict_verify(sink_load_fail.as_slice(), sink_load_fail.len() as u64)
+            .unwrap();
+
+        // 3. Failure during batch 2 write_at returns error cleanly without advancing state.
+        let mut sink_write_fail = base.clone();
+        let mut write_calls = 0usize;
+        let err = ocr_text_layer_to_source_batched(
+            base.as_slice(),
+            base.len() as u64,
+            instructions.as_bytes(),
+            |_| Ok(text_pdf.clone()),
+            |offset, revision| {
+                write_calls += 1;
+                if write_calls == 2 {
+                    return Err(domain_error(
+                        NativeErrorCode::Io,
+                        "simulated batch-2 write failure",
+                    ));
+                }
+                assert_eq!(offset, sink_write_fail.len() as u64);
+                sink_write_fail.extend_from_slice(revision);
+                Ok(revision.to_vec())
+            },
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("simulated batch-2 write failure"));
+        assert_eq!(write_calls, 2);
+        SourcePdf::open_strict_verify(sink_write_fail.as_slice(), sink_write_fail.len() as u64)
+            .unwrap();
+
+        // 4. Corrupted readback on batch 2 fails validate_incremental_append_bytes cleanly.
+        let mut sink_corrupt_readback = base.clone();
+        let mut readback_calls = 0usize;
+        let err = ocr_text_layer_to_source_batched(
+            base.as_slice(),
+            base.len() as u64,
+            instructions.as_bytes(),
+            |_| Ok(text_pdf.clone()),
+            |offset, revision| {
+                readback_calls += 1;
+                assert_eq!(offset, sink_corrupt_readback.len() as u64);
+                if readback_calls == 2 {
+                    return Ok(b"corrupted-readback-without-eof".to_vec());
+                }
+                sink_corrupt_readback.extend_from_slice(revision);
+                Ok(revision.to_vec())
+            },
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("EOF") || err.to_string().contains("readback"),
+            "unexpected readback error: {err}"
+        );
+        assert_eq!(readback_calls, 2);
+
+        // 5. Same-length body corruption in batch 1 readback (which still has valid headers,
+        // offsets, /Prev, and %%EOF) must be caught before advancing retained state to batch 2.
+        let mut same_len_calls = 0usize;
+        let err = ocr_text_layer_to_source_batched(
+            base.as_slice(),
+            base.len() as u64,
+            instructions.as_bytes(),
+            |_| Ok(text_pdf.clone()),
+            |_offset, revision| {
+                same_len_calls += 1;
+                let mut mutated = revision.to_vec();
+                let pos = mutated
+                    .windows(b"/Type/Page".len())
+                    .position(|window| window == b"/Type/Page")
+                    .expect("batch 1 must serialize a /Type/Page dictionary");
+                mutated[pos..pos + b"/Type/Page".len()].copy_from_slice(b"/Type/Null");
+                Ok(mutated)
+            },
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("readback bytes do not match written revision"),
+            "unexpected same-length corruption error: {err}"
+        );
+        assert_eq!(
+            same_len_calls, 1,
+            "same-length readback corruption in batch 1 must stop before batch 2"
+        );
     }
 }

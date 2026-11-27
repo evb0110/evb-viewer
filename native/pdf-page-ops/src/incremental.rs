@@ -2,7 +2,7 @@ use super::*;
 use evb_native_support::output::{AtomicOutput, PathRevisionWitness};
 
 const SEED_COMPARE_CHUNK_BYTES: usize = 64 * 1024;
-const MAX_CLASSIC_XREF_OFFSET: u64 = 9_999_999_999;
+pub(crate) const MAX_CLASSIC_XREF_OFFSET: u64 = 9_999_999_999;
 const XREF_STREAM_OFFSET_BYTES: usize = 8;
 #[path = "native_save_report.rs"]
 mod save_report;
@@ -791,85 +791,41 @@ fn ensure_pdf_15_catalog_version(incremental: &mut IncrementalDocument) -> Resul
 fn serialize_incremental_objects(
     incremental: &IncrementalDocument,
 ) -> Result<SerializedIncrementalObjects> {
-    let objects: BTreeMap<ObjectId, Object> = incremental
-        .new_document
-        .objects
-        .iter()
-        .filter(|(_, object)| should_write_incremental_object(object))
-        .map(|(&object_id, object)| (object_id, object.clone()))
-        .collect();
-    let serialized = serialize_indirect_objects(&objects)?;
+    let objects = &incremental.new_document.objects;
+    let estimated_bytes = objects
+        .values()
+        .filter(|object| should_write_incremental_object(object))
+        .fold(1usize, |acc, object| {
+            let estimate = match object {
+                Object::Stream(stream) => stream.content.len().saturating_add(128),
+                _ => 128,
+            };
+            acc.saturating_add(estimate)
+        });
     let mut revision = Vec::new();
+    let _ = revision.try_reserve(estimated_bytes);
     if incremental
         .previous_last_byte()
         .is_some_and(|byte| byte != b'\n' && byte != b'\r')
     {
         revision.push(b'\n');
     }
-    let mut entries = Vec::with_capacity(serialized.len());
-    for (object_id, bytes) in serialized {
+    let mut entries = Vec::with_capacity(objects.len());
+    for (&object_id, object) in objects {
+        if !should_write_incremental_object(object) {
+            continue;
+        }
         let offset = incremental
             .previous_len()
             .checked_add(u64::try_from(revision.len())?)
             .ok_or("Incremental PDF offset overflow")?;
         entries.push((object_id, offset));
-        revision.extend_from_slice(&bytes);
+        crate::pdf_writer::write_indirect_object(&mut revision, object_id, object)?;
     }
-    entries.sort_unstable_by_key(|(object_id, _)| *object_id);
     Ok(SerializedIncrementalObjects {
         bytes: revision,
         entries,
     })
-}
-
-fn serialize_indirect_objects(
-    objects: &BTreeMap<ObjectId, Object>,
-) -> Result<Vec<(ObjectId, Vec<u8>)>> {
-    if objects.is_empty() {
-        return Ok(Vec::new());
-    }
-    let mut document = Document::with_version("1.7");
-    document.objects = objects.clone();
-    document.max_id = objects
-        .keys()
-        .map(|object_id| object_id.0)
-        .max()
-        .unwrap_or(0);
-    document.reference_table = lopdf::xref::Xref::new(
-        document.max_id.saturating_add(1),
-        lopdf::xref::XrefType::CrossReferenceTable,
-    );
-    let mut bytes = Vec::new();
-    document.save_to(&mut bytes)?;
-    let xref_start = parse_number_after_last_marker(&bytes, b"startxref")
-        .and_then(|value| usize::try_from(value).ok())
-        .ok_or("Failed to locate temporary serialization xref")?;
-    let offsets = parse_incremental_xref_table(&bytes, xref_start)?;
-    let mut ordered: Vec<(ObjectId, usize)> = objects
-        .keys()
-        .map(|object_id| {
-            let offset = offsets
-                .get(object_id)
-                .copied()
-                .ok_or_else(|| format!("Temporary serialization omitted object {object_id:?}"))?;
-            Ok((*object_id, usize::try_from(offset)?))
-        })
-        .collect::<Result<Vec<_>>>()?;
-    ordered.sort_unstable_by_key(|(_, offset)| *offset);
-
-    let mut serialized = Vec::with_capacity(ordered.len());
-    for (index, (object_id, offset)) in ordered.iter().copied().enumerate() {
-        let end = ordered
-            .get(index + 1)
-            .map(|(_, next_offset)| *next_offset)
-            .unwrap_or(xref_start);
-        let object_bytes = bytes
-            .get(offset..end)
-            .ok_or("Temporary object serialization range is invalid")?
-            .to_vec();
-        serialized.push((object_id, object_bytes));
-    }
-    Ok(serialized)
 }
 
 fn write_classic_xref_revision(
@@ -909,7 +865,7 @@ fn write_classic_xref_revision(
         ) + 1,
     );
     bytes.extend_from_slice(b"trailer\n");
-    bytes.extend_from_slice(&serialize_direct_object(Object::Dictionary(trailer))?);
+    crate::pdf_writer::write_direct_dictionary(&mut bytes, &trailer)?;
     write!(bytes, "\nstartxref\n{xref_start}\n%%EOF")?;
     Ok(bytes)
 }
@@ -967,33 +923,10 @@ fn write_xref_stream_revision(
                 .collect(),
         ),
     );
-    bytes.extend_from_slice(&serialize_xref_stream_object(
-        (xref_object_id, 0),
-        Stream::new(trailer, content),
-    )?);
+    let xref_stream = Object::Stream(Stream::new(trailer, content));
+    crate::pdf_writer::write_indirect_object(&mut bytes, (xref_object_id, 0), &xref_stream)?;
     write!(bytes, "startxref\n{xref_offset}\n%%EOF")?;
     Ok(bytes)
-}
-
-fn serialize_xref_stream_object(object_id: ObjectId, mut stream: Stream) -> Result<Vec<u8>> {
-    // Keep lopdf's temporary serializer on its ordinary-stream path. Replacing this marker with
-    // the shorter reserved type changes only dictionary bytes, not the stream payload `/Length`.
-    const SERIALIZATION_TYPE: &[u8] = b"EVBXRef";
-    const _: () = assert!(SERIALIZATION_TYPE.len() > b"XRef".len());
-    stream
-        .dict
-        .set("Type", Object::Name(SERIALIZATION_TYPE.to_vec()));
-    let mut serialized =
-        serialize_indirect_objects(&BTreeMap::from([(object_id, Object::Stream(stream))]))?
-            .remove(0)
-            .1;
-    let type_offset = find_bytes(&serialized, SERIALIZATION_TYPE)
-        .ok_or("Temporary xref stream serialization lost its type marker")?;
-    serialized.splice(
-        type_offset..type_offset + SERIALIZATION_TYPE.len(),
-        b"XRef".iter().copied(),
-    );
-    Ok(serialized)
 }
 
 pub(crate) fn consecutive_object_runs(entries: &[(ObjectId, u64)]) -> Vec<&[(ObjectId, u64)]> {
@@ -1024,17 +957,6 @@ fn sanitize_incremental_trailer(trailer: &mut Dictionary) {
     ] {
         trailer.remove(key);
     }
-}
-
-fn serialize_direct_object(object: Object) -> Result<Vec<u8>> {
-    let serialized = serialize_indirect_objects(&BTreeMap::from([((1, 0), object)]))?;
-    let bytes = &serialized[0].1;
-    let content_start = find_bytes(bytes, b"obj")
-        .map(|offset| skip_ascii_whitespace(bytes, offset + b"obj".len()))
-        .ok_or("Temporary direct object serialization is missing its header")?;
-    let content_end = find_last_bytes(bytes, b"endobj")
-        .ok_or("Temporary direct object serialization is missing endobj")?;
-    Ok(bytes[content_start..content_end].to_vec())
 }
 
 pub(crate) fn collect_incremental_append_object_ids(
@@ -1367,6 +1289,311 @@ mod writer_boundary_tests {
         fs::remove_file(input).unwrap();
         fs::remove_file(displaced).unwrap();
         fs::remove_file(output).unwrap();
+    }
+
+    #[test]
+    fn direct_serialization_round_trips_and_matches_lopdf_across_object_types_and_xref_modes() {
+        let mut base_doc = Document::with_version("1.5");
+        let pages_id = base_doc.new_object_id();
+        let page_id = base_doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+        });
+        base_doc.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![page_id.into()],
+                "Count" => 1,
+            }),
+        );
+        let catalog_id = base_doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        base_doc.trailer.set("Root", catalog_id);
+
+        let mut classic_doc = base_doc.clone();
+        classic_doc.reference_table.cross_reference_type =
+            lopdf::xref::XrefType::CrossReferenceTable;
+        let mut classic_base = Vec::new();
+        classic_doc.save_to(&mut classic_base).unwrap();
+        let mut modern_doc = base_doc.clone();
+        modern_doc.reference_table.cross_reference_type =
+            lopdf::xref::XrefType::CrossReferenceStream;
+        let mut modern_base = Vec::new();
+        modern_doc.save_modern(&mut modern_base).unwrap();
+
+        let mut compressed_stream = Stream::new(
+            dictionary! { "CustomTag" => "CompressedPayload" },
+            b"Repeated text payload for FlateDecode verification ".repeat(16),
+        );
+        compressed_stream.compress().unwrap();
+
+        // Stream with intentionally stale /Length to verify direct serialization repairs /Length.
+        let stale_length_stream = Stream {
+            dict: dictionary! { "Length" => 999999, "Subtype" => "RawTest" },
+            content: b"\x00\x01\x02\r\nendstream-inside-len-check\xFF".to_vec(),
+            allows_compression: false,
+            start_position: None,
+        };
+        let empty_stream = Stream::new(dictionary! { "Subtype" => "Empty" }, Vec::new());
+
+        let rich_objects: Vec<(ObjectId, Object)> = vec![
+            ((20, 0), Object::Null),
+            ((21, 0), Object::Boolean(true)),
+            ((22, 0), Object::Boolean(false)),
+            ((23, 0), Object::Integer(-987_654_321)),
+            ((24, 0), Object::Real(-123.5)),
+            ((25, 0), Object::Name(b"PlainName".to_vec())),
+            (
+                (26, 0),
+                Object::Name(b"Name With #Delims/()<>[]%{}\x00\x7F\xFF".to_vec()),
+            ),
+            (
+                (27, 0),
+                Object::String(b"Simple literal text".to_vec(), StringFormat::Literal),
+            ),
+            (
+                (28, 0),
+                Object::String(
+                    b"Balanced (nested (parens)) + unbalanced (( and ) + slash \\ + cr\r + lf\n"
+                        .to_vec(),
+                    StringFormat::Literal,
+                ),
+            ),
+            (
+                (29, 0),
+                Object::String(
+                    vec![0x00, 0x0A, 0x0D, 0x28, 0x29, 0x5C, 0xAB, 0xFE, 0xFF],
+                    StringFormat::Hexadecimal,
+                ),
+            ),
+            (
+                (30, 0),
+                Object::String(Vec::new(), StringFormat::Hexadecimal),
+            ),
+            (
+                (31, 0),
+                Object::Array(vec![
+                    Object::Null,
+                    Object::Boolean(true),
+                    Object::Integer(42),
+                    Object::Real(0.25),
+                    Object::Name(b"Key#1".to_vec()),
+                    Object::String(b"lit(a)".to_vec(), StringFormat::Literal),
+                    Object::String(b"\xDE\xAD".to_vec(), StringFormat::Hexadecimal),
+                    Object::Reference((20, 0)),
+                    Object::Array(vec![Object::Integer(1), Object::Integer(2)]),
+                    Object::Dictionary(dictionary! {
+                        "NestedBool" => false,
+                        "NestedRef" => Object::Reference((21, 0)),
+                    }),
+                ]),
+            ),
+            (
+                (32, 0),
+                Object::Dictionary(dictionary! {
+                    "Type" => "EVBTestDict",
+                    "NullVal" => Object::Null,
+                    "Num" => 7,
+                    "Float" => 3.5f32,
+                    "Special Key#%" => Object::String(b"val\\(\r)".to_vec(), StringFormat::Literal),
+                    "Hex" => Object::String(b"cafe".to_vec(), StringFormat::Hexadecimal),
+                    "EmptyDict" => Dictionary::new(),
+                    "EmptyArr" => Vec::<Object>::new(),
+                    "Ref" => Object::Reference((31, 0)),
+                }),
+            ),
+            ((33, 2), Object::Reference((32, 0))),
+            ((34, 0), Object::Stream(compressed_stream)),
+            ((35, 0), Object::Stream(stale_length_stream)),
+            ((36, 0), Object::Stream(empty_stream)),
+        ];
+
+        // Reference serialization via lopdf::Document::save_to to differentially verify parsed equality.
+        let mut lopdf_ref = Document::with_version("1.7");
+        for (id, object) in &rich_objects {
+            let mut normalized = object.clone();
+            if let Object::Stream(stream) = &mut normalized {
+                stream.dict.set("Length", stream.content.len() as i64);
+            }
+            lopdf_ref.objects.insert(*id, normalized);
+            lopdf_ref.max_id = lopdf_ref.max_id.max(id.0);
+        }
+        lopdf_ref.trailer.set("Root", catalog_id);
+        let mut lopdf_ref_bytes = Vec::new();
+        lopdf_ref.save_to(&mut lopdf_ref_bytes).unwrap();
+        let lopdf_reparsed = Document::load_mem(&lopdf_ref_bytes).unwrap();
+
+        for (label, expect_classic, base_bytes) in [
+            ("classic", true, &classic_base),
+            ("xref-stream", false, &modern_base),
+        ] {
+            let base_xref = parse_number_after_last_marker(base_bytes, b"startxref").unwrap();
+            assert_eq!(
+                base_bytes[base_xref as usize..].starts_with(b"xref"),
+                expect_classic,
+                "{label}: base PDF xref format mismatch"
+            );
+            let mut source =
+                SourcePdf::open_append_base(base_bytes.as_slice(), base_bytes.len() as u64)
+                    .unwrap();
+            let mut incremental = source.take_append_base().unwrap();
+            for (id, object) in &rich_objects {
+                incremental.new_document.objects.insert(*id, object.clone());
+                incremental.new_document.max_id = incremental.new_document.max_id.max(id.0);
+            }
+            // Add a catalog reference to object 32 so strict verify reaches the objects.
+            incremental
+                .opt_clone_object_to_new_document(catalog_id)
+                .unwrap();
+            incremental
+                .new_document
+                .get_dictionary_mut(catalog_id)
+                .unwrap()
+                .set(
+                    "EVBTestRefs",
+                    Object::Array(
+                        rich_objects
+                            .iter()
+                            .map(|(id, _)| Object::Reference(*id))
+                            .collect(),
+                    ),
+                );
+            let revision = build_incremental_revision(&mut incremental).unwrap();
+            let (is_classic, _) = revision_xref_entries(&revision, incremental.previous_len());
+            assert_eq!(
+                is_classic, expect_classic,
+                "{label}: emitted revision xref format mismatch"
+            );
+            let expected_ids = collect_incremental_append_object_ids(&incremental);
+            validate_incremental_append_bytes(
+                &revision,
+                incremental.previous_len(),
+                incremental.previous_xref_start(),
+                &expected_ids,
+            )
+            .unwrap_or_else(|err| panic!("{label}: revision failed validation: {err}"));
+
+            let mut combined = base_bytes.clone();
+            combined.extend_from_slice(&revision);
+            SourcePdf::open_strict_verify(combined.as_slice(), combined.len() as u64)
+                .unwrap_or_else(|err| panic!("{label}: strict verify failed: {err}"));
+
+            let loaded = Document::load_mem(&combined).unwrap();
+            for (id, _) in &rich_objects {
+                let actual = loaded
+                    .objects
+                    .get(id)
+                    .unwrap_or_else(|| panic!("{label}: missing object {id:?}"));
+                let expected = lopdf_reparsed.objects.get(id).unwrap();
+                match (actual, expected) {
+                    (Object::Stream(a), Object::Stream(b)) => {
+                        assert_eq!(a.dict, b.dict, "{label}: stream dict mismatch for {id:?}");
+                        assert_eq!(
+                            a.content, b.content,
+                            "{label}: stream content mismatch for {id:?}"
+                        );
+                    }
+                    _ => assert_eq!(actual, expected, "{label}: object mismatch for {id:?}"),
+                }
+            }
+
+            // Second incremental revision stacked on top of the first.
+            incremental
+                .advance_verified_revision_bytes(&revision)
+                .unwrap();
+            let second_id = incremental.new_document.add_object(dictionary! {
+                "Type" => "SecondRevision",
+                "Note" => Object::String(b"chained (rev 2)".to_vec(), StringFormat::Literal),
+            });
+            let second_revision = build_incremental_revision(&mut incremental).unwrap();
+            let second_ids = collect_incremental_append_object_ids(&incremental);
+            validate_incremental_append_bytes(
+                &second_revision,
+                incremental.previous_len(),
+                incremental.previous_xref_start(),
+                &second_ids,
+            )
+            .unwrap();
+            combined.extend_from_slice(&second_revision);
+            SourcePdf::open_strict_verify(combined.as_slice(), combined.len() as u64).unwrap();
+            let loaded2 = Document::load_mem(&combined).unwrap();
+            assert_eq!(
+                loaded2
+                    .get_dictionary(second_id)
+                    .unwrap()
+                    .get(b"Note")
+                    .unwrap()
+                    .as_str()
+                    .unwrap(),
+                b"chained (rev 2)"
+            );
+        }
+
+        // Encrypted PDF must remain refused for incremental append, and after decrypting
+        // into plaintext must accept our direct-serialized incremental append cleanly.
+        let mut encrypted_doc = base_doc.clone();
+        encrypted_doc.trailer.set(
+            "ID",
+            vec![
+                Object::string_literal("0123456789ABCDEF"),
+                Object::string_literal("0123456789ABCDEF"),
+            ],
+        );
+        let version = lopdf::encryption::EncryptionVersion::V2 {
+            document: &encrypted_doc,
+            owner_password: "owner",
+            user_password: "",
+            key_length: 128,
+            permissions: lopdf::encryption::Permissions::PRINTABLE,
+        };
+        let state: lopdf::encryption::EncryptionState = version.try_into().unwrap();
+        encrypted_doc.encrypt(&state).unwrap();
+        let mut encrypted_bytes = Vec::new();
+        encrypted_doc.save_to(&mut encrypted_bytes).unwrap();
+        let enc_err =
+            SourcePdf::open_append_base(encrypted_bytes.as_slice(), encrypted_bytes.len() as u64)
+                .err()
+                .expect("encrypted PDF must be refused as an append base");
+        assert_eq!(
+            enc_err.downcast_ref::<NativeError>().map(|err| err.code),
+            Some(NativeErrorCode::Encrypted)
+        );
+        let decrypted = decrypt_browser_pdf_bytes(&encrypted_bytes, b"").unwrap();
+        let mut dec_source =
+            SourcePdf::open_append_base(decrypted.data.as_slice(), decrypted.data.len() as u64)
+                .unwrap();
+        let mut dec_inc = dec_source.take_append_base().unwrap();
+        let note_id = dec_inc.new_document.add_object(dictionary! {
+            "Type" => "PostDecryptCheck",
+            "Text" => Object::String(b"after decrypt (ok)".to_vec(), StringFormat::Literal),
+        });
+        let dec_rev = build_incremental_revision(&mut dec_inc).unwrap();
+        let dec_ids = collect_incremental_append_object_ids(&dec_inc);
+        validate_incremental_append_bytes(
+            &dec_rev,
+            dec_inc.previous_len(),
+            dec_inc.previous_xref_start(),
+            &dec_ids,
+        )
+        .unwrap();
+        let mut dec_combined = decrypted.data;
+        dec_combined.extend_from_slice(&dec_rev);
+        SourcePdf::open_strict_verify(dec_combined.as_slice(), dec_combined.len() as u64).unwrap();
+        let dec_loaded = Document::load_mem(&dec_combined).unwrap();
+        assert_eq!(
+            dec_loaded
+                .get_dictionary(note_id)
+                .unwrap()
+                .get(b"Text")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            b"after decrypt (ok)"
+        );
     }
 }
 

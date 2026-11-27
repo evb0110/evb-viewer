@@ -668,7 +668,6 @@ fn ocr_text_layer(after_page: u32, payload: &[u8], source_count: u32) -> Result<
         ocr_text_layer_to_source_batched(
             HostSource(0),
             len,
-            || HostSink,
             payload,
             read_page,
             append_to_source_file,

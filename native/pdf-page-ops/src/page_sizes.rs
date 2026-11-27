@@ -567,11 +567,14 @@ pub(crate) fn write_page_sizes_path(
         ));
     }
     // Encryption is refused from the index, before any decryption.
+    if metadata_only {
+        let (file, len) = crate::open_source_file(input_path)?;
+        let document = crate::load_page_geometry_source(file, len)
+            .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+        return write_page_sizes_sidecar(&document, output_path);
+    }
     let source = SourcePdf::open_plaintext_path(input_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    if metadata_only {
-        return write_page_sizes_sidecar(&source.document, output_path);
-    }
     write_page_sizes_sidecar_source(&source, output_path)
 }
 
@@ -655,19 +658,30 @@ pub(crate) fn read_page_geometry_table<S: ByteSource>(bytes: S, len: u64) -> Res
 }
 
 /// Streams the exact JSONL page-sizes sidecar (with or without dominant-image
-/// raster analysis) from `bytes` into `write_chunk`, touching only indexed
-/// objects and one page's content stream at a time.
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+/// raster analysis) from `bytes` into `write_chunk`. When `metadata_only` is
+/// set, reads only the cross-reference index and page-tree geometry objects;
+/// otherwise opens the full indexed graph and reads one page's content stream
+/// at a time.
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 pub(crate) fn write_page_sizes_sidecar_to_sink<S: ByteSource>(
     bytes: S,
     len: u64,
     metadata_only: bool,
     mut write_chunk: impl FnMut(&[u8]) -> Result<()>,
 ) -> Result<u32> {
-    let source = SourcePdf::open_plaintext(bytes, len)
-        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    PageTreeResolver::with_both_ends(&source.document).map_err(crate::page_tree_damaged)?;
-    let document = &source.document;
+    let (metadata_document, full_source) = if metadata_only {
+        let document = crate::load_page_geometry_source(bytes, len)
+            .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+        (Some(document), None)
+    } else {
+        let source = SourcePdf::open_plaintext(bytes, len)
+            .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+        PageTreeResolver::with_both_ends(&source.document).map_err(crate::page_tree_damaged)?;
+        (None, Some(source))
+    };
+    let document = metadata_document
+        .as_ref()
+        .unwrap_or_else(|| &full_source.as_ref().unwrap().document);
     let page_resolver = PageTreeResolver::new(document)?;
     let declared_page_count = u64::from(page_resolver.page_count());
     if declared_page_count == 0 {
@@ -694,65 +708,80 @@ pub(crate) fn write_page_sizes_sidecar_to_sink<S: ByteSource>(
     let mut chunk: Option<PageSizesSidecarChunk> = None;
     let mut next_chunk_index = 0_u64;
     let mut page_number = 0_u32;
-    let reachable_page_count = page_resolver.for_each_page_id_with_count(document, |page_id| {
-        page_number = page_number
-            .checked_add(1)
-            .ok_or("Page-size page number overflow")?;
-        let page_view = resolve_page_view(document, page_id)?;
-        let rotation = resolve_page_rotation(document, page_id)?;
-        let dominant_image = if metadata_only {
-            None
-        } else {
-            dominant_full_page_image_with_limit(
-                document,
-                page_id,
-                page_view,
-                MAX_DECOMPRESSED_PDF_STREAM_BYTES,
-                |id, stream, max_bytes| source.with_bytes(id, stream, max_bytes),
-            )?
-        };
-        let entry = page_size_entry(
-            document,
-            page_number,
-            page_id,
-            rotation,
-            page_view,
-            dominant_image,
-        )?;
-        let encoded_entry = serde_json::to_vec(&entry)?;
-        if chunk.is_none() {
-            chunk = Some(PageSizesSidecarChunk::new(next_chunk_index, page_number));
-        }
-        if !chunk
-            .as_mut()
-            .unwrap()
-            .try_push(&encoded_entry, chunk_limit)
-        {
-            if chunk.as_ref().is_some_and(|c| c.entry_count == 0) {
+    let reachable_page_count = page_resolver
+        .for_each_page_id_with_count(document, |page_id| {
+            page_number = page_number
+                .checked_add(1)
+                .ok_or("Page-size page number overflow")?;
+            if u64::from(page_number) > declared_page_count {
                 return Err(domain_error(
-                    NativeErrorCode::TooLarge,
-                    "Page-size entry exceeds the 4 MiB sidecar chunk limit",
+                    NativeErrorCode::CorruptXref,
+                    format!(
+                        "PDF page tree declared {declared_page_count} pages but contains more than {declared_page_count}"
+                    ),
                 ));
             }
-            let finished = chunk.take().unwrap().finish();
-            write_chunk(&finished)?;
-            next_chunk_index = next_chunk_index
-                .checked_add(1)
-                .ok_or("Page-size sidecar chunk number overflow")?;
-            chunk = Some(PageSizesSidecarChunk::new(next_chunk_index, page_number));
+            let page_view = resolve_page_view(document, page_id)?;
+            let rotation = resolve_page_rotation(document, page_id)?;
+            let dominant_image = match full_source.as_ref() {
+                None => None,
+                Some(source) => dominant_full_page_image_with_limit(
+                    document,
+                    page_id,
+                    page_view,
+                    MAX_DECOMPRESSED_PDF_STREAM_BYTES,
+                    |id, stream, max_bytes| source.with_bytes(id, stream, max_bytes),
+                )?,
+            };
+            let entry = page_size_entry(
+                document,
+                page_number,
+                page_id,
+                rotation,
+                page_view,
+                dominant_image,
+            )?;
+            let encoded_entry = serde_json::to_vec(&entry)?;
+            if chunk.is_none() {
+                chunk = Some(PageSizesSidecarChunk::new(next_chunk_index, page_number));
+            }
             if !chunk
                 .as_mut()
                 .unwrap()
                 .try_push(&encoded_entry, chunk_limit)
             {
-                return Err(domain_error(
-                    NativeErrorCode::TooLarge,
-                    "Page-size entry exceeds the 4 MiB sidecar chunk limit",
-                ));
+                if chunk.as_ref().is_some_and(|c| c.entry_count == 0) {
+                    return Err(domain_error(
+                        NativeErrorCode::TooLarge,
+                        "Page-size entry exceeds the 4 MiB sidecar chunk limit",
+                    ));
+                }
+                let finished = chunk.take().unwrap().finish();
+                write_chunk(&finished)?;
+                next_chunk_index = next_chunk_index
+                    .checked_add(1)
+                    .ok_or("Page-size sidecar chunk number overflow")?;
+                chunk = Some(PageSizesSidecarChunk::new(next_chunk_index, page_number));
+                if !chunk
+                    .as_mut()
+                    .unwrap()
+                    .try_push(&encoded_entry, chunk_limit)
+                {
+                    return Err(domain_error(
+                        NativeErrorCode::TooLarge,
+                        "Page-size entry exceeds the 4 MiB sidecar chunk limit",
+                    ));
+                }
             }
-        }
-        Ok(())
-    })?;
+            Ok(())
+        })
+        .map_err(|error| {
+            if error.is::<crate::NativeError>() {
+                error
+            } else {
+                domain_error(NativeErrorCode::CorruptXref, error.to_string())
+            }
+        })?;
     if reachable_page_count != declared_page_count {
         return Err(domain_error(
             NativeErrorCode::CorruptXref,
@@ -1529,6 +1558,369 @@ pub(crate) mod tests {
             page_tree_node_read_count() < 100,
             "last-page resolution scanned too many page-tree nodes: {}",
             page_tree_node_read_count()
+        );
+    }
+
+    #[test]
+    fn metadata_only_sidecar_to_sink_uses_page_geometry_source_and_matches_full_contract() {
+        use std::cell::RefCell;
+
+        struct GuardedSlice<'a> {
+            bytes: &'a [u8],
+            forbidden: (u64, u64),
+            read_bytes: RefCell<u64>,
+        }
+
+        impl ByteSource for &GuardedSlice<'_> {
+            fn read_at(&self, offset: u64, buffer: &mut [u8]) -> std::io::Result<()> {
+                let end = offset + buffer.len() as u64;
+                assert!(
+                    end <= self.forbidden.0 || offset >= self.forbidden.1,
+                    "metadata-only sidecar read forbidden non-geometry payload [{offset}..{end})"
+                );
+                *self.read_bytes.borrow_mut() += buffer.len() as u64;
+                buffer.copy_from_slice(&self.bytes[offset as usize..end as usize]);
+                Ok(())
+            }
+
+            fn copy_range(
+                &self,
+                _offset: u64,
+                _len: u64,
+                _output: &mut impl Write,
+            ) -> std::io::Result<()> {
+                Err(std::io::Error::other(
+                    "metadata-only sidecar must not copy stream ranges",
+                ))
+            }
+        }
+
+        let mut document = Document::with_version("1.7");
+        let pages_id = document.new_object_id();
+        let marker = b"EVB_FORBIDDEN_METADATA_ONLY_CONTENT_STREAM_MARKER";
+        let mut payload = Vec::with_capacity(2 * 1024 * 1024);
+        payload.extend_from_slice(marker);
+        payload.resize(2 * 1024 * 1024, b'Z');
+        let image_id = document.add_object(Stream::new(
+            dictionary! {
+                "Type" => "XObject",
+                "Subtype" => "Image",
+                "Width" => 800,
+                "Height" => 600,
+                "ColorSpace" => "DeviceGray",
+                "BitsPerComponent" => 8,
+            },
+            payload,
+        ));
+        let content_id = document.add_object(Stream::new(
+            Dictionary::new(),
+            b"q 500 0 0 700 0 0 cm /Scan Do Q".to_vec(),
+        ));
+        let page1_id = document.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 500.into(), 700.into()],
+            "CropBox" => vec![10.into(), 20.into(), 410.into(), 620.into()],
+            "Rotate" => 90,
+            "UserUnit" => 2.0,
+            "Resources" => dictionary! { "XObject" => dictionary! { "Scan" => image_id } },
+            "Contents" => content_id,
+        });
+        let page2_id = document.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+        });
+        document.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![page1_id.into(), page2_id.into()],
+                "Count" => 2,
+            }),
+        );
+        let catalog_id = document.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        document.trailer.set("Root", catalog_id);
+        let mut bytes = Vec::new();
+        document.save_to(&mut bytes).unwrap();
+
+        let marker_pos = bytes
+            .windows(marker.len())
+            .position(|window| window == marker)
+            .expect("stream payload must appear verbatim");
+        let guarded = GuardedSlice {
+            bytes: &bytes,
+            forbidden: (
+                (marker_pos + 128 * 1024) as u64,
+                (marker_pos + 900 * 1024) as u64,
+            ),
+            read_bytes: RefCell::new(0),
+        };
+        let len = bytes.len() as u64;
+
+        crate::pdf_source::reset_source_pdf_open_count();
+        let mut metadata_out = Vec::new();
+        let page_count = write_page_sizes_sidecar_to_sink(&guarded, len, true, |chunk| {
+            metadata_out.extend_from_slice(chunk);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(page_count, 2);
+        assert_eq!(
+            crate::pdf_source::source_pdf_open_count(),
+            0,
+            "metadata_only sidecar must use load_page_geometry_source rather than SourcePdf::open_plaintext"
+        );
+        assert!(*guarded.read_bytes.borrow() < len / 4);
+
+        let lines: Vec<serde_json::Value> = std::str::from_utf8(&metadata_out)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0]["format"], PAGE_SIZES_SIDECAR_FORMAT);
+        assert_eq!(lines[0]["schemaVersion"], PAGE_SIZES_SIDECAR_SCHEMA_VERSION);
+        assert_eq!(lines[0]["pageCount"], 2);
+        assert_eq!(lines[0]["declaredPageCount"], 2);
+        assert_eq!(lines[0]["reachablePageCount"], 2);
+        assert_eq!(lines[0]["dominantImageAnalysis"], "unavailable");
+        assert_eq!(lines[1]["chunkIndex"], 0);
+        assert_eq!(lines[1]["firstPageNumber"], 1);
+        assert_eq!(lines[1]["pages"][0]["xPoints"], 10.0);
+        assert_eq!(lines[1]["pages"][0]["yPoints"], 20.0);
+        assert_eq!(lines[1]["pages"][0]["widthPoints"], 400.0);
+        assert_eq!(lines[1]["pages"][0]["heightPoints"], 600.0);
+        assert_eq!(lines[1]["pages"][0]["rotation"], 90);
+        assert_eq!(lines[1]["pages"][0]["userUnit"], 2.0);
+        assert_eq!(lines[1]["pages"][0]["mediaWidthPoints"], 500.0);
+        assert_eq!(lines[1]["pages"][0]["mediaHeightPoints"], 700.0);
+        assert_eq!(lines[1]["pages"][0]["cropWidthPoints"], 400.0);
+        assert_eq!(lines[1]["pages"][0]["cropHeightPoints"], 600.0);
+        assert!(lines[1]["pages"][0].get("dominantImageWidthPx").is_none());
+        assert_eq!(lines[1]["pages"][1]["widthPoints"], 612.0);
+        assert_eq!(lines[1]["pages"][1]["heightPoints"], 792.0);
+
+        // Non-metadata-only still opens full source and performs dominant image analysis.
+        let mut full_out = Vec::new();
+        let full_count = write_page_sizes_sidecar_to_sink(bytes.as_slice(), len, false, |chunk| {
+            full_out.extend_from_slice(chunk);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(full_count, 2);
+        let full_lines: Vec<serde_json::Value> = std::str::from_utf8(&full_out)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(full_lines[0]["dominantImageAnalysis"], "performed");
+        assert_eq!(full_lines[1]["pages"][0]["dominantImageWidthPx"], 800);
+        assert_eq!(full_lines[1]["pages"][0]["dominantImageHeightPx"], 600);
+    }
+
+    #[test]
+    fn metadata_only_sidecar_to_sink_refuses_corrupt_xref_and_malformed_page_trees_equivalently() {
+        let assert_same_code = |pdf_bytes: &[u8], expected: NativeErrorCode, label: &str| {
+            let meta_err =
+                write_page_sizes_sidecar_to_sink(pdf_bytes, pdf_bytes.len() as u64, true, |_| {
+                    Ok(())
+                })
+                .expect_err(&format!("{label} must fail for metadata_only=true"));
+            let full_err =
+                write_page_sizes_sidecar_to_sink(pdf_bytes, pdf_bytes.len() as u64, false, |_| {
+                    Ok(())
+                })
+                .expect_err(&format!("{label} must fail for metadata_only=false"));
+            let meta_code = meta_err
+                .downcast_ref::<crate::NativeError>()
+                .unwrap_or_else(|| panic!("{label} metadata_only missing NativeError: {meta_err}"))
+                .code;
+            let full_code = full_err
+                .downcast_ref::<crate::NativeError>()
+                .unwrap_or_else(|| panic!("{label} full missing NativeError: {full_err}"))
+                .code;
+            assert_eq!(meta_code, expected, "{label} metadata_only code mismatch");
+            assert_eq!(full_code, expected, "{label} full code mismatch");
+        };
+
+        // 1. Corrupt xref / invalid PDF bytes -> CorruptXref.
+        assert_same_code(
+            b"%PDF-1.7\ngarbage\n",
+            NativeErrorCode::CorruptXref,
+            "corrupt xref",
+        );
+
+        // 1b. Corrupt xref entry pointing a page-tree geometry object to the wrong object ID -> CorruptXref.
+        let mut wrong_id_doc = Document::with_version("1.7");
+        wrong_id_doc.reference_table.cross_reference_type =
+            lopdf::xref::XrefType::CrossReferenceTable;
+        let pages_id = wrong_id_doc.new_object_id();
+        let media_box_id = wrong_id_doc.add_object(Object::Array(vec![
+            0.into(),
+            0.into(),
+            200.into(),
+            300.into(),
+        ]));
+        let page_id = wrong_id_doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => media_box_id,
+        });
+        wrong_id_doc.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![page_id.into()],
+                "Count" => 1,
+            }),
+        );
+        let catalog_id = wrong_id_doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        wrong_id_doc.trailer.set("Root", catalog_id);
+        let mut wrong_id_bytes = Vec::new();
+        wrong_id_doc.save_to(&mut wrong_id_bytes).unwrap();
+        let header = format!("{} 0 obj", media_box_id.0);
+        let replacement = format!("{} 0 obj", media_box_id.0 + 7);
+        assert_eq!(header.len(), replacement.len());
+        let header_pos = wrong_id_bytes
+            .windows(header.len())
+            .position(|window| window == header.as_bytes())
+            .expect("indirect MediaBox object header must exist");
+        wrong_id_bytes[header_pos..header_pos + header.len()]
+            .copy_from_slice(replacement.as_bytes());
+        assert_same_code(
+            &wrong_id_bytes,
+            NativeErrorCode::CorruptXref,
+            "xref entry pointing to mismatched geometry object ID",
+        );
+
+        // 2. Encrypted PDF -> Encrypted (refused from index).
+        let mut encrypted_doc = create_test_document().0;
+        let encrypt_id = encrypted_doc.add_object(dictionary! {
+            "Filter" => "Standard",
+            "V" => 2,
+            "R" => 3,
+            "Length" => 128,
+            "P" => -4,
+            "O" => Object::string_literal("01234567890123456789012345678901"),
+            "U" => Object::string_literal("01234567890123456789012345678901"),
+        });
+        encrypted_doc.trailer.set("Encrypt", encrypt_id);
+        let mut encrypted_bytes = Vec::new();
+        encrypted_doc.save_to(&mut encrypted_bytes).unwrap();
+        assert_same_code(
+            &encrypted_bytes,
+            NativeErrorCode::Encrypted,
+            "encrypted PDF",
+        );
+
+        // 3. Empty page tree (/Pages exists with /Count 0) -> InvalidRequest (page_tree_damaged).
+        let mut empty_tree = Document::with_version("1.7");
+        let pages_id = empty_tree.add_object(dictionary! {
+            "Type" => "Pages",
+            "Kids" => Vec::<Object>::new(),
+            "Count" => 0,
+        });
+        let catalog_id = empty_tree.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        empty_tree.trailer.set("Root", catalog_id);
+        let mut empty_bytes = Vec::new();
+        empty_tree.save_to(&mut empty_bytes).unwrap();
+        assert_same_code(
+            &empty_bytes,
+            NativeErrorCode::InvalidRequest,
+            "empty page tree",
+        );
+
+        // 4. Dangling /Pages reference (missing from xref) -> CorruptXref.
+        let mut dangling = Document::with_version("1.7");
+        let catalog_id = dangling.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => Object::Reference((999, 0)),
+        });
+        dangling.trailer.set("Root", catalog_id);
+        let mut dangling_bytes = Vec::new();
+        dangling.save_to(&mut dangling_bytes).unwrap();
+        assert_same_code(
+            &dangling_bytes,
+            NativeErrorCode::CorruptXref,
+            "dangling /Pages",
+        );
+
+        // 5. Shared /Kids DAG exceeding /Count -> CorruptXref immediately.
+        let mut dag = Document::with_version("1.7");
+        let leaf_id = dag.add_object(dictionary! {
+            "Type" => "Page",
+            "MediaBox" => vec![0.into(), 0.into(), 200.into(), 300.into()],
+        });
+        let mut child_id = leaf_id;
+        for _ in 0..25 {
+            let node_id = dag.new_object_id();
+            dag.objects.insert(
+                node_id,
+                Object::Dictionary(dictionary! {
+                    "Type" => "Pages",
+                    "Kids" => vec![child_id.into(), child_id.into()],
+                    "Count" => 1,
+                }),
+            );
+            child_id = node_id;
+        }
+        let catalog_id = dag.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => child_id,
+        });
+        dag.trailer.set("Root", catalog_id);
+        let mut dag_bytes = Vec::new();
+        dag.save_to(&mut dag_bytes).unwrap();
+        assert_same_code(&dag_bytes, NativeErrorCode::CorruptXref, "shared-kids DAG");
+
+        // 6. Fewer reachable leaves than declared /Count (both ends valid, middle branch empty) -> CorruptXref.
+        let mut short_doc = Document::with_version("1.7");
+        let root_pages = short_doc.new_object_id();
+        let left_page = short_doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => root_pages,
+            "MediaBox" => vec![0.into(), 0.into(), 200.into(), 300.into()],
+        });
+        let empty_middle = short_doc.add_object(dictionary! {
+            "Type" => "Pages",
+            "Parent" => root_pages,
+            "Kids" => Vec::<Object>::new(),
+            "Count" => 1,
+        });
+        let right_page = short_doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => root_pages,
+            "MediaBox" => vec![0.into(), 0.into(), 200.into(), 300.into()],
+        });
+        short_doc.objects.insert(
+            root_pages,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![left_page.into(), empty_middle.into(), right_page.into()],
+                "Count" => 3,
+            }),
+        );
+        let catalog_id = short_doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => root_pages,
+        });
+        short_doc.trailer.set("Root", catalog_id);
+        let mut short_bytes = Vec::new();
+        short_doc.save_to(&mut short_bytes).unwrap();
+        assert_same_code(
+            &short_bytes,
+            NativeErrorCode::CorruptXref,
+            "declared count exceeds reachable pages",
         );
     }
 }

@@ -550,6 +550,21 @@ impl<S: ByteSource> SourcePdf<S> {
         self.xref_budget
     }
 
+    /// Rebinds stream range reads to another backing source holding the same
+    /// initial `self.len` bytes (for example, a private staged snapshot of the
+    /// input file).
+    pub(crate) fn with_byte_source<T: ByteSource>(self, bytes: T) -> SourcePdf<T> {
+        SourcePdf {
+            document: self.document,
+            streams: self.streams,
+            reals: self.reals,
+            bytes,
+            len: self.len,
+            xref_start: self.xref_start,
+            xref_budget: self.xref_budget,
+        }
+    }
+
     /// The source byte range of a stream whose data this source holds.
     pub(crate) fn stream_range(&self, id: ObjectId) -> Option<(&S, u64, u64)> {
         self.streams
@@ -869,7 +884,6 @@ pub(crate) fn validate_page_tree_source<S: ByteSource>(bytes: S, len: u64) -> Re
 /// indirect values their geometry attributes reference, never touching content
 /// streams, fonts, XObjects, annotations, or outlines. Refuses encrypted PDFs
 /// from the cross-reference index and checks both ends of the page tree.
-#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 pub(crate) fn load_page_geometry_source<S: ByteSource>(bytes: S, len: u64) -> Result<Document> {
     let reader = Reader::new(&bytes, len)?;
     let index = reader.index()?;
@@ -918,7 +932,21 @@ pub(crate) fn load_page_geometry_source<S: ByteSource>(bytes: S, len: u64) -> Re
         }
         document.objects.insert(id, object);
     }
-    let resolver = PageTreeResolver::with_both_ends(&document).map_err(page_tree_damaged)?;
+    // A page tree that lists no page or has broken ends is damaged; a catalog
+    // or tree root the index cannot find is the index's damage.
+    let has_root_tree = document
+        .catalog()
+        .and_then(|catalog| catalog.get(b"Pages"))
+        .and_then(Object::as_reference)
+        .and_then(|pages| document.get_dictionary(pages))
+        .is_ok();
+    let resolver = PageTreeResolver::with_both_ends(&document).map_err(|error| {
+        if has_root_tree {
+            page_tree_damaged(error)
+        } else {
+            corrupt(format!("PDF has no pages: {error}"))
+        }
+    })?;
     if resolver.page_count() as usize > MAX_PATH_INPUT_PDF_PAGES {
         return Err(domain_error(
             NativeErrorCode::TooLarge,

@@ -60,12 +60,19 @@ pub(crate) fn write_document<'a, 's, S: ByteSource + 'a, W: Write>(
     let mut path = Vec::new();
     for (id, object) in &document.objects {
         let real = |path: &[u8], value| spelling(*id, path, value);
+        let mut lookup = SpellingLookup {
+            path: &mut path,
+            lookup: &real,
+        };
         offsets.push((*id, out.written));
         writeln!(out, "{} {} obj", id.0, id.1)?;
         if let Object::Stream(stream) = object {
-            let mut dictionary = stream.dict.clone();
-            dictionary.set("Length", i64::try_from(stream_len(id, stream))?);
-            write_dictionary(&mut out, &dictionary, &mut path, &real)?;
+            write_stream_dictionary(
+                &mut out,
+                &stream.dict,
+                i64::try_from(stream_len(id, stream))?,
+                Some(&mut lookup),
+            )?;
             out.write_all(b"stream\n")?;
             match raw(*id).filter(|_| stream.content.is_empty()) {
                 Some((source, offset, len)) => {
@@ -76,7 +83,7 @@ pub(crate) fn write_document<'a, 's, S: ByteSource + 'a, W: Write>(
             }
             out.write_all(b"\nendstream")?;
         } else {
-            write_object(&mut out, object, &mut path, &real)?;
+            write_object(&mut out, object, Some(&mut lookup))?;
         }
         out.write_all(b"\nendobj\n")?;
     }
@@ -114,7 +121,7 @@ pub(crate) fn write_document<'a, 's, S: ByteSource + 'a, W: Write>(
         trailer.set("Index", index);
         trailer.set("Length", content.len() as i64);
         writeln!(out, "{size} 0 obj")?;
-        write_dictionary(&mut out, &trailer, &mut path, &|_, _| None)?;
+        write_dictionary(&mut out, &trailer, None)?;
         out.write_all(b"stream\n")?;
         out.write_all(&content)?;
         out.write_all(b"\nendstream\nendobj\n")?;
@@ -134,13 +141,46 @@ pub(crate) fn write_document<'a, 's, S: ByteSource + 'a, W: Write>(
         }
         trailer.set("Size", i64::from(size));
         out.write_all(b"trailer\n")?;
-        write_dictionary(&mut out, &trailer, &mut path, &|_, _| None)?;
+        write_dictionary(&mut out, &trailer, None)?;
         out.write_all(b"\n")?;
     }
     write!(out, "startxref\n{xref_offset}\n%%EOF\n")?;
     out.flush()?;
     Ok(out.inner)
 }
+
+/// Serializes one indirect PDF object directly into `out` in a single pass,
+/// without cloning the object or building a temporary document. Stream objects
+/// always emit a direct `/Length` matching `stream.content.len()`.
+pub(crate) fn write_indirect_object(
+    out: &mut impl Write,
+    id: ObjectId,
+    object: &Object,
+) -> Result<()> {
+    writeln!(out, "{} {} obj", id.0, id.1)?;
+    if let Object::Stream(stream) = object {
+        write_stream_dictionary(
+            out,
+            &stream.dict,
+            i64::try_from(stream.content.len())?,
+            None,
+        )?;
+        out.write_all(b"stream\n")?;
+        out.write_all(&stream.content)?;
+        out.write_all(b"\nendstream")?;
+    } else {
+        write_object(out, object, None)?;
+    }
+    out.write_all(b"\nendobj\n")?;
+    Ok(())
+}
+
+/// Serializes a direct PDF dictionary (such as a classic trailer) into `out`.
+pub(crate) fn write_direct_dictionary(out: &mut impl Write, dictionary: &Dictionary) -> Result<()> {
+    write_dictionary(out, dictionary, None)
+}
+
+const HEX_UPPER: &[u8; 16] = b"0123456789ABCDEF";
 
 fn need_separator(object: &Object) -> bool {
     matches!(
@@ -153,20 +193,25 @@ fn need_separator(object: &Object) -> bool {
     )
 }
 
-/// How the source spelled the real at a path of the object being written.
-type Spelling<'r, 's> = &'r dyn Fn(&[u8], f32) -> Option<&'s str>;
+/// Optional source-spelling lookup for preserving original real-number tokens.
+struct SpellingLookup<'r, 's> {
+    path: &'r mut Vec<u8>,
+    lookup: &'r dyn Fn(&[u8], f32) -> Option<&'s str>,
+}
 
 fn write_object(
     out: &mut impl Write,
     object: &Object,
-    path: &mut Vec<u8>,
-    real: Spelling,
+    mut spelling: Option<&mut SpellingLookup<'_, '_>>,
 ) -> Result<()> {
     match object {
         Object::Null => out.write_all(b"null")?,
         Object::Boolean(value) => out.write_all(if *value { b"true" } else { b"false" })?,
         Object::Integer(value) => write!(out, "{value}")?,
-        Object::Real(value) => match real(path, *value) {
+        Object::Real(value) => match spelling
+            .as_deref()
+            .and_then(|lookup| (lookup.lookup)(lookup.path, *value))
+        {
             Some(text) => out.write_all(text.as_bytes())?,
             None => write!(out, "{value}")?,
         },
@@ -174,8 +219,11 @@ fn write_object(
         Object::String(text, StringFormat::Literal) => write_literal_string(out, text)?,
         Object::String(text, StringFormat::Hexadecimal) => {
             out.write_all(b"<")?;
-            for byte in text {
-                write!(out, "{byte:02X}")?;
+            for &byte in text {
+                out.write_all(&[
+                    HEX_UPPER[(byte >> 4) as usize],
+                    HEX_UPPER[(byte & 0x0F) as usize],
+                ])?;
             }
             out.write_all(b">")?;
         }
@@ -185,14 +233,18 @@ fn write_object(
                 if index > 0 && need_separator(item) {
                     out.write_all(b" ")?;
                 }
-                let mark = path.len();
-                path_index(path, index);
-                write_object(out, item, path, real)?;
-                path.truncate(mark);
+                if let Some(lookup) = spelling.as_deref_mut() {
+                    let mark = lookup.path.len();
+                    path_index(lookup.path, index);
+                    write_object(out, item, Some(lookup))?;
+                    lookup.path.truncate(mark);
+                } else {
+                    write_object(out, item, None)?;
+                }
             }
             out.write_all(b"]")?;
         }
-        Object::Dictionary(dictionary) => write_dictionary(out, dictionary, path, real)?,
+        Object::Dictionary(dictionary) => write_dictionary(out, dictionary, spelling)?,
         Object::Stream(_) => return Err("A stream cannot be written as a direct object".into()),
         Object::Reference(id) => write!(out, "{} {} R", id.0, id.1)?,
     }
@@ -202,8 +254,7 @@ fn write_object(
 fn write_dictionary(
     out: &mut impl Write,
     dictionary: &Dictionary,
-    path: &mut Vec<u8>,
-    real: Spelling,
+    mut spelling: Option<&mut SpellingLookup<'_, '_>>,
 ) -> Result<()> {
     out.write_all(b"<<")?;
     for (key, value) in dictionary.iter() {
@@ -211,10 +262,50 @@ fn write_dictionary(
         if need_separator(value) {
             out.write_all(b" ")?;
         }
-        let mark = path.len();
-        path_key(path, key);
-        write_object(out, value, path, real)?;
-        path.truncate(mark);
+        if let Some(lookup) = spelling.as_deref_mut() {
+            let mark = lookup.path.len();
+            path_key(lookup.path, key);
+            write_object(out, value, Some(lookup))?;
+            lookup.path.truncate(mark);
+        } else {
+            write_object(out, value, None)?;
+        }
+    }
+    out.write_all(b">>")?;
+    Ok(())
+}
+
+/// Writes a stream dictionary with a direct `/Length` equal to `length`
+/// without cloning the dictionary.
+fn write_stream_dictionary(
+    out: &mut impl Write,
+    dictionary: &Dictionary,
+    length: i64,
+    mut spelling: Option<&mut SpellingLookup<'_, '_>>,
+) -> Result<()> {
+    out.write_all(b"<<")?;
+    let mut wrote_length = false;
+    for (key, value) in dictionary.iter() {
+        write_name(out, key)?;
+        if key.as_slice() == b"Length" {
+            wrote_length = true;
+            write!(out, " {length}")?;
+            continue;
+        }
+        if need_separator(value) {
+            out.write_all(b" ")?;
+        }
+        if let Some(lookup) = spelling.as_deref_mut() {
+            let mark = lookup.path.len();
+            path_key(lookup.path, key);
+            write_object(out, value, Some(lookup))?;
+            lookup.path.truncate(mark);
+        } else {
+            write_object(out, value, None)?;
+        }
+    }
+    if !wrote_length {
+        write!(out, "/Length {length}")?;
     }
     out.write_all(b">>")?;
     Ok(())
@@ -224,7 +315,11 @@ fn write_name(out: &mut impl Write, name: &[u8]) -> std::io::Result<()> {
     out.write_all(b"/")?;
     for &byte in name {
         if b" \t\n\r\x0C()<>[]{}/%#".contains(&byte) || !(33..=126).contains(&byte) {
-            write!(out, "#{byte:02X}")?;
+            out.write_all(&[
+                b'#',
+                HEX_UPPER[(byte >> 4) as usize],
+                HEX_UPPER[(byte & 0x0F) as usize],
+            ])?;
         } else {
             out.write_all(&[byte])?;
         }
@@ -235,6 +330,14 @@ fn write_name(out: &mut impl Write, name: &[u8]) -> std::io::Result<()> {
 /// lopdf's literal form: backslashes, carriage returns and unbalanced
 /// parentheses are escaped.
 fn write_literal_string(out: &mut impl Write, text: &[u8]) -> std::io::Result<()> {
+    if !text
+        .iter()
+        .any(|byte| matches!(byte, b'(' | b')' | b'\\' | b'\r'))
+    {
+        out.write_all(b"(")?;
+        out.write_all(text)?;
+        return out.write_all(b")");
+    }
     let mut escaped = vec![false; text.len()];
     let mut open = Vec::new();
     for (index, byte) in text.iter().enumerate() {
